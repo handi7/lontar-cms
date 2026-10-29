@@ -1,0 +1,32 @@
+{
+  "name": "@lontar/db-mysql",
+  "version": "0.0.0",
+  "type": "module",
+  "sideEffects": false,
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsdown",
+    "dev": "tsdown --watch",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "drizzle-kit": "^0.31.11",
+    "drizzle-orm": "^0.45.4",
+    "mysql2": "^3.24.6"
+  },
+  "peerDependencies": {
+    "@lontar/core": "workspace:^"
+  },
+  "devDependencies": {
+    "@lontar/core": "workspace:*",
+    "@types/node": "^26.6.6"
+  }
+}

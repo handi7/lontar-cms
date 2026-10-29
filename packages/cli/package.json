@@ -1,0 +1,29 @@
+{
+  "name": "@lontar/cli",
+  "version": "0.0.0",
+  "type": "module",
+  "bin": {
+    "lontar": "./dist/cli.js"
+  },
+  "exports": {
+    ".": {
+      "types": "./dist/cli.d.ts",
+      "import": "./dist/cli.js"
+    }
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsdown",
+    "dev": "tsdown --watch",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@lontar/core": "workspace:*",
+    "jiti": "^2.7.0"
+  },
+  "devDependencies": {
+    "@types/node": "^26.6.6"
+  }
+}

@@ -40,10 +40,12 @@ const Posts = collection({
     publishedAt: f.date(),
   },
   hooks: {
-    beforeChange: [({ data }) => {
-      if (data.status === 'published' && !data.publishedAt) data.publishedAt = new Date()
-      return data
-    }],
+    beforeChange: [
+      ({ data }) => {
+        if (data.status === 'published' && !data.publishedAt) data.publishedAt = new Date()
+        return data
+      },
+    ],
   },
 })
 

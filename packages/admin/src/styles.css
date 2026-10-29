@@ -1,0 +1,8 @@
+/*
+ * Every rule must stay inside .lontar-admin so the admin cannot restyle the
+ * host application (AGENTS.md architecture rule 7).
+ */
+.lontar-admin {
+  font-family: ui-sans-serif, system-ui, sans-serif;
+  line-height: 1.5;
+}

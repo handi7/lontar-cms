@@ -1,0 +1,25 @@
+# Local MySQL for development and integration tests.
+# Credentials match .env.example; nothing here is meant for production.
+services:
+  mysql:
+    image: mysql:8.4
+    container_name: lontar-mysql
+    restart: unless-stopped
+    environment:
+      MYSQL_ROOT_PASSWORD: lontar
+      MYSQL_DATABASE: lontar
+      MYSQL_USER: lontar
+      MYSQL_PASSWORD: lontar
+    ports:
+      - '3306:3306'
+    volumes:
+      - lontar-mysql-data:/var/lib/mysql
+    healthcheck:
+      test: ['CMD', 'mysqladmin', 'ping', '-h', '127.0.0.1', '-ulontar', '-plontar']
+      interval: 5s
+      timeout: 5s
+      retries: 20
+      start_period: 30s
+
+volumes:
+  lontar-mysql-data:

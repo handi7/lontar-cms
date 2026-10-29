@@ -59,16 +59,24 @@ Do not implement these unless the current milestone says so: `array`/`blocks`/`g
 
 ## Commands
 
-> TODO: fill in after the monorepo is set up.
-
 ```bash
-pnpm install
-pnpm dev          # TBD
-pnpm build        # TBD
-pnpm test         # TBD
-pnpm lint         # TBD
-pnpm typecheck    # TBD
+pnpm install      # install workspace dependencies
+cp .env.example .env
+
+pnpm db:up        # start MySQL via docker-compose.yml, wait until healthy
+pnpm db:down      # stop it
+
+pnpm build        # turbo: build every package
+pnpm dev          # turbo: watch-build every package
+pnpm typecheck    # turbo: tsc --noEmit per package
+pnpm test         # vitest across all packages
+pnpm lint         # eslint
+pnpm format       # prettier --write
 ```
+
+Packages build with tsdown, except `admin`, which is a Vite library build.
+`publint` runs as part of each tsdown build, so a `package.json` whose `exports`
+disagree with the build output fails the build rather than the install.
 
 ## Conventions
 
@@ -81,7 +89,7 @@ pnpm typecheck    # TBD
 
 **M0: Repo setup + walking skeleton**
 
-- [ ] Monorepo with the packages above, shared tsconfig, lint, Vitest
+- [x] Monorepo with the packages above, shared tsconfig, lint, Vitest
 - [ ] `posts` collection with `text` and `number` fields, defined via `defineConfig`
 - [ ] Drizzle schema generated from config, migration runs against MySQL
 - [ ] REST list/get/create/update/delete for `posts`
