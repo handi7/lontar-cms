@@ -29,18 +29,18 @@ Lontar is an open source, TypeScript-first headless CMS: you define your schema 
 
 The MVP is done when one real website can be fully managed through Lontar: collections, simple relationships, image uploads, and admin login.
 
-| Area | Included in v0.1 |
-| --- | --- |
-| Config | `defineConfig`, `collections`, `globals` (single documents, e.g. site settings) |
-| Fields | `text`, `textarea`, `number`, `checkbox`, `select`, `date`, `email`, `slug`, `richText` (Tiptap), `relationship` (one-way, single/many), `upload` |
-| Database | MySQL via Drizzle, migrations generated from config via the CLI |
-| API | REST: list (filter, sort, pagination), get, create, update, delete; `depth` param to populate relationships |
-| Auth | Email + password login for admin users via Better Auth, httpOnly session cookie |
-| Access control | `read`, `create`, `update`, `delete` functions per collection (no field-level yet) |
-| Hooks | `beforeChange`, `afterChange`, `afterRead` per collection |
-| Uploads | Local storage + S3-compatible adapter, image resizing with Sharp |
-| Admin | Login, collection dashboard, list view (TanStack Table), create/edit forms, globals editing |
-| DX | `lontar migrate` and `lontar generate:types` CLI commands, Next.js adapter |
+| Area           | Included in v0.1                                                                                                                                  |
+| -------------- | ------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Config         | `defineConfig`, `collections`, `globals` (single documents, e.g. site settings)                                                                   |
+| Fields         | `text`, `textarea`, `number`, `checkbox`, `select`, `date`, `email`, `slug`, `richText` (Tiptap), `relationship` (one-way, single/many), `upload` |
+| Database       | MySQL via Drizzle, migrations generated from config via the CLI                                                                                   |
+| API            | REST: list (filter, sort, pagination), get, create, update, delete; `depth` param to populate relationships                                       |
+| Auth           | Email + password login for admin users via Better Auth, httpOnly session cookie                                                                   |
+| Access control | `read`, `create`, `update`, `delete` functions per collection (no field-level yet)                                                                |
+| Hooks          | `beforeChange`, `afterChange`, `afterRead` per collection                                                                                         |
+| Uploads        | Local storage + S3-compatible adapter, image resizing with Sharp                                                                                  |
+| Admin          | Login, collection dashboard, list view (TanStack Table), create/edit forms, globals editing                                                       |
+| DX             | `lontar migrate` and `lontar generate:types` CLI commands, Next.js adapter                                                                        |
 
 ## Non-goals
 

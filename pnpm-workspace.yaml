@@ -1,0 +1,11 @@
+packages:
+  - packages/*
+  - examples/*
+
+# esbuild's postinstall fetches its platform binary. It is pulled in by
+# drizzle-kit, tsdown, Vite and Vitest, so the toolchain needs it.
+allowBuilds:
+  esbuild: true
+
+minimumReleaseAgeExclude:
+  - '@types/node@26.6.6'
