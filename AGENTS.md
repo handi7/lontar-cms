@@ -72,17 +72,23 @@ pnpm typecheck    # turbo: tsc --noEmit per package
 pnpm test         # vitest across all packages
 pnpm lint         # eslint
 pnpm format       # prettier --write
+pnpm format:check # prettier --check
 ```
 
 Packages build with tsdown, except `admin`, which is a Vite library build.
 `publint` runs as part of each tsdown build, so a `package.json` whose `exports`
 disagree with the build output fails the build rather than the install.
 
+`pnpm install` sets up a Husky pre-commit hook that runs lint-staged (eslint --fix and
+prettier on staged files only). CI (`.github/workflows/ci.yml`) runs
+`format:check` → `lint` → `typecheck` → `build` → `test` on every PR and on pushes to `main`.
+
 ## Conventions
 
 - Public APIs must match `README.md`. If an implementation needs a different API, propose the README change first instead of silently diverging.
 - Every new field type needs: definition, Zod schema, DB column mapping, `ClientConfig` serialization, admin input component, and tests.
 - Prefer small, focused PRs per milestone task.
+- ESLint caps `complexity` at 10 and `sonarjs/cognitive-complexity` at 15. Split the function instead of disabling the rule; if a disable is truly needed, say why in a comment next to it.
 - Record significant decisions as a new ADR in `docs/adr/NNNN-title.md` (context, decision, consequences).
 
 ## Current milestone
@@ -90,6 +96,7 @@ disagree with the build output fails the build rather than the install.
 **M0: Repo setup + walking skeleton**
 
 - [x] Monorepo with the packages above, shared tsconfig, lint, Vitest
+- [x] CI workflow, complexity lint, pre-commit hook
 - [ ] `posts` collection with `text` and `number` fields, defined via `defineConfig`
 - [ ] Drizzle schema generated from config, migration runs against MySQL
 - [ ] REST list/get/create/update/delete for `posts`
