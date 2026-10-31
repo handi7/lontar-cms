@@ -37,6 +37,8 @@ export interface PaginatedDocs<T = StoredDoc> {
 export interface DatabaseAdapter {
   /** e.g. `mysql`. Used in error messages and CLI output. */
   readonly name: string
+  /** Underlying adapter for Better Auth (e.g. drizzleAdapter). */
+  readonly authAdapter?: unknown
 
   // Runtime: called while serving requests.
   find(args: FindArgs): Promise<PaginatedDocs>

@@ -26,6 +26,10 @@ describe('mysqlAdapter (integration)', () => {
   beforeAll(async () => {
     // Drop existing tables if any
     const pool = mysql.createPool(DATABASE_URL)
+    await pool.query('DROP TABLE IF EXISTS session')
+    await pool.query('DROP TABLE IF EXISTS account')
+    await pool.query('DROP TABLE IF EXISTS verification')
+    await pool.query('DROP TABLE IF EXISTS user')
     await pool.query('DROP TABLE IF EXISTS posts')
     await pool.query('DROP TABLE IF EXISTS __drizzle_migrations')
     await pool.end()
@@ -67,6 +71,10 @@ describe('mysqlAdapter (integration)', () => {
   afterAll(async () => {
     try {
       const pool = mysql.createPool(DATABASE_URL)
+      await pool.query('DROP TABLE IF EXISTS session')
+      await pool.query('DROP TABLE IF EXISTS account')
+      await pool.query('DROP TABLE IF EXISTS verification')
+      await pool.query('DROP TABLE IF EXISTS user')
       await pool.query('DROP TABLE IF EXISTS posts')
       await pool.query('DROP TABLE IF EXISTS __drizzle_migrations')
       await pool.end()
