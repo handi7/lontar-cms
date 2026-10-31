@@ -116,4 +116,38 @@ describe('generateSchemaFile', () => {
     expect(output).toContain("email: varchar('email', { length: 255 }).unique().notNull(),")
     expect(output).toContain("slug: varchar('slug', { length: 255 }).unique(),")
   })
+
+  it('generates schema for checkbox, select, and date fields', () => {
+    const articles: CollectionConfig = {
+      slug: 'articles',
+      fields: {
+        isPublished: { type: 'checkbox', defaultValue: false },
+        status: {
+          type: 'select',
+          options: ['draft', 'published'],
+          defaultValue: 'draft',
+          required: true,
+        },
+        publishedAt: { type: 'date', required: true, defaultValue: '2026-11-01T00:00:00.000Z' },
+      },
+    }
+
+    const config: Config = {
+      secret: 'test-secret',
+      db: fakeAdapter,
+      collections: [articles],
+    }
+
+    const output = generateSchemaFile(config)
+    expect(output).toContain(
+      "import { boolean, int, mysqlTable, timestamp, varchar } from 'drizzle-orm/mysql-core'",
+    )
+    expect(output).toContain("isPublished: boolean('isPublished').default(false),")
+    expect(output).toContain(
+      'status: varchar(\'status\', { length: 120 }).default("draft").notNull(),',
+    )
+    expect(output).toContain(
+      'publishedAt: timestamp(\'publishedAt\').default(new Date("2026-11-01T00:00:00.000Z")).notNull(),',
+    )
+  })
 })

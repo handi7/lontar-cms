@@ -88,6 +88,22 @@ describe('toClientConfig', () => {
           from: 'text',
           defaultValue: 'my-slug',
         }),
+        checkbox: f.checkbox({
+          label: 'Active',
+          required: true,
+          defaultValue: true,
+        }),
+        select: f.select({
+          label: 'Status',
+          required: true,
+          options: ['draft', { label: 'Published', value: 'published' }],
+          defaultValue: 'draft',
+        }),
+        date: f.date({
+          label: 'Published At',
+          required: true,
+          defaultValue: '2026-11-01T00:00:00.000Z',
+        }),
       },
     })
 
@@ -137,6 +153,31 @@ describe('toClientConfig', () => {
         unique: true,
         from: 'text',
         defaultValue: 'my-slug',
+      },
+      {
+        name: 'checkbox',
+        type: 'checkbox',
+        label: 'Active',
+        required: true,
+        defaultValue: true,
+      },
+      {
+        name: 'select',
+        type: 'select',
+        label: 'Status',
+        required: true,
+        options: [
+          { label: 'Draft', value: 'draft' },
+          { label: 'Published', value: 'published' },
+        ],
+        defaultValue: 'draft',
+      },
+      {
+        name: 'date',
+        type: 'date',
+        label: 'Published At',
+        required: true,
+        defaultValue: '2026-11-01T00:00:00.000Z',
       },
     ])
   })

@@ -1,8 +1,11 @@
 import { z } from 'zod'
 import type {
+  ClientCheckboxField,
+  ClientDateField,
   ClientEmailField,
   ClientField,
   ClientNumberField,
+  ClientSelectField,
   ClientSlugField,
   ClientTextareaField,
   ClientTextField,
@@ -54,6 +57,32 @@ const zodByType = {
       .string()
       .regex(slugRegex, 'Must be a valid URL slug (lowercase letters, numbers, and hyphens)')
       .or(z.literal(''))
+  },
+  checkbox: (_field: ClientCheckboxField) => {
+    return z.boolean()
+  },
+  select: (field: ClientSelectField) => {
+    const [first, ...rest] = field.options.map((o) => o.value)
+    if (!first) {
+      return z.string()
+    }
+    const enumSchema = z.enum([first, ...rest])
+    if (field.required) {
+      return enumSchema
+    }
+    return enumSchema.or(z.literal(''))
+  },
+  date: (field: ClientDateField) => {
+    const dateSchema = z.union([
+      z.string().refine((val) => !isNaN(Date.parse(val)), {
+        message: 'Invalid date format',
+      }),
+      z.date(),
+    ])
+    if (field.required) {
+      return dateSchema
+    }
+    return dateSchema.or(z.literal(''))
   },
 } satisfies { [K in ClientField['type']]: (field: Extract<ClientField, { type: K }>) => z.ZodType }
 

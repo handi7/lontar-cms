@@ -14,11 +14,15 @@ export type {
 } from './database/adapter'
 export type { InferDoc } from './fields/infer'
 export type {
+  CheckboxField,
+  DateField,
   EmailField,
   Field,
   Fields,
   FieldType,
   NumberField,
+  SelectField,
+  SelectOption,
   SlugField,
   TextareaField,
   TextField,

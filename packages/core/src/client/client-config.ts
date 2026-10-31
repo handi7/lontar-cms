@@ -61,5 +61,33 @@ export interface ClientSlugField extends ClientFieldBase {
   defaultValue?: string
 }
 
+export interface ClientCheckboxField extends ClientFieldBase {
+  type: 'checkbox'
+  defaultValue?: boolean
+}
+
+export interface ClientSelectOption {
+  label: string
+  value: string
+}
+
+export interface ClientSelectField extends ClientFieldBase {
+  type: 'select'
+  options: ClientSelectOption[]
+  defaultValue?: string
+}
+
+export interface ClientDateField extends ClientFieldBase {
+  type: 'date'
+  defaultValue?: string
+}
+
 export type ClientField =
-  ClientTextField | ClientNumberField | ClientTextareaField | ClientEmailField | ClientSlugField
+  | ClientTextField
+  | ClientNumberField
+  | ClientTextareaField
+  | ClientEmailField
+  | ClientSlugField
+  | ClientCheckboxField
+  | ClientSelectField
+  | ClientDateField

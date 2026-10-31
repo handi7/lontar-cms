@@ -19,6 +19,14 @@ describe('collectionToTable', () => {
       content: { type: 'textarea', required: false },
       email: { type: 'email', required: true, unique: true },
       slug: { type: 'slug', unique: true, from: 'title' },
+      isFeatured: { type: 'checkbox', defaultValue: false },
+      status: {
+        type: 'select',
+        options: ['draft', 'published'],
+        defaultValue: 'draft',
+        required: true,
+      },
+      publishedAt: { type: 'date', required: true },
     },
   }
 
@@ -33,6 +41,9 @@ describe('collectionToTable', () => {
       'content',
       'email',
       'slug',
+      'isFeatured',
+      'status',
+      'publishedAt',
       'createdAt',
       'updatedAt',
     ])
@@ -53,5 +64,12 @@ describe('collectionToTable', () => {
     expect(col(columns, 'email').isUnique).toBe(true)
     expect(col(columns, 'slug').notNull).toBe(false)
     expect(col(columns, 'slug').isUnique).toBe(true)
+    expect(col(columns, 'isFeatured').columnType).toBe('MySqlBoolean')
+    expect(col(columns, 'isFeatured').hasDefault).toBe(true)
+    expect(col(columns, 'status').columnType).toBe('MySqlVarChar')
+    expect(col(columns, 'status').notNull).toBe(true)
+    expect(col(columns, 'status').hasDefault).toBe(true)
+    expect(col(columns, 'publishedAt').columnType).toBe('MySqlTimestamp')
+    expect(col(columns, 'publishedAt').notNull).toBe(true)
   })
 })

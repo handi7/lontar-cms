@@ -1,19 +1,27 @@
 import {
   CLIENT_CONFIG_VERSION,
+  type ClientCheckboxField,
   type ClientCollection,
   type ClientConfig,
+  type ClientDateField,
   type ClientEmailField,
   type ClientField,
   type ClientNumberField,
+  type ClientSelectField,
+  type ClientSelectOption,
   type ClientSlugField,
   type ClientTextareaField,
   type ClientTextField,
 } from '../client/client-config'
 import type {
+  CheckboxField,
+  DateField,
   EmailField,
   Field,
   FieldType,
   NumberField,
+  SelectField,
+  SelectOption,
   SlugField,
   TextareaField,
   TextField,
@@ -22,6 +30,15 @@ import { humanize } from '../utils/humanize'
 import type { CollectionConfig, Config } from './types'
 
 const MAX_DEFAULT_COLUMNS = 4
+
+function normalizeSelectOptions(options: readonly SelectOption[] = []): ClientSelectOption[] {
+  return options.map((opt) => {
+    if (typeof opt === 'string') {
+      return { label: humanize(opt), value: opt }
+    }
+    return { label: opt.label, value: opt.value }
+  })
+}
 
 /*
  * One converter per field type. Each picks the options it knows by name, so
@@ -67,6 +84,25 @@ const toClientField = {
     ...defined({
       from: field.from,
       unique: field.unique,
+      defaultValue: field.defaultValue,
+    }),
+  }),
+  checkbox: (name: string, field: CheckboxField): ClientCheckboxField => ({
+    ...baseField(name, field),
+    ...defined({
+      defaultValue: field.defaultValue,
+    }),
+  }),
+  select: (name: string, field: SelectField): ClientSelectField => ({
+    ...baseField(name, field),
+    options: normalizeSelectOptions(field.options),
+    ...defined({
+      defaultValue: field.defaultValue,
+    }),
+  }),
+  date: (name: string, field: DateField): ClientDateField => ({
+    ...baseField(name, field),
+    ...defined({
       defaultValue: field.defaultValue,
     }),
   }),

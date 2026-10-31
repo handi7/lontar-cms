@@ -48,6 +48,37 @@ export interface SlugField extends BaseField {
   defaultValue?: string
 }
 
-export type Field = TextField | NumberField | TextareaField | EmailField | SlugField
+export interface CheckboxField extends BaseField {
+  type: 'checkbox'
+  defaultValue?: boolean
+}
+
+export type SelectOption =
+  | string
+  | {
+      label: string
+      value: string
+    }
+
+export interface SelectField extends BaseField {
+  type: 'select'
+  options: readonly SelectOption[]
+  defaultValue?: string
+}
+
+export interface DateField extends BaseField {
+  type: 'date'
+  defaultValue?: string
+}
+
+export type Field =
+  | TextField
+  | NumberField
+  | TextareaField
+  | EmailField
+  | SlugField
+  | CheckboxField
+  | SelectField
+  | DateField
 export type FieldType = Field['type']
 export type Fields = Record<string, Field>

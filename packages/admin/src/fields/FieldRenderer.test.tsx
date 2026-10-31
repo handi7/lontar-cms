@@ -2,7 +2,10 @@ import { describe, expect, it, afterEach } from 'vitest'
 import { render, screen, fireEvent, waitFor, cleanup } from '@testing-library/react'
 import { useForm } from 'react-hook-form'
 import type {
+  ClientCheckboxField,
+  ClientDateField,
   ClientEmailField,
+  ClientSelectField,
   ClientSlugField,
   ClientTextareaField,
   ClientTextField,
@@ -212,5 +215,78 @@ describe('FieldRenderer', () => {
     )
 
     expect(screen.getByText('Title is required')).toBeTruthy()
+  })
+
+  it('renders checkbox input with label and handles toggle', () => {
+    const field: ClientCheckboxField = {
+      name: 'isPublished',
+      type: 'checkbox',
+      label: 'Published',
+      required: false,
+    }
+
+    const { container } = render(
+      <FormWrapper defaultValues={{ isPublished: false }}>
+        {({ register }) => <FieldRenderer field={field} register={register} />}
+      </FormWrapper>,
+    )
+
+    const checkbox = container.querySelector('input#isPublished') as HTMLInputElement
+    expect(checkbox).toBeTruthy()
+    expect(checkbox.type).toBe('checkbox')
+    expect(checkbox.checked).toBe(false)
+    expect(screen.getByText('Published')).toBeTruthy()
+
+    fireEvent.click(checkbox)
+    expect(checkbox.checked).toBe(true)
+  })
+
+  it('renders select dropdown with options and handles selection', () => {
+    const field: ClientSelectField = {
+      name: 'status',
+      type: 'select',
+      label: 'Status',
+      required: true,
+      options: [
+        { label: 'Draft', value: 'draft' },
+        { label: 'Published', value: 'published' },
+      ],
+    }
+
+    const { container } = render(
+      <FormWrapper defaultValues={{ status: 'draft' }}>
+        {({ register }) => <FieldRenderer field={field} register={register} />}
+      </FormWrapper>,
+    )
+
+    const select = container.querySelector('select#status') as HTMLSelectElement
+    expect(select).toBeTruthy()
+    expect(select.value).toBe('draft')
+    expect(screen.getByText('Draft')).toBeTruthy()
+    expect(screen.getByText('Published')).toBeTruthy()
+
+    fireEvent.change(select, { target: { value: 'published' } })
+    expect(select.value).toBe('published')
+  })
+
+  it('renders date input with type="datetime-local"', () => {
+    const field: ClientDateField = {
+      name: 'publishedAt',
+      type: 'date',
+      label: 'Publish Date',
+      required: true,
+    }
+
+    const { container } = render(
+      <FormWrapper defaultValues={{ publishedAt: '2026-11-01T10:00' }}>
+        {({ register }) => <FieldRenderer field={field} register={register} />}
+      </FormWrapper>,
+    )
+
+    const dateInput = container.querySelector('input#publishedAt') as HTMLInputElement
+    expect(dateInput).toBeTruthy()
+    expect(dateInput.type).toBe('datetime-local')
+    expect(dateInput.value).toBe('2026-11-01T10:00')
+    expect(screen.getByText('Publish Date')).toBeTruthy()
   })
 })

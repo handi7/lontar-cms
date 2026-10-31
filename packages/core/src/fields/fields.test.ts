@@ -32,6 +32,19 @@ describe('fields', () => {
       from: 'title',
       unique: true,
     })
+    expect(f.checkbox({ defaultValue: true })).toStrictEqual({
+      type: 'checkbox',
+      defaultValue: true,
+    })
+    expect(f.select({ options: ['draft', 'published'], defaultValue: 'draft' })).toStrictEqual({
+      type: 'select',
+      options: ['draft', 'published'],
+      defaultValue: 'draft',
+    })
+    expect(f.date({ required: true })).toStrictEqual({
+      type: 'date',
+      required: true,
+    })
   })
 })
 
@@ -43,6 +56,32 @@ describe('InferDoc', () => {
       updatedAt: string
       title: string
       views: number | null
+    }>()
+  })
+
+  it('infers checkbox, select, and date fields correctly', () => {
+    const postCollection = collection({
+      slug: 'posts',
+      fields: {
+        isFeatured: f.checkbox({ required: true }),
+        archived: f.checkbox(),
+        status: f.select({ options: ['draft', 'published'], required: true }),
+        category: f.select({ options: ['tech', 'life'] }),
+        publishedAt: f.date({ required: true }),
+        scheduledFor: f.date(),
+      },
+    })
+
+    docOf(postCollection).toEqualTypeOf<{
+      id: number
+      createdAt: string
+      updatedAt: string
+      isFeatured: boolean
+      archived: boolean | null
+      status: string
+      category: string | null
+      publishedAt: string
+      scheduledFor: string | null
     }>()
   })
 

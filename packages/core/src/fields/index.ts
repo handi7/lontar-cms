@@ -1,4 +1,13 @@
-import type { EmailField, NumberField, SlugField, TextareaField, TextField } from './types'
+import type {
+  CheckboxField,
+  DateField,
+  EmailField,
+  NumberField,
+  SelectField,
+  SlugField,
+  TextareaField,
+  TextField,
+} from './types'
 
 type Options<F> = Omit<F, 'type'>
 
@@ -26,4 +35,16 @@ function slug<const O extends Options<SlugField>>(options?: O): O & { type: 'slu
   return { ...(options as O), type: 'slug' }
 }
 
-export const fields = { text, number, textarea, email, slug }
+function checkbox<const O extends Options<CheckboxField>>(options?: O): O & { type: 'checkbox' } {
+  return { ...(options as O), type: 'checkbox' }
+}
+
+function select<const O extends Options<SelectField>>(options: O): O & { type: 'select' } {
+  return { ...options, type: 'select' }
+}
+
+function date<const O extends Options<DateField>>(options?: O): O & { type: 'date' } {
+  return { ...(options as O), type: 'date' }
+}
+
+export const fields = { text, number, textarea, email, slug, checkbox, select, date }

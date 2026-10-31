@@ -177,6 +177,38 @@
   color: var(--lontar-text-muted);
 }
 
+.lontar-admin .lontar-tag {
+  display: inline-flex;
+  align-items: center;
+  padding: 0.125rem 0.5rem;
+  border-radius: 9999px;
+  font-size: 0.75rem;
+  font-weight: 500;
+  line-height: 1.25;
+}
+
+.lontar-admin .lontar-tag-neutral {
+  background-color: var(--lontar-surface-hover);
+  color: var(--lontar-text);
+  border: 1px solid var(--lontar-border);
+}
+
+.lontar-admin .lontar-tag-success {
+  background-color: var(--lontar-success-bg);
+  color: var(--lontar-success-text);
+  border: 1px solid var(--lontar-success-border);
+}
+
+.lontar-admin .lontar-tag-muted {
+  background-color: #f1f5f9;
+  color: var(--lontar-text-muted);
+  border: 1px solid var(--lontar-border);
+}
+
+.lontar-admin .lontar-cell-empty {
+  color: var(--lontar-text-muted);
+}
+
 /* Dashboard Cards */
 .lontar-admin .lontar-collection-grid {
   display: grid;
@@ -418,6 +450,30 @@
 .lontar-admin .lontar-slug-sync-btn {
   flex-shrink: 0;
   padding: 0.625rem 0.875rem;
+}
+
+.lontar-admin .lontar-checkbox-wrapper {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.25rem 0;
+}
+
+.lontar-admin .lontar-checkbox {
+  width: 1rem;
+  height: 1rem;
+  cursor: pointer;
+  accent-color: var(--lontar-primary);
+}
+
+.lontar-admin .lontar-checkbox-label {
+  display: flex;
+  align-items: center;
+  font-size: 0.875rem;
+  font-weight: 500;
+  color: var(--lontar-text);
+  cursor: pointer;
+  user-select: none;
 }
 
 .lontar-admin .lontar-field-error {

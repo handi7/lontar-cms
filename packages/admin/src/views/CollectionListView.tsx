@@ -8,7 +8,7 @@ import {
   type ColumnDef,
   type Table,
 } from '@tanstack/react-table'
-import type { ClientCollection } from '@lontar/core/client'
+import type { ClientCollection, ClientField, ClientSelectField } from '@lontar/core/client'
 import { useAdmin, useCollection } from '../context/AdminContext'
 import { fetchCollectionDocs, deleteDoc, type PaginatedDocs } from '../api/client'
 import { NotFoundView } from './NotFoundView'
@@ -21,17 +21,67 @@ function getColumnLabel(key: string, collection: ClientCollection): string {
   return field?.label ?? key
 }
 
-function formatCellValue(val: unknown): string {
-  if (val === null || val === undefined) return ''
-  if (typeof val === 'string') {
+function renderBooleanCell(val: unknown): React.ReactNode {
+  return val ? (
+    <span className="lontar-tag lontar-tag-success">true</span>
+  ) : (
+    <span className="lontar-tag lontar-tag-muted">false</span>
+  )
+}
+
+function renderSelectCell(val: unknown, field: ClientSelectField): React.ReactNode {
+  const str = typeof val === 'string' ? val : typeof val === 'number' ? String(val) : ''
+  const opt = field.options.find((o) => o.value === str)
+  return <span className="lontar-tag lontar-tag-neutral">{opt?.label ?? str}</span>
+}
+
+function renderDateCell(val: unknown): string {
+  if (typeof val === 'string' || val instanceof Date) {
     const d = new Date(val)
     if (!Number.isNaN(d.getTime())) return d.toLocaleString()
-    return val
   }
-  if (typeof val === 'number' || typeof val === 'boolean') {
-    return String(val)
+  return typeof val === 'string' ? val : ''
+}
+
+function renderFieldCell(val: unknown, field: ClientField): React.ReactNode {
+  switch (field.type) {
+    case 'checkbox':
+      return renderBooleanCell(val)
+    case 'select':
+      return renderSelectCell(val, field)
+    case 'date':
+      return renderDateCell(val)
+    default:
+      return null
   }
+}
+
+function renderPrimitiveValue(val: unknown): React.ReactNode {
+  if (typeof val === 'number') return String(val)
+  if (typeof val === 'string') return val
   return JSON.stringify(val)
+}
+
+function isDateKey(key: string): boolean {
+  return key === 'createdAt' || key === 'updatedAt'
+}
+
+function renderCellContent(
+  val: unknown,
+  field: ClientField | undefined,
+  key: string,
+): React.ReactNode {
+  if (val === null || val === undefined || val === '') {
+    return <span className="lontar-cell-empty">—</span>
+  }
+  if (field) {
+    const rendered = renderFieldCell(val, field)
+    if (rendered !== null) return rendered
+  }
+  if (isDateKey(key)) {
+    return renderDateCell(val)
+  }
+  return renderPrimitiveValue(val)
 }
 
 function buildColumns(
@@ -46,26 +96,30 @@ function buildColumns(
 
   const titleKey = collection.admin.useAsTitle || 'id'
 
-  const dataColumns: ColumnDef<Record<string, unknown>>[] = columnKeys.map((key) => ({
-    id: key,
-    header: getColumnLabel(key, collection),
-    accessorFn: (row) => row[key],
-    cell: ({ getValue, row }) => {
-      const val = getValue()
-      if (key === titleKey) {
-        return (
-          <Link
-            to="/$collection/$id"
-            params={{ collection: collection.slug, id: String(row.original.id) }}
-            className="lontar-table-link"
-          >
-            {formatCellValue(val ?? row.original.id)}
-          </Link>
-        )
-      }
-      return formatCellValue(val)
-    },
-  }))
+  const dataColumns: ColumnDef<Record<string, unknown>>[] = columnKeys.map((key) => {
+    const field = collection.fields.find((f) => f.name === key)
+    return {
+      id: key,
+      header: getColumnLabel(key, collection),
+      accessorFn: (row) => row[key],
+      cell: ({ getValue, row }) => {
+        const val = getValue()
+        const content = renderCellContent(val ?? (key === 'id' ? row.original.id : ''), field, key)
+        if (key === titleKey) {
+          return (
+            <Link
+              to="/$collection/$id"
+              params={{ collection: collection.slug, id: String(row.original.id) }}
+              className="lontar-table-link"
+            >
+              {content}
+            </Link>
+          )
+        }
+        return content
+      },
+    }
+  })
 
   const actionsColumn: ColumnDef<Record<string, unknown>> = {
     id: '__actions',

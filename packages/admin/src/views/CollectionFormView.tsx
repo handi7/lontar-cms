@@ -85,10 +85,36 @@ function computeDefaultValues(collection?: ClientCollection): Record<string, unk
   const defaults: Record<string, unknown> = {}
   for (const f of collection.fields) {
     if (f.defaultValue !== undefined) {
-      defaults[f.name] = f.defaultValue
+      if (f.type === 'date' && typeof f.defaultValue === 'string') {
+        const d = new Date(f.defaultValue)
+        defaults[f.name] = !Number.isNaN(d.getTime())
+          ? d.toISOString().slice(0, 16)
+          : f.defaultValue
+      } else {
+        defaults[f.name] = f.defaultValue
+      }
+    } else if (f.type === 'checkbox') {
+      defaults[f.name] = false
     }
   }
   return defaults
+}
+
+function formatDocForForm(
+  collection: ClientCollection,
+  data: Record<string, unknown>,
+): Record<string, unknown> {
+  const formatted = { ...data }
+  for (const f of collection.fields) {
+    if (f.type === 'date' && typeof formatted[f.name] === 'string') {
+      const val = formatted[f.name] as string
+      const d = new Date(val)
+      if (!Number.isNaN(d.getTime())) {
+        formatted[f.name] = d.toISOString().slice(0, 16)
+      }
+    }
+  }
+  return formatted
 }
 
 function getFormTitle(mode: 'create' | 'edit', singular: string, id?: string): string {
@@ -152,6 +178,7 @@ function useDocMutations({
   slug,
   id,
   mode,
+  collection,
   reset,
   setApiError,
   setSuccessMsg,
@@ -160,6 +187,7 @@ function useDocMutations({
   slug?: string
   id?: string
   mode: 'create' | 'edit'
+  collection?: ClientCollection
   reset: (values?: Record<string, unknown>) => void
   setApiError: (msg: string | null) => void
   setSuccessMsg: (msg: string | null) => void
@@ -182,7 +210,7 @@ function useDocMutations({
         void navigate({ to: '/$collection', params: { collection: slug ?? '' } })
       } else {
         setSuccessMsg('Saved successfully!')
-        reset(savedDoc)
+        reset(collection ? formatDocForForm(collection, savedDoc) : savedDoc)
       }
     },
     onError: (err: Error) => {
@@ -252,14 +280,17 @@ export function CollectionFormView({ mode }: { mode: 'create' | 'edit' }) {
   })
 
   useEffect(() => {
-    if (docQuery.data) reset(docQuery.data)
-  }, [docQuery.data, reset])
+    if (docQuery.data) {
+      reset(collection ? formatDocForForm(collection, docQuery.data) : docQuery.data)
+    }
+  }, [docQuery.data, collection, reset])
 
   const { saveMutation, deleteMutation } = useDocMutations({
     apiBase,
     slug,
     id,
     mode,
+    collection,
     reset,
     setApiError,
     setSuccessMsg,
