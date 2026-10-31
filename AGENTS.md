@@ -91,20 +91,32 @@ prettier on staged files only). CI (`.github/workflows/ci.yml`) runs
 - ESLint caps `complexity` at 10 and `sonarjs/cognitive-complexity` at 15. Split the function instead of disabling the rule; if a disable is truly needed, say why in a comment next to it.
 - Record significant decisions as a new ADR in `docs/adr/NNNN-title.md` (context, decision, consequences).
 
-## Current milestone
+## Milestones roadmap to MVP (v0.1)
 
-**M0: Repo setup + walking skeleton**
+- [x] **M0: Repo setup + walking skeleton** (Done)
+- [ ] **M1: Standard Fields & Validation** (Current)
+  - [ ] #14 `fields: implement textarea, email, and slug field types`
+  - [ ] #15 `fields: implement checkbox, select, and date field types`
+- [ ] **M2: Auth & Access Control**
+  - [ ] #16 `auth: integrate Better Auth for admin authentication and session management`
+  - [ ] #17 `access: implement collection-level access control (read, create, update, delete)`
+  - [ ] #18 `admin: add login page and authenticated route protection`
+- [ ] **M3: Query Filtering, Hooks & Globals**
+  - [ ] #19 `api: implement advanced query filtering and sorting in REST API`
+  - [ ] #20 `hooks: implement collection hooks (beforeChange, afterChange, afterRead)`
+  - [ ] #21 `globals: support single-document globals in config, DB, REST API, and admin`
+- [ ] **M4: Rich Text & Relationships**
+  - [ ] #22 `fields: implement richText field with Tiptap editor`
+  - [ ] #23 `fields: implement relationship field (single and hasMany)`
+  - [ ] #24 `api: support depth query param to populate relationships in REST API`
+  - [ ] #25 `admin: relationship picker component in edit forms`
+- [ ] **M5: Uploads, Typegen & v0.1 Release**
+  - [ ] #26 `uploads: implement storage adapters (local & S3) and Sharp image resizing`
+  - [ ] #27 `fields: implement upload field type and media collection handling`
+  - [ ] #28 `cli: implement lontar generate:types command`
+  - [ ] #29 `examples/next-blog: complete real blog demo with auth, media, and rich text`
 
-- [x] Monorepo with the packages above, shared tsconfig, lint, Vitest
-- [x] CI workflow, complexity lint, pre-commit hook
-- [x] `posts` collection with `text` and `number` fields, defined via `defineConfig`
-- [x] Drizzle schema generated from config, migration runs against MySQL
-- [x] REST list/get/create/update/delete for `posts`
-- [x] `ClientConfig` endpoint
-- [x] Admin SPA renders the collection list and an edit form from `ClientConfig`
-- [x] `examples/next-blog` mounts the API and admin
-
-Update this section when a milestone is done.
+Update this section when a milestone or issue is done.
 
 ## Working agreement
 
