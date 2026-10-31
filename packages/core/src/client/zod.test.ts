@@ -1,7 +1,13 @@
 import { describe, expect, it } from 'vitest'
 import { postsConfig } from '../__fixtures__/posts'
 import { toClientConfig } from '../config/to-client-config'
-import type { ClientNumberField, ClientTextField } from './client-config'
+import type {
+  ClientEmailField,
+  ClientNumberField,
+  ClientSlugField,
+  ClientTextareaField,
+  ClientTextField,
+} from './client-config'
 import { clientFieldsToZod, clientFieldToZod } from './zod'
 
 function text(overrides: Partial<ClientTextField> = {}) {
@@ -20,6 +26,39 @@ function number(overrides: Partial<ClientNumberField> = {}) {
     name: 'views',
     type: 'number',
     label: 'Views',
+    required: false,
+    ...overrides,
+  }
+  return clientFieldToZod(field)
+}
+
+function textarea(overrides: Partial<ClientTextareaField> = {}) {
+  const field: ClientTextareaField = {
+    name: 'bio',
+    type: 'textarea',
+    label: 'Bio',
+    required: false,
+    ...overrides,
+  }
+  return clientFieldToZod(field)
+}
+
+function email(overrides: Partial<ClientEmailField> = {}) {
+  const field: ClientEmailField = {
+    name: 'contactEmail',
+    type: 'email',
+    label: 'Contact Email',
+    required: false,
+    ...overrides,
+  }
+  return clientFieldToZod(field)
+}
+
+function slug(overrides: Partial<ClientSlugField> = {}) {
+  const field: ClientSlugField = {
+    name: 'postSlug',
+    type: 'slug',
+    label: 'Post Slug',
     required: false,
     ...overrides,
   }
@@ -77,6 +116,82 @@ describe('clientFieldToZod', () => {
       expect(schema.safeParse(0).success).toBe(true)
       expect(schema.safeParse(null).success).toBe(false)
       expect(schema.safeParse(undefined).success).toBe(false)
+    })
+  })
+
+  describe('textarea', () => {
+    it('requires a non-blank string when required', () => {
+      const schema = textarea({ required: true })
+      expect(schema.safeParse('Bio content').success).toBe(true)
+      for (const value of ['', undefined, null, 42]) {
+        expect(schema.safeParse(value).success).toBe(false)
+      }
+    })
+
+    it('accepts an empty string, null and undefined when optional', () => {
+      const schema = textarea()
+      for (const value of ['', null, undefined]) {
+        expect(schema.safeParse(value).success).toBe(true)
+      }
+    })
+
+    it('enforces minLength and maxLength', () => {
+      const schema = textarea({ minLength: 5, maxLength: 10 })
+      expect(schema.safeParse('abcd').success).toBe(false)
+      expect(schema.safeParse('abcde').success).toBe(true)
+      expect(schema.safeParse('abcdefghijk').success).toBe(false)
+    })
+  })
+
+  describe('email', () => {
+    it('requires a valid email address when required', () => {
+      const schema = email({ required: true })
+      expect(schema.safeParse('user@example.com').success).toBe(true)
+      for (const value of ['', 'not-an-email', '@no-local.com', undefined, null, 123]) {
+        expect(schema.safeParse(value).success).toBe(false)
+      }
+    })
+
+    it('accepts empty string, null, and undefined when optional', () => {
+      const schema = email()
+      expect(schema.safeParse('user@example.com').success).toBe(true)
+      for (const value of ['', null, undefined]) {
+        expect(schema.safeParse(value).success).toBe(true)
+      }
+    })
+
+    it('rejects invalid email formats when optional and non-empty', () => {
+      const schema = email()
+      for (const value of ['not-an-email', 'foo@', '@bar.com']) {
+        expect(schema.safeParse(value).success).toBe(false)
+      }
+    })
+  })
+
+  describe('slug', () => {
+    it('requires a valid slug format when required', () => {
+      const schema = slug({ required: true })
+      expect(schema.safeParse('hello-world').success).toBe(true)
+      expect(schema.safeParse('post-123').success).toBe(true)
+      expect(schema.safeParse('simple').success).toBe(true)
+      for (const value of ['', 'Hello World', 'slug--slug', '-slug', 'slug-', undefined, null]) {
+        expect(schema.safeParse(value).success).toBe(false)
+      }
+    })
+
+    it('accepts empty string, null, and undefined when optional', () => {
+      const schema = slug()
+      expect(schema.safeParse('my-slug').success).toBe(true)
+      for (const value of ['', null, undefined]) {
+        expect(schema.safeParse(value).success).toBe(true)
+      }
+    })
+
+    it('rejects invalid slug formats when optional and non-empty', () => {
+      const schema = slug()
+      for (const value of ['Invalid Slug', 'slug/with/slash', 'slug_with_underscore']) {
+        expect(schema.safeParse(value).success).toBe(false)
+      }
     })
   })
 })

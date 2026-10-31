@@ -16,6 +16,22 @@ describe('fields', () => {
       maxLength: 120,
     })
     expect(f.number()).toStrictEqual({ type: 'number' })
+    expect(f.textarea({ required: true, rows: 6, maxLength: 500 })).toStrictEqual({
+      type: 'textarea',
+      required: true,
+      rows: 6,
+      maxLength: 500,
+    })
+    expect(f.email({ required: true, unique: true })).toStrictEqual({
+      type: 'email',
+      required: true,
+      unique: true,
+    })
+    expect(f.slug({ from: 'title', unique: true })).toStrictEqual({
+      type: 'slug',
+      from: 'title',
+      unique: true,
+    })
   })
 })
 
@@ -42,6 +58,28 @@ describe('InferDoc', () => {
       updatedAt: string
       body: string | null
       rank: number
+    }>()
+  })
+
+  it('infers textarea, email, and slug fields correctly', () => {
+    const articles = collection({
+      slug: 'articles',
+      fields: {
+        title: f.text({ required: true }),
+        slug: f.slug({ from: 'title', unique: true, required: true }),
+        summary: f.textarea(),
+        contactEmail: f.email(),
+      },
+    })
+
+    docOf(articles).toEqualTypeOf<{
+      id: number
+      createdAt: string
+      updatedAt: string
+      title: string
+      slug: string
+      summary: string | null
+      contactEmail: string | null
     }>()
   })
 })

@@ -1,7 +1,13 @@
 import { useState, useEffect, useMemo } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { Link, useNavigate, useParams } from '@tanstack/react-router'
-import { useForm, type UseFormRegister, type FieldErrors } from 'react-hook-form'
+import {
+  useForm,
+  type UseFormRegister,
+  type UseFormSetValue,
+  type UseFormWatch,
+  type FieldErrors,
+} from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
 import { clientFieldsToZod, type ClientCollection } from '@lontar/core/client'
 import { useAdmin, useCollection } from '../context/AdminContext'
@@ -95,6 +101,8 @@ function FormBody({
   collection,
   mode,
   register,
+  setValue,
+  watch,
   errors,
   isPending,
   onSubmit,
@@ -102,6 +110,8 @@ function FormBody({
   collection: ClientCollection
   mode: 'create' | 'edit'
   register: UseFormRegister<Record<string, unknown>>
+  setValue: UseFormSetValue<Record<string, unknown>>
+  watch: UseFormWatch<Record<string, unknown>>
   errors: FieldErrors<Record<string, unknown>>
   isPending: boolean
   onSubmit: (e: React.FormEvent) => void
@@ -120,6 +130,9 @@ function FormBody({
             key={field.name}
             field={field}
             register={register}
+            setValue={setValue}
+            watch={watch}
+            mode={mode}
             error={errors[field.name]}
           />
         ))}
@@ -230,6 +243,8 @@ export function CollectionFormView({ mode }: { mode: 'create' | 'edit' }) {
     register,
     handleSubmit,
     reset,
+    setValue,
+    watch,
     formState: { errors, isSubmitting },
   } = useForm<Record<string, unknown>>({
     resolver: schema ? zodResolver(schema) : undefined,
@@ -280,6 +295,8 @@ export function CollectionFormView({ mode }: { mode: 'create' | 'edit' }) {
         collection={collection}
         mode={mode}
         register={register}
+        setValue={setValue}
+        watch={watch}
         errors={errors}
         isPending={isSubmitting || saveMutation.isPending}
         onSubmit={(e) => {

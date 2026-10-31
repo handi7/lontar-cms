@@ -5,8 +5,11 @@ export { CLIENT_CONFIG_VERSION } from './client-config'
 export type {
   ClientCollection,
   ClientConfig,
+  ClientEmailField,
   ClientField,
   ClientNumberField,
+  ClientSlugField,
+  ClientTextareaField,
   ClientTextField,
 } from './client-config'
 export { SYSTEM_FIELDS } from './system-fields'

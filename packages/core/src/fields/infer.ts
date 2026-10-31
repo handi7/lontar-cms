@@ -5,6 +5,9 @@ import type { Field, Fields } from './types'
 interface FieldValueMap {
   text: string
   number: number
+  textarea: string
+  email: string
+  slug: string
 }
 
 type FieldValue<F extends Field> = F extends { required: true }

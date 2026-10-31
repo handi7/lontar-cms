@@ -4,25 +4,54 @@ import { getTableColumns } from 'drizzle-orm'
 import type { CollectionConfig } from '@lontar/core'
 import { collectionToTable } from './table'
 
-describe('collectionToTable', () => {
-  it('builds table with system fields and fields', () => {
-    const posts: CollectionConfig = {
-      slug: 'posts',
-      fields: {
-        title: { type: 'text', required: true, maxLength: 120 },
-        views: { type: 'number', integer: true, defaultValue: 0 },
-      },
-    }
+function col(columns: Record<string, AnyMySqlColumn>, name: string): AnyMySqlColumn {
+  const column = columns[name]
+  if (!column) throw new Error(`Missing column: ${name}`)
+  return column
+}
 
+describe('collectionToTable', () => {
+  const posts: CollectionConfig = {
+    slug: 'posts',
+    fields: {
+      title: { type: 'text', required: true, maxLength: 120 },
+      views: { type: 'number', integer: true, defaultValue: 0 },
+      content: { type: 'textarea', required: false },
+      email: { type: 'email', required: true, unique: true },
+      slug: { type: 'slug', unique: true, from: 'title' },
+    },
+  }
+
+  it('includes system columns and all configured field columns', () => {
     const table = collectionToTable(posts)
     const columns = getTableColumns(table) as Record<string, AnyMySqlColumn>
 
-    expect(Object.keys(columns)).toEqual(['id', 'title', 'views', 'createdAt', 'updatedAt'])
-    expect(columns.id?.primary).toBe(true)
-    expect(columns.title?.notNull).toBe(true)
-    expect(columns.views?.notNull).toBe(false)
-    expect(columns.views?.hasDefault).toBe(true)
-    expect(columns.createdAt?.notNull).toBe(true)
-    expect(columns.updatedAt?.notNull).toBe(true)
+    expect(Object.keys(columns)).toEqual([
+      'id',
+      'title',
+      'views',
+      'content',
+      'email',
+      'slug',
+      'createdAt',
+      'updatedAt',
+    ])
+    expect(col(columns, 'id').primary).toBe(true)
+    expect(col(columns, 'createdAt').notNull).toBe(true)
+    expect(col(columns, 'updatedAt').notNull).toBe(true)
+  })
+
+  it('configures constraints and defaults on custom fields', () => {
+    const table = collectionToTable(posts)
+    const columns = getTableColumns(table) as Record<string, AnyMySqlColumn>
+
+    expect(col(columns, 'title').notNull).toBe(true)
+    expect(col(columns, 'views').notNull).toBe(false)
+    expect(col(columns, 'views').hasDefault).toBe(true)
+    expect(col(columns, 'content').notNull).toBe(false)
+    expect(col(columns, 'email').notNull).toBe(true)
+    expect(col(columns, 'email').isUnique).toBe(true)
+    expect(col(columns, 'slug').notNull).toBe(false)
+    expect(col(columns, 'slug').isUnique).toBe(true)
   })
 })

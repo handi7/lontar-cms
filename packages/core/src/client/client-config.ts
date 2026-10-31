@@ -40,4 +40,26 @@ export interface ClientNumberField extends ClientFieldBase {
   defaultValue?: number
 }
 
-export type ClientField = ClientTextField | ClientNumberField
+export interface ClientTextareaField extends ClientFieldBase {
+  type: 'textarea'
+  minLength?: number
+  maxLength?: number
+  rows?: number
+  defaultValue?: string
+}
+
+export interface ClientEmailField extends ClientFieldBase {
+  type: 'email'
+  unique?: boolean
+  defaultValue?: string
+}
+
+export interface ClientSlugField extends ClientFieldBase {
+  type: 'slug'
+  from?: string
+  unique?: boolean
+  defaultValue?: string
+}
+
+export type ClientField =
+  ClientTextField | ClientNumberField | ClientTextareaField | ClientEmailField | ClientSlugField

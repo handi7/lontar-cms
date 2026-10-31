@@ -403,6 +403,23 @@
   box-shadow: 0 0 0 1px #0f172a;
 }
 
+.lontar-admin textarea.lontar-input {
+  resize: vertical;
+  min-height: 80px;
+}
+
+.lontar-admin .lontar-slug-wrapper {
+  display: flex;
+  gap: 0.5rem;
+  align-items: center;
+  width: 100%;
+}
+
+.lontar-admin .lontar-slug-sync-btn {
+  flex-shrink: 0;
+  padding: 0.625rem 0.875rem;
+}
+
 .lontar-admin .lontar-field-error {
   font-size: 0.75rem;
   color: var(--lontar-danger);
