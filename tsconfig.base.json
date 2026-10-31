@@ -22,6 +22,16 @@
     // so ambient type packages have to be listed explicitly.
     "types": ["node"],
 
+    "paths": {
+      "@lontar/core": ["./packages/core/src/index.ts"],
+      "@lontar/core/client": ["./packages/core/src/client/index.ts"],
+      "@lontar/core/*": ["./packages/core/src/*"],
+      "@lontar/db-mysql": ["./packages/db-mysql/src/index.ts"],
+      "@lontar/admin": ["./packages/admin/src/index.ts"],
+      "@lontar/cli": ["./packages/cli/src/cli.ts"],
+      "@lontar/next": ["./packages/next/src/index.ts"]
+    },
+
     "noEmit": true
   }
 }
