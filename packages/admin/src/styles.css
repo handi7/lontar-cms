@@ -3,6 +3,501 @@
  * host application (AGENTS.md architecture rule 7).
  */
 .lontar-admin {
-  font-family: ui-sans-serif, system-ui, sans-serif;
+  --lontar-bg: #f8fafc;
+  --lontar-surface: #ffffff;
+  --lontar-surface-hover: #f1f5f9;
+  --lontar-border: #e2e8f0;
+  --lontar-text: #0f172a;
+  --lontar-text-muted: #64748b;
+  --lontar-primary: #0f172a;
+  --lontar-primary-hover: #1e293b;
+  --lontar-primary-text: #ffffff;
+  --lontar-danger: #ef4444;
+  --lontar-danger-hover: #dc2626;
+  --lontar-success-bg: #ecfdf5;
+  --lontar-success-border: #a7f3d0;
+  --lontar-success-text: #065f46;
+  --lontar-error-bg: #fef2f2;
+  --lontar-error-border: #fecaca;
+  --lontar-error-text: #991b1b;
+  --lontar-radius: 6px;
+
+  font-family:
+    ui-sans-serif,
+    system-ui,
+    -apple-system,
+    BlinkMacSystemFont,
+    'Segoe UI',
+    Roboto,
+    'Helvetica Neue',
+    Arial,
+    sans-serif;
+  font-size: 14px;
   line-height: 1.5;
+  color: var(--lontar-text);
+  background-color: var(--lontar-bg);
+  min-height: 100vh;
+}
+
+.lontar-admin * {
+  box-sizing: border-box;
+}
+
+/* Layout */
+.lontar-admin .lontar-layout {
+  display: flex;
+  min-height: 100vh;
+}
+
+.lontar-admin .lontar-sidebar {
+  width: 250px;
+  flex-shrink: 0;
+  background-color: var(--lontar-surface);
+  border-right: 1px solid var(--lontar-border);
+  display: flex;
+  flex-direction: column;
+}
+
+.lontar-admin .lontar-sidebar-brand {
+  padding: 1.25rem 1.5rem;
+  border-bottom: 1px solid var(--lontar-border);
+}
+
+.lontar-admin .lontar-brand-link {
+  display: flex;
+  align-items: center;
+  gap: 0.625rem;
+  text-decoration: none;
+  color: var(--lontar-text);
+  font-weight: 700;
+  font-size: 1.125rem;
+}
+
+.lontar-admin .lontar-brand-icon {
+  width: 28px;
+  height: 28px;
+  border-radius: var(--lontar-radius);
+  background: var(--lontar-primary);
+  color: var(--lontar-primary-text);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 0.875rem;
+  font-weight: 800;
+}
+
+.lontar-admin .lontar-nav {
+  padding: 1rem 0.75rem;
+  display: flex;
+  flex-direction: column;
+  gap: 1.25rem;
+}
+
+.lontar-admin .lontar-nav-group {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+}
+
+.lontar-admin .lontar-nav-title {
+  padding: 0.25rem 0.75rem;
+  font-size: 0.75rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--lontar-text-muted);
+}
+
+.lontar-admin .lontar-nav-link {
+  display: block;
+  padding: 0.5rem 0.75rem;
+  border-radius: var(--lontar-radius);
+  color: var(--lontar-text-muted);
+  text-decoration: none;
+  font-weight: 500;
+  transition: all 0.15s ease;
+}
+
+.lontar-admin .lontar-nav-link:hover {
+  background-color: var(--lontar-surface-hover);
+  color: var(--lontar-text);
+}
+
+.lontar-admin .lontar-nav-link.active {
+  background-color: #f1f5f9;
+  color: var(--lontar-text);
+  font-weight: 600;
+}
+
+.lontar-admin .lontar-main {
+  flex: 1;
+  min-width: 0;
+  background-color: var(--lontar-bg);
+  overflow-y: auto;
+}
+
+.lontar-admin .lontar-main-inner {
+  max-width: 1100px;
+  margin: 0 auto;
+  padding: 2rem 2.5rem;
+}
+
+/* View Header */
+.lontar-admin .lontar-view-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 1.75rem;
+  gap: 1rem;
+}
+
+.lontar-admin .lontar-view-header h1 {
+  margin: 0;
+  font-size: 1.75rem;
+  font-weight: 700;
+  color: var(--lontar-text);
+}
+
+.lontar-admin .lontar-subtitle {
+  margin: 0.25rem 0 0 0;
+  color: var(--lontar-text-muted);
+}
+
+.lontar-admin .lontar-header-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+}
+
+.lontar-admin .lontar-badge {
+  display: inline-block;
+  margin-top: 0.25rem;
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: var(--lontar-text-muted);
+}
+
+/* Dashboard Cards */
+.lontar-admin .lontar-collection-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+  gap: 1.25rem;
+}
+
+.lontar-admin .lontar-card {
+  background-color: var(--lontar-surface);
+  border: 1px solid var(--lontar-border);
+  border-radius: var(--lontar-radius);
+  padding: 1.5rem;
+}
+
+.lontar-admin .lontar-card h3 {
+  margin: 0 0 0.25rem 0;
+  font-size: 1.25rem;
+  font-weight: 600;
+}
+
+.lontar-admin .lontar-card-slug {
+  margin: 0 0 1.25rem 0;
+  font-size: 0.8125rem;
+  font-family: ui-monospace, monospace;
+  color: var(--lontar-text-muted);
+}
+
+.lontar-admin .lontar-card-actions {
+  display: flex;
+  gap: 0.625rem;
+}
+
+/* Buttons */
+.lontar-admin .lontar-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0.5rem 1rem;
+  font-size: 0.875rem;
+  font-weight: 500;
+  line-height: 1.25;
+  border-radius: var(--lontar-radius);
+  cursor: pointer;
+  text-decoration: none;
+  border: 1px solid transparent;
+  transition: all 0.15s ease;
+}
+
+.lontar-admin .lontar-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.lontar-admin .lontar-btn-primary {
+  background-color: var(--lontar-primary);
+  color: var(--lontar-primary-text);
+}
+
+.lontar-admin .lontar-btn-primary:hover:not(:disabled) {
+  background-color: var(--lontar-primary-hover);
+}
+
+.lontar-admin .lontar-btn-secondary {
+  background-color: var(--lontar-surface);
+  color: var(--lontar-text);
+  border-color: var(--lontar-border);
+}
+
+.lontar-admin .lontar-btn-secondary:hover:not(:disabled) {
+  background-color: var(--lontar-surface-hover);
+}
+
+.lontar-admin .lontar-btn-danger {
+  background-color: var(--lontar-surface);
+  color: var(--lontar-danger);
+  border-color: var(--lontar-border);
+}
+
+.lontar-admin .lontar-btn-danger:hover:not(:disabled) {
+  background-color: #fef2f2;
+  border-color: var(--lontar-danger);
+}
+
+.lontar-admin .lontar-btn-link {
+  background: transparent;
+  border: none;
+  color: var(--lontar-text-muted);
+  cursor: pointer;
+  font-size: 0.8125rem;
+  font-weight: 500;
+  text-decoration: none;
+  padding: 0.25rem 0.5rem;
+  border-radius: var(--lontar-radius);
+}
+
+.lontar-admin .lontar-btn-link:hover:not(:disabled) {
+  color: var(--lontar-text);
+  background-color: var(--lontar-surface-hover);
+}
+
+.lontar-admin .lontar-btn-link.lontar-btn-danger {
+  color: var(--lontar-danger);
+}
+
+.lontar-admin .lontar-btn-link.lontar-btn-danger:hover:not(:disabled) {
+  background-color: #fef2f2;
+}
+
+/* Tables */
+.lontar-admin .lontar-table-wrapper {
+  background-color: var(--lontar-surface);
+  border: 1px solid var(--lontar-border);
+  border-radius: var(--lontar-radius);
+  overflow: hidden;
+}
+
+.lontar-admin .lontar-table {
+  width: 100%;
+  border-collapse: collapse;
+  text-align: left;
+}
+
+.lontar-admin .lontar-table th {
+  background-color: #f8fafc;
+  padding: 0.75rem 1rem;
+  font-size: 0.75rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--lontar-text-muted);
+  border-bottom: 1px solid var(--lontar-border);
+}
+
+.lontar-admin .lontar-table td {
+  padding: 0.875rem 1rem;
+  border-bottom: 1px solid var(--lontar-border);
+  color: var(--lontar-text);
+}
+
+.lontar-admin .lontar-table tr:last-child td {
+  border-bottom: none;
+}
+
+.lontar-admin .lontar-table tr:hover td {
+  background-color: #f8fafc;
+}
+
+.lontar-admin .lontar-table-link {
+  color: var(--lontar-text);
+  font-weight: 600;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+.lontar-admin .lontar-table-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.lontar-admin .lontar-pagination {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0.875rem 1.25rem;
+  background-color: #f8fafc;
+  border-top: 1px solid var(--lontar-border);
+}
+
+.lontar-admin .lontar-pagination-info {
+  font-size: 0.8125rem;
+  color: var(--lontar-text-muted);
+}
+
+/* Forms */
+.lontar-admin .lontar-form {
+  background-color: var(--lontar-surface);
+  border: 1px solid var(--lontar-border);
+  border-radius: var(--lontar-radius);
+  padding: 2rem;
+}
+
+.lontar-admin .lontar-form-fields {
+  display: flex;
+  flex-direction: column;
+  gap: 1.5rem;
+}
+
+.lontar-admin .lontar-field-group {
+  display: flex;
+  flex-direction: column;
+  gap: 0.375rem;
+}
+
+.lontar-admin .lontar-label {
+  display: flex;
+  align-items: center;
+  font-weight: 500;
+  font-size: 0.875rem;
+  color: var(--lontar-text);
+}
+
+.lontar-admin .lontar-required {
+  color: var(--lontar-danger);
+  margin-left: 0.25rem;
+}
+
+.lontar-admin .lontar-input {
+  width: 100%;
+  padding: 0.625rem 0.875rem;
+  font-size: 0.875rem;
+  border: 1px solid var(--lontar-border);
+  border-radius: var(--lontar-radius);
+  background-color: var(--lontar-surface);
+  color: var(--lontar-text);
+  outline: none;
+  transition:
+    border-color 0.15s ease,
+    box-shadow 0.15s ease;
+}
+
+.lontar-admin .lontar-input:focus {
+  border-color: #0f172a;
+  box-shadow: 0 0 0 1px #0f172a;
+}
+
+.lontar-admin .lontar-field-error {
+  font-size: 0.75rem;
+  color: var(--lontar-danger);
+  margin-top: 0.125rem;
+}
+
+.lontar-admin .lontar-doc-meta {
+  display: flex;
+  gap: 1rem;
+  margin-top: 0.375rem;
+  font-size: 0.8125rem;
+  color: var(--lontar-text-muted);
+}
+
+.lontar-admin .lontar-form-footer {
+  margin-top: 2rem;
+  padding-top: 1.5rem;
+  border-top: 1px solid var(--lontar-border);
+  display: flex;
+  gap: 0.75rem;
+}
+
+/* Alerts */
+.lontar-admin .lontar-alert {
+  padding: 0.875rem 1rem;
+  border-radius: var(--lontar-radius);
+  margin-bottom: 1.25rem;
+  font-size: 0.875rem;
+}
+
+.lontar-admin .lontar-alert-error {
+  background-color: var(--lontar-error-bg);
+  border: 1px solid var(--lontar-error-border);
+  color: var(--lontar-error-text);
+}
+
+.lontar-admin .lontar-alert-success {
+  background-color: var(--lontar-success-bg);
+  border: 1px solid var(--lontar-success-border);
+  color: var(--lontar-success-text);
+}
+
+/* Empty State & Loading */
+.lontar-admin .lontar-empty-state,
+.lontar-admin .lontar-loading,
+.lontar-admin .lontar-not-found {
+  background-color: var(--lontar-surface);
+  border: 1px solid var(--lontar-border);
+  border-radius: var(--lontar-radius);
+  padding: 3rem 2rem;
+  text-align: center;
+}
+
+.lontar-admin .lontar-empty-state p,
+.lontar-admin .lontar-not-found p {
+  color: var(--lontar-text-muted);
+  margin-bottom: 1.25rem;
+}
+
+.lontar-admin .lontar-init-loading,
+.lontar-admin .lontar-init-error {
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  padding: 2rem;
+}
+
+.lontar-admin .lontar-init-loading p {
+  color: var(--lontar-text-muted);
+  margin-top: 1rem;
+}
+
+.lontar-admin .lontar-init-error h2 {
+  color: var(--lontar-error-text);
+  margin-bottom: 0.5rem;
+}
+
+.lontar-admin .lontar-init-error p {
+  color: var(--lontar-text-muted);
+}
+
+.lontar-admin .lontar-spinner {
+  width: 32px;
+  height: 32px;
+  border: 3px solid var(--lontar-border);
+  border-top-color: var(--lontar-primary);
+  border-radius: 50%;
+  animation: lontar-spin 0.8s linear infinite;
+}
+
+@keyframes lontar-spin {
+  to {
+    transform: rotate(360deg);
+  }
 }

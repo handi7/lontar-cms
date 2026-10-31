@@ -101,7 +101,7 @@ prettier on staged files only). CI (`.github/workflows/ci.yml`) runs
 - [x] Drizzle schema generated from config, migration runs against MySQL
 - [x] REST list/get/create/update/delete for `posts`
 - [x] `ClientConfig` endpoint
-- [ ] Admin SPA renders the collection list and an edit form from `ClientConfig`
+- [x] Admin SPA renders the collection list and an edit form from `ClientConfig`
 - [ ] `examples/next-blog` mounts the API and admin
 
 Update this section when a milestone is done.
