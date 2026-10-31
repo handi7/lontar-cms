@@ -1,9 +1,9 @@
 import type { Context, Hono } from 'hono'
 import type { z } from 'zod'
-import type { LontarVariables } from '../../auth/types'
+import type { AuthUser, LontarVariables } from '../../auth/types'
 import { clientFieldsToZod } from '../../client/zod'
 import { toClientCollection } from '../../config/to-client-config'
-import type { CollectionConfig, Config } from '../../config/types'
+import type { AccessArgs, AccessFunction, CollectionConfig, Config } from '../../config/types'
 import type { DatabaseAdapter, DocumentData } from '../../database/adapter'
 
 type LontarEnv = { Variables: LontarVariables }
@@ -14,11 +14,42 @@ function parseId(param: string | undefined): number | null {
   return isNaN(id) || id <= 0 ? null : id
 }
 
+async function checkAccess(fn: AccessFunction | undefined, args: AccessArgs): Promise<boolean> {
+  if (!fn) return true
+  try {
+    const result = await fn(args)
+    return Boolean(result)
+  } catch {
+    return false
+  }
+}
+
+function accessDenied(c: Context<LontarEnv>, user: AuthUser | null) {
+  if (!user) {
+    return c.json({ error: 'Unauthorized' }, 401)
+  }
+  return c.json({ error: 'Forbidden' }, 403)
+}
+
+async function parseJsonBody(c: Context<LontarEnv>): Promise<unknown> {
+  try {
+    return await c.req.json()
+  } catch {
+    return undefined
+  }
+}
+
 async function handleFind(
   c: Context<LontarEnv>,
   collection: CollectionConfig,
   db: DatabaseAdapter,
 ) {
+  const user = c.get('user') ?? null
+  const allowed = await checkAccess(collection.access?.read, { user })
+  if (!allowed) {
+    return accessDenied(c, user)
+  }
+
   const page = Math.max(1, parseInt(c.req.query('page') ?? '1', 10) || 1)
   const limit = Math.max(1, parseInt(c.req.query('limit') ?? '10', 10) || 10)
   const sort = c.req.query('sort')
@@ -32,7 +63,16 @@ async function handleFindByID(
   collection: CollectionConfig,
   db: DatabaseAdapter,
 ) {
+  const user = c.get('user') ?? null
   const id = parseId(c.req.param('id'))
+  const allowed = await checkAccess(collection.access?.read, {
+    user,
+    id: id ?? undefined,
+  })
+  if (!allowed) {
+    return accessDenied(c, user)
+  }
+
   if (id === null) {
     return c.json({ error: 'Invalid document ID' }, 400)
   }
@@ -50,10 +90,18 @@ async function handleCreate(
   db: DatabaseAdapter,
   schema: z.ZodType,
 ) {
-  let body: unknown
-  try {
-    body = await c.req.json()
-  } catch {
+  const user = c.get('user') ?? null
+  const body = await parseJsonBody(c)
+
+  const allowed = await checkAccess(collection.access?.create, {
+    user,
+    data: body,
+  })
+  if (!allowed) {
+    return accessDenied(c, user)
+  }
+
+  if (body === undefined) {
     return c.json({ error: 'Invalid JSON body' }, 400)
   }
 
@@ -72,15 +120,23 @@ async function handleUpdate(
   db: DatabaseAdapter,
   partialSchema: z.ZodType,
 ) {
+  const user = c.get('user') ?? null
   const id = parseId(c.req.param('id'))
+  const body = await parseJsonBody(c)
+
+  const allowed = await checkAccess(collection.access?.update, {
+    user,
+    id: id ?? undefined,
+    data: body,
+  })
+  if (!allowed) {
+    return accessDenied(c, user)
+  }
+
   if (id === null) {
     return c.json({ error: 'Invalid document ID' }, 400)
   }
-
-  let body: unknown
-  try {
-    body = await c.req.json()
-  } catch {
+  if (body === undefined) {
     return c.json({ error: 'Invalid JSON body' }, 400)
   }
 
@@ -101,7 +157,17 @@ async function handleDelete(
   collection: CollectionConfig,
   db: DatabaseAdapter,
 ) {
+  const user = c.get('user') ?? null
   const id = parseId(c.req.param('id'))
+
+  const allowed = await checkAccess(collection.access?.delete, {
+    user,
+    id: id ?? undefined,
+  })
+  if (!allowed) {
+    return accessDenied(c, user)
+  }
+
   if (id === null) {
     return c.json({ error: 'Invalid document ID' }, 400)
   }

@@ -47,6 +47,23 @@ describe('toClientConfig', () => {
     expect(json).not.toContain(fakeAdapter.name)
   })
 
+  it('leaves out collection access control functions', () => {
+    const col = clientCollection({
+      slug: 'protected',
+      access: {
+        read: () => true,
+        create: () => false,
+        update: () => false,
+        delete: () => false,
+      },
+      fields: {
+        title: f.text(),
+      },
+    })
+    expect(col).not.toHaveProperty('access')
+    expect(JSON.stringify(col)).not.toContain('access')
+  })
+
   // AGENTS.md: extend this test whenever a field type gains an option.
   it('serializes every option of every field type', () => {
     const collection = clientCollection({
