@@ -11,6 +11,7 @@
     "dev": "turbo run dev",
     "typecheck": "turbo run typecheck",
     "test": "vitest run --passWithNoTests",
+    "test:e2e": "pnpm --filter next-blog test:e2e",
     "test:watch": "vitest",
     "lint": "eslint .",
     "format": "prettier --write .",

@@ -4,3 +4,5 @@ coverage
 .next
 .lontar
 pnpm-lock.yaml
+test-results
+playwright-report

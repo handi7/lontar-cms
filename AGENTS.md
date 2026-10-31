@@ -102,7 +102,7 @@ prettier on staged files only). CI (`.github/workflows/ci.yml`) runs
 - [x] REST list/get/create/update/delete for `posts`
 - [x] `ClientConfig` endpoint
 - [x] Admin SPA renders the collection list and an edit form from `ClientConfig`
-- [ ] `examples/next-blog` mounts the API and admin
+- [x] `examples/next-blog` mounts the API and admin
 
 Update this section when a milestone is done.
 
