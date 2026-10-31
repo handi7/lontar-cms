@@ -1,1 +1,3 @@
-export const VERSION = '0.0.0'
+export { mysqlAdapter, type MysqlAdapter, type MysqlAdapterOptions } from './adapter'
+export { generateSchemaFile, slugToIdentifier } from './schema/generator'
+export { collectionToTable } from './schema/table'

@@ -98,7 +98,7 @@ prettier on staged files only). CI (`.github/workflows/ci.yml`) runs
 - [x] Monorepo with the packages above, shared tsconfig, lint, Vitest
 - [x] CI workflow, complexity lint, pre-commit hook
 - [x] `posts` collection with `text` and `number` fields, defined via `defineConfig`
-- [ ] Drizzle schema generated from config, migration runs against MySQL
+- [x] Drizzle schema generated from config, migration runs against MySQL
 - [ ] REST list/get/create/update/delete for `posts`
 - [ ] `ClientConfig` endpoint
 - [ ] Admin SPA renders the collection list and an edit form from `ClientConfig`

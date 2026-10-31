@@ -21,6 +21,7 @@
   },
   "dependencies": {
     "@lontar/core": "workspace:*",
+    "drizzle-kit": "^0.31.11",
     "jiti": "^2.7.0"
   },
   "devDependencies": {
