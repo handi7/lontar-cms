@@ -40,7 +40,7 @@ describe('generateSchemaFile', () => {
     const output = generateSchemaFile(config)
 
     expect(output).toContain(
-      "import { int, mysqlTable, timestamp, varchar } from 'drizzle-orm/mysql-core'",
+      "import { boolean, index, int, mysqlTable, text, timestamp, varchar } from 'drizzle-orm/mysql-core'",
     )
     expect(output).toContain("export const posts = mysqlTable('posts', {")
     expect(output).toContain("id: int('id').autoincrement().primaryKey(),")
@@ -110,7 +110,7 @@ describe('generateSchemaFile', () => {
 
     const output = generateSchemaFile(config)
     expect(output).toContain(
-      "import { int, mysqlTable, text, timestamp, varchar } from 'drizzle-orm/mysql-core'",
+      "import { boolean, index, int, mysqlTable, text, timestamp, varchar } from 'drizzle-orm/mysql-core'",
     )
     expect(output).toContain('bio: text(\'bio\').default("Nothing here yet"),')
     expect(output).toContain("email: varchar('email', { length: 255 }).unique().notNull(),")
@@ -140,7 +140,7 @@ describe('generateSchemaFile', () => {
 
     const output = generateSchemaFile(config)
     expect(output).toContain(
-      "import { boolean, int, mysqlTable, timestamp, varchar } from 'drizzle-orm/mysql-core'",
+      "import { boolean, index, int, mysqlTable, text, timestamp, varchar } from 'drizzle-orm/mysql-core'",
     )
     expect(output).toContain("isPublished: boolean('isPublished').default(false),")
     expect(output).toContain(
@@ -149,5 +149,21 @@ describe('generateSchemaFile', () => {
     expect(output).toContain(
       'publishedAt: timestamp(\'publishedAt\').default(new Date("2026-11-01T00:00:00.000Z")).notNull(),',
     )
+  })
+
+  it('generates schema for auth tables (user, session, account, verification)', () => {
+    const config: Config = {
+      secret: 'test-secret',
+      db: fakeAdapter,
+      collections: [],
+    }
+
+    const output = generateSchemaFile(config)
+    expect(output).toContain("export const user = mysqlTable('user', {")
+    expect(output).toContain('export const session = mysqlTable(')
+    expect(output).toContain('export const account = mysqlTable(')
+    expect(output).toContain('export const verification = mysqlTable(')
+    expect(output).toContain("emailVerified: boolean('email_verified').default(false).notNull(),")
+    expect(output).toContain("index('session_userId_idx').on(table.userId)")
   })
 })

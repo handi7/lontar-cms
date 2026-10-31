@@ -3,8 +3,8 @@ import type { CollectionConfig, Config } from './types'
 
 const SLUG = /^[a-z][a-z0-9-]*$/
 const FIELD_NAME = /^[A-Za-z_][A-Za-z0-9_]*$/
-/** Slugs that would collide with fixed API routes, e.g. `/api/globals/:slug`. */
-const RESERVED_SLUGS = new Set(['globals'])
+/** Slugs that would collide with fixed API routes or auth tables. */
+const RESERVED_SLUGS = new Set(['globals', 'auth', 'user', 'session', 'account', 'verification'])
 const SYSTEM_FIELD_NAMES = new Set<string>(SYSTEM_FIELDS)
 
 export class LontarConfigError extends Error {

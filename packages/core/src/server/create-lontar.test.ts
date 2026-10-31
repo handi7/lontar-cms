@@ -222,4 +222,66 @@ describe('createLontar REST API', () => {
       expect(body.collections).toHaveLength(1)
     })
   })
+
+  describe('Better Auth integration and session middleware', () => {
+    it('exposes auth instance on lontar app', () => {
+      expect(app.auth).toBeDefined()
+      expect(typeof app.auth.handler).toBe('function')
+    })
+
+    it('mounts auth routes and registers user with session cookie', async () => {
+      const res = await app.request('/api/auth/sign-up/email', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          email: 'admin@example.com',
+          password: 'password123',
+          name: 'Admin',
+        }),
+      })
+
+      expect(res.status).toBe(200)
+      const data = (await res.json()) as { user: { email: string } }
+      expect(data.user.email).toBe('admin@example.com')
+      expect(res.headers.get('set-cookie')).toBeDefined()
+    })
+
+    it('extracts authenticated user via session middleware', async () => {
+      const testApp = createLontar(config, { baseURL: 'http://localhost:3000' })
+
+      const signUpRes = await testApp.request('/api/auth/sign-up/email', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          email: 'session-user@example.com',
+          password: 'password123',
+          name: 'Session User',
+        }),
+      })
+      expect(signUpRes.status).toBe(200)
+      const cookie = signUpRes.headers.get('set-cookie')
+      expect(cookie).toBeTruthy()
+
+      // Request without cookie -> user and session are null
+      const unauthRes = await testApp.request('/api/_lontar/me')
+      expect(unauthRes.status).toBe(200)
+      const unauthBody = (await unauthRes.json()) as { user: unknown; session: unknown }
+      expect(unauthBody.user).toBeNull()
+      expect(unauthBody.session).toBeNull()
+
+      // Request with session cookie -> user and session are populated
+      const authRes = await testApp.request('/api/_lontar/me', {
+        headers: { cookie: cookie! },
+      })
+      expect(authRes.status).toBe(200)
+      const authBody = (await authRes.json()) as {
+        user: { email: string; name: string } | null
+        session: { id: string } | null
+      }
+      expect(authBody.user).not.toBeNull()
+      expect(authBody.user?.email).toBe('session-user@example.com')
+      expect(authBody.user?.name).toBe('Session User')
+      expect(authBody.session).not.toBeNull()
+    })
+  })
 })

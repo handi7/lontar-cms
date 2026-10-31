@@ -1,3 +1,4 @@
+import { drizzleAdapter } from 'better-auth/adapters/drizzle'
 import { asc, count, desc, eq, type SQL } from 'drizzle-orm'
 import { drizzle } from 'drizzle-orm/mysql2'
 import { migrate } from 'drizzle-orm/mysql2/migrator'
@@ -11,6 +12,7 @@ import type {
   PaginatedDocs,
   StoredDoc,
 } from '@lontar/core'
+import { authTables } from './schema/auth'
 import { generateSchemaFile } from './schema/generator'
 import { collectionToTable, type DynamicTable } from './schema/table'
 
@@ -81,7 +83,11 @@ function resolveOrderBy(table: DynamicTable, sort?: string): SQL | undefined {
 
 export function mysqlAdapter(options: MysqlAdapterOptions): MysqlAdapter {
   const pool = mysql.createPool(options.url)
-  const db = drizzle(pool)
+  const db = drizzle(pool, { schema: authTables, mode: 'default' })
+  const authAdapter = drizzleAdapter(db, {
+    provider: 'mysql',
+    schema: authTables,
+  })
   const tableCache = new Map<string, DynamicTable>()
 
   function getTable(collection: CollectionConfig): DynamicTable {
@@ -191,6 +197,7 @@ export function mysqlAdapter(options: MysqlAdapterOptions): MysqlAdapter {
 
   return {
     name: 'mysql',
+    authAdapter,
     find,
     findByID,
     create,

@@ -1,9 +1,12 @@
 import type { Context, Hono } from 'hono'
 import type { z } from 'zod'
+import type { LontarVariables } from '../../auth/types'
 import { clientFieldsToZod } from '../../client/zod'
 import { toClientCollection } from '../../config/to-client-config'
 import type { CollectionConfig, Config } from '../../config/types'
 import type { DatabaseAdapter, DocumentData } from '../../database/adapter'
+
+type LontarEnv = { Variables: LontarVariables }
 
 function parseId(param: string | undefined): number | null {
   if (!param) return null
@@ -11,7 +14,11 @@ function parseId(param: string | undefined): number | null {
   return isNaN(id) || id <= 0 ? null : id
 }
 
-async function handleFind(c: Context, collection: CollectionConfig, db: DatabaseAdapter) {
+async function handleFind(
+  c: Context<LontarEnv>,
+  collection: CollectionConfig,
+  db: DatabaseAdapter,
+) {
   const page = Math.max(1, parseInt(c.req.query('page') ?? '1', 10) || 1)
   const limit = Math.max(1, parseInt(c.req.query('limit') ?? '10', 10) || 10)
   const sort = c.req.query('sort')
@@ -20,7 +27,11 @@ async function handleFind(c: Context, collection: CollectionConfig, db: Database
   return c.json(result, 200)
 }
 
-async function handleFindByID(c: Context, collection: CollectionConfig, db: DatabaseAdapter) {
+async function handleFindByID(
+  c: Context<LontarEnv>,
+  collection: CollectionConfig,
+  db: DatabaseAdapter,
+) {
   const id = parseId(c.req.param('id'))
   if (id === null) {
     return c.json({ error: 'Invalid document ID' }, 400)
@@ -34,7 +45,7 @@ async function handleFindByID(c: Context, collection: CollectionConfig, db: Data
 }
 
 async function handleCreate(
-  c: Context,
+  c: Context<LontarEnv>,
   collection: CollectionConfig,
   db: DatabaseAdapter,
   schema: z.ZodType,
@@ -56,7 +67,7 @@ async function handleCreate(
 }
 
 async function handleUpdate(
-  c: Context,
+  c: Context<LontarEnv>,
   collection: CollectionConfig,
   db: DatabaseAdapter,
   partialSchema: z.ZodType,
@@ -85,7 +96,11 @@ async function handleUpdate(
   return c.json(doc, 200)
 }
 
-async function handleDelete(c: Context, collection: CollectionConfig, db: DatabaseAdapter) {
+async function handleDelete(
+  c: Context<LontarEnv>,
+  collection: CollectionConfig,
+  db: DatabaseAdapter,
+) {
   const id = parseId(c.req.param('id'))
   if (id === null) {
     return c.json({ error: 'Invalid document ID' }, 400)
@@ -98,10 +113,10 @@ async function handleDelete(c: Context, collection: CollectionConfig, db: Databa
   return c.json(doc, 200)
 }
 
-export function registerCollectionRoutes(router: Hono, config: Config): void {
+export function registerCollectionRoutes(router: Hono<LontarEnv>, config: Config): void {
   const collections = new Map(config.collections.map((col) => [col.slug, col]))
 
-  function findCol(c: Context): CollectionConfig | null {
+  function findCol(c: Context<LontarEnv>): CollectionConfig | null {
     const slug = c.req.param('collection')
     if (!slug) return null
     return collections.get(slug) ?? null
