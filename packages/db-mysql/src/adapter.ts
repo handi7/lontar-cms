@@ -26,19 +26,42 @@ type InsertValues = Parameters<ReturnType<ReturnType<typeof drizzle>['insert']>[
 type UpdateSetValues = Parameters<ReturnType<ReturnType<typeof drizzle>['update']>['set']>[0]
 
 function toStoredDoc(row: Record<string, unknown>): StoredDoc {
+  const converted: Record<string, unknown> = {}
+  for (const [key, value] of Object.entries(row)) {
+    if (value instanceof Date) {
+      converted[key] = value.toISOString()
+    } else {
+      converted[key] = value
+    }
+  }
   return {
-    ...row,
+    ...converted,
     id: Number(row.id),
     createdAt: row.createdAt instanceof Date ? row.createdAt.toISOString() : String(row.createdAt),
     updatedAt: row.updatedAt instanceof Date ? row.updatedAt.toISOString() : String(row.updatedAt),
   }
 }
 
-function sanitizeData(data: DocumentData): DocumentData {
+function sanitizeFieldValue(
+  field: CollectionConfig['fields'][string] | undefined,
+  value: unknown,
+): unknown {
+  if (field?.type === 'date') {
+    if (value === '' || value === null || value === undefined) {
+      return null
+    }
+    if (typeof value === 'string') {
+      return new Date(value)
+    }
+  }
+  return value
+}
+
+function sanitizeData(collection: CollectionConfig, data: DocumentData): DocumentData {
   const clean: DocumentData = {}
   for (const [key, value] of Object.entries(data)) {
     if (key !== 'id' && key !== 'createdAt' && key !== 'updatedAt') {
-      clean[key] = value
+      clean[key] = sanitizeFieldValue(collection.fields[key], value)
     }
   }
   return clean
@@ -92,7 +115,7 @@ export function mysqlAdapter(options: MysqlAdapterOptions): MysqlAdapter {
     data: DocumentData
   }): Promise<StoredDoc> {
     const table = getTable(collection)
-    const values = sanitizeData(data) as unknown as InsertValues
+    const values = sanitizeData(collection, data) as unknown as InsertValues
     const [result] = (await db.insert(table).values(values)) as unknown as [mysql.ResultSetHeader]
     const id = result.insertId
     const created = await findByID({ collection, id })
@@ -116,7 +139,7 @@ export function mysqlAdapter(options: MysqlAdapterOptions): MysqlAdapter {
 
     const table = getTable(collection)
     const values = {
-      ...sanitizeData(data),
+      ...sanitizeData(collection, data),
       updatedAt: new Date(),
     } as unknown as UpdateSetValues
     await db.update(table).set(values).where(eq(table.id, id))

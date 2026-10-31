@@ -1,9 +1,12 @@
 import { useState, useEffect } from 'react'
 import type { UseFormRegister, UseFormSetValue, UseFormWatch } from 'react-hook-form'
 import type {
+  ClientCheckboxField,
+  ClientDateField,
   ClientEmailField,
   ClientField,
   ClientNumberField,
+  ClientSelectField,
   ClientSlugField,
   ClientTextareaField,
   ClientTextField,
@@ -103,6 +106,65 @@ function EmailFieldInput({
   return <input id={field.name} type="email" className="lontar-input" {...register(field.name)} />
 }
 
+function CheckboxFieldInput({
+  field,
+  register,
+}: {
+  field: ClientCheckboxField
+  register: UseFormRegister<Record<string, unknown>>
+}) {
+  return (
+    <div className="lontar-checkbox-wrapper">
+      <input
+        id={field.name}
+        type="checkbox"
+        className="lontar-checkbox"
+        {...register(field.name)}
+      />
+      <label htmlFor={field.name} className="lontar-checkbox-label">
+        <span>{field.label}</span>
+        {field.required && <span className="lontar-required">*</span>}
+      </label>
+    </div>
+  )
+}
+
+function SelectFieldInput({
+  field,
+  register,
+}: {
+  field: ClientSelectField
+  register: UseFormRegister<Record<string, unknown>>
+}) {
+  return (
+    <select id={field.name} className="lontar-input" {...register(field.name)}>
+      {!field.required && <option value="">-- Select --</option>}
+      {field.options.map((opt) => (
+        <option key={opt.value} value={opt.value}>
+          {opt.label}
+        </option>
+      ))}
+    </select>
+  )
+}
+
+function DateFieldInput({
+  field,
+  register,
+}: {
+  field: ClientDateField
+  register: UseFormRegister<Record<string, unknown>>
+}) {
+  return (
+    <input
+      id={field.name}
+      type="datetime-local"
+      className="lontar-input"
+      {...register(field.name)}
+    />
+  )
+}
+
 function SlugFieldInput({
   field,
   register,
@@ -198,6 +260,12 @@ function FieldInput({
           mode={mode}
         />
       )
+    case 'checkbox':
+      return <CheckboxFieldInput field={field} register={register} />
+    case 'select':
+      return <SelectFieldInput field={field} register={register} />
+    case 'date':
+      return <DateFieldInput field={field} register={register} />
   }
 }
 
@@ -211,10 +279,12 @@ export function FieldRenderer({
 }: FieldRendererProps) {
   return (
     <div className="lontar-field-group">
-      <label htmlFor={field.name} className="lontar-label">
-        <span>{field.label}</span>
-        {field.required && <span className="lontar-required">*</span>}
-      </label>
+      {field.type !== 'checkbox' && (
+        <label htmlFor={field.name} className="lontar-label">
+          <span>{field.label}</span>
+          {field.required && <span className="lontar-required">*</span>}
+        </label>
+      )}
       <FieldInput field={field} register={register} setValue={setValue} watch={watch} mode={mode} />
       {error?.message && <span className="lontar-field-error">{error.message}</span>}
     </div>

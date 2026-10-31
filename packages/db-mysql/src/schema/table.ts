@@ -1,4 +1,5 @@
 import {
+  boolean,
   double,
   int,
   mysqlTable,
@@ -10,10 +11,13 @@ import {
   type MySqlTable,
 } from 'drizzle-orm/mysql-core'
 import type {
+  CheckboxField,
   CollectionConfig,
+  DateField,
   EmailField,
   Field,
   NumberField,
+  SelectField,
   SlugField,
   TextareaField,
   TextField,
@@ -53,12 +57,34 @@ function slugToColumn(name: string, field: SlugField) {
   return field.required ? withDefault.notNull() : withDefault
 }
 
+function checkboxToColumn(name: string, field: CheckboxField) {
+  const base = boolean(name)
+  const withDefault = field.defaultValue !== undefined ? base.default(field.defaultValue) : base
+  return field.required ? withDefault.notNull() : withDefault
+}
+
+function selectToColumn(name: string, field: SelectField) {
+  const base = varchar(name, { length: 120 })
+  const withDefault = field.defaultValue !== undefined ? base.default(field.defaultValue) : base
+  return field.required ? withDefault.notNull() : withDefault
+}
+
+function dateToColumn(name: string, field: DateField) {
+  const base = timestamp(name)
+  const withDefault =
+    field.defaultValue !== undefined ? base.default(new Date(field.defaultValue)) : base
+  return field.required ? withDefault.notNull() : withDefault
+}
+
 function fieldToColumn(name: string, field: Field) {
   if (field.type === 'text') return textToColumn(name, field)
   if (field.type === 'number') return numberToColumn(name, field)
   if (field.type === 'textarea') return textareaToColumn(name, field)
   if (field.type === 'email') return emailToColumn(name, field)
   if (field.type === 'slug') return slugToColumn(name, field)
+  if (field.type === 'checkbox') return checkboxToColumn(name, field)
+  if (field.type === 'select') return selectToColumn(name, field)
+  if (field.type === 'date') return dateToColumn(name, field)
   throw new Error(`Unsupported field type: ${(field as Field).type}`)
 }
 

@@ -94,10 +94,10 @@ prettier on staged files only). CI (`.github/workflows/ci.yml`) runs
 ## Milestones roadmap to MVP (v0.1)
 
 - [x] **M0: Repo setup + walking skeleton** (Done)
-- [ ] **M1: Standard Fields & Validation** (Current)
+- [x] **M1: Standard Fields & Validation** (Done)
   - [x] #14 `fields: implement textarea, email, and slug field types`
-  - [ ] #15 `fields: implement checkbox, select, and date field types`
-- [ ] **M2: Auth & Access Control**
+  - [x] #15 `fields: implement checkbox, select, and date field types`
+- [ ] **M2: Auth & Access Control** (Current)
   - [ ] #16 `auth: integrate Better Auth for admin authentication and session management`
   - [ ] #17 `access: implement collection-level access control (read, create, update, delete)`
   - [ ] #18 `admin: add login page and authenticated route protection`

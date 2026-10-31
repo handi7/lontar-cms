@@ -2,8 +2,11 @@ import { describe, expect, it } from 'vitest'
 import { postsConfig } from '../__fixtures__/posts'
 import { toClientConfig } from '../config/to-client-config'
 import type {
+  ClientCheckboxField,
+  ClientDateField,
   ClientEmailField,
   ClientNumberField,
+  ClientSelectField,
   ClientSlugField,
   ClientTextareaField,
   ClientTextField,
@@ -59,6 +62,43 @@ function slug(overrides: Partial<ClientSlugField> = {}) {
     name: 'postSlug',
     type: 'slug',
     label: 'Post Slug',
+    required: false,
+    ...overrides,
+  }
+  return clientFieldToZod(field)
+}
+
+function checkbox(overrides: Partial<ClientCheckboxField> = {}) {
+  const field: ClientCheckboxField = {
+    name: 'featured',
+    type: 'checkbox',
+    label: 'Featured',
+    required: false,
+    ...overrides,
+  }
+  return clientFieldToZod(field)
+}
+
+function select(overrides: Partial<ClientSelectField> = {}) {
+  const field: ClientSelectField = {
+    name: 'status',
+    type: 'select',
+    label: 'Status',
+    required: false,
+    options: [
+      { label: 'Draft', value: 'draft' },
+      { label: 'Published', value: 'published' },
+    ],
+    ...overrides,
+  }
+  return clientFieldToZod(field)
+}
+
+function date(overrides: Partial<ClientDateField> = {}) {
+  const field: ClientDateField = {
+    name: 'publishedAt',
+    type: 'date',
+    label: 'Published At',
     required: false,
     ...overrides,
   }
@@ -192,6 +232,76 @@ describe('clientFieldToZod', () => {
       for (const value of ['Invalid Slug', 'slug/with/slash', 'slug_with_underscore']) {
         expect(schema.safeParse(value).success).toBe(false)
       }
+    })
+  })
+
+  describe('checkbox', () => {
+    it('requires a boolean value when required', () => {
+      const schema = checkbox({ required: true })
+      expect(schema.safeParse(true).success).toBe(true)
+      expect(schema.safeParse(false).success).toBe(true)
+      for (const value of ['true', 1, 0, undefined, null]) {
+        expect(schema.safeParse(value).success).toBe(false)
+      }
+    })
+
+    it('accepts boolean, null, and undefined when optional', () => {
+      const schema = checkbox()
+      expect(schema.safeParse(true).success).toBe(true)
+      expect(schema.safeParse(false).success).toBe(true)
+      for (const value of [null, undefined]) {
+        expect(schema.safeParse(value).success).toBe(true)
+      }
+    })
+  })
+
+  describe('select', () => {
+    it('requires a valid option when required', () => {
+      const schema = select({ required: true })
+      expect(schema.safeParse('draft').success).toBe(true)
+      expect(schema.safeParse('published').success).toBe(true)
+      for (const value of ['archived', '', undefined, null, 123]) {
+        expect(schema.safeParse(value).success).toBe(false)
+      }
+    })
+
+    it('accepts valid option, empty string, null, and undefined when optional', () => {
+      const schema = select()
+      expect(schema.safeParse('draft').success).toBe(true)
+      for (const value of ['', null, undefined]) {
+        expect(schema.safeParse(value).success).toBe(true)
+      }
+    })
+
+    it('rejects invalid options when optional', () => {
+      const schema = select()
+      expect(schema.safeParse('unknown').success).toBe(false)
+    })
+  })
+
+  describe('date', () => {
+    it('requires a valid date string or Date object when required', () => {
+      const schema = date({ required: true })
+      expect(schema.safeParse('2026-11-01').success).toBe(true)
+      expect(schema.safeParse('2026-11-01T12:00:00.000Z').success).toBe(true)
+      expect(schema.safeParse(new Date()).success).toBe(true)
+      for (const value of ['not-a-date', '', undefined, null, 12345]) {
+        expect(schema.safeParse(value).success).toBe(false)
+      }
+    })
+
+    it('accepts valid date string, Date object, empty string, null, and undefined when optional', () => {
+      const schema = date()
+      expect(schema.safeParse('2026-11-01').success).toBe(true)
+      expect(schema.safeParse(new Date()).success).toBe(true)
+      for (const value of ['', null, undefined]) {
+        expect(schema.safeParse(value).success).toBe(true)
+      }
+    })
+
+    it('rejects invalid date strings when optional and non-empty', () => {
+      const schema = date()
+      expect(schema.safeParse('invalid-date').success).toBe(false)
     })
   })
 })

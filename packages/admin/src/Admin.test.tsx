@@ -126,6 +126,77 @@ describe('Admin SPA', () => {
     })
   })
 
+  it('formats checkbox, select, and date columns in collection list view', async () => {
+    const configWithAllFields: ClientConfig = {
+      version: 1,
+      collections: [
+        {
+          slug: 'articles',
+          labels: { singular: 'Article', plural: 'Articles' },
+          admin: {
+            useAsTitle: 'title',
+            defaultColumns: ['title', 'featured', 'status', 'publishedAt'],
+          },
+          fields: [
+            { name: 'title', label: 'Title', type: 'text', required: true },
+            { name: 'featured', label: 'Featured', type: 'checkbox', required: false },
+            {
+              name: 'status',
+              label: 'Status',
+              type: 'select',
+              options: [
+                { label: 'Draft', value: 'draft' },
+                { label: 'Published', value: 'published' },
+              ],
+              required: true,
+            },
+            { name: 'publishedAt', label: 'Published At', type: 'date', required: false },
+          ],
+        },
+      ],
+    }
+
+    const mockArticles = [
+      {
+        id: 1,
+        title: 'Article 1',
+        featured: true,
+        status: 'published',
+        publishedAt: '2026-11-01T12:00:00.000Z',
+      },
+    ]
+
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockImplementation((url: string) => {
+        if (url.includes('/_lontar/config')) {
+          return mockJsonResponse(configWithAllFields)
+        }
+        if (url.includes('/api/articles')) {
+          return mockJsonResponse({
+            docs: mockArticles,
+            totalDocs: 1,
+            limit: 10,
+            page: 1,
+            totalPages: 1,
+            hasNextPage: false,
+            hasPrevPage: false,
+          })
+        }
+        return Promise.reject(new Error(`Unhandled URL: ${url}`))
+      }),
+    )
+
+    const history = createMemoryHistory({ initialEntries: ['/admin/articles'] })
+    render(<Admin apiBase="/api" basePath="/admin" history={history} />)
+
+    await waitFor(() => {
+      expect(screen.getByText('Article 1')).toBeTruthy()
+      expect(screen.getByText('true')).toBeTruthy()
+      expect(screen.getByText('Published')).toBeTruthy()
+    })
+  })
+
   it('renders create form and submits new document', async () => {
     const postMock = vi.fn((_url: string, _init?: RequestInit) => {
       return mockJsonResponse({ id: 3, title: 'Brand New Post', views: 10 })

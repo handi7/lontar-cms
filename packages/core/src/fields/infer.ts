@@ -8,6 +8,9 @@ interface FieldValueMap {
   textarea: string
   email: string
   slug: string
+  checkbox: boolean
+  select: string
+  date: string
 }
 
 type FieldValue<F extends Field> = F extends { required: true }

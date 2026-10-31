@@ -3,11 +3,15 @@
 // See docs/adr/0003-client-config-format.md.
 export { CLIENT_CONFIG_VERSION } from './client-config'
 export type {
+  ClientCheckboxField,
   ClientCollection,
   ClientConfig,
+  ClientDateField,
   ClientEmailField,
   ClientField,
   ClientNumberField,
+  ClientSelectField,
+  ClientSelectOption,
   ClientSlugField,
   ClientTextareaField,
   ClientTextField,
