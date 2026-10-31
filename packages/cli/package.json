@@ -3,7 +3,7 @@
   "version": "0.0.0",
   "type": "module",
   "bin": {
-    "lontar": "./dist/cli.js"
+    "lontar": "./bin/lontar.js"
   },
   "exports": {
     ".": {
@@ -12,6 +12,7 @@
     }
   },
   "files": [
+    "bin",
     "dist"
   ],
   "scripts": {

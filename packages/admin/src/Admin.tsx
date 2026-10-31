@@ -1,4 +1,4 @@
-import { useMemo } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { QueryClient, QueryClientProvider, useQuery } from '@tanstack/react-query'
 import { RouterProvider, type RouterHistory } from '@tanstack/react-router'
 import { AdminContext } from './context/AdminContext'
@@ -23,6 +23,12 @@ function AdminInner({
   basePath: string
   history?: RouterHistory
 }) {
+  const [mounted, setMounted] = useState(false)
+
+  useEffect(() => {
+    setMounted(true)
+  }, [])
+
   const {
     data: config,
     isLoading,
@@ -30,13 +36,15 @@ function AdminInner({
   } = useQuery({
     queryKey: ['_lontar_config', apiBase],
     queryFn: () => fetchClientConfig(apiBase),
+    enabled: mounted,
   })
 
   const router = useMemo(() => {
+    if (!mounted) return null
     return createAdminRouter({ basePath, history })
-  }, [basePath, history])
+  }, [mounted, basePath, history])
 
-  if (isLoading) {
+  if (!mounted || isLoading || !router) {
     return (
       <div className="lontar-admin">
         <div className="lontar-init-loading">

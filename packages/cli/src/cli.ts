@@ -53,7 +53,8 @@ const isMain =
   process.argv[1] !== undefined &&
   (process.argv[1].endsWith('/cli.js') ||
     process.argv[1].endsWith('/cli.ts') ||
-    process.argv[1].endsWith('/lontar'))
+    process.argv[1].endsWith('/lontar') ||
+    process.argv[1].endsWith('/lontar.js'))
 
 if (isMain) {
   run().catch((err: unknown) => {
