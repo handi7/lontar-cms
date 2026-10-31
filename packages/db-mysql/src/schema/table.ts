@@ -2,13 +2,22 @@ import {
   double,
   int,
   mysqlTable,
+  text,
   timestamp,
   varchar,
   type AnyMySqlColumn,
   type MySqlColumnBuilder,
   type MySqlTable,
 } from 'drizzle-orm/mysql-core'
-import type { CollectionConfig, Field, NumberField, TextField } from '@lontar/core'
+import type {
+  CollectionConfig,
+  EmailField,
+  Field,
+  NumberField,
+  SlugField,
+  TextareaField,
+  TextField,
+} from '@lontar/core'
 
 function textToColumn(name: string, field: TextField) {
   const base = varchar(name, { length: field.maxLength ?? 255 })
@@ -22,9 +31,34 @@ function numberToColumn(name: string, field: NumberField) {
   return field.required ? withDefault.notNull() : withDefault
 }
 
+function textareaToColumn(name: string, field: TextareaField) {
+  const base = text(name)
+  const withDefault = field.defaultValue !== undefined ? base.default(field.defaultValue) : base
+  return field.required ? withDefault.notNull() : withDefault
+}
+
+function emailToColumn(name: string, field: EmailField) {
+  const base = varchar(name, { length: 255 })
+  const withUnique = field.unique ? base.unique() : base
+  const withDefault =
+    field.defaultValue !== undefined ? withUnique.default(field.defaultValue) : withUnique
+  return field.required ? withDefault.notNull() : withDefault
+}
+
+function slugToColumn(name: string, field: SlugField) {
+  const base = varchar(name, { length: 255 })
+  const withUnique = field.unique ? base.unique() : base
+  const withDefault =
+    field.defaultValue !== undefined ? withUnique.default(field.defaultValue) : withUnique
+  return field.required ? withDefault.notNull() : withDefault
+}
+
 function fieldToColumn(name: string, field: Field) {
   if (field.type === 'text') return textToColumn(name, field)
   if (field.type === 'number') return numberToColumn(name, field)
+  if (field.type === 'textarea') return textareaToColumn(name, field)
+  if (field.type === 'email') return emailToColumn(name, field)
+  if (field.type === 'slug') return slugToColumn(name, field)
   throw new Error(`Unsupported field type: ${(field as Field).type}`)
 }
 

@@ -1,5 +1,12 @@
 import { z } from 'zod'
-import type { ClientField, ClientNumberField, ClientTextField } from './client-config'
+import type {
+  ClientEmailField,
+  ClientField,
+  ClientNumberField,
+  ClientSlugField,
+  ClientTextareaField,
+  ClientTextField,
+} from './client-config'
 
 /*
  * The one place field rules become validation (docs/adr/0003-client-config-format.md).
@@ -21,6 +28,32 @@ const zodByType = {
     if (field.min !== undefined) schema = schema.min(field.min)
     if (field.max !== undefined) schema = schema.max(field.max)
     return schema
+  },
+  textarea: (field: ClientTextareaField) => {
+    const minLength = Math.max(field.minLength ?? 0, field.required ? 1 : 0)
+    let schema = z.string()
+    if (minLength > 0) schema = schema.min(minLength)
+    if (field.maxLength !== undefined) schema = schema.max(field.maxLength)
+    return schema
+  },
+  email: (field: ClientEmailField) => {
+    if (field.required) {
+      return z.string().min(1, 'Email is required').email('Invalid email address')
+    }
+    return z.string().email('Invalid email address').or(z.literal(''))
+  },
+  slug: (field: ClientSlugField) => {
+    const slugRegex = /^[a-z0-9]+(?:-[a-z0-9]+)*$/
+    if (field.required) {
+      return z
+        .string()
+        .min(1, 'Slug is required')
+        .regex(slugRegex, 'Must be a valid URL slug (lowercase letters, numbers, and hyphens)')
+    }
+    return z
+      .string()
+      .regex(slugRegex, 'Must be a valid URL slug (lowercase letters, numbers, and hyphens)')
+      .or(z.literal(''))
   },
 } satisfies { [K in ClientField['type']]: (field: Extract<ClientField, { type: K }>) => z.ZodType }
 

@@ -91,4 +91,29 @@ describe('generateSchemaFile', () => {
     const output = generateSchemaFile(config)
     expect(output).toContain('status: varchar(\'status\', { length: 255 }).default("draft"),')
   })
+
+  it('generates schema for textarea, email, and slug fields', () => {
+    const authors: CollectionConfig = {
+      slug: 'authors',
+      fields: {
+        bio: { type: 'textarea', defaultValue: 'Nothing here yet' },
+        email: { type: 'email', required: true, unique: true },
+        slug: { type: 'slug', unique: true, from: 'name' },
+      },
+    }
+
+    const config: Config = {
+      secret: 'test-secret',
+      db: fakeAdapter,
+      collections: [authors],
+    }
+
+    const output = generateSchemaFile(config)
+    expect(output).toContain(
+      "import { int, mysqlTable, text, timestamp, varchar } from 'drizzle-orm/mysql-core'",
+    )
+    expect(output).toContain('bio: text(\'bio\').default("Nothing here yet"),')
+    expect(output).toContain("email: varchar('email', { length: 255 }).unique().notNull(),")
+    expect(output).toContain("slug: varchar('slug', { length: 255 }).unique(),")
+  })
 })

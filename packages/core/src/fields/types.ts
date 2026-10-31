@@ -26,6 +26,28 @@ export interface NumberField extends BaseField {
   defaultValue?: number
 }
 
-export type Field = TextField | NumberField
+export interface TextareaField extends BaseField {
+  type: 'textarea'
+  minLength?: number
+  maxLength?: number
+  rows?: number
+  defaultValue?: string
+}
+
+export interface EmailField extends BaseField {
+  type: 'email'
+  unique?: boolean
+  defaultValue?: string
+}
+
+export interface SlugField extends BaseField {
+  type: 'slug'
+  /** The field name to generate the slug from (e.g. 'title') */
+  from?: string
+  unique?: boolean
+  defaultValue?: string
+}
+
+export type Field = TextField | NumberField | TextareaField | EmailField | SlugField
 export type FieldType = Field['type']
 export type Fields = Record<string, Field>

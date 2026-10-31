@@ -1,4 +1,13 @@
-import type { CollectionConfig, Config, Field, NumberField, TextField } from '@lontar/core'
+import type {
+  CollectionConfig,
+  Config,
+  EmailField,
+  Field,
+  NumberField,
+  SlugField,
+  TextareaField,
+  TextField,
+} from '@lontar/core'
 
 export function slugToIdentifier(slug: string): string {
   return slug.replace(/-([a-z0-9])/g, (_, char: string) => char.toUpperCase())
@@ -27,13 +36,51 @@ function renderNumberField(name: string, field: NumberField): string {
   return code
 }
 
+function renderTextareaField(name: string, field: TextareaField): string {
+  let code = `text('${name}')`
+  if (field.defaultValue !== undefined) {
+    code += `.default(${JSON.stringify(field.defaultValue)})`
+  }
+  if (field.required) {
+    code += '.notNull()'
+  }
+  return code
+}
+
+function renderEmailField(name: string, field: EmailField): string {
+  let code = `varchar('${name}', { length: 255 })`
+  if (field.unique) {
+    code += '.unique()'
+  }
+  if (field.defaultValue !== undefined) {
+    code += `.default(${JSON.stringify(field.defaultValue)})`
+  }
+  if (field.required) {
+    code += '.notNull()'
+  }
+  return code
+}
+
+function renderSlugField(name: string, field: SlugField): string {
+  let code = `varchar('${name}', { length: 255 })`
+  if (field.unique) {
+    code += '.unique()'
+  }
+  if (field.defaultValue !== undefined) {
+    code += `.default(${JSON.stringify(field.defaultValue)})`
+  }
+  if (field.required) {
+    code += '.notNull()'
+  }
+  return code
+}
+
 function renderField(name: string, field: Field): string {
-  if (field.type === 'text') {
-    return renderTextField(name, field)
-  }
-  if (field.type === 'number') {
-    return renderNumberField(name, field)
-  }
+  if (field.type === 'text') return renderTextField(name, field)
+  if (field.type === 'number') return renderNumberField(name, field)
+  if (field.type === 'textarea') return renderTextareaField(name, field)
+  if (field.type === 'email') return renderEmailField(name, field)
+  if (field.type === 'slug') return renderSlugField(name, field)
   throw new Error(`Unsupported field type: ${(field as Field).type}`)
 }
 
@@ -41,7 +88,10 @@ function collectImports(collections: readonly CollectionConfig[]): string[] {
   const imports = new Set<string>(['int', 'mysqlTable', 'timestamp'])
   for (const collection of collections) {
     for (const field of Object.values(collection.fields)) {
-      if (field.type === 'text') imports.add('varchar')
+      if (field.type === 'text' || field.type === 'email' || field.type === 'slug') {
+        imports.add('varchar')
+      }
+      if (field.type === 'textarea') imports.add('text')
       if (field.type === 'number' && !field.integer) imports.add('double')
     }
   }

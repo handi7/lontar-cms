@@ -13,4 +13,13 @@ export type {
   StoredDoc,
 } from './database/adapter'
 export type { InferDoc } from './fields/infer'
-export type { Field, Fields, FieldType, NumberField, TextField } from './fields/types'
+export type {
+  EmailField,
+  Field,
+  Fields,
+  FieldType,
+  NumberField,
+  SlugField,
+  TextareaField,
+  TextField,
+} from './fields/types'

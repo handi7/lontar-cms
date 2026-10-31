@@ -67,6 +67,27 @@ describe('toClientConfig', () => {
           integer: true,
           defaultValue: 5,
         }),
+        textarea: f.textarea({
+          label: 'Textarea',
+          required: true,
+          minLength: 10,
+          maxLength: 500,
+          rows: 6,
+          defaultValue: 'default text',
+        }),
+        email: f.email({
+          label: 'Email',
+          required: true,
+          unique: true,
+          defaultValue: 'hello@example.com',
+        }),
+        slug: f.slug({
+          label: 'Slug',
+          required: true,
+          unique: true,
+          from: 'text',
+          defaultValue: 'my-slug',
+        }),
       },
     })
 
@@ -89,6 +110,33 @@ describe('toClientConfig', () => {
         max: 9,
         integer: true,
         defaultValue: 5,
+      },
+      {
+        name: 'textarea',
+        type: 'textarea',
+        label: 'Textarea',
+        required: true,
+        minLength: 10,
+        maxLength: 500,
+        rows: 6,
+        defaultValue: 'default text',
+      },
+      {
+        name: 'email',
+        type: 'email',
+        label: 'Email',
+        required: true,
+        unique: true,
+        defaultValue: 'hello@example.com',
+      },
+      {
+        name: 'slug',
+        type: 'slug',
+        label: 'Slug',
+        required: true,
+        unique: true,
+        from: 'text',
+        defaultValue: 'my-slug',
       },
     ])
   })

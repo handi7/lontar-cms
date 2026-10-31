@@ -2,11 +2,22 @@ import {
   CLIENT_CONFIG_VERSION,
   type ClientCollection,
   type ClientConfig,
+  type ClientEmailField,
   type ClientField,
   type ClientNumberField,
+  type ClientSlugField,
+  type ClientTextareaField,
   type ClientTextField,
 } from '../client/client-config'
-import type { Field, FieldType, NumberField, TextField } from '../fields/types'
+import type {
+  EmailField,
+  Field,
+  FieldType,
+  NumberField,
+  SlugField,
+  TextareaField,
+  TextField,
+} from '../fields/types'
 import { humanize } from '../utils/humanize'
 import type { CollectionConfig, Config } from './types'
 
@@ -32,6 +43,30 @@ const toClientField = {
       min: field.min,
       max: field.max,
       integer: field.integer,
+      defaultValue: field.defaultValue,
+    }),
+  }),
+  textarea: (name: string, field: TextareaField): ClientTextareaField => ({
+    ...baseField(name, field),
+    ...defined({
+      minLength: field.minLength,
+      maxLength: field.maxLength,
+      rows: field.rows,
+      defaultValue: field.defaultValue,
+    }),
+  }),
+  email: (name: string, field: EmailField): ClientEmailField => ({
+    ...baseField(name, field),
+    ...defined({
+      unique: field.unique,
+      defaultValue: field.defaultValue,
+    }),
+  }),
+  slug: (name: string, field: SlugField): ClientSlugField => ({
+    ...baseField(name, field),
+    ...defined({
+      from: field.from,
+      unique: field.unique,
       defaultValue: field.defaultValue,
     }),
   }),
