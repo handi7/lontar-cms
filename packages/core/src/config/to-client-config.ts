@@ -50,7 +50,7 @@ export function toClientConfig(config: Config): ClientConfig {
   }
 }
 
-function toClientCollection(collection: CollectionConfig): ClientCollection {
+export function toClientCollection(collection: CollectionConfig): ClientCollection {
   const fields = Object.entries(collection.fields).map(([name, field]) => clientField(name, field))
   return {
     slug: collection.slug,

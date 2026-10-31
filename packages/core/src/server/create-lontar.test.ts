@@ -1,0 +1,225 @@
+import { describe, expect, it, vi } from 'vitest'
+import { Posts } from '../__fixtures__/posts'
+import type { Config, DatabaseAdapter, StoredDoc } from '../index'
+import { createLontar } from './create-lontar'
+
+const mockFind = vi.fn().mockResolvedValue({
+  docs: [
+    {
+      id: 1,
+      title: 'Hello',
+      views: 10,
+      createdAt: '2026-10-31T00:00:00.000Z',
+      updatedAt: '2026-10-31T00:00:00.000Z',
+    },
+  ],
+  totalDocs: 1,
+  limit: 10,
+  page: 1,
+  totalPages: 1,
+})
+
+const mockFindByID = vi.fn().mockImplementation(({ id }: { id: number }) => {
+  if (id === 1) {
+    return Promise.resolve({
+      id: 1,
+      title: 'Hello',
+      views: 10,
+      createdAt: '2026-10-31T00:00:00.000Z',
+      updatedAt: '2026-10-31T00:00:00.000Z',
+    })
+  }
+  return Promise.resolve(null)
+})
+
+const mockCreate = vi.fn().mockImplementation(({ data }: { data: Record<string, unknown> }) => {
+  return Promise.resolve({
+    id: 2,
+    title: data.title,
+    views: data.views ?? 0,
+    createdAt: '2026-10-31T00:00:00.000Z',
+    updatedAt: '2026-10-31T00:00:00.000Z',
+  } as StoredDoc)
+})
+
+const mockUpdate = vi
+  .fn()
+  .mockImplementation(({ id, data }: { id: number; data: Record<string, unknown> }) => {
+    if (id === 1) {
+      return Promise.resolve({
+        id: 1,
+        title: data.title ?? 'Hello',
+        views: data.views ?? 10,
+        createdAt: '2026-10-31T00:00:00.000Z',
+        updatedAt: '2026-10-31T01:00:00.000Z',
+      } as StoredDoc)
+    }
+    return Promise.resolve(null)
+  })
+
+const mockDelete = vi.fn().mockImplementation(({ id }: { id: number }) => {
+  if (id === 1) {
+    return Promise.resolve({
+      id: 1,
+      title: 'Hello',
+      views: 10,
+      createdAt: '2026-10-31T00:00:00.000Z',
+      updatedAt: '2026-10-31T00:00:00.000Z',
+    } as StoredDoc)
+  }
+  return Promise.resolve(null)
+})
+
+const adapter: DatabaseAdapter = {
+  name: 'mock',
+  find: mockFind,
+  findByID: mockFindByID,
+  create: mockCreate,
+  update: mockUpdate,
+  delete: mockDelete,
+  toSchemaFile: vi.fn().mockReturnValue(''),
+  migrate: vi.fn().mockResolvedValue(undefined),
+}
+
+describe('createLontar REST API', () => {
+  const config: Config = {
+    secret: 'test-secret',
+    db: adapter,
+    collections: [Posts],
+  }
+  const app = createLontar(config)
+
+  describe('GET /api/:collection', () => {
+    it('returns paginated list of documents', async () => {
+      const res = await app.request('/api/posts?page=1&limit=5&sort=-views')
+      expect(res.status).toBe(200)
+
+      const body = (await res.json()) as { docs: StoredDoc[]; totalDocs: number }
+      expect(body.docs).toHaveLength(1)
+      expect(body.totalDocs).toBe(1)
+      expect(mockFind).toHaveBeenCalledWith({
+        collection: Posts,
+        page: 1,
+        limit: 5,
+        sort: '-views',
+      })
+    })
+
+    it('returns 404 for unknown collection', async () => {
+      const res = await app.request('/api/unknown')
+      expect(res.status).toBe(404)
+    })
+  })
+
+  describe('GET /api/:collection/:id', () => {
+    it('returns document by ID', async () => {
+      const res = await app.request('/api/posts/1')
+      expect(res.status).toBe(200)
+
+      const body = (await res.json()) as StoredDoc
+      expect(body.id).toBe(1)
+      expect(body.title).toBe('Hello')
+    })
+
+    it('returns 404 when document not found', async () => {
+      const res = await app.request('/api/posts/999')
+      expect(res.status).toBe(404)
+    })
+
+    it('returns 400 for non-numeric ID', async () => {
+      const res = await app.request('/api/posts/invalid')
+      expect(res.status).toBe(400)
+    })
+  })
+
+  describe('POST /api/:collection', () => {
+    it('validates input and creates document with 201', async () => {
+      const res = await app.request('/api/posts', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ title: 'New Post', views: 42 }),
+      })
+
+      expect(res.status).toBe(201)
+      const body = (await res.json()) as StoredDoc
+      expect(body.id).toBe(2)
+      expect(body.title).toBe('New Post')
+      expect(body.views).toBe(42)
+    })
+
+    it('rejects invalid payload with 400 without calling adapter', async () => {
+      mockCreate.mockClear()
+      const res = await app.request('/api/posts', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ views: -5 }),
+      })
+
+      expect(res.status).toBe(400)
+      const body = (await res.json()) as { error: string; issues: unknown[] }
+      expect(body.error).toBe('Validation failed')
+      expect(body.issues.length).toBeGreaterThan(0)
+      expect(mockCreate).not.toHaveBeenCalled()
+    })
+  })
+
+  describe('PATCH /api/:collection/:id', () => {
+    it('validates partial payload and updates document', async () => {
+      const res = await app.request('/api/posts/1', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ views: 50 }),
+      })
+
+      expect(res.status).toBe(200)
+      const body = (await res.json()) as StoredDoc
+      expect(body.views).toBe(50)
+      expect(mockUpdate).toHaveBeenCalledWith({
+        collection: Posts,
+        id: 1,
+        data: { views: 50 },
+      })
+    })
+
+    it('returns 404 when updating non-existent document', async () => {
+      const res = await app.request('/api/posts/999', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ title: 'Ghost' }),
+      })
+
+      expect(res.status).toBe(404)
+    })
+  })
+
+  describe('DELETE /api/:collection/:id', () => {
+    it('deletes document and returns 200', async () => {
+      const res = await app.request('/api/posts/1', {
+        method: 'DELETE',
+      })
+
+      expect(res.status).toBe(200)
+      const body = (await res.json()) as StoredDoc
+      expect(body.id).toBe(1)
+    })
+
+    it('returns 404 when deleting non-existent document', async () => {
+      const res = await app.request('/api/posts/999', {
+        method: 'DELETE',
+      })
+
+      expect(res.status).toBe(404)
+    })
+  })
+
+  describe('GET /api/_lontar/config', () => {
+    it('returns ClientConfig', async () => {
+      const res = await app.request('/api/_lontar/config')
+      expect(res.status).toBe(200)
+
+      const body = (await res.json()) as { version: number; collections: unknown[] }
+      expect(body.version).toBe(1)
+      expect(body.collections).toHaveLength(1)
+    })
+  })
+})
