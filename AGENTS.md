@@ -98,8 +98,8 @@ prettier on staged files only). CI (`.github/workflows/ci.yml`) runs
   - [x] #14 `fields: implement textarea, email, and slug field types`
   - [x] #15 `fields: implement checkbox, select, and date field types`
 - [ ] **M2: Auth & Access Control** (Current)
-  - [ ] #16 `auth: integrate Better Auth for admin authentication and session management`
-  - [ ] #17 `access: implement collection-level access control (read, create, update, delete)`
+  - [x] #16 `auth: integrate Better Auth for admin authentication and session management`
+  - [x] #17 `access: implement collection-level access control (read, create, update, delete)`
   - [ ] #18 `admin: add login page and authenticated route protection`
 - [ ] **M3: Query Filtering, Hooks & Globals**
   - [ ] #19 `api: implement advanced query filtering and sorting in REST API`

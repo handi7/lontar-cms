@@ -53,6 +53,7 @@ function validateCollection(collection: CollectionConfig): string[] {
     ...validateSlug(collection.slug),
     ...Object.keys(collection.fields).flatMap((name) => validateFieldName(where, name)),
     ...validateAdmin(where, collection),
+    ...validateAccess(where, collection),
   ]
 }
 
@@ -88,4 +89,17 @@ function validateAdmin(where: string, collection: CollectionConfig): string[] {
     ...(useAsTitle === undefined ? [] : check('useAsTitle')(useAsTitle)),
     ...defaultColumns.flatMap(check('defaultColumns')),
   ]
+}
+
+function validateAccess(where: string, collection: CollectionConfig): string[] {
+  if (!collection.access) return []
+  const ops = ['read', 'create', 'update', 'delete'] as const
+  const issues: string[] = []
+  for (const op of ops) {
+    const fn = collection.access[op]
+    if (fn !== undefined && typeof fn !== 'function') {
+      issues.push(`${where}: access.${op} must be a function.`)
+    }
+  }
+  return issues
 }

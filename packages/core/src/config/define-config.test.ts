@@ -72,6 +72,33 @@ describe('defineConfig', () => {
     expect(issuesOf([collection])).toEqual([])
   })
 
+  it('accepts valid access functions', () => {
+    const collection = notes({
+      access: {
+        read: () => true,
+        create: ({ user }) => Boolean(user),
+        update: () => false,
+        delete: () => false,
+      },
+    })
+    expect(issuesOf([collection])).toEqual([])
+  })
+
+  it('rejects access properties that are not functions', () => {
+    const collection = notes({
+      access: {
+        // @ts-expect-error test invalid access property
+        read: 'invalid',
+        // @ts-expect-error test invalid access property
+        delete: 123,
+      },
+    })
+    expect(issuesOf([collection])).toEqual([
+      'Collection "notes": access.read must be a function.',
+      'Collection "notes": access.delete must be a function.',
+    ])
+  })
+
   it('reports every problem in one error', () => {
     const run = () =>
       defineConfig({

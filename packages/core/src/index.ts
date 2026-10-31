@@ -5,7 +5,14 @@ export { fields } from './fields'
 export { createLontar, type CreateLontarOptions, type LontarApp } from './server/create-lontar'
 
 export type { Auth, AuthSession, AuthUser, LontarVariables } from './auth/types'
-export type { CollectionConfig, Config } from './config/types'
+export type {
+  AccessArgs,
+  AccessFunction,
+  CollectionAccess,
+  CollectionAdmin,
+  CollectionConfig,
+  Config,
+} from './config/types'
 export type {
   DatabaseAdapter,
   DocumentData,
