@@ -95,7 +95,7 @@ prettier on staged files only). CI (`.github/workflows/ci.yml`) runs
 
 - [x] **M0: Repo setup + walking skeleton** (Done)
 - [ ] **M1: Standard Fields & Validation** (Current)
-  - [ ] #14 `fields: implement textarea, email, and slug field types`
+  - [x] #14 `fields: implement textarea, email, and slug field types`
   - [ ] #15 `fields: implement checkbox, select, and date field types`
 - [ ] **M2: Auth & Access Control**
   - [ ] #16 `auth: integrate Better Auth for admin authentication and session management`
