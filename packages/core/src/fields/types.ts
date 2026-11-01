@@ -76,6 +76,19 @@ export interface RichTextField extends BaseField {
   defaultValue?: Record<string, unknown>
 }
 
+export interface RelationshipFieldOptions {
+  label?: string
+  required?: boolean
+  relationTo: string
+  hasMany?: boolean
+}
+
+export interface RelationshipField extends BaseField {
+  type: 'relationship'
+  relationTo: string
+  hasMany?: boolean
+}
+
 export type Field =
   | TextField
   | NumberField
@@ -86,5 +99,6 @@ export type Field =
   | SelectField
   | DateField
   | RichTextField
+  | RelationshipField
 export type FieldType = Field['type']
 export type Fields = Record<string, Field>

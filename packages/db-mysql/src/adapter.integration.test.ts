@@ -16,6 +16,16 @@ const postsCollection: CollectionConfig = {
     title: { type: 'text', required: true, maxLength: 120 },
     views: { type: 'number', integer: true, defaultValue: 0 },
     content: { type: 'richText' },
+    author: { type: 'relationship', relationTo: 'users' },
+    categories: { type: 'relationship', relationTo: 'categories', hasMany: true },
+  },
+}
+
+const categoriesCollection: CollectionConfig = {
+  slug: 'categories',
+  labels: { singular: 'Category', plural: 'Categories' },
+  fields: {
+    name: { type: 'text', required: true },
   },
 }
 
@@ -39,7 +49,9 @@ describe('mysqlAdapter (integration)', () => {
     await pool.query('DROP TABLE IF EXISTS account')
     await pool.query('DROP TABLE IF EXISTS verification')
     await pool.query('DROP TABLE IF EXISTS user')
+    await pool.query('DROP TABLE IF EXISTS posts_categories')
     await pool.query('DROP TABLE IF EXISTS posts')
+    await pool.query('DROP TABLE IF EXISTS categories')
     await pool.query('DROP TABLE IF EXISTS header')
     await pool.query('DROP TABLE IF EXISTS __drizzle_migrations')
     await pool.end()
@@ -49,7 +61,7 @@ describe('mysqlAdapter (integration)', () => {
     const config: Config = {
       secret: 'test-secret',
       db: adapter,
-      collections: [postsCollection],
+      collections: [postsCollection, categoriesCollection],
       globals: [headerGlobal],
     }
 
@@ -86,7 +98,9 @@ describe('mysqlAdapter (integration)', () => {
       await pool.query('DROP TABLE IF EXISTS account')
       await pool.query('DROP TABLE IF EXISTS verification')
       await pool.query('DROP TABLE IF EXISTS user')
+      await pool.query('DROP TABLE IF EXISTS posts_categories')
       await pool.query('DROP TABLE IF EXISTS posts')
+      await pool.query('DROP TABLE IF EXISTS categories')
       await pool.query('DROP TABLE IF EXISTS header')
       await pool.query('DROP TABLE IF EXISTS __drizzle_migrations')
       await pool.end()
@@ -403,5 +417,95 @@ describe('mysqlAdapter (integration)', () => {
     })
 
     expect(updated?.content).toEqual(updatedDoc)
+  })
+
+  it('stores, updates, and clears single relationship field', async () => {
+    const post = await adapter.create({
+      collection: postsCollection,
+      data: {
+        title: 'Single Rel Post',
+        author: 42,
+      },
+    })
+    expect(post.author).toBe(42)
+
+    const fetched = await adapter.findByID({ collection: postsCollection, id: post.id })
+    expect(fetched?.author).toBe(42)
+
+    const updated = await adapter.update({
+      collection: postsCollection,
+      id: post.id,
+      data: { author: 99 },
+    })
+    expect(updated?.author).toBe(99)
+
+    const cleared = await adapter.update({
+      collection: postsCollection,
+      id: post.id,
+      data: { author: null },
+    })
+    expect(cleared?.author).toBeNull()
+
+    const fetchedCleared = await adapter.findByID({ collection: postsCollection, id: post.id })
+    expect(fetchedCleared?.author).toBeNull()
+  })
+
+  it('stores, updates, reorders, and deletes hasMany relationship field with junction table', async () => {
+    const post = await adapter.create({
+      collection: postsCollection,
+      data: {
+        title: 'HasMany Rel Post',
+        categories: [10, 20, 30],
+      },
+    })
+    expect(post.categories).toEqual([10, 20, 30])
+
+    const fetched = await adapter.findByID({ collection: postsCollection, id: post.id })
+    expect(fetched?.categories).toEqual([10, 20, 30])
+
+    // Update with reordered and filtered IDs
+    const updated = await adapter.update({
+      collection: postsCollection,
+      id: post.id,
+      data: {
+        categories: [30, 10],
+      },
+    })
+    expect(updated?.categories).toEqual([30, 10])
+
+    const fetchedUpdated = await adapter.findByID({ collection: postsCollection, id: post.id })
+    expect(fetchedUpdated?.categories).toEqual([30, 10])
+
+    // Verify find populates categories across documents
+    const listResult = await adapter.find({
+      collection: postsCollection,
+      page: 1,
+      limit: 10,
+      where: { title: { equals: 'HasMany Rel Post' } },
+    })
+    expect(listResult.docs).toHaveLength(1)
+    expect(listResult.docs[0]?.categories).toEqual([30, 10])
+
+    // Verify junction rows exist directly via pool query
+    const pool = mysql.createPool(DATABASE_URL)
+    const [rowsBefore] = (await pool.query(
+      'SELECT target_id, `order` FROM posts_categories WHERE parent_id = ? ORDER BY `order` ASC',
+      [post.id],
+    )) as unknown as [Array<{ target_id: number; order: number }>, unknown]
+    expect(rowsBefore).toEqual([
+      { target_id: 30, order: 0 },
+      { target_id: 10, order: 1 },
+    ])
+
+    // Delete document and verify cascade cleanup in junction table
+    const deleted = await adapter.delete({ collection: postsCollection, id: post.id })
+    expect(deleted).not.toBeNull()
+    expect(deleted?.id).toBe(post.id)
+
+    const [rowsAfter] = (await pool.query('SELECT * FROM posts_categories WHERE parent_id = ?', [
+      post.id,
+    ])) as unknown as [Array<unknown>, unknown]
+    expect(rowsAfter).toHaveLength(0)
+    await pool.end()
   })
 })

@@ -3,6 +3,7 @@ import type {
   DateField,
   EmailField,
   NumberField,
+  RelationshipField,
   RichTextField,
   SelectField,
   SlugField,
@@ -52,4 +53,24 @@ function richText<const O extends Options<RichTextField>>(options?: O): O & { ty
   return { ...(options as O), type: 'richText' }
 }
 
-export const fields = { text, number, textarea, email, slug, checkbox, select, date, richText }
+function relationship<const O extends Options<RelationshipField>>(
+  options: O,
+): O & { type: 'relationship' } {
+  if (!options?.relationTo) {
+    throw new Error('Relationship field requires a "relationTo" collection slug')
+  }
+  return { ...options, type: 'relationship' }
+}
+
+export const fields = {
+  text,
+  number,
+  textarea,
+  email,
+  slug,
+  checkbox,
+  select,
+  date,
+  richText,
+  relationship,
+}

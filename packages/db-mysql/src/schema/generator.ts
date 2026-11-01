@@ -7,15 +7,17 @@ import type {
   Field,
   GlobalConfig,
   NumberField,
+  RelationshipField,
   RichTextField,
   SelectField,
   SlugField,
   TextareaField,
   TextField,
 } from '@lontar/core'
+import { getJunctionTableName } from './table'
 
 export function slugToIdentifier(slug: string): string {
-  return slug.replace(/-([a-z0-9])/g, (_, char: string) => char.toUpperCase())
+  return slug.replace(/[-_]([a-z0-9])/g, (_, char: string) => char.toUpperCase())
 }
 
 function renderTextField(name: string, field: TextField): string {
@@ -124,16 +126,32 @@ function renderRichTextField(name: string, field: RichTextField): string {
   return code
 }
 
-function renderField(name: string, field: Field): string {
+function renderRelationshipField(name: string, field: RelationshipField): string {
+  let code = `int('${name}')`
+  if (field.required) {
+    code += '.notNull()'
+  }
+  return code
+}
+
+function renderBasicField(name: string, field: Field): string | null {
   if (field.type === 'text') return renderTextField(name, field)
   if (field.type === 'number') return renderNumberField(name, field)
   if (field.type === 'textarea') return renderTextareaField(name, field)
   if (field.type === 'email') return renderEmailField(name, field)
   if (field.type === 'slug') return renderSlugField(name, field)
+  return null
+}
+
+function renderField(name: string, field: Field): string {
+  const basic = renderBasicField(name, field)
+  if (basic) return basic
+
   if (field.type === 'checkbox') return renderCheckboxField(name, field)
   if (field.type === 'select') return renderSelectField(name, field)
   if (field.type === 'date') return renderDateField(name, field)
   if (field.type === 'richText') return renderRichTextField(name, field)
+  if (field.type === 'relationship') return renderRelationshipField(name, field)
   throw new Error(`Unsupported field type: ${(field as Field).type}`)
 }
 
@@ -146,6 +164,7 @@ const FIELD_TYPE_IMPORTS: Record<string, string> = {
   checkbox: 'boolean',
   date: 'timestamp',
   richText: 'json',
+  relationship: 'int',
 }
 
 function collectFieldImports(field: Field, imports: Set<string>): void {
@@ -191,6 +210,9 @@ function renderTableDefinition(slug: string, fields: Record<string, Field>): str
   const lines: string[] = ["  id: int('id').autoincrement().primaryKey(),"]
 
   for (const [name, field] of Object.entries(fields)) {
+    if (field.type === 'relationship' && field.hasMany) {
+      continue
+    }
     lines.push(`  ${name}: ${renderField(name, field)},`)
   }
 
@@ -272,6 +294,32 @@ export const verification = mysqlTable(
 )`
 }
 
+function renderJunctionTable(tableName: string): string {
+  const identifier = slugToIdentifier(tableName)
+  return `export const ${identifier} = mysqlTable('${tableName}', {
+  id: int('id').autoincrement().primaryKey(),
+  parentId: int('parent_id').notNull(),
+  targetId: int('target_id').notNull(),
+  order: int('order').default(0).notNull(),
+})`
+}
+
+function findJunctionTableNames(collections: readonly CollectionConfig[]): string[] {
+  const names: string[] = []
+  for (const col of collections) {
+    for (const [name, field] of Object.entries(col.fields)) {
+      if (field.type === 'relationship' && field.hasMany) {
+        names.push(getJunctionTableName(col.slug, name))
+      }
+    }
+  }
+  return names
+}
+
+function renderJunctionTables(collections: readonly CollectionConfig[]): string {
+  return findJunctionTableNames(collections).map(renderJunctionTable).join('\n\n')
+}
+
 export function generateSchemaFile(config: Config): string {
   const globals = config.globals ?? []
   const imports = collectImports(config.collections, globals)
@@ -279,6 +327,7 @@ export function generateSchemaFile(config: Config): string {
   const authSection = renderAuthTables()
   const collectionSection = config.collections.map(renderCollection).join('\n\n')
   const globalSection = globals.map(renderGlobal).join('\n\n')
-  const sections = [authSection, collectionSection, globalSection].filter(Boolean)
+  const junctionSection = renderJunctionTables(config.collections)
+  const sections = [authSection, collectionSection, globalSection, junctionSection].filter(Boolean)
   return `${header}\n${sections.join('\n\n')}\n`
 }

@@ -12,11 +12,14 @@ interface FieldValueMap {
   select: string
   date: string
   richText: Record<string, unknown>
+  relationship: number
 }
 
-type FieldValue<F extends Field> = F extends { required: true }
-  ? FieldValueMap[F['type']]
-  : FieldValueMap[F['type']] | null
+type FieldValue<F extends Field> = F extends { type: 'relationship'; hasMany: true }
+  ? number[]
+  : F extends { required: true }
+    ? FieldValueMap[F['type']]
+    : FieldValueMap[F['type']] | null
 
 type Simplify<T> = { [K in keyof T]: T[K] }
 

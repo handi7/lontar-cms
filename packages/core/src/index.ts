@@ -45,6 +45,8 @@ export type {
   Fields,
   FieldType,
   NumberField,
+  RelationshipField,
+  RelationshipFieldOptions,
   RichTextField,
   SelectField,
   SelectOption,

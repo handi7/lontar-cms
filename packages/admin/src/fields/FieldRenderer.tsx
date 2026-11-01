@@ -6,6 +6,7 @@ import type {
   ClientEmailField,
   ClientField,
   ClientNumberField,
+  ClientRelationshipField,
   ClientRichTextField,
   ClientSelectField,
   ClientSlugField,
@@ -258,6 +259,75 @@ function RichTextFieldInput({
   )
 }
 
+function parseRelationshipMany(val: unknown): number[] {
+  if (Array.isArray(val)) return val as number[]
+  if (typeof val === 'string' && val.trim().length > 0) {
+    return val
+      .split(',')
+      .map((s) => Number(s.trim()))
+      .filter((n) => !Number.isNaN(n))
+  }
+  return []
+}
+
+function RelationshipFieldInput({
+  field,
+  register,
+}: {
+  field: ClientRelationshipField
+  register: UseFormRegister<Record<string, unknown>>
+}) {
+  if (field.hasMany) {
+    return (
+      <input
+        id={field.name}
+        type="text"
+        className="lontar-input"
+        placeholder="Comma-separated IDs (e.g. 1, 2)"
+        {...register(field.name, { setValueAs: parseRelationshipMany })}
+      />
+    )
+  }
+
+  return (
+    <input
+      id={field.name}
+      type="number"
+      className="lontar-input"
+      placeholder={`Select ${field.relationTo} ID`}
+      step="1"
+      {...register(field.name, { setValueAs: parseNumberValue })}
+    />
+  )
+}
+
+function StandardFieldInput({
+  field,
+  register,
+}: {
+  field: ClientField
+  register: UseFormRegister<Record<string, unknown>>
+}) {
+  switch (field.type) {
+    case 'text':
+      return <TextFieldInput field={field} register={register} />
+    case 'number':
+      return <NumberFieldInput field={field} register={register} />
+    case 'textarea':
+      return <TextareaFieldInput field={field} register={register} />
+    case 'email':
+      return <EmailFieldInput field={field} register={register} />
+    case 'checkbox':
+      return <CheckboxFieldInput field={field} register={register} />
+    case 'select':
+      return <SelectFieldInput field={field} register={register} />
+    case 'date':
+      return <DateFieldInput field={field} register={register} />
+    default:
+      return null
+  }
+}
+
 function FieldInput({
   field,
   register,
@@ -271,36 +341,26 @@ function FieldInput({
   watch?: UseFormWatch<Record<string, unknown>>
   mode?: 'create' | 'edit'
 }) {
-  switch (field.type) {
-    case 'text':
-      return <TextFieldInput field={field} register={register} />
-    case 'number':
-      return <NumberFieldInput field={field} register={register} />
-    case 'textarea':
-      return <TextareaFieldInput field={field} register={register} />
-    case 'email':
-      return <EmailFieldInput field={field} register={register} />
-    case 'slug':
-      return (
-        <SlugFieldInput
-          field={field}
-          register={register}
-          setValue={setValue}
-          watch={watch}
-          mode={mode}
-        />
-      )
-    case 'checkbox':
-      return <CheckboxFieldInput field={field} register={register} />
-    case 'select':
-      return <SelectFieldInput field={field} register={register} />
-    case 'date':
-      return <DateFieldInput field={field} register={register} />
-    case 'richText':
-      return (
-        <RichTextFieldInput field={field} register={register} setValue={setValue} watch={watch} />
-      )
+  if (field.type === 'slug') {
+    return (
+      <SlugFieldInput
+        field={field}
+        register={register}
+        setValue={setValue}
+        watch={watch}
+        mode={mode}
+      />
+    )
   }
+  if (field.type === 'richText') {
+    return (
+      <RichTextFieldInput field={field} register={register} setValue={setValue} watch={watch} />
+    )
+  }
+  if (field.type === 'relationship') {
+    return <RelationshipFieldInput field={field} register={register} />
+  }
+  return <StandardFieldInput field={field} register={register} />
 }
 
 export function FieldRenderer({

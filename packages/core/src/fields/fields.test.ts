@@ -53,6 +53,21 @@ describe('fields', () => {
       type: 'richText',
       defaultValue: { type: 'doc', content: [] },
     })
+    expect(f.relationship({ relationTo: 'users', required: true })).toStrictEqual({
+      type: 'relationship',
+      relationTo: 'users',
+      required: true,
+    })
+    expect(f.relationship({ relationTo: 'categories', hasMany: true })).toStrictEqual({
+      type: 'relationship',
+      relationTo: 'categories',
+      hasMany: true,
+    })
+  })
+
+  it('throws when relationship field has no relationTo', () => {
+    // @ts-expect-error missing relationTo
+    expect(() => f.relationship({})).toThrow('relationTo')
   })
 })
 
@@ -118,6 +133,9 @@ describe('InferDoc', () => {
         contactEmail: f.email(),
         content: f.richText({ required: true }),
         notes: f.richText(),
+        author: f.relationship({ relationTo: 'users', required: true }),
+        reviewer: f.relationship({ relationTo: 'users' }),
+        categories: f.relationship({ relationTo: 'categories', hasMany: true }),
       },
     })
 
@@ -131,6 +149,9 @@ describe('InferDoc', () => {
       contactEmail: string | null
       content: Record<string, unknown>
       notes: Record<string, unknown> | null
+      author: number
+      reviewer: number | null
+      categories: number[]
     }>()
   })
 })
