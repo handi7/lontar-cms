@@ -1,17 +1,24 @@
-import type { CollectionConfig } from '../config/types'
+import type { CollectionConfig, GlobalConfig } from '../config/types'
 import type { DocumentData } from '../database/adapter'
 import type { AfterChangeHookArgs, AfterReadHookArgs, BeforeChangeHookArgs } from './types'
 
+function isRecord(val: unknown): val is DocumentData {
+  return typeof val === 'object' && val !== null
+}
+
+function getHooks<H>(collectionHooks?: readonly H[], globalHooks?: readonly H[]): readonly H[] {
+  return collectionHooks ?? globalHooks ?? []
+}
+
 export async function runBeforeChangeHooks(args: {
-  collection: CollectionConfig
+  collection?: CollectionConfig
+  global?: GlobalConfig
   data: DocumentData
   operation: 'create' | 'update'
   originalDoc?: DocumentData
   req?: Request
 }): Promise<DocumentData> {
-  const hooks = args.collection.hooks?.beforeChange
-  if (!hooks || hooks.length === 0) return args.data
-
+  const hooks = getHooks(args.collection?.hooks?.beforeChange, args.global?.hooks?.beforeChange)
   let currentData = args.data
   for (const hook of hooks) {
     const hookArgs: BeforeChangeHookArgs = {
@@ -21,7 +28,7 @@ export async function runBeforeChangeHooks(args: {
       req: args.req,
     }
     const result = await hook(hookArgs)
-    if (result !== undefined && result !== null && typeof result === 'object') {
+    if (isRecord(result)) {
       currentData = result
     }
   }
@@ -30,15 +37,14 @@ export async function runBeforeChangeHooks(args: {
 }
 
 export async function runAfterChangeHooks(args: {
-  collection: CollectionConfig
+  collection?: CollectionConfig
+  global?: GlobalConfig
   doc: DocumentData
   operation: 'create' | 'update'
   previousDoc?: DocumentData
   req?: Request
 }): Promise<DocumentData> {
-  const hooks = args.collection.hooks?.afterChange
-  if (!hooks || hooks.length === 0) return args.doc
-
+  const hooks = getHooks(args.collection?.hooks?.afterChange, args.global?.hooks?.afterChange)
   let currentDoc = args.doc
   for (const hook of hooks) {
     const hookArgs: AfterChangeHookArgs = {
@@ -48,7 +54,7 @@ export async function runAfterChangeHooks(args: {
       req: args.req,
     }
     const result = await hook(hookArgs)
-    if (result !== undefined && result !== null && typeof result === 'object') {
+    if (isRecord(result)) {
       currentDoc = result
     }
   }
@@ -57,13 +63,12 @@ export async function runAfterChangeHooks(args: {
 }
 
 export async function runAfterReadHooks(args: {
-  collection: CollectionConfig
+  collection?: CollectionConfig
+  global?: GlobalConfig
   doc: DocumentData
   req?: Request
 }): Promise<DocumentData> {
-  const hooks = args.collection.hooks?.afterRead
-  if (!hooks || hooks.length === 0) return args.doc
-
+  const hooks = getHooks(args.collection?.hooks?.afterRead, args.global?.hooks?.afterRead)
   let currentDoc = args.doc
   for (const hook of hooks) {
     const hookArgs: AfterReadHookArgs = {
@@ -71,7 +76,7 @@ export async function runAfterReadHooks(args: {
       req: args.req,
     }
     const result = await hook(hookArgs)
-    if (result !== undefined && result !== null && typeof result === 'object') {
+    if (isRecord(result)) {
       currentDoc = result
     }
   }

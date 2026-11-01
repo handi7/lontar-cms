@@ -1,5 +1,5 @@
 import { SYSTEM_FIELDS } from '../client/system-fields'
-import type { CollectionConfig, Config } from './types'
+import type { CollectionConfig, Config, GlobalConfig } from './types'
 
 const SLUG = /^[a-z][a-z0-9-]*$/
 const FIELD_NAME = /^[A-Za-z_][A-Za-z0-9_]*$/
@@ -29,14 +29,9 @@ export function defineConfig<C extends Config>(config: C): C {
 
 function validateConfig(config: Config): string[] {
   const issues = validateSecret(config.secret)
-  const seen = new Set<string>()
-  for (const collection of config.collections) {
-    if (seen.has(collection.slug)) {
-      issues.push(`Collection slug "${collection.slug}" is used twice.`)
-    }
-    seen.add(collection.slug)
-    issues.push(...validateCollection(collection))
-  }
+  const collectionsResult = validateCollections(config.collections)
+  issues.push(...collectionsResult.issues)
+  issues.push(...validateGlobals(config.globals, collectionsResult.slugs))
   return issues
 }
 
@@ -47,23 +42,68 @@ function validateSecret(secret: unknown): string[] {
   ]
 }
 
+function validateCollections(collections: readonly CollectionConfig[]): {
+  issues: string[]
+  slugs: Set<string>
+} {
+  const issues: string[] = []
+  const slugs = new Set<string>()
+  for (const collection of collections) {
+    if (slugs.has(collection.slug)) {
+      issues.push(`Collection slug "${collection.slug}" is used twice.`)
+    }
+    slugs.add(collection.slug)
+    issues.push(...validateCollection(collection))
+  }
+  return { issues, slugs }
+}
+
+function validateGlobals(
+  globals: readonly GlobalConfig[] | undefined,
+  collectionSlugs: Set<string>,
+): string[] {
+  if (!globals) return []
+  const issues: string[] = []
+  const seen = new Set<string>()
+  for (const global of globals) {
+    if (seen.has(global.slug)) {
+      issues.push(`Global slug "${global.slug}" is used twice.`)
+    }
+    if (collectionSlugs.has(global.slug)) {
+      issues.push(`Global slug "${global.slug}" collides with a collection slug.`)
+    }
+    seen.add(global.slug)
+    issues.push(...validateGlobal(global))
+  }
+  return issues
+}
+
 function validateCollection(collection: CollectionConfig): string[] {
   const where = `Collection "${collection.slug}"`
   return [
-    ...validateSlug(collection.slug),
+    ...validateSlug(collection.slug, 'Collection'),
     ...Object.keys(collection.fields).flatMap((name) => validateFieldName(where, name)),
     ...validateAdmin(where, collection),
     ...validateAccess(where, collection),
   ]
 }
 
-function validateSlug(slug: string): string[] {
+function validateGlobal(global: GlobalConfig): string[] {
+  const where = `Global "${global.slug}"`
+  return [
+    ...validateSlug(global.slug, 'Global'),
+    ...Object.keys(global.fields).flatMap((name) => validateFieldName(where, name)),
+    ...validateGlobalAccess(where, global),
+  ]
+}
+
+function validateSlug(slug: string, kind = 'Collection'): string[] {
   if (!SLUG.test(slug)) {
     return [
-      `Collection slug "${slug}" must be kebab-case: lowercase letters, digits and hyphens, starting with a letter.`,
+      `${kind} slug "${slug}" must be kebab-case: lowercase letters, digits and hyphens, starting with a letter.`,
     ]
   }
-  if (RESERVED_SLUGS.has(slug)) return [`Collection slug "${slug}" is reserved.`]
+  if (RESERVED_SLUGS.has(slug)) return [`${kind} slug "${slug}" is reserved.`]
   return []
 }
 
@@ -97,6 +137,19 @@ function validateAccess(where: string, collection: CollectionConfig): string[] {
   const issues: string[] = []
   for (const op of ops) {
     const fn = collection.access[op]
+    if (fn !== undefined && typeof fn !== 'function') {
+      issues.push(`${where}: access.${op} must be a function.`)
+    }
+  }
+  return issues
+}
+
+function validateGlobalAccess(where: string, global: GlobalConfig): string[] {
+  if (!global.access) return []
+  const ops = ['read', 'update'] as const
+  const issues: string[] = []
+  for (const op of ops) {
+    const fn = global.access[op]
     if (fn !== undefined && typeof fn !== 'function') {
       issues.push(`${where}: access.${op} must be a function.`)
     }

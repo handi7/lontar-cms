@@ -28,6 +28,8 @@ export const fakeAdapter: DatabaseAdapter = {
   create: noDatabase,
   update: noDatabase,
   delete: noDatabase,
+  findGlobal: noDatabase,
+  updateGlobal: noDatabase,
   toSchemaFile: noDatabase,
   migrate: noDatabase,
 }

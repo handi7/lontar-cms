@@ -16,6 +16,8 @@ import type {
   DateField,
   EmailField,
   Field,
+  Fields,
+  GlobalConfig,
   NumberField,
   SelectField,
   SlugField,
@@ -95,17 +97,25 @@ export type DynamicTable = MySqlTable & {
   [field: string]: AnyMySqlColumn
 }
 
-export function collectionToTable(collection: CollectionConfig): DynamicTable {
+function createTable(slug: string, fields: Fields): DynamicTable {
   const columns: Record<string, MySqlColumnBuilder> = {
     id: int('id').autoincrement().primaryKey(),
   }
 
-  for (const [name, field] of Object.entries(collection.fields)) {
+  for (const [name, field] of Object.entries(fields)) {
     columns[name] = fieldToColumn(name, field)
   }
 
   columns.createdAt = timestamp('createdAt').defaultNow().notNull()
   columns.updatedAt = timestamp('updatedAt').defaultNow().onUpdateNow().notNull()
 
-  return mysqlTable(collection.slug, columns) as unknown as DynamicTable
+  return mysqlTable(slug, columns) as unknown as DynamicTable
+}
+
+export function collectionToTable(collection: CollectionConfig): DynamicTable {
+  return createTable(collection.slug, collection.fields)
+}
+
+export function globalToTable(global: GlobalConfig): DynamicTable {
+  return createTable(global.slug, global.fields)
 }

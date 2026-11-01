@@ -67,6 +67,8 @@ function createMockAdapter(): DatabaseAdapter {
       }
       return Promise.resolve(null)
     }),
+    findGlobal: vi.fn().mockResolvedValue(null),
+    updateGlobal: vi.fn().mockResolvedValue(null),
     toSchemaFile: vi.fn().mockReturnValue(''),
     migrate: vi.fn().mockResolvedValue(undefined),
   }

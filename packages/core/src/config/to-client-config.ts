@@ -6,6 +6,7 @@ import {
   type ClientDateField,
   type ClientEmailField,
   type ClientField,
+  type ClientGlobal,
   type ClientNumberField,
   type ClientSelectField,
   type ClientSelectOption,
@@ -27,7 +28,7 @@ import type {
   TextField,
 } from '../fields/types'
 import { humanize } from '../utils/humanize'
-import type { CollectionConfig, Config } from './types'
+import type { CollectionConfig, Config, GlobalConfig } from './types'
 
 const MAX_DEFAULT_COLUMNS = 4
 
@@ -118,6 +119,16 @@ export function toClientConfig(config: Config): ClientConfig {
   return {
     version: CLIENT_CONFIG_VERSION,
     collections: config.collections.map(toClientCollection),
+    globals: (config.globals ?? []).map(toClientGlobal),
+  }
+}
+
+export function toClientGlobal(global: GlobalConfig): ClientGlobal {
+  const fields = Object.entries(global.fields).map(([name, field]) => clientField(name, field))
+  return {
+    slug: global.slug,
+    label: global.label ?? humanize(global.slug),
+    fields,
   }
 }
 

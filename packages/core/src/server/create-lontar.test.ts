@@ -77,6 +77,8 @@ const adapter: DatabaseAdapter = {
   create: mockCreate,
   update: mockUpdate,
   delete: mockDelete,
+  findGlobal: vi.fn().mockResolvedValue(null),
+  updateGlobal: vi.fn().mockResolvedValue(null),
   toSchemaFile: vi.fn().mockReturnValue(''),
   migrate: vi.fn().mockResolvedValue(undefined),
 }

@@ -1,5 +1,5 @@
 import type { SystemFields } from '../client/system-fields'
-import type { CollectionConfig, Config } from '../config/types'
+import type { CollectionConfig, Config, GlobalConfig } from '../config/types'
 import type { SortItem, Where } from '../query/types'
 
 /** Field values keyed by field name, as written by create and update. */
@@ -53,6 +53,9 @@ export interface DatabaseAdapter {
     data: DocumentData
   }): Promise<StoredDoc | null>
   delete(args: { collection: CollectionConfig; id: number }): Promise<StoredDoc | null>
+
+  findGlobal(args: { global: GlobalConfig }): Promise<StoredDoc | null>
+  updateGlobal(args: { global: GlobalConfig; data: DocumentData }): Promise<StoredDoc>
 
   // Build-time: called only by the CLI, never during a request.
   toSchemaFile(config: Config): string

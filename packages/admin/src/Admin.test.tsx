@@ -17,6 +17,16 @@ const mockConfig: ClientConfig = {
       ],
     },
   ],
+  globals: [
+    {
+      slug: 'header',
+      label: 'Site Header',
+      fields: [
+        { name: 'siteTitle', label: 'Site Title', type: 'text', required: true },
+        { name: 'announcement', label: 'Announcement', type: 'text', required: false },
+      ],
+    },
+  ],
 }
 
 const mockAuthUser = {
@@ -174,6 +184,7 @@ describe('Admin SPA', () => {
           ],
         },
       ],
+      globals: [],
     }
 
     const mockArticles = [
@@ -640,6 +651,66 @@ describe('Admin SPA', () => {
 
       await waitFor(() => {
         expect(screen.getByRole('heading', { name: /sign in to admin/i })).toBeTruthy()
+      })
+    })
+
+    it('renders globals navigation and handles global form updates', async () => {
+      let savedData: Record<string, unknown> = {
+        id: 1,
+        siteTitle: 'Initial Title',
+        announcement: 'Hello World',
+        createdAt: '2026-11-01T00:00:00.000Z',
+        updatedAt: '2026-11-01T00:00:00.000Z',
+      }
+
+      vi.stubGlobal(
+        'fetch',
+        vi.fn().mockImplementation((url: string, init?: RequestInit) => {
+          if (url.includes('/_lontar/config')) {
+            return mockJsonResponse(mockConfig)
+          }
+          if (url.includes('/auth/get-session')) {
+            return mockJsonResponse({ user: mockAuthUser, session: mockAuthSession })
+          }
+          if (url.includes('/api/globals/header') && init?.method === 'POST') {
+            const body = JSON.parse(init.body as string) as Record<string, unknown>
+            savedData = {
+              ...savedData,
+              ...body,
+              updatedAt: '2026-11-01T01:00:00.000Z',
+            }
+            return mockJsonResponse(savedData)
+          }
+          if (url.includes('/api/globals/header')) {
+            return mockJsonResponse(savedData)
+          }
+          if (url.includes('/api/posts')) {
+            return mockJsonResponse({ docs: [], totalDocs: 0, limit: 10, page: 1, totalPages: 1 })
+          }
+          return Promise.reject(new Error(`Unhandled URL: ${url}`))
+        }),
+      )
+
+      const history = createMemoryHistory({ initialEntries: ['/admin/globals/header'] })
+      render(<Admin apiBase="/api" basePath="/admin" history={history} />)
+
+      await waitFor(() => {
+        expect(screen.getAllByText('Site Header').length).toBeGreaterThan(0)
+      })
+
+      const input = await screen.findByLabelText<HTMLInputElement>(/site title/i)
+      await waitFor(() => {
+        expect(input.value).toBe('Initial Title')
+      })
+
+      fireEvent.change(input, { target: { value: 'Updated Title' } })
+      expect(input.value).toBe('Updated Title')
+
+      const saveBtn = screen.getByRole('button', { name: /save changes/i })
+      fireEvent.click(saveBtn)
+
+      await waitFor(() => {
+        expect(screen.getByText(/changes saved successfully/i)).toBeTruthy()
       })
     })
   })

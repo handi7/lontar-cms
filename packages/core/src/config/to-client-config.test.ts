@@ -33,6 +33,7 @@ describe('toClientConfig', () => {
           ],
         },
       ],
+      globals: [],
     })
   })
 
@@ -240,5 +241,57 @@ describe('toClientConfig', () => {
     })
 
     expect(collection?.admin.defaultColumns).toEqual(['title', 'body'])
+  })
+
+  it('serializes globals stripping hooks and access control', () => {
+    const config = defineConfig({
+      secret: SECRET,
+      db: fakeAdapter,
+      collections: [],
+      globals: [
+        {
+          slug: 'header',
+          label: 'Site Header',
+          fields: {
+            title: f.text({ label: 'Header Title', required: true }),
+            sticky: f.checkbox(),
+          },
+          access: {
+            read: () => true,
+            update: () => false,
+          },
+          hooks: {
+            beforeChange: [({ data }) => data],
+          },
+        },
+        {
+          slug: 'footer',
+          fields: {
+            copyright: f.text(),
+          },
+        },
+      ],
+    })
+
+    const client = toClientConfig(config)
+    expect(client.globals).toStrictEqual([
+      {
+        slug: 'header',
+        label: 'Site Header',
+        fields: [
+          { name: 'title', type: 'text', label: 'Header Title', required: true },
+          { name: 'sticky', type: 'checkbox', label: 'Sticky', required: false },
+        ],
+      },
+      {
+        slug: 'footer',
+        label: 'Footer',
+        fields: [{ name: 'copyright', type: 'text', label: 'Copyright', required: false }],
+      },
+    ])
+
+    const json = JSON.stringify(client.globals)
+    expect(json).not.toContain('access')
+    expect(json).not.toContain('hooks')
   })
 })

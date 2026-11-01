@@ -9,6 +9,8 @@ const fakeAdapter: DatabaseAdapter = {
   create: () => Promise.reject(new Error('noop')),
   update: () => Promise.reject(new Error('noop')),
   delete: () => Promise.reject(new Error('noop')),
+  findGlobal: () => Promise.reject(new Error('noop')),
+  updateGlobal: () => Promise.reject(new Error('noop')),
   toSchemaFile: () => '',
   migrate: () => Promise.resolve(),
 }
@@ -165,5 +167,32 @@ describe('generateSchemaFile', () => {
     expect(output).toContain('export const verification = mysqlTable(')
     expect(output).toContain("emailVerified: boolean('email_verified').default(false).notNull(),")
     expect(output).toContain("index('session_userId_idx').on(table.userId)")
+  })
+
+  it('generates schema for globals', () => {
+    const config: Config = {
+      secret: 'test-secret',
+      db: fakeAdapter,
+      collections: [],
+      globals: [
+        {
+          slug: 'site-settings',
+          fields: {
+            siteTitle: { type: 'text', required: true },
+            maintenanceMode: { type: 'checkbox', defaultValue: false },
+          },
+        },
+      ],
+    }
+
+    const output = generateSchemaFile(config)
+    expect(output).toContain("export const siteSettings = mysqlTable('site-settings', {")
+    expect(output).toContain("id: int('id').autoincrement().primaryKey(),")
+    expect(output).toContain("siteTitle: varchar('siteTitle', { length: 255 }).notNull(),")
+    expect(output).toContain("maintenanceMode: boolean('maintenanceMode').default(false),")
+    expect(output).toContain("createdAt: timestamp('createdAt').defaultNow().notNull(),")
+    expect(output).toContain(
+      "updatedAt: timestamp('updatedAt').defaultNow().onUpdateNow().notNull(),",
+    )
   })
 })

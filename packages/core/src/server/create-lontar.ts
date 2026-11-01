@@ -4,6 +4,7 @@ import type { Auth, AuthSession, AuthUser, LontarVariables } from '../auth/types
 import { toClientConfig } from '../config/to-client-config'
 import type { Config } from '../config/types'
 import { registerCollectionRoutes } from './routes/collection'
+import { registerGlobalRoutes } from './routes/global'
 
 export interface CreateLontarOptions {
   basePath?: string
@@ -71,6 +72,9 @@ export function createLontar(config: Config, options: CreateLontarOptions = {}):
       session: c.get('session'),
     })
   })
+
+  // Global routes
+  registerGlobalRoutes(router, config)
 
   // Collection CRUD routes
   registerCollectionRoutes(router, config)

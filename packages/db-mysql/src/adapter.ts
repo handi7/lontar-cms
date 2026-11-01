@@ -24,8 +24,10 @@ import {
   type Config,
   type DatabaseAdapter,
   type DocumentData,
+  type Fields,
   type FilterOperator,
   type FindArgs,
+  type GlobalConfig,
   type PaginatedDocs,
   type SortItem,
   type StoredDoc,
@@ -33,7 +35,7 @@ import {
 } from '@lontar/core'
 import { authTables } from './schema/auth'
 import { generateSchemaFile } from './schema/generator'
-import { collectionToTable, type DynamicTable } from './schema/table'
+import { collectionToTable, globalToTable, type DynamicTable } from './schema/table'
 import type { AnyMySqlColumn } from 'drizzle-orm/mysql-core'
 
 export interface MysqlAdapterOptions {
@@ -79,11 +81,11 @@ function sanitizeFieldValue(
   return value
 }
 
-function sanitizeData(collection: CollectionConfig, data: DocumentData): DocumentData {
+function sanitizeData(schema: { fields: Fields }, data: DocumentData): DocumentData {
   const clean: DocumentData = {}
   for (const [key, value] of Object.entries(data)) {
     if (key !== 'id' && key !== 'createdAt' && key !== 'updatedAt') {
-      clean[key] = sanitizeFieldValue(collection.fields[key], value)
+      clean[key] = sanitizeFieldValue(schema.fields[key], value)
     }
   }
   return clean
@@ -400,6 +402,50 @@ export function mysqlAdapter(options: MysqlAdapterOptions): MysqlAdapter {
     }
   }
 
+  function getGlobalTable(global: GlobalConfig): DynamicTable {
+    let table = tableCache.get(global.slug)
+    if (!table) {
+      table = globalToTable(global)
+      tableCache.set(global.slug, table)
+    }
+    return table
+  }
+
+  async function findGlobal({ global }: { global: GlobalConfig }): Promise<StoredDoc | null> {
+    const table = getGlobalTable(global)
+    const [row] = (await db.select().from(table).limit(1)) as [Record<string, unknown> | undefined]
+    return row ? toStoredDoc(row) : null
+  }
+
+  async function updateGlobal({
+    global,
+    data,
+  }: {
+    global: GlobalConfig
+    data: DocumentData
+  }): Promise<StoredDoc> {
+    const table = getGlobalTable(global)
+    const existing = await findGlobal({ global })
+    const values = sanitizeData(global, data)
+
+    if (existing) {
+      const setValues = values as unknown as UpdateSetValues
+      await db
+        .update(table)
+        .set(setValues)
+        .where(eq(table.id, Number(existing.id)))
+    } else {
+      const insertValues = values as unknown as InsertValues
+      await db.insert(table).values(insertValues)
+    }
+
+    const updated = await findGlobal({ global })
+    if (!updated) {
+      throw new Error(`Failed to retrieve global "${global.slug}".`)
+    }
+    return updated
+  }
+
   return {
     name: 'mysql',
     authAdapter,
@@ -408,6 +454,8 @@ export function mysqlAdapter(options: MysqlAdapterOptions): MysqlAdapter {
     create,
     update,
     delete: remove,
+    findGlobal,
+    updateGlobal,
     toSchemaFile(config: Config): string {
       return generateSchemaFile(config)
     },
