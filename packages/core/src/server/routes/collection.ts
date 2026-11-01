@@ -6,6 +6,7 @@ import { toClientCollection } from '../../config/to-client-config'
 import type { AccessArgs, AccessFunction, CollectionConfig, Config } from '../../config/types'
 import type { DatabaseAdapter, DocumentData } from '../../database/adapter'
 import { runAfterChangeHooks, runAfterReadHooks, runBeforeChangeHooks } from '../../hooks'
+import { parseDepth, populateDoc, populateDocs } from '../../populate'
 import { parseWhereFromSearchParams } from '../../query/parser'
 
 type LontarEnv = { Variables: LontarVariables }
@@ -45,11 +46,7 @@ function getErrorMessage(err: unknown, fallback: string): string {
   return err instanceof Error ? err.message : fallback
 }
 
-async function handleFind(
-  c: Context<LontarEnv>,
-  collection: CollectionConfig,
-  db: DatabaseAdapter,
-) {
+async function handleFind(c: Context<LontarEnv>, collection: CollectionConfig, config: Config) {
   const user = c.get('user') ?? null
   const allowed = await checkAccess(collection.access?.read, { user })
   if (!allowed) {
@@ -59,22 +56,28 @@ async function handleFind(
   const page = Math.max(1, parseInt(c.req.query('page') ?? '1', 10) || 1)
   const limit = Math.max(1, parseInt(c.req.query('limit') ?? '10', 10) || 10)
   const sort = c.req.query('sort')
+  const depth = parseDepth(c.req.query('depth'))
 
   const url = new URL(c.req.raw.url)
   const where = parseWhereFromSearchParams(url.searchParams)
 
-  const result = await db.find({ collection, limit, page, sort, where })
+  const result = await config.db.find({ collection, limit, page, sort, where })
   const docs = await Promise.all(
     result.docs.map((doc) => runAfterReadHooks({ collection, doc, req: c.req.raw })),
   )
-  return c.json({ ...result, docs }, 200)
+  const populated = await populateDocs({
+    docs,
+    collection,
+    depth,
+    collections: config.collections,
+    db: config.db,
+    user,
+    req: c.req.raw,
+  })
+  return c.json({ ...result, docs: populated }, 200)
 }
 
-async function handleFindByID(
-  c: Context<LontarEnv>,
-  collection: CollectionConfig,
-  db: DatabaseAdapter,
-) {
+async function handleFindByID(c: Context<LontarEnv>, collection: CollectionConfig, config: Config) {
   const user = c.get('user') ?? null
   const id = parseId(c.req.param('id'))
   const allowed = await checkAccess(collection.access?.read, {
@@ -89,12 +92,21 @@ async function handleFindByID(
     return c.json({ error: 'Invalid document ID' }, 400)
   }
 
-  const doc = await db.findByID({ collection, id })
+  const depth = parseDepth(c.req.query('depth'))
+  const doc = await config.db.findByID({ collection, id })
   if (!doc) {
     return c.json({ error: `Document with ID ${id} not found` }, 404)
   }
   const transformed = await runAfterReadHooks({ collection, doc, req: c.req.raw })
-  return c.json(transformed, 200)
+  const populated = await populateDoc(transformed, {
+    collection,
+    depth,
+    collections: config.collections,
+    db: config.db,
+    user,
+    req: c.req.raw,
+  })
+  return c.json(populated, 200)
 }
 
 async function executeCreate(args: {
@@ -126,7 +138,7 @@ async function executeCreate(args: {
 async function handleCreate(
   c: Context<LontarEnv>,
   collection: CollectionConfig,
-  db: DatabaseAdapter,
+  config: Config,
   schema: z.ZodType,
 ) {
   const user = c.get('user') ?? null
@@ -152,13 +164,22 @@ async function handleCreate(
   const result = await executeCreate({
     collection,
     data: parsed.data as DocumentData,
-    db,
+    db: config.db,
     req: c.req.raw,
   })
-  if (result.error) {
-    return c.json({ error: result.error }, 400)
+  if (result.error || !result.doc) {
+    return c.json({ error: result.error ?? 'Create operation failed' }, 400)
   }
-  return c.json(result.doc, 201)
+  const depth = parseDepth(c.req.query('depth'))
+  const populated = await populateDoc(result.doc, {
+    collection,
+    depth,
+    collections: config.collections,
+    db: config.db,
+    user,
+    req: c.req.raw,
+  })
+  return c.json(populated, 201)
 }
 
 async function executeUpdate(args: {
@@ -194,10 +215,34 @@ async function executeUpdate(args: {
   }
 }
 
+function validateUpdatePayload(
+  id: number | null,
+  body: unknown,
+  schema: z.ZodType,
+):
+  | { success: false; status: 400; body: { error: string; issues?: z.ZodIssue[] } }
+  | { success: true; data: DocumentData } {
+  if (id === null) {
+    return { success: false, status: 400, body: { error: 'Invalid document ID' } }
+  }
+  if (body === undefined) {
+    return { success: false, status: 400, body: { error: 'Invalid JSON body' } }
+  }
+  const parsed = schema.safeParse(body)
+  if (!parsed.success) {
+    return {
+      success: false,
+      status: 400,
+      body: { error: 'Validation failed', issues: parsed.error.issues },
+    }
+  }
+  return { success: true, data: parsed.data as DocumentData }
+}
+
 async function handleUpdate(
   c: Context<LontarEnv>,
   collection: CollectionConfig,
-  db: DatabaseAdapter,
+  config: Config,
   partialSchema: z.ZodType,
 ) {
   const user = c.get('user') ?? null
@@ -213,35 +258,37 @@ async function handleUpdate(
     return accessDenied(c, user)
   }
 
-  if (id === null) {
-    return c.json({ error: 'Invalid document ID' }, 400)
-  }
-  if (body === undefined) {
-    return c.json({ error: 'Invalid JSON body' }, 400)
+  const validated = validateUpdatePayload(id, body, partialSchema)
+  if (!validated.success) {
+    return c.json(validated.body, validated.status)
   }
 
-  const parsed = partialSchema.safeParse(body)
-  if (!parsed.success) {
-    return c.json({ error: 'Validation failed', issues: parsed.error.issues }, 400)
-  }
-
-  const originalDoc = await db.findByID({ collection, id })
+  const originalDoc = await config.db.findByID({ collection, id: id as number })
   if (!originalDoc) {
     return c.json({ error: `Document with ID ${id} not found` }, 404)
   }
 
   const result = await executeUpdate({
     collection,
-    data: parsed.data as DocumentData,
-    db,
-    id,
+    data: validated.data,
+    db: config.db,
+    id: id as number,
     originalDoc,
     req: c.req.raw,
   })
-  if (result.error) {
-    return c.json({ error: result.error }, 400)
+  if (result.error || !result.doc) {
+    return c.json({ error: result.error ?? 'Update operation failed' }, 400)
   }
-  return c.json(result.doc, 200)
+  const depth = parseDepth(c.req.query('depth'))
+  const populated = await populateDoc(result.doc, {
+    collection,
+    depth,
+    collections: config.collections,
+    db: config.db,
+    user,
+    req: c.req.raw,
+  })
+  return c.json(populated, 200)
 }
 
 async function handleDelete(
@@ -283,27 +330,27 @@ export function registerCollectionRoutes(router: Hono<LontarEnv>, config: Config
   router.get('/:collection', (c) => {
     const col = findCol(c)
     if (!col) return c.json({ error: `Collection "${c.req.param('collection')}" not found` }, 404)
-    return handleFind(c, col, config.db)
+    return handleFind(c, col, config)
   })
 
   router.get('/:collection/:id', (c) => {
     const col = findCol(c)
     if (!col) return c.json({ error: `Collection "${c.req.param('collection')}" not found` }, 404)
-    return handleFindByID(c, col, config.db)
+    return handleFindByID(c, col, config)
   })
 
   router.post('/:collection', (c) => {
     const col = findCol(c)
     if (!col) return c.json({ error: `Collection "${c.req.param('collection')}" not found` }, 404)
     const schema = clientFieldsToZod(toClientCollection(col).fields)
-    return handleCreate(c, col, config.db, schema)
+    return handleCreate(c, col, config, schema)
   })
 
   router.patch('/:collection/:id', (c) => {
     const col = findCol(c)
     if (!col) return c.json({ error: `Collection "${c.req.param('collection')}" not found` }, 404)
     const partialSchema = clientFieldsToZod(toClientCollection(col).fields).partial()
-    return handleUpdate(c, col, config.db, partialSchema)
+    return handleUpdate(c, col, config, partialSchema)
   })
 
   router.delete('/:collection/:id', (c) => {

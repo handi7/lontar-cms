@@ -108,7 +108,7 @@ prettier on staged files only). CI (`.github/workflows/ci.yml`) runs
 - [ ] **M4: Rich Text & Relationships** (Current)
   - [x] #22 `fields: implement richText field with Tiptap editor`
   - [x] #23 `fields: implement relationship field (single and hasMany)`
-  - [ ] #24 `api: support depth query param to populate relationships in REST API`
+  - [x] #24 `api: support depth query param to populate relationships in REST API`
   - [ ] #25 `admin: relationship picker component in edit forms`
 - [ ] **M5: Uploads, Typegen & v0.1 Release**
   - [ ] #26 `uploads: implement storage adapters (local & S3) and Sharp image resizing`

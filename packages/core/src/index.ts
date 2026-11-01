@@ -7,6 +7,7 @@ export { createLontar, type CreateLontarOptions, type LontarApp } from './server
 export { parseSort, parseWhere, parseWhereFromSearchParams } from './query'
 export type { FieldFilter, FilterOperator, SortItem, Where, WhereClause } from './query'
 export { runAfterChangeHooks, runAfterReadHooks, runBeforeChangeHooks } from './hooks'
+export { parseDepth, populateDoc, populateDocs, type PopulateOptions } from './populate'
 export type {
   AfterChangeHook,
   AfterChangeHookArgs,
