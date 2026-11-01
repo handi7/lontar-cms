@@ -6,7 +6,6 @@ import type {
   ClientEmailField,
   ClientField,
   ClientNumberField,
-  ClientRelationshipField,
   ClientRichTextField,
   ClientSelectField,
   ClientSlugField,
@@ -14,6 +13,7 @@ import type {
   ClientTextField,
 } from '@lontar/core/client'
 import { RichTextEditor } from './RichTextEditor'
+import { RelationshipPicker } from './RelationshipPicker'
 
 export interface FieldRendererProps {
   field: ClientField
@@ -259,48 +259,6 @@ function RichTextFieldInput({
   )
 }
 
-function parseRelationshipMany(val: unknown): number[] {
-  if (Array.isArray(val)) return val as number[]
-  if (typeof val === 'string' && val.trim().length > 0) {
-    return val
-      .split(',')
-      .map((s) => Number(s.trim()))
-      .filter((n) => !Number.isNaN(n))
-  }
-  return []
-}
-
-function RelationshipFieldInput({
-  field,
-  register,
-}: {
-  field: ClientRelationshipField
-  register: UseFormRegister<Record<string, unknown>>
-}) {
-  if (field.hasMany) {
-    return (
-      <input
-        id={field.name}
-        type="text"
-        className="lontar-input"
-        placeholder="Comma-separated IDs (e.g. 1, 2)"
-        {...register(field.name, { setValueAs: parseRelationshipMany })}
-      />
-    )
-  }
-
-  return (
-    <input
-      id={field.name}
-      type="number"
-      className="lontar-input"
-      placeholder={`Select ${field.relationTo} ID`}
-      step="1"
-      {...register(field.name, { setValueAs: parseNumberValue })}
-    />
-  )
-}
-
 function StandardFieldInput({
   field,
   register,
@@ -358,7 +316,9 @@ function FieldInput({
     )
   }
   if (field.type === 'relationship') {
-    return <RelationshipFieldInput field={field} register={register} />
+    return (
+      <RelationshipPicker field={field} register={register} setValue={setValue} watch={watch} />
+    )
   }
   return <StandardFieldInput field={field} register={register} />
 }
