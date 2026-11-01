@@ -5,6 +5,7 @@ import type {
   ClientCheckboxField,
   ClientDateField,
   ClientEmailField,
+  ClientRichTextField,
   ClientSelectField,
   ClientSlugField,
   ClientTextareaField,
@@ -288,5 +289,37 @@ describe('FieldRenderer', () => {
     expect(dateInput.type).toBe('datetime-local')
     expect(dateInput.value).toBe('2026-11-01T10:00')
     expect(screen.getByText('Publish Date')).toBeTruthy()
+  })
+
+  it('renders richText editor with toolbar buttons and content area', () => {
+    const field: ClientRichTextField = {
+      name: 'body',
+      type: 'richText',
+      label: 'Article Body',
+      required: true,
+    }
+
+    render(
+      <FormWrapper
+        defaultValues={{
+          body: {
+            type: 'doc',
+            content: [{ type: 'paragraph', content: [{ type: 'text', text: 'Hello Tiptap' }] }],
+          },
+        }}
+      >
+        {({ register, setValue, watch }) => (
+          <FieldRenderer field={field} register={register} setValue={setValue} watch={watch} />
+        )}
+      </FormWrapper>,
+    )
+
+    expect(screen.getByText('Article Body')).toBeTruthy()
+    expect(screen.getByTestId('richtext-body')).toBeTruthy()
+    expect(screen.getByTestId('richtext-bold')).toBeTruthy()
+    expect(screen.getByTestId('richtext-italic')).toBeTruthy()
+    expect(screen.getByTestId('richtext-h1')).toBeTruthy()
+    expect(screen.getByTestId('richtext-bulletList')).toBeTruthy()
+    expect(screen.getByTestId('richtext-link')).toBeTruthy()
   })
 })

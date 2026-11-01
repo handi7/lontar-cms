@@ -21,20 +21,12 @@ function cssDts(): Plugin {
 export default defineConfig({
   plugins: [react(), dts({ entryRoot: 'src', exclude: ['**/*.test.*'] }), cssDts()],
   resolve: {
-    alias: {
-      'use-sync-external-store/shim/with-selector': resolve(
-        import.meta.dirname,
-        'src/shims/use-sync-external-store.ts',
-      ),
-      'use-sync-external-store/shim': resolve(
-        import.meta.dirname,
-        'src/shims/use-sync-external-store.ts',
-      ),
-      'use-sync-external-store': resolve(
-        import.meta.dirname,
-        'src/shims/use-sync-external-store.ts',
-      ),
-    },
+    alias: [
+      {
+        find: /^use-sync-external-store(\/.*)?$/,
+        replacement: resolve(import.meta.dirname, 'src/shims/use-sync-external-store.ts'),
+      },
+    ],
   },
   build: {
     lib: {

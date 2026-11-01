@@ -45,6 +45,7 @@ export type {
   Fields,
   FieldType,
   NumberField,
+  RichTextField,
   SelectField,
   SelectOption,
   SlugField,

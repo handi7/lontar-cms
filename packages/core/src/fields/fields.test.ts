@@ -45,6 +45,14 @@ describe('fields', () => {
       type: 'date',
       required: true,
     })
+    expect(f.richText({ required: true })).toStrictEqual({
+      type: 'richText',
+      required: true,
+    })
+    expect(f.richText({ defaultValue: { type: 'doc', content: [] } })).toStrictEqual({
+      type: 'richText',
+      defaultValue: { type: 'doc', content: [] },
+    })
   })
 })
 
@@ -108,6 +116,8 @@ describe('InferDoc', () => {
         slug: f.slug({ from: 'title', unique: true, required: true }),
         summary: f.textarea(),
         contactEmail: f.email(),
+        content: f.richText({ required: true }),
+        notes: f.richText(),
       },
     })
 
@@ -119,6 +129,8 @@ describe('InferDoc', () => {
       slug: string
       summary: string | null
       contactEmail: string | null
+      content: Record<string, unknown>
+      notes: Record<string, unknown> | null
     }>()
   })
 })

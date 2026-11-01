@@ -5,6 +5,7 @@ import type {
   ClientEmailField,
   ClientField,
   ClientNumberField,
+  ClientRichTextField,
   ClientSelectField,
   ClientSlugField,
   ClientTextareaField,
@@ -83,6 +84,15 @@ const zodByType = {
       return dateSchema
     }
     return dateSchema.or(z.literal(''))
+  },
+  richText: (field: ClientRichTextField) => {
+    const base = z.record(z.string(), z.unknown())
+    if (field.required) {
+      return base.refine((val) => val && Object.keys(val).length > 0, {
+        message: 'Rich text content is required',
+      })
+    }
+    return base
   },
 } satisfies { [K in ClientField['type']]: (field: Extract<ClientField, { type: K }>) => z.ZodType }
 

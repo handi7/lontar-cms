@@ -7,6 +7,7 @@ import type {
   Field,
   GlobalConfig,
   NumberField,
+  RichTextField,
   SelectField,
   SlugField,
   TextareaField,
@@ -112,6 +113,17 @@ function renderDateField(name: string, field: DateField): string {
   return code
 }
 
+function renderRichTextField(name: string, field: RichTextField): string {
+  let code = `json('${name}')`
+  if (field.defaultValue !== undefined) {
+    code += `.default(${JSON.stringify(field.defaultValue)})`
+  }
+  if (field.required) {
+    code += '.notNull()'
+  }
+  return code
+}
+
 function renderField(name: string, field: Field): string {
   if (field.type === 'text') return renderTextField(name, field)
   if (field.type === 'number') return renderNumberField(name, field)
@@ -121,29 +133,28 @@ function renderField(name: string, field: Field): string {
   if (field.type === 'checkbox') return renderCheckboxField(name, field)
   if (field.type === 'select') return renderSelectField(name, field)
   if (field.type === 'date') return renderDateField(name, field)
+  if (field.type === 'richText') return renderRichTextField(name, field)
   throw new Error(`Unsupported field type: ${(field as Field).type}`)
 }
 
+const FIELD_TYPE_IMPORTS: Record<string, string> = {
+  text: 'varchar',
+  email: 'varchar',
+  slug: 'varchar',
+  select: 'varchar',
+  textarea: 'text',
+  checkbox: 'boolean',
+  date: 'timestamp',
+  richText: 'json',
+}
+
 function collectFieldImports(field: Field, imports: Set<string>): void {
-  switch (field.type) {
-    case 'text':
-    case 'email':
-    case 'slug':
-    case 'select':
-      imports.add('varchar')
-      break
-    case 'textarea':
-      imports.add('text')
-      break
-    case 'number':
-      if (!field.integer) imports.add('double')
-      break
-    case 'checkbox':
-      imports.add('boolean')
-      break
-    case 'date':
-      imports.add('timestamp')
-      break
+  const imp = FIELD_TYPE_IMPORTS[field.type]
+  if (imp) {
+    imports.add(imp)
+  }
+  if (field.type === 'number' && !field.integer) {
+    imports.add('double')
   }
 }
 

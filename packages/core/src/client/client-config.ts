@@ -90,6 +90,11 @@ export interface ClientDateField extends ClientFieldBase {
   defaultValue?: string
 }
 
+export interface ClientRichTextField extends ClientFieldBase {
+  type: 'richText'
+  defaultValue?: Record<string, unknown>
+}
+
 export type ClientField =
   | ClientTextField
   | ClientNumberField
@@ -99,3 +104,4 @@ export type ClientField =
   | ClientCheckboxField
   | ClientSelectField
   | ClientDateField
+  | ClientRichTextField

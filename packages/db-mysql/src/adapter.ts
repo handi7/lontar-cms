@@ -66,18 +66,30 @@ function toStoredDoc(row: Record<string, unknown>): StoredDoc {
   }
 }
 
+function sanitizeDate(value: unknown): unknown {
+  if (value === '' || value === null || value === undefined) return null
+  if (typeof value === 'string') return new Date(value)
+  return value
+}
+
+function sanitizeRichText(value: unknown): unknown {
+  if (value === '' || value === null || value === undefined) return null
+  if (typeof value === 'string') {
+    try {
+      return JSON.parse(value)
+    } catch {
+      return null
+    }
+  }
+  return value
+}
+
 function sanitizeFieldValue(
   field: CollectionConfig['fields'][string] | undefined,
   value: unknown,
 ): unknown {
-  if (field?.type === 'date') {
-    if (value === '' || value === null || value === undefined) {
-      return null
-    }
-    if (typeof value === 'string') {
-      return new Date(value)
-    }
-  }
+  if (field?.type === 'date') return sanitizeDate(value)
+  if (field?.type === 'richText') return sanitizeRichText(value)
   return value
 }
 

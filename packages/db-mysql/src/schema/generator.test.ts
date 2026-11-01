@@ -153,6 +153,33 @@ describe('generateSchemaFile', () => {
     )
   })
 
+  it('generates schema for richText fields with json column import', () => {
+    const posts: CollectionConfig = {
+      slug: 'posts',
+      fields: {
+        content: {
+          type: 'richText',
+          required: true,
+          defaultValue: { type: 'doc', content: [] },
+        },
+      },
+    }
+
+    const config: Config = {
+      secret: 'test-secret',
+      db: fakeAdapter,
+      collections: [posts],
+    }
+
+    const output = generateSchemaFile(config)
+    expect(output).toContain(
+      "import { boolean, index, int, json, mysqlTable, text, timestamp, varchar } from 'drizzle-orm/mysql-core'",
+    )
+    expect(output).toContain(
+      'content: json(\'content\').default({"type":"doc","content":[]}).notNull(),',
+    )
+  })
+
   it('generates schema for auth tables (user, session, account, verification)', () => {
     const config: Config = {
       secret: 'test-secret',

@@ -6,6 +6,7 @@ import type {
   ClientDateField,
   ClientEmailField,
   ClientNumberField,
+  ClientRichTextField,
   ClientSelectField,
   ClientSlugField,
   ClientTextareaField,
@@ -99,6 +100,17 @@ function date(overrides: Partial<ClientDateField> = {}) {
     name: 'publishedAt',
     type: 'date',
     label: 'Published At',
+    required: false,
+    ...overrides,
+  }
+  return clientFieldToZod(field)
+}
+
+function richText(overrides: Partial<ClientRichTextField> = {}) {
+  const field: ClientRichTextField = {
+    name: 'content',
+    type: 'richText',
+    label: 'Content',
     required: false,
     ...overrides,
   }
@@ -302,6 +314,31 @@ describe('clientFieldToZod', () => {
     it('rejects invalid date strings when optional and non-empty', () => {
       const schema = date()
       expect(schema.safeParse('invalid-date').success).toBe(false)
+    })
+  })
+
+  describe('richText', () => {
+    it('requires a non-empty object when required', () => {
+      const schema = richText({ required: true })
+      expect(schema.safeParse({ type: 'doc', content: [] }).success).toBe(true)
+      expect(schema.safeParse({}).success).toBe(false)
+      expect(schema.safeParse(null).success).toBe(false)
+      expect(schema.safeParse(undefined).success).toBe(false)
+      expect(schema.safeParse('string').success).toBe(false)
+      expect(schema.safeParse(123).success).toBe(false)
+    })
+
+    it('accepts valid object, null, and undefined when optional', () => {
+      const schema = richText()
+      expect(schema.safeParse({ type: 'doc' }).success).toBe(true)
+      expect(schema.safeParse(null).success).toBe(true)
+      expect(schema.safeParse(undefined).success).toBe(true)
+    })
+
+    it('rejects primitives when optional', () => {
+      const schema = richText()
+      expect(schema.safeParse('not an object').success).toBe(false)
+      expect(schema.safeParse(123).success).toBe(false)
     })
   })
 })

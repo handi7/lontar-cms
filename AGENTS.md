@@ -106,7 +106,7 @@ prettier on staged files only). CI (`.github/workflows/ci.yml`) runs
   - [x] #20 `hooks: implement collection hooks (beforeChange, afterChange, afterRead)`
   - [x] #21 `globals: support single-document globals in config, DB, REST API, and admin`
 - [ ] **M4: Rich Text & Relationships** (Current)
-  - [ ] #22 `fields: implement richText field with Tiptap editor`
+  - [x] #22 `fields: implement richText field with Tiptap editor`
   - [ ] #23 `fields: implement relationship field (single and hasMany)`
   - [ ] #24 `api: support depth query param to populate relationships in REST API`
   - [ ] #25 `admin: relationship picker component in edit forms`

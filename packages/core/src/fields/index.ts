@@ -3,6 +3,7 @@ import type {
   DateField,
   EmailField,
   NumberField,
+  RichTextField,
   SelectField,
   SlugField,
   TextareaField,
@@ -47,4 +48,8 @@ function date<const O extends Options<DateField>>(options?: O): O & { type: 'dat
   return { ...(options as O), type: 'date' }
 }
 
-export const fields = { text, number, textarea, email, slug, checkbox, select, date }
+function richText<const O extends Options<RichTextField>>(options?: O): O & { type: 'richText' } {
+  return { ...(options as O), type: 'richText' }
+}
+
+export const fields = { text, number, textarea, email, slug, checkbox, select, date, richText }
