@@ -110,4 +110,84 @@ describe('defineConfig', () => {
     expect(run).toThrow(LontarConfigError)
     expect(run).toThrow(/secret[\s\S]*kebab-case[\s\S]*reserved for a system field/)
   })
+
+  it('validates globals configuration', () => {
+    const valid = defineConfig({
+      secret: SECRET,
+      db: fakeAdapter,
+      collections: [notes()],
+      globals: [
+        {
+          slug: 'header',
+          fields: { title: f.text() },
+          access: { read: () => true, update: () => true },
+        },
+      ],
+    })
+    expect(valid.globals).toBeDefined()
+
+    expect(() =>
+      defineConfig({
+        secret: SECRET,
+        db: fakeAdapter,
+        collections: [notes()],
+        globals: [
+          { slug: 'header', fields: { title: f.text() } },
+          { slug: 'header', fields: { title: f.text() } },
+        ],
+      }),
+    ).toThrow('Global slug "header" is used twice.')
+
+    expect(() =>
+      defineConfig({
+        secret: SECRET,
+        db: fakeAdapter,
+        collections: [notes({ slug: 'header' })],
+        globals: [{ slug: 'header', fields: { title: f.text() } }],
+      }),
+    ).toThrow('Global slug "header" collides with a collection slug.')
+
+    expect(() =>
+      defineConfig({
+        secret: SECRET,
+        db: fakeAdapter,
+        collections: [notes()],
+        globals: [{ slug: 'Header', fields: { title: f.text() } }],
+      }),
+    ).toThrow('must be kebab-case')
+
+    expect(() =>
+      defineConfig({
+        secret: SECRET,
+        db: fakeAdapter,
+        collections: [notes()],
+        globals: [{ slug: 'globals', fields: { title: f.text() } }],
+      }),
+    ).toThrow('Global slug "globals" is reserved.')
+
+    expect(() =>
+      defineConfig({
+        secret: SECRET,
+        db: fakeAdapter,
+        collections: [notes()],
+        globals: [{ slug: 'header', fields: { id: f.text() } }],
+      }),
+    ).toThrow('reserved for a system field')
+
+    expect(() =>
+      defineConfig({
+        secret: SECRET,
+        db: fakeAdapter,
+        collections: [notes()],
+        globals: [
+          {
+            slug: 'header',
+            fields: { title: f.text() },
+            // @ts-expect-error invalid access function
+            access: { read: 'invalid' },
+          },
+        ],
+      }),
+    ).toThrow('access.read must be a function')
+  })
 })

@@ -2,7 +2,12 @@ import type { AuthUser } from '../auth/types'
 import type { SystemFieldName } from '../client/system-fields'
 import type { DatabaseAdapter } from '../database/adapter'
 import type { Fields } from '../fields/types'
-import type { CollectionHooks } from '../hooks/types'
+import type {
+  AfterChangeHook,
+  AfterReadHook,
+  BeforeChangeHook,
+  CollectionHooks,
+} from '../hooks/types'
 
 export interface AccessArgs<TData = unknown> {
   user: AuthUser | null
@@ -19,6 +24,25 @@ export interface CollectionAccess {
   create?: AccessFunction
   update?: AccessFunction
   delete?: AccessFunction
+}
+
+export interface GlobalAccess {
+  read?: AccessFunction
+  update?: AccessFunction
+}
+
+export interface GlobalHooks {
+  beforeChange?: BeforeChangeHook[]
+  afterChange?: AfterChangeHook[]
+  afterRead?: AfterReadHook[]
+}
+
+export interface GlobalConfig<F extends Fields = Fields> {
+  slug: string
+  label?: string
+  access?: GlobalAccess
+  hooks?: GlobalHooks
+  fields: F
 }
 
 /**
@@ -52,4 +76,5 @@ export interface Config {
   secret: string
   db: DatabaseAdapter
   collections: readonly CollectionConfig[]
+  globals?: readonly GlobalConfig[]
 }

@@ -9,6 +9,7 @@ export type {
   ClientDateField,
   ClientEmailField,
   ClientField,
+  ClientGlobal,
   ClientNumberField,
   ClientSelectField,
   ClientSelectOption,

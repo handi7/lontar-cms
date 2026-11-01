@@ -59,6 +59,8 @@ function createMockAdapter() {
     })
 
   const mockDelete = vi.fn().mockResolvedValue(null)
+  const mockFindGlobal = vi.fn().mockResolvedValue(null)
+  const mockUpdateGlobal = vi.fn().mockResolvedValue(null)
   const mockToSchemaFile = vi.fn().mockReturnValue('')
   const mockMigrate = vi.fn().mockResolvedValue(undefined)
 
@@ -69,6 +71,8 @@ function createMockAdapter() {
     create: mockCreate,
     update: mockUpdate,
     delete: mockDelete,
+    findGlobal: mockFindGlobal,
+    updateGlobal: mockUpdateGlobal,
     toSchemaFile: mockToSchemaFile,
     migrate: mockMigrate,
   }

@@ -1,8 +1,8 @@
 import { describe, expect, it } from 'vitest'
 import type { AnyMySqlColumn } from 'drizzle-orm/mysql-core'
 import { getTableColumns } from 'drizzle-orm'
-import type { CollectionConfig } from '@lontar/core'
-import { collectionToTable } from './table'
+import type { CollectionConfig, GlobalConfig } from '@lontar/core'
+import { collectionToTable, globalToTable } from './table'
 
 function col(columns: Record<string, AnyMySqlColumn>, name: string): AnyMySqlColumn {
   const column = columns[name]
@@ -71,5 +71,28 @@ describe('collectionToTable', () => {
     expect(col(columns, 'status').hasDefault).toBe(true)
     expect(col(columns, 'publishedAt').columnType).toBe('MySqlTimestamp')
     expect(col(columns, 'publishedAt').notNull).toBe(true)
+  })
+
+  it('creates table for globals with globalToTable', () => {
+    const header: GlobalConfig = {
+      slug: 'header',
+      fields: {
+        siteTitle: { type: 'text', required: true },
+        navLinksCount: { type: 'number', integer: true },
+      },
+    }
+
+    const table = globalToTable(header)
+    const columns = getTableColumns(table) as Record<string, AnyMySqlColumn>
+
+    expect(Object.keys(columns)).toEqual([
+      'id',
+      'siteTitle',
+      'navLinksCount',
+      'createdAt',
+      'updatedAt',
+    ])
+    expect(col(columns, 'id').primary).toBe(true)
+    expect(col(columns, 'siteTitle').notNull).toBe(true)
   })
 })

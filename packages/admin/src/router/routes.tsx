@@ -9,6 +9,7 @@ import { AdminLayout } from '../layout/AdminLayout'
 import { DashboardView } from '../views/DashboardView'
 import { CollectionListView } from '../views/CollectionListView'
 import { CollectionFormView } from '../views/CollectionFormView'
+import { GlobalFormView } from '../views/GlobalFormView'
 import { LoginView } from '../views/LoginView'
 import { NotFoundView } from '../views/NotFoundView'
 
@@ -44,6 +45,12 @@ export function createAdminRouter(options: { basePath?: string; history?: Router
     component: DashboardView,
   })
 
+  const globalRoute = createRoute({
+    getParentRoute: () => authenticatedRoute,
+    path: 'globals/$slug',
+    component: GlobalFormView,
+  })
+
   const collectionRoute = createRoute({
     getParentRoute: () => authenticatedRoute,
     path: '$collection',
@@ -72,6 +79,7 @@ export function createAdminRouter(options: { basePath?: string; history?: Router
     loginRoute,
     authenticatedRoute.addChildren([
       indexRoute,
+      globalRoute,
       collectionRoute.addChildren([createRoutePath, editRoute, listRoute]),
     ]),
   ])

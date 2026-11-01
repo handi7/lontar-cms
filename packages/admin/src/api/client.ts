@@ -201,3 +201,24 @@ export async function deleteDoc(
   })
   return handleResponse<{ success: boolean }>(res)
 }
+
+export async function fetchGlobal(apiBase: string, slug: string): Promise<Record<string, unknown>> {
+  const base = apiBase.replace(/\/+$/, '')
+  const res = await fetch(`${base}/globals/${slug}`, { credentials: 'include' })
+  return handleResponse<Record<string, unknown>>(res)
+}
+
+export async function saveGlobal(
+  apiBase: string,
+  slug: string,
+  data: Record<string, unknown>,
+): Promise<Record<string, unknown>> {
+  const base = apiBase.replace(/\/+$/, '')
+  const res = await fetch(`${base}/globals/${slug}`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    credentials: 'include',
+    body: JSON.stringify(data),
+  })
+  return handleResponse<Record<string, unknown>>(res)
+}

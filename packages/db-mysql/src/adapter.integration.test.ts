@@ -4,7 +4,7 @@ import os from 'node:os'
 import path from 'node:path'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import mysql from 'mysql2/promise'
-import type { CollectionConfig, Config } from '@lontar/core'
+import type { CollectionConfig, Config, GlobalConfig } from '@lontar/core'
 import { mysqlAdapter, type MysqlAdapter } from './adapter'
 
 const DATABASE_URL = process.env.DATABASE_URL || 'mysql://lontar:lontar@127.0.0.1:3306/lontar'
@@ -15,6 +15,14 @@ const postsCollection: CollectionConfig = {
   fields: {
     title: { type: 'text', required: true, maxLength: 120 },
     views: { type: 'number', integer: true, defaultValue: 0 },
+  },
+}
+
+const headerGlobal: GlobalConfig = {
+  slug: 'header',
+  fields: {
+    siteTitle: { type: 'text', required: true, maxLength: 120 },
+    announcement: { type: 'text' },
   },
 }
 
@@ -31,6 +39,7 @@ describe('mysqlAdapter (integration)', () => {
     await pool.query('DROP TABLE IF EXISTS verification')
     await pool.query('DROP TABLE IF EXISTS user')
     await pool.query('DROP TABLE IF EXISTS posts')
+    await pool.query('DROP TABLE IF EXISTS header')
     await pool.query('DROP TABLE IF EXISTS __drizzle_migrations')
     await pool.end()
 
@@ -40,6 +49,7 @@ describe('mysqlAdapter (integration)', () => {
       secret: 'test-secret',
       db: adapter,
       collections: [postsCollection],
+      globals: [headerGlobal],
     }
 
     // Prepare temp dir and schema file
@@ -76,6 +86,7 @@ describe('mysqlAdapter (integration)', () => {
       await pool.query('DROP TABLE IF EXISTS verification')
       await pool.query('DROP TABLE IF EXISTS user')
       await pool.query('DROP TABLE IF EXISTS posts')
+      await pool.query('DROP TABLE IF EXISTS header')
       await pool.query('DROP TABLE IF EXISTS __drizzle_migrations')
       await pool.end()
     } finally {
@@ -310,5 +321,41 @@ describe('mysqlAdapter (integration)', () => {
 
     const notFound = await adapter.delete({ collection: postsCollection, id: 2 })
     expect(notFound).toBeNull()
+  })
+
+  it('manages singleton globals with findGlobal and updateGlobal', async () => {
+    // Initially null before first update
+    const initial = await adapter.findGlobal({ global: headerGlobal })
+    expect(initial).toBeNull()
+
+    // Create / first update
+    const created = await adapter.updateGlobal({
+      global: headerGlobal,
+      data: { siteTitle: 'My Blog' },
+    })
+    expect(created.id).toBe(1)
+    expect(created.siteTitle).toBe('My Blog')
+    expect(typeof created.createdAt).toBe('string')
+    expect(typeof created.updatedAt).toBe('string')
+
+    // Find after create
+    const found = await adapter.findGlobal({ global: headerGlobal })
+    expect(found).not.toBeNull()
+    expect(found?.siteTitle).toBe('My Blog')
+
+    // Subsequent update modifies existing row
+    const updated = await adapter.updateGlobal({
+      global: headerGlobal,
+      data: { siteTitle: 'My Updated Blog', announcement: 'Welcome!' },
+    })
+    expect(updated.id).toBe(1)
+    expect(updated.siteTitle).toBe('My Updated Blog')
+    expect(updated.announcement).toBe('Welcome!')
+
+    // Confirm only one row exists and has the new data
+    const finalCheck = await adapter.findGlobal({ global: headerGlobal })
+    expect(finalCheck?.id).toBe(1)
+    expect(finalCheck?.siteTitle).toBe('My Updated Blog')
+    expect(finalCheck?.announcement).toBe('Welcome!')
   })
 })

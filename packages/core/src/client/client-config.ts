@@ -9,6 +9,14 @@ export const CLIENT_CONFIG_VERSION = 1
 export interface ClientConfig {
   version: typeof CLIENT_CONFIG_VERSION
   collections: ClientCollection[]
+  globals: ClientGlobal[]
+}
+
+export interface ClientGlobal {
+  slug: string
+  label: string
+  /** In config order. System fields are not listed. */
+  fields: ClientField[]
 }
 
 export interface ClientCollection {

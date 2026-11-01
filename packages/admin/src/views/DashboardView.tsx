@@ -35,6 +35,32 @@ export function DashboardView() {
           </div>
         ))}
       </div>
+
+      {config.globals && config.globals.length > 0 && (
+        <div style={{ marginTop: '2rem' }}>
+          <header className="lontar-view-header">
+            <h2>Globals</h2>
+            <p className="lontar-subtitle">Manage singleton content documents</p>
+          </header>
+          <div className="lontar-collection-grid">
+            {config.globals.map((g) => (
+              <div key={g.slug} className="lontar-card">
+                <h3>{g.label}</h3>
+                <p className="lontar-card-slug">{g.slug}</p>
+                <div className="lontar-card-actions">
+                  <Link
+                    to="/globals/$slug"
+                    params={{ slug: g.slug }}
+                    className="lontar-btn lontar-btn-primary"
+                  >
+                    Edit {g.label}
+                  </Link>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
     </div>
   )
 }

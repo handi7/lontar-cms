@@ -1,7 +1,62 @@
 import { useState } from 'react'
 import { Link } from '@tanstack/react-router'
+import type { ClientGlobal } from '@lontar/core/client'
+import type { AdminUser } from '../api/client'
 import { useAdmin } from '../context/AdminContext'
 import { useAuth } from '../context/AuthContext'
+
+function GlobalsNav({ globals }: { globals?: ClientGlobal[] }) {
+  if (!globals || globals.length === 0) return null
+  return (
+    <div className="lontar-nav-group">
+      <div className="lontar-nav-title">Globals</div>
+      {globals.map((g) => (
+        <Link
+          key={g.slug}
+          to="/globals/$slug"
+          params={{ slug: g.slug }}
+          activeProps={{ className: 'active' }}
+          className="lontar-nav-link"
+        >
+          {g.label}
+        </Link>
+      ))}
+    </div>
+  )
+}
+
+function SidebarUserProfile({
+  user,
+  onSignOut,
+  isSigningOut,
+}: {
+  user: AdminUser
+  onSignOut: () => void
+  isSigningOut: boolean
+}) {
+  const initial = (user.name?.[0] || user.email?.[0] || 'A').toUpperCase()
+
+  return (
+    <div className="lontar-sidebar-footer">
+      <div className="lontar-user-profile">
+        <div className="lontar-user-avatar">{initial}</div>
+        <div className="lontar-user-info">
+          <span className="lontar-user-name">{user.name || 'Admin'}</span>
+          <span className="lontar-user-email">{user.email}</span>
+        </div>
+      </div>
+      <button
+        type="button"
+        onClick={onSignOut}
+        disabled={isSigningOut}
+        className="lontar-logout-button"
+        aria-label="Sign out"
+      >
+        {isSigningOut ? 'Signing out...' : 'Sign out'}
+      </button>
+    </div>
+  )
+}
 
 export function Sidebar() {
   const { config } = useAdmin()
@@ -16,8 +71,6 @@ export function Sidebar() {
       setIsSigningOut(false)
     }
   }
-
-  const initial = (user?.name?.[0] || user?.email?.[0] || 'A').toUpperCase()
 
   return (
     <aside className="lontar-sidebar">
@@ -54,29 +107,18 @@ export function Sidebar() {
             </Link>
           ))}
         </div>
+
+        <GlobalsNav globals={config.globals} />
       </nav>
 
       {user && (
-        <div className="lontar-sidebar-footer">
-          <div className="lontar-user-profile">
-            <div className="lontar-user-avatar">{initial}</div>
-            <div className="lontar-user-info">
-              <span className="lontar-user-name">{user.name || 'Admin'}</span>
-              <span className="lontar-user-email">{user.email}</span>
-            </div>
-          </div>
-          <button
-            type="button"
-            onClick={() => {
-              void handleSignOut()
-            }}
-            disabled={isSigningOut}
-            className="lontar-logout-button"
-            aria-label="Sign out"
-          >
-            {isSigningOut ? 'Signing out...' : 'Sign out'}
-          </button>
-        </div>
+        <SidebarUserProfile
+          user={user}
+          onSignOut={() => {
+            void handleSignOut()
+          }}
+          isSigningOut={isSigningOut}
+        />
       )}
     </aside>
   )
