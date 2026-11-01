@@ -2,6 +2,7 @@ import type { AuthUser } from '../auth/types'
 import type { SystemFieldName } from '../client/system-fields'
 import type { DatabaseAdapter } from '../database/adapter'
 import type { Fields } from '../fields/types'
+import type { CollectionHooks } from '../hooks/types'
 
 export interface AccessArgs<TData = unknown> {
   user: AuthUser | null
@@ -40,6 +41,7 @@ export interface CollectionConfig<F extends Fields = Fields> {
   labels?: { singular?: string; plural?: string }
   admin?: CollectionAdmin
   access?: CollectionAccess
+  hooks?: CollectionHooks
   /** Authored as an object for type inference; order is preserved in ClientConfig. */
   fields: F
 }

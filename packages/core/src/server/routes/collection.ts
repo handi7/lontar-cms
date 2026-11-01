@@ -5,6 +5,7 @@ import { clientFieldsToZod } from '../../client/zod'
 import { toClientCollection } from '../../config/to-client-config'
 import type { AccessArgs, AccessFunction, CollectionConfig, Config } from '../../config/types'
 import type { DatabaseAdapter, DocumentData } from '../../database/adapter'
+import { runAfterChangeHooks, runAfterReadHooks, runBeforeChangeHooks } from '../../hooks'
 import { parseWhereFromSearchParams } from '../../query/parser'
 
 type LontarEnv = { Variables: LontarVariables }
@@ -40,6 +41,10 @@ async function parseJsonBody(c: Context<LontarEnv>): Promise<unknown> {
   }
 }
 
+function getErrorMessage(err: unknown, fallback: string): string {
+  return err instanceof Error ? err.message : fallback
+}
+
 async function handleFind(
   c: Context<LontarEnv>,
   collection: CollectionConfig,
@@ -59,7 +64,10 @@ async function handleFind(
   const where = parseWhereFromSearchParams(url.searchParams)
 
   const result = await db.find({ collection, limit, page, sort, where })
-  return c.json(result, 200)
+  const docs = await Promise.all(
+    result.docs.map((doc) => runAfterReadHooks({ collection, doc, req: c.req.raw })),
+  )
+  return c.json({ ...result, docs }, 200)
 }
 
 async function handleFindByID(
@@ -85,7 +93,34 @@ async function handleFindByID(
   if (!doc) {
     return c.json({ error: `Document with ID ${id} not found` }, 404)
   }
-  return c.json(doc, 200)
+  const transformed = await runAfterReadHooks({ collection, doc, req: c.req.raw })
+  return c.json(transformed, 200)
+}
+
+async function executeCreate(args: {
+  collection: CollectionConfig
+  db: DatabaseAdapter
+  data: DocumentData
+  req: Request
+}): Promise<{ doc?: DocumentData; error?: string }> {
+  try {
+    const data = await runBeforeChangeHooks({
+      collection: args.collection,
+      data: args.data,
+      operation: 'create',
+      req: args.req,
+    })
+    const created = await args.db.create({ collection: args.collection, data })
+    const doc = await runAfterChangeHooks({
+      collection: args.collection,
+      doc: created,
+      operation: 'create',
+      req: args.req,
+    })
+    return { doc }
+  } catch (err) {
+    return { error: getErrorMessage(err, 'Create operation failed') }
+  }
 }
 
 async function handleCreate(
@@ -114,8 +149,49 @@ async function handleCreate(
     return c.json({ error: 'Validation failed', issues: parsed.error.issues }, 400)
   }
 
-  const doc = await db.create({ collection, data: parsed.data as DocumentData })
-  return c.json(doc, 201)
+  const result = await executeCreate({
+    collection,
+    data: parsed.data as DocumentData,
+    db,
+    req: c.req.raw,
+  })
+  if (result.error) {
+    return c.json({ error: result.error }, 400)
+  }
+  return c.json(result.doc, 201)
+}
+
+async function executeUpdate(args: {
+  collection: CollectionConfig
+  db: DatabaseAdapter
+  id: number
+  originalDoc: DocumentData
+  data: DocumentData
+  req: Request
+}): Promise<{ doc?: DocumentData; error?: string }> {
+  try {
+    const data = await runBeforeChangeHooks({
+      collection: args.collection,
+      data: args.data,
+      operation: 'update',
+      originalDoc: args.originalDoc,
+      req: args.req,
+    })
+    const updated = await args.db.update({ collection: args.collection, id: args.id, data })
+    if (!updated) {
+      return { error: `Document with ID ${args.id} not found` }
+    }
+    const doc = await runAfterChangeHooks({
+      collection: args.collection,
+      doc: updated,
+      operation: 'update',
+      previousDoc: args.originalDoc,
+      req: args.req,
+    })
+    return { doc }
+  } catch (err) {
+    return { error: getErrorMessage(err, 'Update operation failed') }
+  }
 }
 
 async function handleUpdate(
@@ -149,11 +225,23 @@ async function handleUpdate(
     return c.json({ error: 'Validation failed', issues: parsed.error.issues }, 400)
   }
 
-  const doc = await db.update({ collection, id, data: parsed.data as DocumentData })
-  if (!doc) {
+  const originalDoc = await db.findByID({ collection, id })
+  if (!originalDoc) {
     return c.json({ error: `Document with ID ${id} not found` }, 404)
   }
-  return c.json(doc, 200)
+
+  const result = await executeUpdate({
+    collection,
+    data: parsed.data as DocumentData,
+    db,
+    id,
+    originalDoc,
+    req: c.req.raw,
+  })
+  if (result.error) {
+    return c.json({ error: result.error }, 400)
+  }
+  return c.json(result.doc, 200)
 }
 
 async function handleDelete(
