@@ -117,6 +117,14 @@ prettier on staged files only). CI (`.github/workflows/ci.yml`) runs
   - [x] #27 `fields: implement upload field type and media collection handling`
   - [ ] #28 `cli: implement lontar generate:types command`
   - [ ] #29 `examples/next-blog: complete real blog demo with auth, media, and rich text`
+  - [ ] Code review fixes that must land before release (checklist and fix order in #69)
+    - [ ] Security: #44, #45, #46, #47, #48
+    - [ ] Data integrity: #49, #50, #51, #52, #53, #54, #56, #57
+    - [ ] Needed for #29: #59, #68
+    - [ ] Tooling: #55
+- [ ] **v0.1.x: Post-release fixes** (after v0.1; checklist in #69)
+  - [ ] Admin UX: #60, #61, #62, #63, #64
+  - [ ] Other: #58, #65, #66, #67
 
 Update this section when a milestone or issue is done.
 
