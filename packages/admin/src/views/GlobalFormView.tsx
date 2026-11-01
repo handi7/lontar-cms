@@ -33,23 +33,56 @@ function GlobalMeta({ doc }: { doc?: Record<string, unknown> | null }) {
   )
 }
 
+function getFieldDefault(f: ClientField): unknown {
+  if ('defaultValue' in f && f.defaultValue !== undefined) {
+    if (f.type === 'date' && typeof f.defaultValue === 'string') {
+      const d = new Date(f.defaultValue)
+      return !Number.isNaN(d.getTime()) ? d.toISOString().slice(0, 16) : f.defaultValue
+    }
+    return f.defaultValue
+  }
+  if (f.type === 'checkbox') return false
+  if (f.type === 'relationship' && f.hasMany) return []
+  return undefined
+}
+
 function computeDefaultValues(fields: ClientField[]): Record<string, unknown> {
   const defaults: Record<string, unknown> = {}
   for (const f of fields) {
-    if ('defaultValue' in f && f.defaultValue !== undefined) {
-      if (f.type === 'date' && typeof f.defaultValue === 'string') {
-        const d = new Date(f.defaultValue)
-        defaults[f.name] = !Number.isNaN(d.getTime())
-          ? d.toISOString().slice(0, 16)
-          : f.defaultValue
-      } else {
-        defaults[f.name] = f.defaultValue
-      }
-    } else if (f.type === 'checkbox') {
-      defaults[f.name] = false
+    const val = getFieldDefault(f)
+    if (val !== undefined) {
+      defaults[f.name] = val
     }
   }
   return defaults
+}
+
+function extractIdFromItem(item: unknown): number | null {
+  if (typeof item === 'number' && item > 0) return item
+  if (typeof item === 'object' && item !== null && 'id' in item) {
+    const id = (item as Record<string, unknown>).id
+    if (typeof id === 'number' && id > 0) return id
+  }
+  return null
+}
+
+function normalizeRelationshipValue(val: unknown, hasMany?: boolean): unknown {
+  if (hasMany) {
+    if (!Array.isArray(val)) return []
+    return (val as unknown[]).map(extractIdFromItem).filter((id): id is number => id !== null)
+  }
+  return extractIdFromItem(val) ?? val
+}
+
+function formatFieldForForm(f: ClientField, val: unknown): unknown {
+  if (f.type === 'date' && typeof val === 'string') {
+    const d = new Date(val)
+    return !Number.isNaN(d.getTime()) ? d.toISOString().slice(0, 16) : val
+  }
+  if (f.type === 'relationship') {
+    return normalizeRelationshipValue(val, f.hasMany)
+  }
+  return val
 }
 
 function formatDocForForm(
@@ -58,12 +91,8 @@ function formatDocForForm(
 ): Record<string, unknown> {
   const formatted = { ...data }
   for (const f of fields) {
-    if (f.type === 'date' && typeof formatted[f.name] === 'string') {
-      const val = formatted[f.name] as string
-      const d = new Date(val)
-      if (!Number.isNaN(d.getTime())) {
-        formatted[f.name] = d.toISOString().slice(0, 16)
-      }
+    if (f.name in formatted) {
+      formatted[f.name] = formatFieldForForm(f, formatted[f.name])
     }
   }
   return formatted

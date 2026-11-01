@@ -105,12 +105,12 @@ prettier on staged files only). CI (`.github/workflows/ci.yml`) runs
   - [x] #19 `api: implement advanced query filtering and sorting in REST API`
   - [x] #20 `hooks: implement collection hooks (beforeChange, afterChange, afterRead)`
   - [x] #21 `globals: support single-document globals in config, DB, REST API, and admin`
-- [ ] **M4: Rich Text & Relationships** (Current)
+- [x] **M4: Rich Text & Relationships** (Done)
   - [x] #22 `fields: implement richText field with Tiptap editor`
   - [x] #23 `fields: implement relationship field (single and hasMany)`
   - [x] #24 `api: support depth query param to populate relationships in REST API`
-  - [ ] #25 `admin: relationship picker component in edit forms`
-- [ ] **M5: Uploads, Typegen & v0.1 Release**
+  - [x] #25 `admin: relationship picker component in edit forms`
+- [ ] **M5: Uploads, Typegen & v0.1 Release** (Current)
   - [ ] #26 `uploads: implement storage adapters (local & S3) and Sharp image resizing`
   - [ ] #27 `fields: implement upload field type and media collection handling`
   - [ ] #28 `cli: implement lontar generate:types command`

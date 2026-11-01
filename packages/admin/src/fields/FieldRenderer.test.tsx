@@ -1,5 +1,6 @@
 import { describe, expect, it, afterEach } from 'vitest'
 import { render, screen, fireEvent, waitFor, cleanup } from '@testing-library/react'
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { useForm } from 'react-hook-form'
 import type {
   ClientCheckboxField,
@@ -31,8 +32,15 @@ function FormWrapper({
   children: (methods: ReturnType<typeof useForm<Record<string, unknown>>>) => React.ReactNode
   defaultValues?: Record<string, unknown>
 }) {
+  const queryClient = new QueryClient({
+    defaultOptions: { queries: { retry: false } },
+  })
   const methods = useForm<Record<string, unknown>>({ defaultValues })
-  return <form>{children(methods)}</form>
+  return (
+    <QueryClientProvider client={queryClient}>
+      <form>{children(methods)}</form>
+    </QueryClientProvider>
+  )
 }
 
 describe('FieldRenderer', () => {
@@ -324,7 +332,7 @@ describe('FieldRenderer', () => {
     expect(screen.getByTestId('richtext-link')).toBeTruthy()
   })
 
-  it('renders single relationship input', () => {
+  it('renders single relationship picker', () => {
     const field: ClientRelationshipField = {
       name: 'author',
       type: 'relationship',
@@ -333,20 +341,19 @@ describe('FieldRenderer', () => {
       required: true,
     }
 
-    const { container } = render(
+    render(
       <FormWrapper defaultValues={{ author: 42 }}>
-        {({ register }) => <FieldRenderer field={field} register={register} />}
+        {({ register, setValue, watch }) => (
+          <FieldRenderer field={field} register={register} setValue={setValue} watch={watch} />
+        )}
       </FormWrapper>,
     )
 
-    const input = container.querySelector('input#author') as HTMLInputElement
-    expect(input).toBeTruthy()
-    expect(input.type).toBe('number')
-    expect(input.value).toBe('42')
     expect(screen.getByText('Author')).toBeTruthy()
+    expect(screen.getByTestId('relationship-single-selected')).toBeTruthy()
   })
 
-  it('renders hasMany relationship input', () => {
+  it('renders hasMany relationship picker', () => {
     const field: ClientRelationshipField = {
       name: 'categories',
       type: 'relationship',
@@ -356,15 +363,18 @@ describe('FieldRenderer', () => {
       required: false,
     }
 
-    const { container } = render(
-      <FormWrapper defaultValues={{ categories: '1, 2, 3' }}>
-        {({ register }) => <FieldRenderer field={field} register={register} />}
+    render(
+      <FormWrapper defaultValues={{ categories: [1, 2, 3] }}>
+        {({ register, setValue, watch }) => (
+          <FieldRenderer field={field} register={register} setValue={setValue} watch={watch} />
+        )}
       </FormWrapper>,
     )
 
-    const input = container.querySelector('input#categories') as HTMLInputElement
-    expect(input).toBeTruthy()
-    expect(input.placeholder).toContain('Comma-separated IDs')
     expect(screen.getByText('Categories')).toBeTruthy()
+    expect(screen.getByTestId('relationship-many-list')).toBeTruthy()
+    expect(screen.getByTestId('relationship-item-1')).toBeTruthy()
+    expect(screen.getByTestId('relationship-item-2')).toBeTruthy()
+    expect(screen.getByTestId('relationship-item-3')).toBeTruthy()
   })
 })
