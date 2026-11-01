@@ -8,6 +8,7 @@ import { registerCollectionRoutes } from './routes/collection'
 export interface CreateLontarOptions {
   basePath?: string
   baseURL?: string
+  trustedOrigins?: string[]
 }
 
 export type LontarApp = Hono<{ Variables: LontarVariables }> & {
@@ -19,10 +20,23 @@ export function createLontar(config: Config, options: CreateLontarOptions = {}):
   const basePath = options.basePath ?? '/api'
   const router = new Hono<{ Variables: LontarVariables }>()
 
+  const envOrigins = process.env.BETTER_AUTH_TRUSTED_ORIGINS
+    ? process.env.BETTER_AUTH_TRUSTED_ORIGINS.split(',').map((s) => s.trim())
+    : []
+  const trustedOrigins = Array.from(
+    new Set([
+      'http://localhost:3000',
+      'http://127.0.0.1:3000',
+      ...envOrigins,
+      ...(options.trustedOrigins ?? []),
+    ]),
+  )
+
   const auth = betterAuth({
     secret: config.secret,
     basePath: `${basePath}/auth`,
     ...(options.baseURL ? { baseURL: options.baseURL } : {}),
+    ...(trustedOrigins.length > 0 ? { trustedOrigins } : {}),
     ...(config.db.authAdapter ? { database: config.db.authAdapter } : {}),
     emailAndPassword: {
       enabled: true,
