@@ -9,6 +9,7 @@ import { AdminLayout } from '../layout/AdminLayout'
 import { DashboardView } from '../views/DashboardView'
 import { CollectionListView } from '../views/CollectionListView'
 import { CollectionFormView } from '../views/CollectionFormView'
+import { LoginView } from '../views/LoginView'
 import { NotFoundView } from '../views/NotFoundView'
 
 function CreateForm() {
@@ -21,18 +22,30 @@ function EditForm() {
 
 export function createAdminRouter(options: { basePath?: string; history?: RouterHistory }) {
   const rootRoute = createRootRoute({
-    component: AdminLayout,
+    component: Outlet,
     notFoundComponent: NotFoundView,
   })
 
-  const indexRoute = createRoute({
+  const loginRoute = createRoute({
     getParentRoute: () => rootRoute,
+    path: '/login',
+    component: LoginView,
+  })
+
+  const authenticatedRoute = createRoute({
+    getParentRoute: () => rootRoute,
+    id: 'authenticated',
+    component: AdminLayout,
+  })
+
+  const indexRoute = createRoute({
+    getParentRoute: () => authenticatedRoute,
     path: '/',
     component: DashboardView,
   })
 
   const collectionRoute = createRoute({
-    getParentRoute: () => rootRoute,
+    getParentRoute: () => authenticatedRoute,
     path: '$collection',
     component: Outlet,
   })
@@ -56,8 +69,11 @@ export function createAdminRouter(options: { basePath?: string; history?: Router
   })
 
   const routeTree = rootRoute.addChildren([
-    indexRoute,
-    collectionRoute.addChildren([createRoutePath, editRoute, listRoute]),
+    loginRoute,
+    authenticatedRoute.addChildren([
+      indexRoute,
+      collectionRoute.addChildren([createRoutePath, editRoute, listRoute]),
+    ]),
   ])
 
   return createRouter({
