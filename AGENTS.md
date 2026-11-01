@@ -34,13 +34,15 @@ Detailed docs:
 
 ```
 packages/
-  core/        defineConfig, field definitions, CRUD operations, hooks, access control, Local API
-  db-mysql/    Drizzle-based MySQL adapter, schema generation, migrations
-  admin/       Vite + React SPA, ships prebuilt JS + scoped CSS
-  next/        Next.js adapter (route handlers)
-  cli/         lontar migrate, migrate:create, generate:types
+  core/          defineConfig, field definitions, CRUD operations, hooks, access control, Local API
+  db-mysql/      Drizzle-based MySQL adapter, schema generation, migrations
+  storage-local/ Local disk storage adapter
+  storage-s3/    S3-compatible storage adapter
+  admin/         Vite + React SPA, ships prebuilt JS + scoped CSS
+  next/          Next.js adapter (route handlers)
+  cli/           lontar migrate, migrate:create, generate:types
 examples/
-  next-blog/   Example app used for manual and e2e testing
+  next-blog/     Example app used for manual and e2e testing
 ```
 
 ## Architecture rules (do not break)
@@ -111,7 +113,7 @@ prettier on staged files only). CI (`.github/workflows/ci.yml`) runs
   - [x] #24 `api: support depth query param to populate relationships in REST API`
   - [x] #25 `admin: relationship picker component in edit forms`
 - [ ] **M5: Uploads, Typegen & v0.1 Release** (Current)
-  - [ ] #26 `uploads: implement storage adapters (local & S3) and Sharp image resizing`
+  - [x] #26 `uploads: implement storage adapters (local & S3) and Sharp image resizing`
   - [ ] #27 `fields: implement upload field type and media collection handling`
   - [ ] #28 `cli: implement lontar generate:types command`
   - [ ] #29 `examples/next-blog: complete real blog demo with auth, media, and rich text`

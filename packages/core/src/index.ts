@@ -55,3 +55,23 @@ export type {
   TextareaField,
   TextField,
 } from './fields/types'
+
+export {
+  deleteMedia,
+  formatVariantFilename,
+  isResizableImage,
+  processImage,
+  uploadMedia,
+  type ImageFit,
+  type ImageFormat,
+  type ImageSizeConfig,
+  type ProcessedImageResult,
+  type ProcessedImageSize,
+  type ProcessedOriginal,
+  type StorageAdapter,
+  type UploadConfig,
+  type UploadedImageVariant,
+  type UploadedMediaDoc,
+  type UploadFile,
+  type UploadResult,
+} from './storage'
