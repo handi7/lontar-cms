@@ -190,4 +190,30 @@ describe('defineConfig', () => {
       }),
     ).toThrow('access.read must be a function')
   })
+
+  it('rejects upload collection without storage adapter configured', () => {
+    expect(() =>
+      defineConfig({
+        secret: SECRET,
+        db: fakeAdapter,
+        collections: [notes({ upload: true })],
+      }),
+    ).toThrow('A collection has `upload` enabled, but no `storage` adapter was provided')
+  })
+
+  it('accepts upload collection when storage adapter is provided', () => {
+    const mockStorage = {
+      name: 'test-storage',
+      upload: () => Promise.resolve({ filename: 'f', url: 'u' }),
+      delete: () => Promise.resolve(),
+      getUrl: () => 'u',
+    }
+    const config = {
+      secret: SECRET,
+      db: fakeAdapter,
+      storage: mockStorage,
+      collections: [notes({ upload: true })],
+    }
+    expect(defineConfig(config)).toBe(config)
+  })
 })

@@ -13,7 +13,7 @@
     "test": "vitest run --passWithNoTests",
     "test:e2e": "pnpm --filter next-blog test:e2e",
     "test:watch": "vitest",
-    "lint": "eslint .",
+    "lint": "NODE_OPTIONS=\"--max-old-space-size=4096\" eslint .",
     "format": "prettier --write .",
     "format:check": "prettier --check .",
     "db:up": "docker compose up -d --wait",

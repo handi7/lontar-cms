@@ -8,6 +8,8 @@ import type {
   BeforeChangeHook,
   CollectionHooks,
 } from '../hooks/types'
+import type { StorageAdapter } from '../storage/adapter'
+import type { UploadConfig } from '../storage/image'
 
 export interface AccessArgs<TData = unknown> {
   user: AuthUser | null
@@ -66,6 +68,8 @@ export interface CollectionConfig<F extends Fields = Fields> {
   admin?: CollectionAdmin
   access?: CollectionAccess
   hooks?: CollectionHooks
+  /** Enables file upload support and image resizing for this collection. */
+  upload?: boolean | UploadConfig
   /** Authored as an object for type inference; order is preserved in ClientConfig. */
   fields: F
 }
@@ -75,6 +79,8 @@ export interface Config {
   /** Signs sessions. */
   secret: string
   db: DatabaseAdapter
+  /** Optional file storage adapter. Required when any collection has upload enabled. */
+  storage?: StorageAdapter
   collections: readonly CollectionConfig[]
   globals?: readonly GlobalConfig[]
 }

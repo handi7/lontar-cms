@@ -32,7 +32,18 @@ function validateConfig(config: Config): string[] {
   const collectionsResult = validateCollections(config.collections)
   issues.push(...collectionsResult.issues)
   issues.push(...validateGlobals(config.globals, collectionsResult.slugs))
+  issues.push(...validateStorage(config))
   return issues
+}
+
+function validateStorage(config: Config): string[] {
+  const hasUpload = config.collections.some((c) => Boolean(c.upload))
+  if (hasUpload && !config.storage) {
+    return [
+      'A collection has `upload` enabled, but no `storage` adapter was provided in defineConfig({ storage: ... }).',
+    ]
+  }
+  return []
 }
 
 function validateSecret(secret: unknown): string[] {
