@@ -19,6 +19,18 @@ const mockConfig: ClientConfig = {
   ],
 }
 
+const mockAuthUser = {
+  id: 'user-1',
+  name: 'Admin User',
+  email: 'admin@example.com',
+}
+
+const mockAuthSession = {
+  id: 'session-1',
+  userId: 'user-1',
+  expiresAt: new Date(Date.now() + 86400000).toISOString(),
+}
+
 function mockJsonResponse(data: unknown, status = 200, statusText = 'OK'): Promise<Response> {
   return Promise.resolve(
     new Response(JSON.stringify(data), {
@@ -67,12 +79,15 @@ describe('Admin SPA', () => {
     })
   })
 
-  it('renders dashboard and sidebar when config is loaded', async () => {
+  it('renders dashboard and sidebar when authenticated and config is loaded', async () => {
     vi.stubGlobal(
       'fetch',
       vi.fn().mockImplementation((url: string) => {
         if (url.includes('/_lontar/config')) {
           return mockJsonResponse(mockConfig)
+        }
+        if (url.includes('/auth/get-session')) {
+          return mockJsonResponse({ user: mockAuthUser, session: mockAuthSession })
         }
         return mockJsonResponse({ docs: [], totalDocs: 0, limit: 10, page: 1, totalPages: 1 })
       }),
@@ -85,6 +100,8 @@ describe('Admin SPA', () => {
       expect(screen.getByText('Lontar CMS')).toBeTruthy()
       expect(screen.getAllByText('Dashboard').length).toBeGreaterThan(0)
       expect(screen.getAllByText('Posts').length).toBeGreaterThan(0)
+      expect(screen.getByText('Admin User')).toBeTruthy()
+      expect(screen.getByText('admin@example.com')).toBeTruthy()
     })
   })
 
@@ -99,6 +116,9 @@ describe('Admin SPA', () => {
       vi.fn().mockImplementation((url: string) => {
         if (url.includes('/_lontar/config')) {
           return mockJsonResponse(mockConfig)
+        }
+        if (url.includes('/auth/get-session')) {
+          return mockJsonResponse({ user: mockAuthUser, session: mockAuthSession })
         }
         if (url.includes('/api/posts')) {
           return mockJsonResponse({
@@ -172,6 +192,9 @@ describe('Admin SPA', () => {
         if (url.includes('/_lontar/config')) {
           return mockJsonResponse(configWithAllFields)
         }
+        if (url.includes('/auth/get-session')) {
+          return mockJsonResponse({ user: mockAuthUser, session: mockAuthSession })
+        }
         if (url.includes('/api/articles')) {
           return mockJsonResponse({
             docs: mockArticles,
@@ -207,6 +230,9 @@ describe('Admin SPA', () => {
       vi.fn().mockImplementation((url: string, init?: RequestInit) => {
         if (url.includes('/_lontar/config')) {
           return mockJsonResponse(mockConfig)
+        }
+        if (url.includes('/auth/get-session')) {
+          return mockJsonResponse({ user: mockAuthUser, session: mockAuthSession })
         }
         if (url.endsWith('/api/posts') && init?.method === 'POST') {
           return postMock(url, init)
@@ -273,6 +299,9 @@ describe('Admin SPA', () => {
         if (url.includes('/_lontar/config')) {
           return mockJsonResponse(mockConfig)
         }
+        if (url.includes('/auth/get-session')) {
+          return mockJsonResponse({ user: mockAuthUser, session: mockAuthSession })
+        }
         if (url.endsWith('/api/posts/42') && init?.method === 'PATCH') {
           return patchMock(url, init)
         }
@@ -310,5 +339,182 @@ describe('Admin SPA', () => {
     const callArgs = patchMock.mock.calls[0] as [string, RequestInit]
     const sentBody = JSON.parse(callArgs[1].body as string) as Record<string, unknown>
     expect(sentBody.title).toBe('Updated Title')
+  })
+
+  describe('Authentication and Route Protection', () => {
+    it('redirects unauthenticated users to /admin/login from protected routes', async () => {
+      vi.stubGlobal(
+        'fetch',
+        vi.fn().mockImplementation((url: string) => {
+          if (url.includes('/_lontar/config')) {
+            return mockJsonResponse(mockConfig)
+          }
+          if (url.includes('/auth/get-session')) {
+            return mockJsonResponse(null)
+          }
+          return Promise.reject(new Error(`Unhandled URL: ${url}`))
+        }),
+      )
+
+      const history = createMemoryHistory({ initialEntries: ['/admin'] })
+      render(<Admin apiBase="/api" basePath="/admin" history={history} />)
+
+      await waitFor(() => {
+        expect(screen.getByRole('heading', { name: /sign in to admin/i })).toBeTruthy()
+        expect(screen.getByLabelText(/email/i)).toBeTruthy()
+        expect(screen.getByLabelText(/password/i)).toBeTruthy()
+        expect(screen.getByRole('button', { name: /sign in/i })).toBeTruthy()
+      })
+    })
+
+    it('displays error message when login credentials fail', async () => {
+      vi.stubGlobal(
+        'fetch',
+        vi.fn().mockImplementation((url: string, init?: RequestInit) => {
+          if (url.includes('/_lontar/config')) {
+            return mockJsonResponse(mockConfig)
+          }
+          if (url.includes('/auth/get-session')) {
+            return mockJsonResponse(null)
+          }
+          if (url.includes('/auth/sign-in/email') && init?.method === 'POST') {
+            return mockJsonResponse({ message: 'Invalid email or password' }, 401, 'Unauthorized')
+          }
+          return Promise.reject(new Error(`Unhandled URL: ${url}`))
+        }),
+      )
+
+      const history = createMemoryHistory({ initialEntries: ['/admin/login'] })
+      render(<Admin apiBase="/api" basePath="/admin" history={history} />)
+
+      await waitFor(() => {
+        expect(screen.getByRole('heading', { name: /sign in to admin/i })).toBeTruthy()
+      })
+
+      fireEvent.change(screen.getByLabelText(/email/i), {
+        target: { value: 'wrong@example.com' },
+      })
+      fireEvent.change(screen.getByLabelText(/password/i), {
+        target: { value: 'wrongpass' },
+      })
+      fireEvent.click(screen.getByRole('button', { name: /sign in/i }))
+
+      await waitFor(() => {
+        expect(screen.getByRole('alert')).toBeTruthy()
+        expect(screen.getByText('Invalid email or password')).toBeTruthy()
+      })
+    })
+
+    it('successfully logs in and navigates to dashboard', async () => {
+      let loggedIn = false
+
+      vi.stubGlobal(
+        'fetch',
+        vi.fn().mockImplementation((url: string, init?: RequestInit) => {
+          if (url.includes('/_lontar/config')) {
+            return mockJsonResponse(mockConfig)
+          }
+          if (url.includes('/auth/get-session')) {
+            return mockJsonResponse(
+              loggedIn ? { user: mockAuthUser, session: mockAuthSession } : null,
+            )
+          }
+          if (url.includes('/auth/sign-in/email') && init?.method === 'POST') {
+            loggedIn = true
+            return mockJsonResponse({ user: mockAuthUser, session: mockAuthSession })
+          }
+          if (url.includes('/api/posts')) {
+            return mockJsonResponse({ docs: [], totalDocs: 0, limit: 10, page: 1, totalPages: 1 })
+          }
+          return Promise.reject(new Error(`Unhandled URL: ${url}`))
+        }),
+      )
+
+      const history = createMemoryHistory({ initialEntries: ['/admin/login'] })
+      render(<Admin apiBase="/api" basePath="/admin" history={history} />)
+
+      await waitFor(() => {
+        expect(screen.getByRole('heading', { name: /sign in to admin/i })).toBeTruthy()
+      })
+
+      fireEvent.change(screen.getByLabelText(/email/i), {
+        target: { value: 'admin@example.com' },
+      })
+      fireEvent.change(screen.getByLabelText(/password/i), {
+        target: { value: 'correctpassword' },
+      })
+      fireEvent.click(screen.getByRole('button', { name: /sign in/i }))
+
+      await waitFor(() => {
+        expect(screen.getAllByText('Dashboard').length).toBeGreaterThan(0)
+        expect(screen.getByText('Admin User')).toBeTruthy()
+      })
+    })
+
+    it('redirects already authenticated users away from /admin/login to dashboard', async () => {
+      vi.stubGlobal(
+        'fetch',
+        vi.fn().mockImplementation((url: string) => {
+          if (url.includes('/_lontar/config')) {
+            return mockJsonResponse(mockConfig)
+          }
+          if (url.includes('/auth/get-session')) {
+            return mockJsonResponse({ user: mockAuthUser, session: mockAuthSession })
+          }
+          if (url.includes('/api/posts')) {
+            return mockJsonResponse({ docs: [], totalDocs: 0, limit: 10, page: 1, totalPages: 1 })
+          }
+          return Promise.reject(new Error(`Unhandled URL: ${url}`))
+        }),
+      )
+
+      const history = createMemoryHistory({ initialEntries: ['/admin/login'] })
+      render(<Admin apiBase="/api" basePath="/admin" history={history} />)
+
+      await waitFor(() => {
+        expect(screen.getAllByText('Dashboard').length).toBeGreaterThan(0)
+        expect(screen.getByText('Admin User')).toBeTruthy()
+      })
+    })
+
+    it('signs out and redirects to /admin/login when clicking logout button', async () => {
+      let loggedIn = true
+
+      vi.stubGlobal(
+        'fetch',
+        vi.fn().mockImplementation((url: string, init?: RequestInit) => {
+          if (url.includes('/_lontar/config')) {
+            return mockJsonResponse(mockConfig)
+          }
+          if (url.includes('/auth/get-session')) {
+            return mockJsonResponse(
+              loggedIn ? { user: mockAuthUser, session: mockAuthSession } : null,
+            )
+          }
+          if (url.includes('/auth/sign-out') && init?.method === 'POST') {
+            loggedIn = false
+            return mockJsonResponse({ success: true })
+          }
+          if (url.includes('/api/posts')) {
+            return mockJsonResponse({ docs: [], totalDocs: 0, limit: 10, page: 1, totalPages: 1 })
+          }
+          return Promise.reject(new Error(`Unhandled URL: ${url}`))
+        }),
+      )
+
+      const history = createMemoryHistory({ initialEntries: ['/admin'] })
+      render(<Admin apiBase="/api" basePath="/admin" history={history} />)
+
+      await waitFor(() => {
+        expect(screen.getByText('Admin User')).toBeTruthy()
+      })
+
+      const signOutBtn = screen.getByRole('button', { name: /sign out/i })
+      fireEvent.click(signOutBtn)
+
+      await waitFor(() => {
+        expect(screen.getByRole('heading', { name: /sign in to admin/i })).toBeTruthy()
+      })
+    })
   })
 })

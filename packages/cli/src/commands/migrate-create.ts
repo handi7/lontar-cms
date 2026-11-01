@@ -23,14 +23,17 @@ export async function migrateCreate(options: MigrateCreateOptions = {}): Promise
   const migrationsDir = path.resolve(cwd, 'migrations')
   const bin = findDrizzleKitBin(cwd)
 
+  const outDir = path.relative(cwd, migrationsDir) || 'migrations'
+  const schemaRel = path.relative(cwd, schemaPath)
+
   const args: string[] = [
     'generate',
     '--dialect',
     config.db.name,
     '--schema',
-    schemaPath,
+    schemaRel,
     '--out',
-    migrationsDir,
+    outDir,
   ]
   if (options.name) {
     args.push('--name', options.name)

@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from 'react'
 import { QueryClient, QueryClientProvider, useQuery } from '@tanstack/react-query'
 import { RouterProvider, type RouterHistory } from '@tanstack/react-router'
 import { AdminContext } from './context/AdminContext'
+import { AuthProvider } from './context/AuthContext'
 import { fetchClientConfig } from './api/client'
 import { createAdminRouter } from './router/routes'
 
@@ -68,9 +69,11 @@ function AdminInner({
 
   return (
     <AdminContext.Provider value={{ config, apiBase, basePath }}>
-      <div className="lontar-admin">
-        <RouterProvider router={router} />
-      </div>
+      <AuthProvider apiBase={apiBase}>
+        <div className="lontar-admin">
+          <RouterProvider router={router} />
+        </div>
+      </AuthProvider>
     </AdminContext.Provider>
   )
 }

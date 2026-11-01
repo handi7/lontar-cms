@@ -97,11 +97,11 @@ prettier on staged files only). CI (`.github/workflows/ci.yml`) runs
 - [x] **M1: Standard Fields & Validation** (Done)
   - [x] #14 `fields: implement textarea, email, and slug field types`
   - [x] #15 `fields: implement checkbox, select, and date field types`
-- [ ] **M2: Auth & Access Control** (Current)
+- [x] **M2: Auth & Access Control** (Done)
   - [x] #16 `auth: integrate Better Auth for admin authentication and session management`
   - [x] #17 `access: implement collection-level access control (read, create, update, delete)`
-  - [ ] #18 `admin: add login page and authenticated route protection`
-- [ ] **M3: Query Filtering, Hooks & Globals**
+  - [x] #18 `admin: add login page and authenticated route protection`
+- [ ] **M3: Query Filtering, Hooks & Globals** (Current)
   - [ ] #19 `api: implement advanced query filtering and sorting in REST API`
   - [ ] #20 `hooks: implement collection hooks (beforeChange, afterChange, afterRead)`
   - [ ] #21 `globals: support single-document globals in config, DB, REST API, and admin`
