@@ -220,6 +220,132 @@ describe('Admin SPA', () => {
     })
   })
 
+  it('filters documents via search input and column filter in collection list view', async () => {
+    const fetchedUrls: string[] = []
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockImplementation((url: string) => {
+        fetchedUrls.push(url)
+        if (url.includes('/_lontar/config')) {
+          return mockJsonResponse(mockConfig)
+        }
+        if (url.includes('/auth/get-session')) {
+          return mockJsonResponse({ user: mockAuthUser, session: mockAuthSession })
+        }
+        if (url.includes('/api/posts')) {
+          return mockJsonResponse({
+            docs: [
+              { id: 1, title: 'First Post', views: 42, createdAt: '2026-10-31T00:00:00.000Z' },
+            ],
+            totalDocs: 1,
+            limit: 10,
+            page: 1,
+            totalPages: 1,
+            hasNextPage: false,
+            hasPrevPage: false,
+          })
+        }
+        return Promise.reject(new Error(`Unhandled URL: ${url}`))
+      }),
+    )
+
+    const history = createMemoryHistory({ initialEntries: ['/admin/posts'] })
+    render(<Admin apiBase="/api" basePath="/admin" history={history} />)
+
+    await waitFor(() => {
+      expect(screen.getByText('First Post')).toBeTruthy()
+    })
+
+    // Type in search input
+    const searchInput = screen.getByRole('searchbox', { name: /search posts/i })
+    fireEvent.change(searchInput, { target: { value: 'First' } })
+
+    await waitFor(() => {
+      expect(
+        fetchedUrls.some(
+          (u) =>
+            u.includes('where%5Btitle%5D%5Bcontains%5D=First') ||
+            u.includes('where[title][contains]=First'),
+        ),
+      ).toBe(true)
+    })
+
+    // Click Add Filter button to open filter form
+    const filterBtn = screen.getByRole('button', { name: /add filter/i })
+    fireEvent.click(filterBtn)
+
+    // Enter filter value and apply
+    const filterValueInput = screen.getByLabelText(/filter value/i)
+    fireEvent.change(filterValueInput, { target: { value: '10' } })
+
+    const applyBtn = screen.getByRole('button', { name: /apply/i })
+    fireEvent.click(applyBtn)
+
+    await waitFor(() => {
+      expect(
+        fetchedUrls.some(
+          (u) =>
+            u.includes('where%5Btitle%5D%5Bcontains%5D=10') ||
+            u.includes('where[title][contains]=10'),
+        ),
+      ).toBe(true)
+    })
+  })
+
+  it('toggles column sorting on column header click', async () => {
+    const fetchedUrls: string[] = []
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockImplementation((url: string) => {
+        fetchedUrls.push(url)
+        if (url.includes('/_lontar/config')) {
+          return mockJsonResponse(mockConfig)
+        }
+        if (url.includes('/auth/get-session')) {
+          return mockJsonResponse({ user: mockAuthUser, session: mockAuthSession })
+        }
+        if (url.includes('/api/posts')) {
+          return mockJsonResponse({
+            docs: [
+              { id: 1, title: 'First Post', views: 42, createdAt: '2026-10-31T00:00:00.000Z' },
+            ],
+            totalDocs: 1,
+            limit: 10,
+            page: 1,
+            totalPages: 1,
+            hasNextPage: false,
+            hasPrevPage: false,
+          })
+        }
+        return Promise.reject(new Error(`Unhandled URL: ${url}`))
+      }),
+    )
+
+    const history = createMemoryHistory({ initialEntries: ['/admin/posts'] })
+    render(<Admin apiBase="/api" basePath="/admin" history={history} />)
+
+    await waitFor(() => {
+      expect(screen.getByText('First Post')).toBeTruthy()
+    })
+
+    // Find the Title column header and click it
+    const titleHeader1 = screen.getByRole('columnheader', { name: /title/i })
+    fireEvent.click(titleHeader1)
+
+    await waitFor(() => {
+      expect(fetchedUrls.some((u) => u.includes('sort=title'))).toBe(true)
+      expect(screen.getByText('First Post')).toBeTruthy()
+    })
+
+    // Query fresh header element after re-render and click again for descending sort
+    const titleHeader2 = screen.getByRole('columnheader', { name: /title/i })
+    fireEvent.click(titleHeader2)
+
+    await waitFor(() => {
+      expect(fetchedUrls.some((u) => u.includes('sort=-title'))).toBe(true)
+    })
+  })
+
   it('renders create form and submits new document', async () => {
     const postMock = vi.fn((_url: string, _init?: RequestInit) => {
       return mockJsonResponse({ id: 3, title: 'Brand New Post', views: 10 })

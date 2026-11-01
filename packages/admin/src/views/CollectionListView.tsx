@@ -7,10 +7,12 @@ import {
   flexRender,
   type ColumnDef,
   type Table,
+  type SortingState,
 } from '@tanstack/react-table'
-import type { ClientCollection, ClientField, ClientSelectField } from '@lontar/core/client'
+import type { ClientCollection, ClientField, ClientSelectField, Where } from '@lontar/core/client'
 import { useAdmin, useCollection } from '../context/AdminContext'
 import { fetchCollectionDocs, deleteDoc, type PaginatedDocs } from '../api/client'
+import { CollectionFilterBar, type ActiveFilter } from './CollectionFilterBar'
 import { NotFoundView } from './NotFoundView'
 
 function getColumnLabel(key: string, collection: ClientCollection): string {
@@ -84,6 +86,30 @@ function renderCellContent(
   return renderPrimitiveValue(val)
 }
 
+function buildWhereQuery(
+  searchTerm: string,
+  searchField: string,
+  activeFilters: ActiveFilter[],
+): Where | undefined {
+  const where: Where = {}
+  if (searchTerm.trim()) {
+    where[searchField] = { contains: searchTerm.trim() }
+  }
+
+  for (const filter of activeFilters) {
+    if (!filter.field || !filter.operator || filter.value === '') continue
+    const fieldWhere = (where[filter.field] ?? {}) as Record<string, unknown>
+    if (filter.operator === 'in') {
+      fieldWhere[filter.operator] = filter.value.split(',').map((s) => s.trim())
+    } else {
+      fieldWhere[filter.operator] = filter.value
+    }
+    where[filter.field] = fieldWhere
+  }
+
+  return Object.keys(where).length > 0 ? where : undefined
+}
+
 function buildColumns(
   collection: ClientCollection,
   onDelete: (id: number | string) => void,
@@ -102,6 +128,7 @@ function buildColumns(
       id: key,
       header: getColumnLabel(key, collection),
       accessorFn: (row) => row[key],
+      enableSorting: true,
       cell: ({ getValue, row }) => {
         const val = getValue()
         const content = renderCellContent(val ?? (key === 'id' ? row.original.id : ''), field, key)
@@ -124,6 +151,7 @@ function buildColumns(
   const actionsColumn: ColumnDef<Record<string, unknown>> = {
     id: '__actions',
     header: 'Actions',
+    enableSorting: false,
     cell: ({ row }) => {
       const id = String(row.original.id)
       return (
@@ -168,11 +196,29 @@ function CollectionTable({
         <thead>
           {table.getHeaderGroups().map((headerGroup) => (
             <tr key={headerGroup.id}>
-              {headerGroup.headers.map((header) => (
-                <th key={header.id}>
-                  {flexRender(header.column.columnDef.header, header.getContext())}
-                </th>
-              ))}
+              {headerGroup.headers.map((header) => {
+                const canSort = header.column.getCanSort()
+                const isSorted = header.column.getIsSorted()
+                return (
+                  <th
+                    key={header.id}
+                    className={canSort ? 'lontar-th-sortable' : undefined}
+                    onClick={header.column.getToggleSortingHandler()}
+                    aria-sort={
+                      isSorted === 'asc' ? 'ascending' : isSorted === 'desc' ? 'descending' : 'none'
+                    }
+                  >
+                    <div className="lontar-th-content">
+                      {flexRender(header.column.columnDef.header, header.getContext())}
+                      {canSort && (
+                        <span className="lontar-sort-indicator" aria-hidden="true">
+                          {isSorted === 'asc' ? ' ↑' : isSorted === 'desc' ? ' ↓' : ' ⇅'}
+                        </span>
+                      )}
+                    </div>
+                  </th>
+                )
+              })}
             </tr>
           ))}
         </thead>
@@ -231,16 +277,110 @@ function EmptyState({ collection }: { collection: ClientCollection }) {
   )
 }
 
+function ListContent({
+  isLoading,
+  docsCount,
+  hasActiveFilters,
+  collection,
+  onClearFilters,
+  table,
+  data,
+  onPageChange,
+}: {
+  isLoading: boolean
+  docsCount: number
+  hasActiveFilters: boolean
+  collection: ClientCollection
+  onClearFilters: () => void
+  table: Table<Record<string, unknown>>
+  data?: PaginatedDocs
+  onPageChange: (newPage: number) => void
+}) {
+  if (isLoading) {
+    return <div className="lontar-loading">Loading documents...</div>
+  }
+  if (docsCount === 0) {
+    if (hasActiveFilters) {
+      return (
+        <div className="lontar-empty-state">
+          <p>No documents found matching the filter criteria.</p>
+          <button
+            type="button"
+            className="lontar-btn lontar-btn-secondary"
+            onClick={onClearFilters}
+          >
+            Clear filters
+          </button>
+        </div>
+      )
+    }
+    return <EmptyState collection={collection} />
+  }
+  return <CollectionTable table={table} data={data} onPageChange={onPageChange} />
+}
+
 export function CollectionListView() {
   const { apiBase } = useAdmin()
   const { collection: slug } = useParams({ strict: false })
   const collection = useCollection(slug)
   const queryClient = useQueryClient()
   const [page, setPage] = useState(1)
+  const [searchTerm, setSearchTerm] = useState('')
+  const [activeFilters, setActiveFilters] = useState<ActiveFilter[]>([])
+  const [sorting, setSorting] = useState<SortingState>([])
+
+  const searchField = useMemo(() => {
+    if (!collection) return 'title'
+    return (
+      collection.admin.useAsTitle ||
+      collection.fields.find((f) => f.type === 'text' || f.type === 'email' || f.type === 'slug')
+        ?.name ||
+      'title'
+    )
+  }, [collection])
+
+  const where = useMemo(
+    () => buildWhereQuery(searchTerm, searchField, activeFilters),
+    [searchTerm, searchField, activeFilters],
+  )
+
+  const sortParam = useMemo(() => {
+    if (sorting.length === 0) return undefined
+    return sorting.map((s) => (s.desc ? `-${s.id}` : s.id)).join(',')
+  }, [sorting])
+
+  const handleSearchChange = (term: string) => {
+    setSearchTerm(term)
+    setPage(1)
+  }
+
+  const handleAddFilter = (filter: ActiveFilter) => {
+    setActiveFilters((prev) => [...prev, filter])
+    setPage(1)
+  }
+
+  const handleRemoveFilter = (id: string) => {
+    setActiveFilters((prev) => prev.filter((f) => f.id !== id))
+    setPage(1)
+  }
+
+  const handleClearAll = () => {
+    setSearchTerm('')
+    setActiveFilters([])
+    setPage(1)
+  }
 
   const { data, isLoading, error } = useQuery({
-    queryKey: [slug, page],
-    queryFn: () => (slug ? fetchCollectionDocs(apiBase, slug, { page, limit: 10 }) : null),
+    queryKey: [slug, page, sortParam, where],
+    queryFn: () =>
+      slug
+        ? fetchCollectionDocs(apiBase, slug, {
+            page,
+            limit: 10,
+            sort: sortParam,
+            where,
+          })
+        : null,
     enabled: !!slug,
   })
 
@@ -271,12 +411,22 @@ export function CollectionListView() {
   const table = useReactTable({
     data: docs,
     columns,
+    state: {
+      sorting,
+    },
+    onSortingChange: (updater) => {
+      setSorting(updater)
+      setPage(1)
+    },
+    manualSorting: true,
     getCoreRowModel: getCoreRowModel(),
   })
 
   if (!collection) {
     return <NotFoundView />
   }
+
+  const hasActiveFilters = Boolean(searchTerm.trim() || activeFilters.length > 0)
 
   return (
     <div className="lontar-collection-list">
@@ -294,15 +444,28 @@ export function CollectionListView() {
         </Link>
       </header>
 
+      <CollectionFilterBar
+        collection={collection}
+        searchTerm={searchTerm}
+        onSearchChange={handleSearchChange}
+        activeFilters={activeFilters}
+        onAddFilter={handleAddFilter}
+        onRemoveFilter={handleRemoveFilter}
+        onClearAll={handleClearAll}
+      />
+
       {error && <div className="lontar-alert lontar-alert-error">{error.message}</div>}
 
-      {isLoading ? (
-        <div className="lontar-loading">Loading documents...</div>
-      ) : docs.length === 0 ? (
-        <EmptyState collection={collection} />
-      ) : (
-        <CollectionTable table={table} data={data ?? undefined} onPageChange={setPage} />
-      )}
+      <ListContent
+        isLoading={isLoading}
+        docsCount={docs.length}
+        hasActiveFilters={hasActiveFilters}
+        collection={collection}
+        onClearFilters={handleClearAll}
+        table={table}
+        data={data ?? undefined}
+        onPageChange={setPage}
+      />
     </div>
   )
 }

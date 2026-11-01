@@ -178,6 +178,128 @@ describe('mysqlAdapter (integration)', () => {
     expect(descSort.docs[1]?.id).toBe(1)
   })
 
+  it('filters documents with operators: equals, not_equals, contains, in, greater_than, less_than', async () => {
+    // Insert more sample posts
+    await adapter.create({
+      collection: postsCollection,
+      data: { title: 'Alpha Guide', views: 50 },
+    })
+    await adapter.create({
+      collection: postsCollection,
+      data: { title: 'Beta News', views: 150 },
+    })
+    await adapter.create({
+      collection: postsCollection,
+      data: { title: 'Gamma Tutorial', views: 250 },
+    })
+
+    // equals
+    const eqRes = await adapter.find({
+      collection: postsCollection,
+      limit: 10,
+      page: 1,
+      where: { title: { equals: 'Alpha Guide' } },
+    })
+    expect(eqRes.docs).toHaveLength(1)
+    expect(eqRes.docs[0]?.title).toBe('Alpha Guide')
+    expect(eqRes.totalDocs).toBe(1)
+
+    // not_equals
+    const neRes = await adapter.find({
+      collection: postsCollection,
+      limit: 10,
+      page: 1,
+      where: { title: { not_equals: 'Alpha Guide' } },
+    })
+    expect(neRes.docs.some((d) => d.title === 'Alpha Guide')).toBe(false)
+
+    // contains
+    const containsRes = await adapter.find({
+      collection: postsCollection,
+      limit: 10,
+      page: 1,
+      where: { title: { contains: 'News' } },
+    })
+    expect(containsRes.docs).toHaveLength(1)
+    expect(containsRes.docs[0]?.title).toBe('Beta News')
+
+    // in
+    const inRes = await adapter.find({
+      collection: postsCollection,
+      limit: 10,
+      page: 1,
+      where: { title: { in: ['Alpha Guide', 'Gamma Tutorial'] } },
+    })
+    expect(inRes.docs).toHaveLength(2)
+
+    // greater_than and less_than
+    const rangeRes = await adapter.find({
+      collection: postsCollection,
+      limit: 10,
+      page: 1,
+      where: {
+        views: {
+          greater_than: 50,
+          less_than: 250,
+        },
+      },
+    })
+    expect(rangeRes.docs).toHaveLength(1)
+    expect(rangeRes.docs[0]?.title).toBe('Beta News')
+
+    // or compound filter
+    const orRes = await adapter.find({
+      collection: postsCollection,
+      limit: 10,
+      page: 1,
+      where: {
+        or: [{ title: { equals: 'Alpha Guide' } }, { views: { equals: 250 } }],
+      },
+    })
+    expect(orRes.docs).toHaveLength(2)
+
+    // and compound filter
+    const andRes = await adapter.find({
+      collection: postsCollection,
+      limit: 10,
+      page: 1,
+      where: {
+        and: [{ views: { greater_than_equal: 150 } }, { title: { contains: 'Tutorial' } }],
+      },
+    })
+    expect(andRes.docs).toHaveLength(1)
+    expect(andRes.docs[0]?.title).toBe('Gamma Tutorial')
+  })
+
+  it('supports multi-column sorting', async () => {
+    // Insert posts with same views
+    await adapter.create({
+      collection: postsCollection,
+      data: { title: 'Zebra Post', views: 50 },
+    })
+
+    const multiSort = await adapter.find({
+      collection: postsCollection,
+      limit: 10,
+      page: 1,
+      sort: 'views,title',
+    })
+
+    // Views=50 posts: Alpha Guide vs Zebra Post
+    const views50 = multiSort.docs.filter((d) => d.views === 50)
+    expect(views50.length).toBeGreaterThanOrEqual(2)
+    expect(views50[0]?.title).toBe('Alpha Guide')
+    expect(views50[1]?.title).toBe('Zebra Post')
+
+    const descViewsAscTitle = await adapter.find({
+      collection: postsCollection,
+      limit: 10,
+      page: 1,
+      sort: '-views,title',
+    })
+    expect(descViewsAscTitle.docs[0]?.views).toBe(250)
+  })
+
   it('deletes a document and returns the deleted doc', async () => {
     const deleted = await adapter.delete({ collection: postsCollection, id: 2 })
     expect(deleted).not.toBeNull()

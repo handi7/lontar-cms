@@ -1,4 +1,4 @@
-import type { ClientConfig } from '@lontar/core/client'
+import type { ClientConfig, Where } from '@lontar/core/client'
 
 export interface AdminUser {
   id: string
@@ -99,16 +99,49 @@ export async function signOut(apiBase: string): Promise<void> {
   })
 }
 
+function serializePrimitive(params: URLSearchParams, prefix: string, value: unknown) {
+  if (value instanceof Date) {
+    params.set(prefix, value.toISOString())
+  } else if (typeof value === 'string' || typeof value === 'number' || typeof value === 'boolean') {
+    params.set(prefix, String(value))
+  }
+}
+
+function serializeQueryParam(params: URLSearchParams, prefix: string, value: unknown) {
+  if (value === undefined || value === null) return
+  if (Array.isArray(value)) {
+    value.forEach((item, index) => {
+      serializeQueryParam(params, `${prefix}[${index}]`, item)
+    })
+    return
+  }
+  if (typeof value === 'object' && !(value instanceof Date)) {
+    for (const [k, v] of Object.entries(value as Record<string, unknown>)) {
+      serializeQueryParam(params, `${prefix}[${k}]`, v)
+    }
+    return
+  }
+  serializePrimitive(params, prefix, value)
+}
+
+export interface FetchCollectionDocsOptions {
+  page?: number
+  limit?: number
+  sort?: string
+  where?: Where
+}
+
 export async function fetchCollectionDocs(
   apiBase: string,
   slug: string,
-  options: { page?: number; limit?: number; sort?: string } = {},
+  options: FetchCollectionDocsOptions = {},
 ): Promise<PaginatedDocs> {
   const base = apiBase.replace(/\/+$/, '')
   const params = new URLSearchParams()
   if (options.page) params.set('page', String(options.page))
   if (options.limit) params.set('limit', String(options.limit))
   if (options.sort) params.set('sort', options.sort)
+  if (options.where) serializeQueryParam(params, 'where', options.where)
 
   const query = params.toString() ? `?${params.toString()}` : ''
   const res = await fetch(`${base}/${slug}${query}`, { credentials: 'include' })

@@ -102,7 +102,7 @@ prettier on staged files only). CI (`.github/workflows/ci.yml`) runs
   - [x] #17 `access: implement collection-level access control (read, create, update, delete)`
   - [x] #18 `admin: add login page and authenticated route protection`
 - [ ] **M3: Query Filtering, Hooks & Globals** (Current)
-  - [ ] #19 `api: implement advanced query filtering and sorting in REST API`
+  - [x] #19 `api: implement advanced query filtering and sorting in REST API`
   - [ ] #20 `hooks: implement collection hooks (beforeChange, afterChange, afterRead)`
   - [ ] #21 `globals: support single-document globals in config, DB, REST API, and admin`
 - [ ] **M4: Rich Text & Relationships**

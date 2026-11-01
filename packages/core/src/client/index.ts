@@ -18,4 +18,5 @@ export type {
 } from './client-config'
 export { SYSTEM_FIELDS } from './system-fields'
 export type { SystemFieldName, SystemFields } from './system-fields'
+export type { FieldFilter, FilterOperator, SortItem, Where, WhereClause, WhereField } from './query'
 export { clientFieldToZod, clientFieldsToZod } from './zod'

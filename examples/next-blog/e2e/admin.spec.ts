@@ -53,6 +53,20 @@ test.describe('Lontar CMS Admin in Next.js', () => {
     await expect(page.getByRole('heading', { name: 'Posts', exact: true })).toBeVisible()
     await expect(page.getByRole('link', { name: uniqueTitle })).toBeVisible()
 
+    // 8a. Test search filter
+    const searchInput = page.getByRole('searchbox', { name: /search posts/i })
+    await searchInput.fill(uniqueTitle)
+    await expect(page.getByRole('link', { name: uniqueTitle })).toBeVisible()
+    await searchInput.fill('NonExistentTitleXYZ123')
+    await expect(page.getByText('No documents found matching the filter criteria.')).toBeVisible()
+    await page.getByRole('button', { name: 'Clear filters' }).click()
+    await expect(page.getByRole('link', { name: uniqueTitle })).toBeVisible()
+
+    // 8b. Test column header sorting
+    const titleHeader = page.getByRole('columnheader', { name: /title/i })
+    await titleHeader.click()
+    await expect(page.getByRole('link', { name: uniqueTitle })).toBeVisible()
+
     // 9. Open edit view for the post
     await page.getByRole('link', { name: uniqueTitle }).click()
     await expect(page.getByRole('heading', { name: /Edit Post/ })).toBeVisible()

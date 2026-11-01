@@ -5,6 +5,7 @@ import { clientFieldsToZod } from '../../client/zod'
 import { toClientCollection } from '../../config/to-client-config'
 import type { AccessArgs, AccessFunction, CollectionConfig, Config } from '../../config/types'
 import type { DatabaseAdapter, DocumentData } from '../../database/adapter'
+import { parseWhereFromSearchParams } from '../../query/parser'
 
 type LontarEnv = { Variables: LontarVariables }
 
@@ -54,7 +55,10 @@ async function handleFind(
   const limit = Math.max(1, parseInt(c.req.query('limit') ?? '10', 10) || 10)
   const sort = c.req.query('sort')
 
-  const result = await db.find({ collection, limit, page, sort })
+  const url = new URL(c.req.raw.url)
+  const where = parseWhereFromSearchParams(url.searchParams)
+
+  const result = await db.find({ collection, limit, page, sort, where })
   return c.json(result, 200)
 }
 
