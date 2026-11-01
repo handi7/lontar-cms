@@ -2,6 +2,7 @@ import {
   boolean,
   double,
   int,
+  json,
   mysqlTable,
   text,
   timestamp,
@@ -19,6 +20,7 @@ import type {
   Fields,
   GlobalConfig,
   NumberField,
+  RichTextField,
   SelectField,
   SlugField,
   TextareaField,
@@ -78,6 +80,12 @@ function dateToColumn(name: string, field: DateField) {
   return field.required ? withDefault.notNull() : withDefault
 }
 
+function richTextToColumn(name: string, field: RichTextField) {
+  const base = json(name)
+  const withDefault = field.defaultValue !== undefined ? base.default(field.defaultValue) : base
+  return field.required ? withDefault.notNull() : withDefault
+}
+
 function fieldToColumn(name: string, field: Field) {
   if (field.type === 'text') return textToColumn(name, field)
   if (field.type === 'number') return numberToColumn(name, field)
@@ -87,6 +95,7 @@ function fieldToColumn(name: string, field: Field) {
   if (field.type === 'checkbox') return checkboxToColumn(name, field)
   if (field.type === 'select') return selectToColumn(name, field)
   if (field.type === 'date') return dateToColumn(name, field)
+  if (field.type === 'richText') return richTextToColumn(name, field)
   throw new Error(`Unsupported field type: ${(field as Field).type}`)
 }
 

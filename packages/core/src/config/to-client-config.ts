@@ -8,6 +8,7 @@ import {
   type ClientField,
   type ClientGlobal,
   type ClientNumberField,
+  type ClientRichTextField,
   type ClientSelectField,
   type ClientSelectOption,
   type ClientSlugField,
@@ -21,6 +22,7 @@ import type {
   Field,
   FieldType,
   NumberField,
+  RichTextField,
   SelectField,
   SelectOption,
   SlugField,
@@ -102,6 +104,12 @@ const toClientField = {
     }),
   }),
   date: (name: string, field: DateField): ClientDateField => ({
+    ...baseField(name, field),
+    ...defined({
+      defaultValue: field.defaultValue,
+    }),
+  }),
+  richText: (name: string, field: RichTextField): ClientRichTextField => ({
     ...baseField(name, field),
     ...defined({
       defaultValue: field.defaultValue,

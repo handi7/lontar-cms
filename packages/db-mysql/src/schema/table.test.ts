@@ -27,6 +27,11 @@ describe('collectionToTable', () => {
         required: true,
       },
       publishedAt: { type: 'date', required: true },
+      body: {
+        type: 'richText',
+        required: true,
+        defaultValue: { type: 'doc', content: [] },
+      },
     },
   }
 
@@ -44,6 +49,7 @@ describe('collectionToTable', () => {
       'isFeatured',
       'status',
       'publishedAt',
+      'body',
       'createdAt',
       'updatedAt',
     ])
@@ -71,6 +77,9 @@ describe('collectionToTable', () => {
     expect(col(columns, 'status').hasDefault).toBe(true)
     expect(col(columns, 'publishedAt').columnType).toBe('MySqlTimestamp')
     expect(col(columns, 'publishedAt').notNull).toBe(true)
+    expect(col(columns, 'body').columnType).toBe('MySqlJson')
+    expect(col(columns, 'body').notNull).toBe(true)
+    expect(col(columns, 'body').hasDefault).toBe(true)
   })
 
   it('creates table for globals with globalToTable', () => {

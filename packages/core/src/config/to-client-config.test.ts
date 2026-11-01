@@ -122,6 +122,11 @@ describe('toClientConfig', () => {
           required: true,
           defaultValue: '2026-11-01T00:00:00.000Z',
         }),
+        richText: f.richText({
+          label: 'Body',
+          required: true,
+          defaultValue: { type: 'doc', content: [] },
+        }),
       },
     })
 
@@ -196,6 +201,13 @@ describe('toClientConfig', () => {
         label: 'Published At',
         required: true,
         defaultValue: '2026-11-01T00:00:00.000Z',
+      },
+      {
+        name: 'richText',
+        type: 'richText',
+        label: 'Body',
+        required: true,
+        defaultValue: { type: 'doc', content: [] },
       },
     ])
   })

@@ -15,6 +15,7 @@ const postsCollection: CollectionConfig = {
   fields: {
     title: { type: 'text', required: true, maxLength: 120 },
     views: { type: 'number', integer: true, defaultValue: 0 },
+    content: { type: 'richText' },
   },
 }
 
@@ -357,5 +358,50 @@ describe('mysqlAdapter (integration)', () => {
     expect(finalCheck?.id).toBe(1)
     expect(finalCheck?.siteTitle).toBe('My Updated Blog')
     expect(finalCheck?.announcement).toBe('Welcome!')
+  })
+
+  it('stores, updates, and retrieves richText json documents', async () => {
+    const richDoc = {
+      type: 'doc',
+      content: [
+        {
+          type: 'paragraph',
+          content: [{ type: 'text', text: 'Hello rich text!' }],
+        },
+      ],
+    }
+
+    const created = await adapter.create({
+      collection: postsCollection,
+      data: {
+        title: 'Rich Post',
+        views: 1,
+        content: richDoc,
+      },
+    })
+
+    expect(created.content).toEqual(richDoc)
+
+    const found = await adapter.findByID({ collection: postsCollection, id: created.id })
+    expect(found?.content).toEqual(richDoc)
+
+    const updatedDoc = {
+      type: 'doc',
+      content: [
+        {
+          type: 'heading',
+          attrs: { level: 1 },
+          content: [{ type: 'text', text: 'Updated heading' }],
+        },
+      ],
+    }
+
+    const updated = await adapter.update({
+      collection: postsCollection,
+      id: created.id,
+      data: { content: updatedDoc },
+    })
+
+    expect(updated?.content).toEqual(updatedDoc)
   })
 })

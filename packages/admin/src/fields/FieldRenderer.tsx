@@ -6,11 +6,13 @@ import type {
   ClientEmailField,
   ClientField,
   ClientNumberField,
+  ClientRichTextField,
   ClientSelectField,
   ClientSlugField,
   ClientTextareaField,
   ClientTextField,
 } from '@lontar/core/client'
+import { RichTextEditor } from './RichTextEditor'
 
 export interface FieldRendererProps {
   field: ClientField
@@ -228,6 +230,34 @@ function SlugFieldInput({
   )
 }
 
+function RichTextFieldInput({
+  field,
+  register,
+  setValue,
+  watch,
+}: {
+  field: ClientRichTextField
+  register: UseFormRegister<Record<string, unknown>>
+  setValue?: UseFormSetValue<Record<string, unknown>>
+  watch?: UseFormWatch<Record<string, unknown>>
+}) {
+  useEffect(() => {
+    register(field.name)
+  }, [register, field.name])
+
+  const value = watch ? (watch(field.name) as Record<string, unknown> | undefined) : undefined
+
+  return (
+    <RichTextEditor
+      name={field.name}
+      value={value}
+      onChange={(newVal) => {
+        setValue?.(field.name, newVal, { shouldValidate: true, shouldDirty: true })
+      }}
+    />
+  )
+}
+
 function FieldInput({
   field,
   register,
@@ -266,6 +296,10 @@ function FieldInput({
       return <SelectFieldInput field={field} register={register} />
     case 'date':
       return <DateFieldInput field={field} register={register} />
+    case 'richText':
+      return (
+        <RichTextFieldInput field={field} register={register} setValue={setValue} watch={watch} />
+      )
   }
 }
 

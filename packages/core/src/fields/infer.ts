@@ -11,6 +11,7 @@ interface FieldValueMap {
   checkbox: boolean
   select: string
   date: string
+  richText: Record<string, unknown>
 }
 
 type FieldValue<F extends Field> = F extends { required: true }

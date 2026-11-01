@@ -71,6 +71,11 @@ export interface DateField extends BaseField {
   defaultValue?: string
 }
 
+export interface RichTextField extends BaseField {
+  type: 'richText'
+  defaultValue?: Record<string, unknown>
+}
+
 export type Field =
   | TextField
   | NumberField
@@ -80,5 +85,6 @@ export type Field =
   | CheckboxField
   | SelectField
   | DateField
+  | RichTextField
 export type FieldType = Field['type']
 export type Fields = Record<string, Field>
