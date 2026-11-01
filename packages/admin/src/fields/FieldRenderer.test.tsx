@@ -12,6 +12,7 @@ import type {
   ClientSlugField,
   ClientTextareaField,
   ClientTextField,
+  ClientUploadField,
 } from '@lontar/core/client'
 import { FieldRenderer, slugify } from './FieldRenderer'
 
@@ -376,5 +377,26 @@ describe('FieldRenderer', () => {
     expect(screen.getByTestId('relationship-item-1')).toBeTruthy()
     expect(screen.getByTestId('relationship-item-2')).toBeTruthy()
     expect(screen.getByTestId('relationship-item-3')).toBeTruthy()
+  })
+
+  it('renders upload picker', () => {
+    const field: ClientUploadField = {
+      name: 'cover',
+      type: 'upload',
+      relationTo: 'media',
+      label: 'Cover Image',
+      required: true,
+    }
+
+    render(
+      <FormWrapper>
+        {({ register, setValue, watch }) => (
+          <FieldRenderer field={field} register={register} setValue={setValue} watch={watch} />
+        )}
+      </FormWrapper>,
+    )
+
+    expect(screen.getByText('Cover Image')).toBeTruthy()
+    expect(screen.getByTestId('upload-picker-browse-btn')).toBeTruthy()
   })
 })

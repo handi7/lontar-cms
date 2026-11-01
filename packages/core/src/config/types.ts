@@ -1,5 +1,5 @@
 import type { AuthUser } from '../auth/types'
-import type { SystemFieldName } from '../client/system-fields'
+import type { SystemFieldName, UploadSystemFieldName } from '../client/system-fields'
 import type { DatabaseAdapter } from '../database/adapter'
 import type { Fields } from '../fields/types'
 import type {
@@ -59,7 +59,10 @@ export interface CollectionAdmin<Name extends string = string> {
   defaultColumns?: Name[]
 }
 
-export type FieldName<F extends Fields> = (keyof F & string) | SystemFieldName
+export type FieldName<F extends Fields, C = unknown> =
+  | (keyof F & string)
+  | SystemFieldName
+  | (C extends { upload: true | object } ? UploadSystemFieldName : never)
 
 export interface CollectionConfig<F extends Fields = Fields> {
   /** Used in URLs and as the table name. Kebab-case: `posts`, `blog-posts`. */

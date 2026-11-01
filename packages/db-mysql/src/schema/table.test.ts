@@ -37,6 +37,11 @@ describe('collectionToTable', () => {
         relationTo: 'users',
         required: true,
       },
+      cover: {
+        type: 'upload',
+        relationTo: 'media',
+        required: true,
+      },
       categories: {
         type: 'relationship',
         relationTo: 'categories',
@@ -61,6 +66,7 @@ describe('collectionToTable', () => {
       'publishedAt',
       'body',
       'author',
+      'cover',
       'createdAt',
       'updatedAt',
     ])
@@ -93,6 +99,43 @@ describe('collectionToTable', () => {
     expect(col(columns, 'body').hasDefault).toBe(true)
     expect(col(columns, 'author').columnType).toBe('MySqlInt')
     expect(col(columns, 'author').notNull).toBe(true)
+    expect(col(columns, 'cover').columnType).toBe('MySqlInt')
+    expect(col(columns, 'cover').notNull).toBe(true)
+  })
+
+  it('creates automatic upload columns when upload is enabled on collection', () => {
+    const media: CollectionConfig = {
+      slug: 'media',
+      upload: true,
+      fields: {
+        alt: { type: 'text', required: true },
+      },
+    }
+
+    const table = collectionToTable(media)
+    const columns = getTableColumns(table) as Record<string, AnyMySqlColumn>
+
+    expect(Object.keys(columns)).toEqual([
+      'id',
+      'filename',
+      'url',
+      'mimeType',
+      'filesize',
+      'width',
+      'height',
+      'sizes',
+      'alt',
+      'createdAt',
+      'updatedAt',
+    ])
+    expect(col(columns, 'filename').notNull).toBe(true)
+    expect(col(columns, 'url').notNull).toBe(true)
+    expect(col(columns, 'mimeType').notNull).toBe(true)
+    expect(col(columns, 'filesize').notNull).toBe(true)
+    expect(col(columns, 'width').notNull).toBe(false)
+    expect(col(columns, 'height').notNull).toBe(false)
+    expect(col(columns, 'sizes').columnType).toBe('MySqlJson')
+    expect(col(columns, 'sizes').notNull).toBe(false)
   })
 
   it('creates junction tables for hasMany relationships', () => {

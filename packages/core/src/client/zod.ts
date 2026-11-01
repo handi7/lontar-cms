@@ -11,6 +11,7 @@ import type {
   ClientSlugField,
   ClientTextareaField,
   ClientTextField,
+  ClientUploadField,
 } from './client-config'
 
 /*
@@ -102,6 +103,9 @@ const zodByType = {
       return field.required ? arr.min(1, 'At least one relation is required') : arr
     }
     return idSchema
+  },
+  upload: (_field: ClientUploadField) => {
+    return z.number().int().positive()
   },
 } satisfies { [K in ClientField['type']]: (field: Extract<ClientField, { type: K }>) => z.ZodType }
 

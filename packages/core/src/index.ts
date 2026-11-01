@@ -38,6 +38,13 @@ export type {
   StoredDoc,
 } from './database/adapter'
 export type { InferDoc } from './fields/infer'
+export { SYSTEM_FIELDS, UPLOAD_SYSTEM_FIELDS } from './client/system-fields'
+export type {
+  SystemFieldName,
+  SystemFields,
+  UploadSystemFieldName,
+  UploadSystemFields,
+} from './client/system-fields'
 export type {
   CheckboxField,
   DateField,
@@ -54,6 +61,8 @@ export type {
   SlugField,
   TextareaField,
   TextField,
+  UploadField,
+  UploadFieldOptions,
 } from './fields/types'
 
 export {

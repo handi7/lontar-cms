@@ -45,6 +45,35 @@ function renderDateCell(val: unknown): string {
   return typeof val === 'string' ? val : ''
 }
 
+function getDocTitle(doc: Record<string, unknown>): string {
+  if (typeof doc.filename === 'string' && doc.filename) return doc.filename
+  if (typeof doc.title === 'string' && doc.title) return doc.title
+  if (typeof doc.id === 'string' || typeof doc.id === 'number') return `#${doc.id}`
+  return '—'
+}
+
+function isDocImage(mimeType: unknown, url: string): boolean {
+  if (typeof mimeType === 'string' && mimeType.startsWith('image/')) return true
+  return Boolean(url.match(/\.(png|jpe?g|gif|webp|svg)$/i))
+}
+
+function renderUploadCell(val: unknown): React.ReactNode {
+  if (typeof val === 'object' && val !== null) {
+    const doc = val as Record<string, unknown>
+    const url = typeof doc.url === 'string' ? doc.url : ''
+    const thumbUrl = (doc.sizes as Record<string, { url?: string }> | undefined)?.thumb?.url || url
+    const isImage = isDocImage(doc.mimeType, url)
+    const title = getDocTitle(doc)
+    return (
+      <div className="lontar-table-media-cell">
+        {isImage && thumbUrl && <img src={thumbUrl} alt="" className="lontar-table-thumbnail" />}
+        <span>{title}</span>
+      </div>
+    )
+  }
+  return `#${String(val)}`
+}
+
 function renderFieldCell(val: unknown, field: ClientField): React.ReactNode {
   switch (field.type) {
     case 'checkbox':
@@ -53,6 +82,8 @@ function renderFieldCell(val: unknown, field: ClientField): React.ReactNode {
       return renderSelectCell(val, field)
     case 'date':
       return renderDateCell(val)
+    case 'upload':
+      return renderUploadCell(val)
     default:
       return null
   }
@@ -110,6 +141,62 @@ function buildWhereQuery(
   return Object.keys(where).length > 0 ? where : undefined
 }
 
+interface DataCellRendererProps {
+  val: unknown
+  rowDoc: Record<string, unknown>
+  field?: ClientField
+  colKey: string
+  titleKey: string
+  isUploadCollection: boolean
+  collectionSlug: string
+}
+
+function renderMediaThumbnailCell(
+  rowDoc: Record<string, unknown>,
+  content: React.ReactNode,
+): React.ReactNode {
+  const thumbUrl =
+    (rowDoc.sizes as Record<string, { url?: string }> | undefined)?.thumb?.url ||
+    (typeof rowDoc.url === 'string' ? rowDoc.url : '')
+  const isImage = isDocImage(rowDoc.mimeType, thumbUrl)
+  if (isImage && thumbUrl) {
+    return (
+      <div className="lontar-table-media-cell">
+        <img src={thumbUrl} alt="" className="lontar-table-thumbnail" />
+        <span>{content}</span>
+      </div>
+    )
+  }
+  return content
+}
+
+function DataCellRenderer({
+  val,
+  rowDoc,
+  field,
+  colKey,
+  titleKey,
+  isUploadCollection,
+  collectionSlug,
+}: DataCellRendererProps) {
+  const rawContent = renderCellContent(val ?? (colKey === 'id' ? rowDoc.id : ''), field, colKey)
+  const isMediaTitle = isUploadCollection && (colKey === titleKey || colKey === 'filename')
+  const content = isMediaTitle ? renderMediaThumbnailCell(rowDoc, rawContent) : rawContent
+
+  if (colKey === titleKey) {
+    return (
+      <Link
+        to="/$collection/$id"
+        params={{ collection: collectionSlug, id: String(rowDoc.id) }}
+        className="lontar-table-link"
+      >
+        {content}
+      </Link>
+    )
+  }
+  return <>{content}</>
+}
+
 function buildColumns(
   collection: ClientCollection,
   onDelete: (id: number | string) => void,
@@ -129,22 +216,17 @@ function buildColumns(
       header: getColumnLabel(key, collection),
       accessorFn: (row) => row[key],
       enableSorting: true,
-      cell: ({ getValue, row }) => {
-        const val = getValue()
-        const content = renderCellContent(val ?? (key === 'id' ? row.original.id : ''), field, key)
-        if (key === titleKey) {
-          return (
-            <Link
-              to="/$collection/$id"
-              params={{ collection: collection.slug, id: String(row.original.id) }}
-              className="lontar-table-link"
-            >
-              {content}
-            </Link>
-          )
-        }
-        return content
-      },
+      cell: ({ getValue, row }) => (
+        <DataCellRenderer
+          val={getValue()}
+          rowDoc={row.original}
+          field={field}
+          colKey={key}
+          titleKey={titleKey}
+          isUploadCollection={Boolean(collection.upload)}
+          collectionSlug={collection.slug}
+        />
+      ),
     }
   })
 

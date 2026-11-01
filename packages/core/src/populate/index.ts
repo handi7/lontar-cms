@@ -1,7 +1,7 @@
 import type { AuthUser } from '../auth/types'
 import type { AccessArgs, AccessFunction, CollectionConfig } from '../config/types'
 import type { DatabaseAdapter, DocumentData } from '../database/adapter'
-import type { RelationshipField } from '../fields/types'
+import type { RelationshipField, UploadField } from '../fields/types'
 import { runAfterReadHooks } from '../hooks/runner'
 
 export function parseDepth(val: string | undefined): number {
@@ -174,7 +174,7 @@ async function populateChildren(
 
 interface PopulateFieldArgs {
   fieldName: string
-  field: RelationshipField
+  field: RelationshipField | UploadField
   docs: DocumentData[]
   collection: CollectionConfig
   depth: number
@@ -193,7 +193,8 @@ async function populateField(args: PopulateFieldArgs): Promise<void> {
   const canRead = await checkAccess(targetCol.access?.read, { user })
   if (!canRead) return
 
-  const targetIds = extractTargetIds(docs, fieldName, Boolean(field.hasMany), targetCol.slug, seen)
+  const hasMany = field.type === 'relationship' ? Boolean(field.hasMany) : false
+  const targetIds = extractTargetIds(docs, fieldName, hasMany, targetCol.slug, seen)
   const docsById = await fetchTargetDocs(targetCol, targetIds, db, req)
 
   if (depth > 1 && docsById.size > 0) {
@@ -212,7 +213,7 @@ async function populateField(args: PopulateFieldArgs): Promise<void> {
   }
 
   for (const doc of docs) {
-    assignPopulatedField(doc, fieldName, Boolean(field.hasMany), targetCol.slug, docsById, seen)
+    assignPopulatedField(doc, fieldName, hasMany, targetCol.slug, docsById, seen)
   }
 }
 
@@ -221,8 +222,8 @@ export async function populateDocs(options: PopulateOptions): Promise<DocumentDa
   if (depth <= 0 || docs.length === 0) return docs
 
   const relFields = Object.entries(collection.fields).filter(
-    ([, field]) => field.type === 'relationship',
-  ) as Array<[string, RelationshipField]>
+    ([, field]) => field.type === 'relationship' || field.type === 'upload',
+  ) as Array<[string, RelationshipField | UploadField]>
 
   if (relFields.length === 0) return docs
 

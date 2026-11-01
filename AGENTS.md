@@ -114,7 +114,7 @@ prettier on staged files only). CI (`.github/workflows/ci.yml`) runs
   - [x] #25 `admin: relationship picker component in edit forms`
 - [ ] **M5: Uploads, Typegen & v0.1 Release** (Current)
   - [x] #26 `uploads: implement storage adapters (local & S3) and Sharp image resizing`
-  - [ ] #27 `fields: implement upload field type and media collection handling`
+  - [x] #27 `fields: implement upload field type and media collection handling`
   - [ ] #28 `cli: implement lontar generate:types command`
   - [ ] #29 `examples/next-blog: complete real blog demo with auth, media, and rich text`
 

@@ -26,6 +26,7 @@ import type {
   SlugField,
   TextareaField,
   TextField,
+  UploadField,
 } from '@lontar/core'
 
 function textToColumn(name: string, field: TextField) {
@@ -92,6 +93,11 @@ function relationshipToColumn(name: string, field: RelationshipField) {
   return field.required ? base.notNull() : base
 }
 
+function uploadToColumn(name: string, field: UploadField) {
+  const base = int(name)
+  return field.required ? base.notNull() : base
+}
+
 function basicFieldToColumn(name: string, field: Field) {
   if (field.type === 'text') return textToColumn(name, field)
   if (field.type === 'number') return numberToColumn(name, field)
@@ -110,6 +116,7 @@ function fieldToColumn(name: string, field: Field) {
   if (field.type === 'date') return dateToColumn(name, field)
   if (field.type === 'richText') return richTextToColumn(name, field)
   if (field.type === 'relationship') return relationshipToColumn(name, field)
+  if (field.type === 'upload') return uploadToColumn(name, field)
   throw new Error(`Unsupported field type: ${(field as Field).type}`)
 }
 
@@ -154,9 +161,23 @@ export function getCollectionJunctionTables(
   return tables
 }
 
-function createTable(slug: string, fields: Fields): DynamicTable {
+function addUploadColumns(columns: Record<string, MySqlColumnBuilder>): void {
+  columns.filename = varchar('filename', { length: 255 }).notNull()
+  columns.url = varchar('url', { length: 1024 }).notNull()
+  columns.mimeType = varchar('mimeType', { length: 255 }).notNull()
+  columns.filesize = int('filesize').notNull()
+  columns.width = int('width')
+  columns.height = int('height')
+  columns.sizes = json('sizes')
+}
+
+function createTable(slug: string, fields: Fields, isUpload = false): DynamicTable {
   const columns: Record<string, MySqlColumnBuilder> = {
     id: int('id').autoincrement().primaryKey(),
+  }
+
+  if (isUpload) {
+    addUploadColumns(columns)
   }
 
   for (const [name, field] of Object.entries(fields)) {
@@ -173,7 +194,7 @@ function createTable(slug: string, fields: Fields): DynamicTable {
 }
 
 export function collectionToTable(collection: CollectionConfig): DynamicTable {
-  return createTable(collection.slug, collection.fields)
+  return createTable(collection.slug, collection.fields, Boolean(collection.upload))
 }
 
 export function globalToTable(global: GlobalConfig): DynamicTable {

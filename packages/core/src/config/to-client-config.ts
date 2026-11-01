@@ -15,6 +15,7 @@ import {
   type ClientSlugField,
   type ClientTextareaField,
   type ClientTextField,
+  type ClientUploadField,
 } from '../client/client-config'
 import type {
   CheckboxField,
@@ -30,6 +31,7 @@ import type {
   SlugField,
   TextareaField,
   TextField,
+  UploadField,
 } from '../fields/types'
 import { humanize } from '../utils/humanize'
 import type { CollectionConfig, Config, GlobalConfig } from './types'
@@ -124,6 +126,10 @@ const toClientField = {
       hasMany: field.hasMany,
     }),
   }),
+  upload: (name: string, field: UploadField): ClientUploadField => ({
+    ...baseField(name, field),
+    relationTo: field.relationTo,
+  }),
 } satisfies {
   [K in FieldType]: (name: string, field: Extract<Field, { type: K }>) => ClientField
 }
@@ -151,10 +157,17 @@ export function toClientGlobal(global: GlobalConfig): ClientGlobal {
 
 export function toClientCollection(collection: CollectionConfig): ClientCollection {
   const fields = Object.entries(collection.fields).map(([name, field]) => clientField(name, field))
+  const upload = collection.upload
+    ? typeof collection.upload === 'object'
+      ? defined({ mimeTypes: collection.upload.mimeTypes })
+      : true
+    : undefined
+
   return {
     slug: collection.slug,
     labels: clientLabels(collection),
     admin: clientAdmin(collection, fields),
+    ...(upload ? { upload } : {}),
     fields,
   }
 }
@@ -172,10 +185,12 @@ function clientLabels({ slug, labels = {} }: CollectionConfig): ClientCollection
 }
 
 function clientAdmin(
-  { admin = {} }: CollectionConfig,
+  collection: CollectionConfig,
   fields: ClientField[],
 ): ClientCollection['admin'] {
-  const useAsTitle = admin.useAsTitle ?? 'id'
+  const { admin = {}, upload } = collection
+  const defaultTitle = upload ? 'filename' : 'id'
+  const useAsTitle = admin.useAsTitle ?? defaultTitle
   const others = fields.map((field) => field.name).filter((name) => name !== useAsTitle)
   return {
     useAsTitle,

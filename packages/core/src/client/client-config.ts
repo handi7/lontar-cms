@@ -19,10 +19,15 @@ export interface ClientGlobal {
   fields: ClientField[]
 }
 
+export interface ClientUploadConfig {
+  mimeTypes?: string[]
+}
+
 export interface ClientCollection {
   slug: string
   labels: { singular: string; plural: string }
   admin: { useAsTitle: string; defaultColumns: string[] }
+  upload?: boolean | ClientUploadConfig
   /** In config order. System fields are not listed: every document has them. */
   fields: ClientField[]
 }
@@ -101,6 +106,11 @@ export interface ClientRelationshipField extends ClientFieldBase {
   hasMany?: boolean
 }
 
+export interface ClientUploadField extends ClientFieldBase {
+  type: 'upload'
+  relationTo: string
+}
+
 export type ClientField =
   | ClientTextField
   | ClientNumberField
@@ -112,3 +122,4 @@ export type ClientField =
   | ClientDateField
   | ClientRichTextField
   | ClientRelationshipField
+  | ClientUploadField

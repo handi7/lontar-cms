@@ -13,6 +13,7 @@ import type {
   SlugField,
   TextareaField,
   TextField,
+  UploadField,
 } from '@lontar/core'
 import { getJunctionTableName } from './table'
 
@@ -134,6 +135,14 @@ function renderRelationshipField(name: string, field: RelationshipField): string
   return code
 }
 
+function renderUploadField(name: string, field: UploadField): string {
+  let code = `int('${name}')`
+  if (field.required) {
+    code += '.notNull()'
+  }
+  return code
+}
+
 function renderBasicField(name: string, field: Field): string | null {
   if (field.type === 'text') return renderTextField(name, field)
   if (field.type === 'number') return renderNumberField(name, field)
@@ -152,6 +161,7 @@ function renderField(name: string, field: Field): string {
   if (field.type === 'date') return renderDateField(name, field)
   if (field.type === 'richText') return renderRichTextField(name, field)
   if (field.type === 'relationship') return renderRelationshipField(name, field)
+  if (field.type === 'upload') return renderUploadField(name, field)
   throw new Error(`Unsupported field type: ${(field as Field).type}`)
 }
 
@@ -165,6 +175,7 @@ const FIELD_TYPE_IMPORTS: Record<string, string> = {
   date: 'timestamp',
   richText: 'json',
   relationship: 'int',
+  upload: 'int',
 }
 
 function collectFieldImports(field: Field, imports: Set<string>): void {
@@ -193,6 +204,9 @@ function collectImports(
 ): string[] {
   const imports = new Set<string>(AUTH_BASE_IMPORTS)
   for (const collection of collections) {
+    if (collection.upload) {
+      imports.add('json')
+    }
     for (const field of Object.values(collection.fields)) {
       collectFieldImports(field, imports)
     }
@@ -205,9 +219,23 @@ function collectImports(
   return Array.from(imports).sort()
 }
 
-function renderTableDefinition(slug: string, fields: Record<string, Field>): string {
+function renderTableDefinition(
+  slug: string,
+  fields: Record<string, Field>,
+  isUpload = false,
+): string {
   const identifier = slugToIdentifier(slug)
   const lines: string[] = ["  id: int('id').autoincrement().primaryKey(),"]
+
+  if (isUpload) {
+    lines.push("  filename: varchar('filename', { length: 255 }).notNull(),")
+    lines.push("  url: varchar('url', { length: 1024 }).notNull(),")
+    lines.push("  mimeType: varchar('mimeType', { length: 255 }).notNull(),")
+    lines.push("  filesize: int('filesize').notNull(),")
+    lines.push("  width: int('width'),")
+    lines.push("  height: int('height'),")
+    lines.push("  sizes: json('sizes'),")
+  }
 
   for (const [name, field] of Object.entries(fields)) {
     if (field.type === 'relationship' && field.hasMany) {
@@ -223,7 +251,7 @@ function renderTableDefinition(slug: string, fields: Record<string, Field>): str
 }
 
 function renderCollection(collection: CollectionConfig): string {
-  return renderTableDefinition(collection.slug, collection.fields)
+  return renderTableDefinition(collection.slug, collection.fields, Boolean(collection.upload))
 }
 
 function renderGlobal(global: GlobalConfig): string {

@@ -8,6 +8,12 @@ import type { DatabaseAdapter, DocumentData } from '../../database/adapter'
 import { runAfterChangeHooks, runAfterReadHooks, runBeforeChangeHooks } from '../../hooks'
 import { parseDepth, populateDoc, populateDocs } from '../../populate'
 import { parseWhereFromSearchParams } from '../../query/parser'
+import {
+  handleUploadCreate,
+  handleUploadDelete,
+  handleUploadUpdate,
+  isMultipartRequest,
+} from './collection-upload'
 
 type LontarEnv = { Variables: LontarVariables }
 
@@ -142,6 +148,20 @@ async function handleCreate(
   schema: z.ZodType,
 ) {
   const user = c.get('user') ?? null
+
+  if (collection.upload) {
+    return handleUploadCreate({
+      c,
+      collection,
+      config,
+      schema,
+      user,
+      checkAccess,
+      accessDenied,
+      executeCreate,
+    })
+  }
+
   const body = await parseJsonBody(c)
 
   const allowed = await checkAccess(collection.access?.create, {
@@ -239,14 +259,14 @@ function validateUpdatePayload(
   return { success: true, data: parsed.data as DocumentData }
 }
 
-async function handleUpdate(
+async function handleJsonUpdate(
   c: Context<LontarEnv>,
   collection: CollectionConfig,
   config: Config,
   partialSchema: z.ZodType,
+  id: number | null,
+  user: AuthUser | null,
 ) {
-  const user = c.get('user') ?? null
-  const id = parseId(c.req.param('id'))
   const body = await parseJsonBody(c)
 
   const allowed = await checkAccess(collection.access?.update, {
@@ -291,11 +311,36 @@ async function handleUpdate(
   return c.json(populated, 200)
 }
 
-async function handleDelete(
+async function handleUpdate(
   c: Context<LontarEnv>,
   collection: CollectionConfig,
-  db: DatabaseAdapter,
+  config: Config,
+  partialSchema: z.ZodType,
 ) {
+  const user = c.get('user') ?? null
+  const id = parseId(c.req.param('id'))
+
+  if (collection.upload && isMultipartRequest(c)) {
+    if (id === null) {
+      return c.json({ error: 'Invalid document ID' }, 400)
+    }
+    return handleUploadUpdate({
+      c,
+      id,
+      collection,
+      config,
+      partialSchema,
+      user,
+      checkAccess,
+      accessDenied,
+      executeUpdate,
+    })
+  }
+
+  return handleJsonUpdate(c, collection, config, partialSchema, id, user)
+}
+
+async function handleDelete(c: Context<LontarEnv>, collection: CollectionConfig, config: Config) {
   const user = c.get('user') ?? null
   const id = parseId(c.req.param('id'))
 
@@ -311,9 +356,13 @@ async function handleDelete(
     return c.json({ error: 'Invalid document ID' }, 400)
   }
 
-  const doc = await db.delete({ collection, id })
+  const originalDoc = collection.upload ? await config.db.findByID({ collection, id }) : null
+  const doc = await config.db.delete({ collection, id })
   if (!doc) {
     return c.json({ error: `Document with ID ${id} not found` }, 404)
+  }
+  if (originalDoc) {
+    await handleUploadDelete(collection, config, originalDoc)
   }
   return c.json(doc, 200)
 }
@@ -356,6 +405,6 @@ export function registerCollectionRoutes(router: Hono<LontarEnv>, config: Config
   router.delete('/:collection/:id', (c) => {
     const col = findCol(c)
     if (!col) return c.json({ error: `Collection "${c.req.param('collection')}" not found` }, 404)
-    return handleDelete(c, col, config.db)
+    return handleDelete(c, col, config)
   })
 }
