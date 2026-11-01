@@ -105,6 +105,24 @@ describe('createLontar REST API', () => {
       })
     })
 
+    it('passes where and sort query parameters to db.find', async () => {
+      mockFind.mockClear()
+      const res = await app.request(
+        '/api/posts?where[status][equals]=published&where[views][greater_than]=10&sort=-createdAt,title',
+      )
+      expect(res.status).toBe(200)
+      expect(mockFind).toHaveBeenCalledWith({
+        collection: Posts,
+        page: 1,
+        limit: 10,
+        sort: '-createdAt,title',
+        where: {
+          status: { equals: 'published' },
+          views: { greater_than: '10' },
+        },
+      })
+    })
+
     it('returns 404 for unknown collection', async () => {
       const res = await app.request('/api/unknown')
       expect(res.status).toBe(404)

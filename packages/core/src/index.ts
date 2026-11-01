@@ -3,6 +3,8 @@ export { defineConfig, LontarConfigError } from './config/define-config'
 export { toClientCollection, toClientConfig } from './config/to-client-config'
 export { fields } from './fields'
 export { createLontar, type CreateLontarOptions, type LontarApp } from './server/create-lontar'
+export { parseSort, parseWhere, parseWhereFromSearchParams } from './query'
+export type { FieldFilter, FilterOperator, SortItem, Where, WhereClause } from './query'
 
 export type { Auth, AuthSession, AuthUser, LontarVariables } from './auth/types'
 export type {

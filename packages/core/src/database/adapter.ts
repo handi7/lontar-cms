@@ -1,5 +1,6 @@
 import type { SystemFields } from '../client/system-fields'
 import type { CollectionConfig, Config } from '../config/types'
+import type { SortItem, Where } from '../query/types'
 
 /** Field values keyed by field name, as written by create and update. */
 export type DocumentData = Record<string, unknown>
@@ -15,8 +16,10 @@ export interface FindArgs {
   limit: number
   /** 1-based. */
   page: number
-  /** A field name, prefixed with `-` for descending order, e.g. `-createdAt`. */
-  sort?: string
+  /** Sort string or parsed SortItem[] */
+  sort?: string | SortItem[]
+  /** Filter conditions */
+  where?: Where
 }
 
 export interface PaginatedDocs<T = StoredDoc> {
