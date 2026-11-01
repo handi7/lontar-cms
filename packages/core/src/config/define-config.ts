@@ -1,4 +1,4 @@
-import { SYSTEM_FIELDS } from '../client/system-fields'
+import { SYSTEM_FIELDS, UPLOAD_SYSTEM_FIELDS } from '../client/system-fields'
 import type { CollectionConfig, Config, GlobalConfig } from './types'
 
 const SLUG = /^[a-z][a-z0-9-]*$/
@@ -6,6 +6,7 @@ const FIELD_NAME = /^[A-Za-z_][A-Za-z0-9_]*$/
 /** Slugs that would collide with fixed API routes or auth tables. */
 const RESERVED_SLUGS = new Set(['globals', 'auth', 'user', 'session', 'account', 'verification'])
 const SYSTEM_FIELD_NAMES = new Set<string>(SYSTEM_FIELDS)
+const UPLOAD_SYSTEM_FIELD_NAMES = new Set<string>(UPLOAD_SYSTEM_FIELDS)
 
 export class LontarConfigError extends Error {
   readonly issues: readonly string[]
@@ -59,12 +60,17 @@ function validateCollections(collections: readonly CollectionConfig[]): {
 } {
   const issues: string[] = []
   const slugs = new Set<string>()
+  const collectionMap = new Map<string, CollectionConfig>()
   for (const collection of collections) {
     if (slugs.has(collection.slug)) {
       issues.push(`Collection slug "${collection.slug}" is used twice.`)
     }
     slugs.add(collection.slug)
+    collectionMap.set(collection.slug, collection)
     issues.push(...validateCollection(collection))
+  }
+  for (const collection of collections) {
+    issues.push(...validateUploadTargets(collection, collectionMap))
   }
   return { issues, slugs }
 }
@@ -89,11 +95,33 @@ function validateGlobals(
   return issues
 }
 
+function validateUploadTargets(
+  collection: CollectionConfig,
+  collectionMap: Map<string, CollectionConfig>,
+): string[] {
+  const issues: string[] = []
+  for (const [name, field] of Object.entries(collection.fields)) {
+    if (field.type !== 'upload') continue
+    const target = collectionMap.get(field.relationTo)
+    if (!target) {
+      issues.push(
+        `Collection "${collection.slug}": upload field "${name}" refers to unknown collection "${field.relationTo}".`,
+      )
+    } else if (!target.upload) {
+      issues.push(
+        `Collection "${collection.slug}": upload field "${name}" refers to collection "${field.relationTo}" which does not have upload enabled.`,
+      )
+    }
+  }
+  return issues
+}
+
 function validateCollection(collection: CollectionConfig): string[] {
   const where = `Collection "${collection.slug}"`
+  const isUpload = Boolean(collection.upload)
   return [
     ...validateSlug(collection.slug, 'Collection'),
-    ...Object.keys(collection.fields).flatMap((name) => validateFieldName(where, name)),
+    ...Object.keys(collection.fields).flatMap((name) => validateFieldName(where, name, isUpload)),
     ...validateAdmin(where, collection),
     ...validateAccess(where, collection),
   ]
@@ -118,7 +146,7 @@ function validateSlug(slug: string, kind = 'Collection'): string[] {
   return []
 }
 
-function validateFieldName(where: string, name: string): string[] {
+function validateFieldName(where: string, name: string, isUpload = false): string[] {
   if (!FIELD_NAME.test(name)) {
     return [
       `${where}: field name "${name}" must start with a letter or underscore and contain only letters, digits and underscores.`,
@@ -127,11 +155,18 @@ function validateFieldName(where: string, name: string): string[] {
   if (SYSTEM_FIELD_NAMES.has(name)) {
     return [`${where}: field name "${name}" is reserved for a system field.`]
   }
+  if (isUpload && UPLOAD_SYSTEM_FIELD_NAMES.has(name)) {
+    return [`${where}: field name "${name}" is reserved for an upload collection field.`]
+  }
   return []
 }
 
 function validateAdmin(where: string, collection: CollectionConfig): string[] {
-  const known = new Set<string>([...SYSTEM_FIELDS, ...Object.keys(collection.fields)])
+  const known = new Set<string>([
+    ...SYSTEM_FIELDS,
+    ...(collection.upload ? UPLOAD_SYSTEM_FIELDS : []),
+    ...Object.keys(collection.fields),
+  ])
   const { useAsTitle, defaultColumns = [] } = collection.admin ?? {}
   const check = (option: string) => (name: string) =>
     known.has(name) ? [] : [`${where}: admin.${option} refers to unknown field "${name}".`]

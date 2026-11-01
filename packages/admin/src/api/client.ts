@@ -161,14 +161,15 @@ export async function fetchDoc(
 export async function createDoc(
   apiBase: string,
   slug: string,
-  data: Record<string, unknown>,
+  data: Record<string, unknown> | FormData,
 ): Promise<Record<string, unknown>> {
   const base = apiBase.replace(/\/+$/, '')
+  const isFormData = typeof FormData !== 'undefined' && data instanceof FormData
   const res = await fetch(`${base}/${slug}`, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers: isFormData ? undefined : { 'Content-Type': 'application/json' },
     credentials: 'include',
-    body: JSON.stringify(data),
+    body: isFormData ? data : JSON.stringify(data),
   })
   return handleResponse<Record<string, unknown>>(res)
 }
@@ -177,14 +178,15 @@ export async function updateDoc(
   apiBase: string,
   slug: string,
   id: number | string,
-  data: Record<string, unknown>,
+  data: Record<string, unknown> | FormData,
 ): Promise<Record<string, unknown>> {
   const base = apiBase.replace(/\/+$/, '')
+  const isFormData = typeof FormData !== 'undefined' && data instanceof FormData
   const res = await fetch(`${base}/${slug}/${id}`, {
     method: 'PATCH',
-    headers: { 'Content-Type': 'application/json' },
+    headers: isFormData ? undefined : { 'Content-Type': 'application/json' },
     credentials: 'include',
-    body: JSON.stringify(data),
+    body: isFormData ? data : JSON.stringify(data),
   })
   return handleResponse<Record<string, unknown>>(res)
 }

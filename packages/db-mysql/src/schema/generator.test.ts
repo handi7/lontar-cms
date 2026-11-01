@@ -220,6 +220,47 @@ describe('generateSchemaFile', () => {
     expect(output).toContain("order: int('order').default(0).notNull(),")
   })
 
+  it('generates schema for upload fields and media collections', () => {
+    const config: Config = {
+      secret: 'test-secret',
+      db: fakeAdapter,
+      collections: [
+        {
+          slug: 'media',
+          upload: true,
+          fields: {
+            alt: { type: 'text', required: true },
+          },
+        },
+        {
+          slug: 'articles',
+          fields: {
+            cover: { type: 'upload', relationTo: 'media', required: true },
+            thumbnail: { type: 'upload', relationTo: 'media' },
+          },
+        },
+      ],
+    }
+
+    const output = generateSchemaFile(config)
+    expect(output).toContain(
+      "import { boolean, index, int, json, mysqlTable, text, timestamp, varchar } from 'drizzle-orm/mysql-core'",
+    )
+    expect(output).toContain("export const media = mysqlTable('media', {")
+    expect(output).toContain("filename: varchar('filename', { length: 255 }).notNull(),")
+    expect(output).toContain("url: varchar('url', { length: 1024 }).notNull(),")
+    expect(output).toContain("mimeType: varchar('mimeType', { length: 255 }).notNull(),")
+    expect(output).toContain("filesize: int('filesize').notNull(),")
+    expect(output).toContain("width: int('width'),")
+    expect(output).toContain("height: int('height'),")
+    expect(output).toContain("sizes: json('sizes'),")
+    expect(output).toContain("alt: varchar('alt', { length: 255 }).notNull(),")
+
+    expect(output).toContain("export const articles = mysqlTable('articles', {")
+    expect(output).toContain("cover: int('cover').notNull(),")
+    expect(output).toContain("thumbnail: int('thumbnail'),")
+  })
+
   it('generates schema for auth tables (user, session, account, verification)', () => {
     const config: Config = {
       secret: 'test-secret',

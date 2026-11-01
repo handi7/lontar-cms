@@ -9,6 +9,7 @@ import type {
   SlugField,
   TextareaField,
   TextField,
+  UploadField,
 } from './types'
 
 type Options<F> = Omit<F, 'type'>
@@ -62,6 +63,13 @@ function relationship<const O extends Options<RelationshipField>>(
   return { ...options, type: 'relationship' }
 }
 
+function upload<const O extends Options<UploadField>>(options: O): O & { type: 'upload' } {
+  if (!options?.relationTo) {
+    throw new Error('Upload field requires a "relationTo" collection slug')
+  }
+  return { ...options, type: 'upload' }
+}
+
 export const fields = {
   text,
   number,
@@ -73,4 +81,5 @@ export const fields = {
   date,
   richText,
   relationship,
+  upload,
 }

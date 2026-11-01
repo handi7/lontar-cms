@@ -216,4 +216,95 @@ describe('defineConfig', () => {
     }
     expect(defineConfig(config)).toBe(config)
   })
+
+  it('rejects upload collection fields that collide with upload system fields', () => {
+    const mockStorage = {
+      name: 'test-storage',
+      upload: () => Promise.resolve({ filename: 'f', url: 'u' }),
+      delete: () => Promise.resolve(),
+      getUrl: () => 'u',
+    }
+    expect(() =>
+      defineConfig({
+        secret: SECRET,
+        db: fakeAdapter,
+        storage: mockStorage,
+        collections: [
+          notes({
+            upload: true,
+            fields: {
+              filename: f.text(),
+            },
+          }),
+        ],
+      }),
+    ).toThrow('field name "filename" is reserved for an upload collection field')
+  })
+
+  it('rejects upload field targeting unknown collection', () => {
+    expect(() =>
+      defineConfig({
+        secret: SECRET,
+        db: fakeAdapter,
+        collections: [
+          notes({
+            fields: {
+              cover: f.upload({ relationTo: 'media' }),
+            },
+          }),
+        ],
+      }),
+    ).toThrow('upload field "cover" refers to unknown collection "media"')
+  })
+
+  it('rejects upload field targeting collection without upload enabled', () => {
+    expect(() =>
+      defineConfig({
+        secret: SECRET,
+        db: fakeAdapter,
+        collections: [
+          notes({
+            slug: 'posts',
+            fields: {
+              cover: f.upload({ relationTo: 'other' }),
+            },
+          }),
+          notes({
+            slug: 'other',
+            fields: { title: f.text() },
+          }),
+        ],
+      }),
+    ).toThrow(
+      'upload field "cover" refers to collection "other" which does not have upload enabled',
+    )
+  })
+
+  it('accepts upload field targeting upload collection', () => {
+    const mockStorage = {
+      name: 'test-storage',
+      upload: () => Promise.resolve({ filename: 'f', url: 'u' }),
+      delete: () => Promise.resolve(),
+      getUrl: () => 'u',
+    }
+    const config = {
+      secret: SECRET,
+      db: fakeAdapter,
+      storage: mockStorage,
+      collections: [
+        notes({
+          slug: 'media',
+          upload: true,
+          admin: { useAsTitle: 'filename' },
+        }),
+        notes({
+          slug: 'posts',
+          fields: {
+            cover: f.upload({ relationTo: 'media' }),
+          },
+        }),
+      ],
+    }
+    expect(defineConfig(config)).toBe(config)
+  })
 })

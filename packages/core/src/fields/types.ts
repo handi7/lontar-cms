@@ -89,6 +89,17 @@ export interface RelationshipField extends BaseField {
   hasMany?: boolean
 }
 
+export interface UploadFieldOptions {
+  label?: string
+  required?: boolean
+  relationTo: string
+}
+
+export interface UploadField extends BaseField {
+  type: 'upload'
+  relationTo: string
+}
+
 export type Field =
   | TextField
   | NumberField
@@ -100,5 +111,6 @@ export type Field =
   | DateField
   | RichTextField
   | RelationshipField
+  | UploadField
 export type FieldType = Field['type']
 export type Fields = Record<string, Field>

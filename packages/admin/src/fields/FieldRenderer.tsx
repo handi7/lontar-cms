@@ -14,6 +14,7 @@ import type {
 } from '@lontar/core/client'
 import { RichTextEditor } from './RichTextEditor'
 import { RelationshipPicker } from './RelationshipPicker'
+import { UploadPicker } from './UploadPicker'
 
 export interface FieldRendererProps {
   field: ClientField
@@ -319,6 +320,9 @@ function FieldInput({
     return (
       <RelationshipPicker field={field} register={register} setValue={setValue} watch={watch} />
     )
+  }
+  if (field.type === 'upload') {
+    return <UploadPicker field={field} register={register} setValue={setValue} watch={watch} />
   }
   return <StandardFieldInput field={field} register={register} />
 }

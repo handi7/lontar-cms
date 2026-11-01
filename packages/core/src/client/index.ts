@@ -18,8 +18,15 @@ export type {
   ClientSlugField,
   ClientTextareaField,
   ClientTextField,
+  ClientUploadConfig,
+  ClientUploadField,
 } from './client-config'
-export { SYSTEM_FIELDS } from './system-fields'
-export type { SystemFieldName, SystemFields } from './system-fields'
+export { SYSTEM_FIELDS, UPLOAD_SYSTEM_FIELDS } from './system-fields'
+export type {
+  SystemFieldName,
+  SystemFields,
+  UploadSystemFieldName,
+  UploadSystemFields,
+} from './system-fields'
 export type { FieldFilter, FilterOperator, SortItem, Where, WhereClause, WhereField } from './query'
 export { clientFieldToZod, clientFieldsToZod } from './zod'

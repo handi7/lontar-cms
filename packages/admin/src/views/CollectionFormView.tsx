@@ -13,6 +13,7 @@ import { clientFieldsToZod, type ClientCollection, type ClientField } from '@lon
 import { useAdmin, useCollection } from '../context/AdminContext'
 import { fetchDoc, createDoc, updateDoc, deleteDoc } from '../api/client'
 import { FieldRenderer } from '../fields/FieldRenderer'
+import { FileUploadZone } from '../fields/FileUploadZone'
 import { NotFoundView } from './NotFoundView'
 
 function DocumentMeta({ doc }: { doc?: Record<string, unknown> | null }) {
@@ -160,6 +161,10 @@ function FormBody({
   watch,
   errors,
   isPending,
+  selectedFile,
+  onFileChange,
+  fileError,
+  doc,
   onSubmit,
 }: {
   collection: ClientCollection
@@ -169,6 +174,10 @@ function FormBody({
   watch: UseFormWatch<Record<string, unknown>>
   errors: FieldErrors<Record<string, unknown>>
   isPending: boolean
+  selectedFile: File | null
+  onFileChange: (file: File | null) => void
+  fileError: string | null
+  doc?: Record<string, unknown> | null
   onSubmit: (e: React.FormEvent) => void
 }) {
   const submitLabel = isPending
@@ -177,8 +186,33 @@ function FormBody({
       ? `Create ${collection.labels.singular}`
       : 'Save Changes'
 
+  const uploadConfig = typeof collection.upload === 'object' ? collection.upload : undefined
+  const accept = uploadConfig?.mimeTypes?.join(',')
+
   return (
     <form onSubmit={onSubmit} className="lontar-form">
+      {Boolean(collection.upload) && (
+        <FileUploadZone
+          value={selectedFile}
+          onChange={onFileChange}
+          currentFile={
+            doc
+              ? {
+                  filename: doc.filename as string | undefined,
+                  url: doc.url as string | undefined,
+                  mimeType: doc.mimeType as string | undefined,
+                  filesize: doc.filesize as number | undefined,
+                  width: doc.width as number | undefined,
+                  height: doc.height as number | undefined,
+                }
+              : null
+          }
+          accept={accept}
+          required={mode === 'create'}
+          error={fileError ?? undefined}
+        />
+      )}
+
       <div className="lontar-form-fields">
         {collection.fields.map((field) => (
           <FieldRenderer
@@ -211,6 +245,7 @@ function useDocMutations({
   reset,
   setApiError,
   setSuccessMsg,
+  onSaveSuccess,
 }: {
   apiBase: string
   slug?: string
@@ -220,12 +255,13 @@ function useDocMutations({
   reset: (values?: Record<string, unknown>) => void
   setApiError: (msg: string | null) => void
   setSuccessMsg: (msg: string | null) => void
+  onSaveSuccess?: () => void
 }) {
   const queryClient = useQueryClient()
   const navigate = useNavigate()
 
   const saveMutation = useMutation({
-    mutationFn: async (values: Record<string, unknown>) => {
+    mutationFn: async (values: Record<string, unknown> | FormData) => {
       setApiError(null)
       setSuccessMsg(null)
       if (!slug) throw new Error('Missing collection slug')
@@ -235,6 +271,7 @@ function useDocMutations({
     },
     onSuccess: (savedDoc) => {
       void queryClient.invalidateQueries({ queryKey: [slug] })
+      onSaveSuccess?.()
       if (mode === 'create') {
         void navigate({ to: '/$collection', params: { collection: slug ?? '' } })
       } else {
@@ -280,6 +317,26 @@ function useDocumentQuery(mode: 'create' | 'edit', apiBase: string, slug?: strin
   })
 }
 
+function appendFieldValue(formData: FormData, key: string, val: unknown): void {
+  if (val === undefined || val === null) return
+  if (typeof val === 'object') {
+    formData.append(key, JSON.stringify(val))
+  } else if (typeof val === 'string' || typeof val === 'number' || typeof val === 'boolean') {
+    formData.append(key, String(val))
+  }
+}
+
+function buildUploadFormData(values: Record<string, unknown>, file: File | null): FormData {
+  const formData = new FormData()
+  if (file) {
+    formData.append('file', file)
+  }
+  for (const [key, val] of Object.entries(values)) {
+    appendFieldValue(formData, key, val)
+  }
+  return formData
+}
+
 export function CollectionFormView({ mode }: { mode: 'create' | 'edit' }) {
   const { apiBase } = useAdmin()
   const { collection: slug, id } = useParams({ strict: false })
@@ -287,6 +344,8 @@ export function CollectionFormView({ mode }: { mode: 'create' | 'edit' }) {
 
   const [apiError, setApiError] = useState<string | null>(null)
   const [successMsg, setSuccessMsg] = useState<string | null>(null)
+  const [selectedFile, setSelectedFile] = useState<File | null>(null)
+  const [fileError, setFileError] = useState<string | null>(null)
 
   const docQuery = useDocumentQuery(mode, apiBase, slug, id)
 
@@ -311,6 +370,8 @@ export function CollectionFormView({ mode }: { mode: 'create' | 'edit' }) {
   useEffect(() => {
     if (docQuery.data) {
       reset(collection ? formatDocForForm(collection, docQuery.data) : docQuery.data)
+      setSelectedFile(null)
+      setFileError(null)
     }
   }, [docQuery.data, collection, reset])
 
@@ -323,6 +384,10 @@ export function CollectionFormView({ mode }: { mode: 'create' | 'edit' }) {
     reset,
     setApiError,
     setSuccessMsg,
+    onSaveSuccess: () => {
+      setSelectedFile(null)
+      setFileError(null)
+    },
   })
 
   const handleDelete = () => {
@@ -336,6 +401,18 @@ export function CollectionFormView({ mode }: { mode: 'create' | 'edit' }) {
     return <div className="lontar-alert lontar-alert-error">{docQuery.error.message}</div>
 
   const title = getFormTitle(mode, collection.labels.singular, id)
+
+  const handleFormSubmit = (v: Record<string, unknown>) => {
+    if (!collection.upload) {
+      saveMutation.mutate(v)
+      return
+    }
+    if (mode === 'create' && !selectedFile) {
+      setFileError('Please select a file to upload')
+      return
+    }
+    saveMutation.mutate(buildUploadFormData(v, selectedFile))
+  }
 
   return (
     <div className="lontar-collection-form">
@@ -359,10 +436,15 @@ export function CollectionFormView({ mode }: { mode: 'create' | 'edit' }) {
         watch={watch}
         errors={errors}
         isPending={isSubmitting || saveMutation.isPending}
+        selectedFile={selectedFile}
+        onFileChange={(file) => {
+          setSelectedFile(file)
+          setFileError(null)
+        }}
+        fileError={fileError}
+        doc={docQuery.data}
         onSubmit={(e) => {
-          void handleSubmit((v) => {
-            saveMutation.mutate(v)
-          })(e)
+          void handleSubmit(handleFormSubmit)(e)
         }}
       />
     </div>

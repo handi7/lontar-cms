@@ -63,11 +63,21 @@ describe('fields', () => {
       relationTo: 'categories',
       hasMany: true,
     })
+    expect(f.upload({ relationTo: 'media', required: true })).toStrictEqual({
+      type: 'upload',
+      relationTo: 'media',
+      required: true,
+    })
   })
 
   it('throws when relationship field has no relationTo', () => {
     // @ts-expect-error missing relationTo
     expect(() => f.relationship({})).toThrow('relationTo')
+  })
+
+  it('throws when upload field has no relationTo', () => {
+    // @ts-expect-error missing relationTo
+    expect(() => f.upload({})).toThrow('relationTo')
   })
 })
 
@@ -152,6 +162,48 @@ describe('InferDoc', () => {
       author: number
       reviewer: number | null
       categories: number[]
+    }>()
+  })
+
+  it('infers upload fields and media collections correctly', () => {
+    const media = collection({
+      slug: 'media',
+      upload: true,
+      fields: {
+        alt: f.text({ required: true }),
+        caption: f.text(),
+      },
+    })
+
+    const attachments = collection({
+      slug: 'attachments',
+      fields: {
+        featuredImage: f.upload({ relationTo: 'media', required: true }),
+        thumbnail: f.upload({ relationTo: 'media' }),
+      },
+    })
+
+    docOf(media).toEqualTypeOf<{
+      id: number
+      createdAt: string
+      updatedAt: string
+      filename: string
+      url: string
+      mimeType: string
+      filesize: number
+      width?: number | null
+      height?: number | null
+      sizes?: Record<string, unknown> | null
+      alt: string
+      caption: string | null
+    }>()
+
+    docOf(attachments).toEqualTypeOf<{
+      id: number
+      createdAt: string
+      updatedAt: string
+      featuredImage: number
+      thumbnail: number | null
     }>()
   })
 })

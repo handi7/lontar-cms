@@ -1,4 +1,4 @@
-import type { SystemFields } from '../client/system-fields'
+import type { SystemFields, UploadSystemFields } from '../client/system-fields'
 import type { Field, Fields } from './types'
 
 /** The value each field type stores. Every new field type needs an entry here. */
@@ -13,6 +13,7 @@ interface FieldValueMap {
   date: string
   richText: Record<string, unknown>
   relationship: number
+  upload: number
 }
 
 type FieldValue<F extends Field> = F extends { type: 'relationship'; hasMany: true }
@@ -24,6 +25,9 @@ type FieldValue<F extends Field> = F extends { type: 'relationship'; hasMany: tr
 type Simplify<T> = { [K in keyof T]: T[K] }
 
 /** The document type of a collection, as the API returns it. */
-export type InferDoc<C extends { fields: Fields }> = Simplify<
-  SystemFields & { -readonly [K in keyof C['fields']]: FieldValue<C['fields'][K]> }
+export type InferDoc<C extends { fields: Fields; upload?: unknown }> = Simplify<
+  SystemFields &
+    (C extends { upload: true | object } ? UploadSystemFields : unknown) & {
+      -readonly [K in keyof C['fields']]: FieldValue<C['fields'][K]>
+    }
 >
