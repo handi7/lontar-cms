@@ -6,6 +6,7 @@ import type {
   ClientDateField,
   ClientEmailField,
   ClientNumberField,
+  ClientRelationshipField,
   ClientRichTextField,
   ClientSelectField,
   ClientSlugField,
@@ -111,6 +112,18 @@ function richText(overrides: Partial<ClientRichTextField> = {}) {
     name: 'content',
     type: 'richText',
     label: 'Content',
+    required: false,
+    ...overrides,
+  }
+  return clientFieldToZod(field)
+}
+
+function relationship(overrides: Partial<ClientRelationshipField> = {}) {
+  const field: ClientRelationshipField = {
+    name: 'author',
+    type: 'relationship',
+    label: 'Author',
+    relationTo: 'users',
     required: false,
     ...overrides,
   }
@@ -339,6 +352,47 @@ describe('clientFieldToZod', () => {
       const schema = richText()
       expect(schema.safeParse('not an object').success).toBe(false)
       expect(schema.safeParse(123).success).toBe(false)
+    })
+  })
+
+  describe('relationship', () => {
+    it('validates single relationship as positive integer', () => {
+      const schema = relationship({ required: true })
+      expect(schema.safeParse(1).success).toBe(true)
+      expect(schema.safeParse(42).success).toBe(true)
+      expect(schema.safeParse(0).success).toBe(false)
+      expect(schema.safeParse(-1).success).toBe(false)
+      expect(schema.safeParse(1.5).success).toBe(false)
+      expect(schema.safeParse('1').success).toBe(false)
+      expect(schema.safeParse(null).success).toBe(false)
+      expect(schema.safeParse(undefined).success).toBe(false)
+    })
+
+    it('allows null and undefined when optional single relationship', () => {
+      const schema = relationship({ required: false })
+      expect(schema.safeParse(1).success).toBe(true)
+      expect(schema.safeParse(null).success).toBe(true)
+      expect(schema.safeParse(undefined).success).toBe(true)
+      expect(schema.safeParse(0).success).toBe(false)
+    })
+
+    it('validates hasMany relationship as array of positive integers', () => {
+      const schema = relationship({ hasMany: true, required: true })
+      expect(schema.safeParse([1, 2, 3]).success).toBe(true)
+      expect(schema.safeParse([]).success).toBe(false)
+      expect(schema.safeParse([1, 0]).success).toBe(false)
+      expect(schema.safeParse([1, -2]).success).toBe(false)
+      expect(schema.safeParse([1, 2.5]).success).toBe(false)
+      expect(schema.safeParse(null).success).toBe(false)
+      expect(schema.safeParse(undefined).success).toBe(false)
+    })
+
+    it('allows empty array, null and undefined when optional hasMany relationship', () => {
+      const schema = relationship({ hasMany: true, required: false })
+      expect(schema.safeParse([1, 2]).success).toBe(true)
+      expect(schema.safeParse([]).success).toBe(true)
+      expect(schema.safeParse(null).success).toBe(true)
+      expect(schema.safeParse(undefined).success).toBe(true)
     })
   })
 })

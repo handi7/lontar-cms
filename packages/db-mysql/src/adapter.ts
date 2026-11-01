@@ -15,7 +15,7 @@ import {
   or,
   type SQL,
 } from 'drizzle-orm'
-import { drizzle } from 'drizzle-orm/mysql2'
+import { drizzle, type MySql2Database } from 'drizzle-orm/mysql2'
 import { migrate } from 'drizzle-orm/mysql2/migrator'
 import mysql from 'mysql2/promise'
 import {
@@ -35,7 +35,13 @@ import {
 } from '@lontar/core'
 import { authTables } from './schema/auth'
 import { generateSchemaFile } from './schema/generator'
-import { collectionToTable, globalToTable, type DynamicTable } from './schema/table'
+import {
+  collectionToTable,
+  getCollectionJunctionTables,
+  globalToTable,
+  type DynamicTable,
+  type JunctionTable,
+} from './schema/table'
 import type { AnyMySqlColumn } from 'drizzle-orm/mysql-core'
 
 export interface MysqlAdapterOptions {
@@ -84,12 +90,19 @@ function sanitizeRichText(value: unknown): unknown {
   return value
 }
 
+function sanitizeRelationship(value: unknown): unknown {
+  if (value === '' || value === null || value === undefined) return null
+  const num = Number(value)
+  return Number.isNaN(num) ? null : num
+}
+
 function sanitizeFieldValue(
   field: CollectionConfig['fields'][string] | undefined,
   value: unknown,
 ): unknown {
   if (field?.type === 'date') return sanitizeDate(value)
   if (field?.type === 'richText') return sanitizeRichText(value)
+  if (field?.type === 'relationship') return sanitizeRelationship(value)
   return value
 }
 
@@ -97,7 +110,11 @@ function sanitizeData(schema: { fields: Fields }, data: DocumentData): DocumentD
   const clean: DocumentData = {}
   for (const [key, value] of Object.entries(data)) {
     if (key !== 'id' && key !== 'createdAt' && key !== 'updatedAt') {
-      clean[key] = sanitizeFieldValue(schema.fields[key], value)
+      const field = schema.fields[key]
+      if (field?.type === 'relationship' && field.hasMany) {
+        continue
+      }
+      clean[key] = sanitizeFieldValue(field, value)
     }
   }
   return clean
@@ -125,7 +142,7 @@ function castConfigField(
   value: unknown,
 ): unknown {
   if (!field) return value
-  if (field.type === 'number') {
+  if (field.type === 'number' || field.type === 'relationship') {
     const num = Number(value)
     return Number.isNaN(num) ? value : num
   }
@@ -294,6 +311,45 @@ function resolveOrderBy(table: DynamicTable, sort?: string | SortItem[]): SQL[] 
   return orderByList
 }
 
+type AdapterDb = MySql2Database<typeof authTables>
+
+async function syncSingleHasManyRelation(
+  db: AdapterDb,
+  jTable: JunctionTable,
+  parentId: number,
+  targetIds: unknown,
+): Promise<void> {
+  await db.delete(jTable).where(eq(jTable.parentId, parentId))
+  if (!Array.isArray(targetIds) || targetIds.length === 0) return
+
+  const rows = targetIds
+    .map((tid, index) => ({
+      parentId,
+      targetId: Number(tid),
+      order: index,
+    }))
+    .filter((row) => !Number.isNaN(row.targetId))
+
+  if (rows.length > 0) {
+    await db.insert(jTable).values(rows)
+  }
+}
+
+async function fetchJunctionRows(
+  db: AdapterDb,
+  jTable: JunctionTable,
+  parentIds: number[],
+): Promise<Array<{ parentId: number; targetId: number }>> {
+  return (await db
+    .select({
+      parentId: jTable.parentId,
+      targetId: jTable.targetId,
+    })
+    .from(jTable)
+    .where(inArray(jTable.parentId, parentIds))
+    .orderBy(asc(jTable.order))) as Array<{ parentId: number; targetId: number }>
+}
+
 export function mysqlAdapter(options: MysqlAdapterOptions): MysqlAdapter {
   const pool = mysql.createPool(options.url)
   const db = drizzle(pool, { schema: authTables, mode: 'default' })
@@ -302,6 +358,7 @@ export function mysqlAdapter(options: MysqlAdapterOptions): MysqlAdapter {
     schema: authTables,
   })
   const tableCache = new Map<string, DynamicTable>()
+  const junctionTablesCache = new Map<string, Record<string, JunctionTable>>()
 
   function getTable(collection: CollectionConfig): DynamicTable {
     let table = tableCache.get(collection.slug)
@@ -310,6 +367,53 @@ export function mysqlAdapter(options: MysqlAdapterOptions): MysqlAdapter {
       tableCache.set(collection.slug, table)
     }
     return table
+  }
+
+  function getJunctionTables(collection: CollectionConfig): Record<string, JunctionTable> {
+    let tables = junctionTablesCache.get(collection.slug)
+    if (!tables) {
+      tables = getCollectionJunctionTables(collection)
+      junctionTablesCache.set(collection.slug, tables)
+    }
+    return tables
+  }
+
+  async function syncHasManyRelations(
+    collection: CollectionConfig,
+    parentId: number,
+    data: DocumentData,
+  ): Promise<void> {
+    const junctionTables = getJunctionTables(collection)
+    for (const [name, jTable] of Object.entries(junctionTables)) {
+      if (name in data) {
+        await syncSingleHasManyRelation(db, jTable, parentId, data[name])
+      }
+    }
+  }
+
+  async function populateHasManyRelations(
+    collection: CollectionConfig,
+    docs: StoredDoc[],
+  ): Promise<void> {
+    if (docs.length === 0) return
+    const junctionTables = getJunctionTables(collection)
+    const junctionEntries = Object.entries(junctionTables)
+    if (junctionEntries.length === 0) return
+
+    const parentIds = docs.map((d) => d.id)
+
+    for (const [fieldName, jTable] of junctionEntries) {
+      for (const doc of docs) {
+        doc[fieldName] = []
+      }
+      const rows = await fetchJunctionRows(db, jTable, parentIds)
+      for (const row of rows) {
+        const doc = docs.find((d) => d.id === row.parentId)
+        if (doc) {
+          ;(doc[fieldName] as number[]).push(row.targetId)
+        }
+      }
+    }
   }
 
   async function findByID({
@@ -323,7 +427,10 @@ export function mysqlAdapter(options: MysqlAdapterOptions): MysqlAdapter {
     const [row] = (await db.select().from(table).where(eq(table.id, id)).limit(1)) as [
       Record<string, unknown> | undefined,
     ]
-    return row ? toStoredDoc(row) : null
+    if (!row) return null
+    const doc = toStoredDoc(row)
+    await populateHasManyRelations(collection, [doc])
+    return doc
   }
 
   async function create({
@@ -337,6 +444,7 @@ export function mysqlAdapter(options: MysqlAdapterOptions): MysqlAdapter {
     const values = sanitizeData(collection, data) as unknown as InsertValues
     const [result] = (await db.insert(table).values(values)) as unknown as [mysql.ResultSetHeader]
     const id = result.insertId
+    await syncHasManyRelations(collection, id, data)
     const created = await findByID({ collection, id })
     if (!created) {
       throw new Error(`Failed to retrieve created document in collection "${collection.slug}".`)
@@ -362,6 +470,7 @@ export function mysqlAdapter(options: MysqlAdapterOptions): MysqlAdapter {
       updatedAt: new Date(),
     } as unknown as UpdateSetValues
     await db.update(table).set(values).where(eq(table.id, id))
+    await syncHasManyRelations(collection, id, data)
     return findByID({ collection, id })
   }
 
@@ -374,6 +483,11 @@ export function mysqlAdapter(options: MysqlAdapterOptions): MysqlAdapter {
   }): Promise<StoredDoc | null> {
     const existing = await findByID({ collection, id })
     if (!existing) return null
+
+    const junctionTables = getJunctionTables(collection)
+    for (const jTable of Object.values(junctionTables)) {
+      await db.delete(jTable).where(eq(jTable.parentId, id))
+    }
 
     const table = getTable(collection)
     await db.delete(table).where(eq(table.id, id))
@@ -405,8 +519,10 @@ export function mysqlAdapter(options: MysqlAdapterOptions): MysqlAdapter {
     }
 
     const rows = (await query) as Record<string, unknown>[]
+    const docs = rows.map(toStoredDoc)
+    await populateHasManyRelations(collection, docs)
     return {
-      docs: rows.map(toStoredDoc),
+      docs,
       totalDocs,
       limit: safeLimit,
       page: safePage,

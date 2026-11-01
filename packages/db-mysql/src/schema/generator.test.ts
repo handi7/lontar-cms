@@ -180,6 +180,46 @@ describe('generateSchemaFile', () => {
     )
   })
 
+  it('generates schema for single and hasMany relationship fields', () => {
+    const posts: CollectionConfig = {
+      slug: 'posts',
+      fields: {
+        author: {
+          type: 'relationship',
+          relationTo: 'users',
+          required: true,
+        },
+        reviewer: {
+          type: 'relationship',
+          relationTo: 'users',
+        },
+        categories: {
+          type: 'relationship',
+          relationTo: 'categories',
+          hasMany: true,
+        },
+      },
+    }
+
+    const config: Config = {
+      secret: 'test-secret',
+      db: fakeAdapter,
+      collections: [posts],
+    }
+
+    const output = generateSchemaFile(config)
+    expect(output).toContain("export const posts = mysqlTable('posts', {")
+    expect(output).toContain("author: int('author').notNull(),")
+    expect(output).toContain("reviewer: int('reviewer'),")
+    // hasMany should not be rendered as a column on posts
+    expect(output).not.toContain("categories: int('categories')")
+    // hasMany should be rendered as a junction table
+    expect(output).toContain("export const postsCategories = mysqlTable('posts_categories', {")
+    expect(output).toContain("parentId: int('parent_id').notNull(),")
+    expect(output).toContain("targetId: int('target_id').notNull(),")
+    expect(output).toContain("order: int('order').default(0).notNull(),")
+  })
+
   it('generates schema for auth tables (user, session, account, verification)', () => {
     const config: Config = {
       secret: 'test-secret',

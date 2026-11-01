@@ -11,6 +11,7 @@ export type {
   ClientField,
   ClientGlobal,
   ClientNumberField,
+  ClientRelationshipField,
   ClientRichTextField,
   ClientSelectField,
   ClientSelectOption,

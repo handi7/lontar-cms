@@ -36,7 +36,7 @@ function GlobalMeta({ doc }: { doc?: Record<string, unknown> | null }) {
 function computeDefaultValues(fields: ClientField[]): Record<string, unknown> {
   const defaults: Record<string, unknown> = {}
   for (const f of fields) {
-    if (f.defaultValue !== undefined) {
+    if ('defaultValue' in f && f.defaultValue !== undefined) {
       if (f.type === 'date' && typeof f.defaultValue === 'string') {
         const d = new Date(f.defaultValue)
         defaults[f.name] = !Number.isNaN(d.getTime())

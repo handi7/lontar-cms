@@ -95,6 +95,12 @@ export interface ClientRichTextField extends ClientFieldBase {
   defaultValue?: Record<string, unknown>
 }
 
+export interface ClientRelationshipField extends ClientFieldBase {
+  type: 'relationship'
+  relationTo: string
+  hasMany?: boolean
+}
+
 export type ClientField =
   | ClientTextField
   | ClientNumberField
@@ -105,3 +111,4 @@ export type ClientField =
   | ClientSelectField
   | ClientDateField
   | ClientRichTextField
+  | ClientRelationshipField

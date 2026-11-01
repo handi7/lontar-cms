@@ -20,6 +20,7 @@ import type {
   Fields,
   GlobalConfig,
   NumberField,
+  RelationshipField,
   RichTextField,
   SelectField,
   SlugField,
@@ -86,16 +87,29 @@ function richTextToColumn(name: string, field: RichTextField) {
   return field.required ? withDefault.notNull() : withDefault
 }
 
-function fieldToColumn(name: string, field: Field) {
+function relationshipToColumn(name: string, field: RelationshipField) {
+  const base = int(name)
+  return field.required ? base.notNull() : base
+}
+
+function basicFieldToColumn(name: string, field: Field) {
   if (field.type === 'text') return textToColumn(name, field)
   if (field.type === 'number') return numberToColumn(name, field)
   if (field.type === 'textarea') return textareaToColumn(name, field)
   if (field.type === 'email') return emailToColumn(name, field)
   if (field.type === 'slug') return slugToColumn(name, field)
+  return null
+}
+
+function fieldToColumn(name: string, field: Field) {
+  const basic = basicFieldToColumn(name, field)
+  if (basic) return basic
+
   if (field.type === 'checkbox') return checkboxToColumn(name, field)
   if (field.type === 'select') return selectToColumn(name, field)
   if (field.type === 'date') return dateToColumn(name, field)
   if (field.type === 'richText') return richTextToColumn(name, field)
+  if (field.type === 'relationship') return relationshipToColumn(name, field)
   throw new Error(`Unsupported field type: ${(field as Field).type}`)
 }
 
@@ -106,12 +120,49 @@ export type DynamicTable = MySqlTable & {
   [field: string]: AnyMySqlColumn
 }
 
+export type JunctionTable = MySqlTable & {
+  id: AnyMySqlColumn
+  parentId: AnyMySqlColumn
+  targetId: AnyMySqlColumn
+  order: AnyMySqlColumn
+}
+
+export function getJunctionTableName(collectionSlug: string, fieldName: string): string {
+  return `${collectionSlug}_${fieldName}`
+}
+
+export function createJunctionTable(tableName: string): JunctionTable {
+  const columns = {
+    id: int('id').autoincrement().primaryKey(),
+    parentId: int('parent_id').notNull(),
+    targetId: int('target_id').notNull(),
+    order: int('order').default(0).notNull(),
+  }
+  return mysqlTable(tableName, columns)
+}
+
+export function getCollectionJunctionTables(
+  collection: CollectionConfig,
+): Record<string, JunctionTable> {
+  const tables: Record<string, JunctionTable> = {}
+  for (const [name, field] of Object.entries(collection.fields)) {
+    if (field.type === 'relationship' && field.hasMany) {
+      const tableName = getJunctionTableName(collection.slug, name)
+      tables[name] = createJunctionTable(tableName)
+    }
+  }
+  return tables
+}
+
 function createTable(slug: string, fields: Fields): DynamicTable {
   const columns: Record<string, MySqlColumnBuilder> = {
     id: int('id').autoincrement().primaryKey(),
   }
 
   for (const [name, field] of Object.entries(fields)) {
+    if (field.type === 'relationship' && field.hasMany) {
+      continue
+    }
     columns[name] = fieldToColumn(name, field)
   }
 

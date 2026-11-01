@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest'
 import type { AnyMySqlColumn } from 'drizzle-orm/mysql-core'
 import { getTableColumns } from 'drizzle-orm'
 import type { CollectionConfig, GlobalConfig } from '@lontar/core'
-import { collectionToTable, globalToTable } from './table'
+import { collectionToTable, getCollectionJunctionTables, globalToTable } from './table'
 
 function col(columns: Record<string, AnyMySqlColumn>, name: string): AnyMySqlColumn {
   const column = columns[name]
@@ -32,6 +32,16 @@ describe('collectionToTable', () => {
         required: true,
         defaultValue: { type: 'doc', content: [] },
       },
+      author: {
+        type: 'relationship',
+        relationTo: 'users',
+        required: true,
+      },
+      categories: {
+        type: 'relationship',
+        relationTo: 'categories',
+        hasMany: true,
+      },
     },
   }
 
@@ -50,6 +60,7 @@ describe('collectionToTable', () => {
       'status',
       'publishedAt',
       'body',
+      'author',
       'createdAt',
       'updatedAt',
     ])
@@ -80,6 +91,19 @@ describe('collectionToTable', () => {
     expect(col(columns, 'body').columnType).toBe('MySqlJson')
     expect(col(columns, 'body').notNull).toBe(true)
     expect(col(columns, 'body').hasDefault).toBe(true)
+    expect(col(columns, 'author').columnType).toBe('MySqlInt')
+    expect(col(columns, 'author').notNull).toBe(true)
+  })
+
+  it('creates junction tables for hasMany relationships', () => {
+    const junctionTables = getCollectionJunctionTables(posts)
+    expect(junctionTables.categories).toBeDefined()
+    const columns = getTableColumns(junctionTables.categories!) as Record<string, AnyMySqlColumn>
+    expect(Object.keys(columns)).toEqual(['id', 'parentId', 'targetId', 'order'])
+    expect(col(columns, 'id').primary).toBe(true)
+    expect(col(columns, 'parentId').notNull).toBe(true)
+    expect(col(columns, 'targetId').notNull).toBe(true)
+    expect(col(columns, 'order').notNull).toBe(true)
   })
 
   it('creates table for globals with globalToTable', () => {

@@ -8,6 +8,7 @@ import {
   type ClientField,
   type ClientGlobal,
   type ClientNumberField,
+  type ClientRelationshipField,
   type ClientRichTextField,
   type ClientSelectField,
   type ClientSelectOption,
@@ -22,6 +23,7 @@ import type {
   Field,
   FieldType,
   NumberField,
+  RelationshipField,
   RichTextField,
   SelectField,
   SelectOption,
@@ -113,6 +115,13 @@ const toClientField = {
     ...baseField(name, field),
     ...defined({
       defaultValue: field.defaultValue,
+    }),
+  }),
+  relationship: (name: string, field: RelationshipField): ClientRelationshipField => ({
+    ...baseField(name, field),
+    relationTo: field.relationTo,
+    ...defined({
+      hasMany: field.hasMany,
     }),
   }),
 } satisfies {

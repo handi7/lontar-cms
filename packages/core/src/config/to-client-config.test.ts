@@ -127,6 +127,16 @@ describe('toClientConfig', () => {
           required: true,
           defaultValue: { type: 'doc', content: [] },
         }),
+        author: f.relationship({
+          label: 'Author',
+          required: true,
+          relationTo: 'users',
+        }),
+        categories: f.relationship({
+          label: 'Categories',
+          relationTo: 'categories',
+          hasMany: true,
+        }),
       },
     })
 
@@ -208,6 +218,21 @@ describe('toClientConfig', () => {
         label: 'Body',
         required: true,
         defaultValue: { type: 'doc', content: [] },
+      },
+      {
+        name: 'author',
+        type: 'relationship',
+        label: 'Author',
+        required: true,
+        relationTo: 'users',
+      },
+      {
+        name: 'categories',
+        type: 'relationship',
+        label: 'Categories',
+        required: false,
+        relationTo: 'categories',
+        hasMany: true,
       },
     ])
   })

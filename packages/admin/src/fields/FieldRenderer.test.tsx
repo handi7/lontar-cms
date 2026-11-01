@@ -5,6 +5,7 @@ import type {
   ClientCheckboxField,
   ClientDateField,
   ClientEmailField,
+  ClientRelationshipField,
   ClientRichTextField,
   ClientSelectField,
   ClientSlugField,
@@ -321,5 +322,49 @@ describe('FieldRenderer', () => {
     expect(screen.getByTestId('richtext-h1')).toBeTruthy()
     expect(screen.getByTestId('richtext-bulletList')).toBeTruthy()
     expect(screen.getByTestId('richtext-link')).toBeTruthy()
+  })
+
+  it('renders single relationship input', () => {
+    const field: ClientRelationshipField = {
+      name: 'author',
+      type: 'relationship',
+      relationTo: 'users',
+      label: 'Author',
+      required: true,
+    }
+
+    const { container } = render(
+      <FormWrapper defaultValues={{ author: 42 }}>
+        {({ register }) => <FieldRenderer field={field} register={register} />}
+      </FormWrapper>,
+    )
+
+    const input = container.querySelector('input#author') as HTMLInputElement
+    expect(input).toBeTruthy()
+    expect(input.type).toBe('number')
+    expect(input.value).toBe('42')
+    expect(screen.getByText('Author')).toBeTruthy()
+  })
+
+  it('renders hasMany relationship input', () => {
+    const field: ClientRelationshipField = {
+      name: 'categories',
+      type: 'relationship',
+      relationTo: 'categories',
+      hasMany: true,
+      label: 'Categories',
+      required: false,
+    }
+
+    const { container } = render(
+      <FormWrapper defaultValues={{ categories: '1, 2, 3' }}>
+        {({ register }) => <FieldRenderer field={field} register={register} />}
+      </FormWrapper>,
+    )
+
+    const input = container.querySelector('input#categories') as HTMLInputElement
+    expect(input).toBeTruthy()
+    expect(input.placeholder).toContain('Comma-separated IDs')
+    expect(screen.getByText('Categories')).toBeTruthy()
   })
 })

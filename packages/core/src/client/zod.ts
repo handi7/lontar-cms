@@ -5,6 +5,7 @@ import type {
   ClientEmailField,
   ClientField,
   ClientNumberField,
+  ClientRelationshipField,
   ClientRichTextField,
   ClientSelectField,
   ClientSlugField,
@@ -93,6 +94,14 @@ const zodByType = {
       })
     }
     return base
+  },
+  relationship: (field: ClientRelationshipField) => {
+    const idSchema = z.number().int().positive()
+    if (field.hasMany) {
+      const arr = z.array(idSchema)
+      return field.required ? arr.min(1, 'At least one relation is required') : arr
+    }
+    return idSchema
   },
 } satisfies { [K in ClientField['type']]: (field: Extract<ClientField, { type: K }>) => z.ZodType }
 
