@@ -34,6 +34,39 @@ describe('@lontar/storage-local', () => {
     expect(written).toBe('hello local storage')
   })
 
+  it('uses /api/:collection/file/:filename by default when collectionSlug is provided without baseUrl', async () => {
+    const adapter = localStorage({ uploadDir: tmpDir })
+
+    const url = adapter.getUrl('avatar.png', 'media')
+    expect(url).toBe('/api/media/file/avatar.png')
+
+    const result = await adapter.upload(
+      {
+        filename: 'avatar.png',
+        buffer: Buffer.from('image bytes'),
+        mimeType: 'image/png',
+      },
+      'media',
+    )
+    expect(result.url).toBe('/api/media/file/avatar.png')
+  })
+
+  it('reads an existing file and returns null for non-existent file', async () => {
+    const adapter = localStorage({ uploadDir: tmpDir })
+    await adapter.upload({
+      filename: 'readable.txt',
+      buffer: Buffer.from('content to read'),
+      mimeType: 'text/plain',
+    })
+
+    const content = await adapter.read?.('readable.txt')
+    expect(content).toBeDefined()
+    expect(content?.toString('utf8')).toBe('content to read')
+
+    const missing = await adapter.read?.('does-not-exist.txt')
+    expect(missing).toBeNull()
+  })
+
   it('supports custom baseUrl', async () => {
     const adapter = diskStorage({
       uploadDir: tmpDir,
@@ -102,7 +135,7 @@ describe('@lontar/storage-local', () => {
     expect(doc.filesize).toBe(5)
   })
 
-  it('rejects path traversal in upload, delete, and getUrl', async () => {
+  it('rejects path traversal in upload, delete, getUrl, and read', async () => {
     const adapter = localStorage({ uploadDir: tmpDir })
     const traversalNames = ['../escaped.txt', '..\\escaped.txt', '/etc/passwd']
 
@@ -118,6 +151,8 @@ describe('@lontar/storage-local', () => {
       await expect(adapter.delete(name)).rejects.toThrow('Path traversal detected')
 
       expect(() => adapter.getUrl(name)).toThrow('Path traversal detected')
+
+      await expect(adapter.read?.(name)).rejects.toThrow('Path traversal detected')
     }
   })
 

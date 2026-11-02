@@ -18,7 +18,7 @@ export interface StorageAdapter {
    * Upload a file buffer to storage.
    * Returns the final stored filename and its public URL.
    */
-  upload(file: UploadFile): Promise<UploadResult>
+  upload(file: UploadFile, collectionSlug?: string): Promise<UploadResult>
 
   /**
    * Delete a file from storage.
@@ -29,5 +29,11 @@ export interface StorageAdapter {
   /**
    * Get the public URL for a given stored filename.
    */
-  getUrl(filename: string): string | Promise<string>
+  getUrl(filename: string, collectionSlug?: string): string | Promise<string>
+
+  /**
+   * Read file contents from storage as a Buffer.
+   * Returns null if file is not found.
+   */
+  read?(filename: string): Promise<Buffer | null>
 }

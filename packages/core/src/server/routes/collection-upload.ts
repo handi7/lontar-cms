@@ -1,6 +1,7 @@
 import type { Context } from 'hono'
 import { fileTypeFromBuffer } from 'file-type'
 import type { z } from 'zod'
+import { accessDenied, checkAccess } from '../../access'
 import type { AuthUser, LontarVariables } from '../../auth/types'
 import type { AccessArgs, AccessFunction, CollectionConfig, Config } from '../../config/types'
 import type { DatabaseAdapter, DocumentData } from '../../database/adapter'
@@ -314,6 +315,7 @@ async function uploadMediaFile(args: {
         contentDisposition,
       },
       uploadConfig: args.collection.upload,
+      collectionSlug: args.collection.slug,
     })
     return { ok: true, uploadDoc }
   } catch (err) {
@@ -638,4 +640,75 @@ export async function handleUploadDelete(
       sizes: doc.sizes,
     })
   }
+}
+
+function isInvalidFilename(filename: string | undefined): boolean {
+  if (!filename) return true
+  return filename.includes('\0') || filename.includes('..')
+}
+
+async function checkCollectionReadAccess(
+  c: Context<LontarEnv>,
+  collection: CollectionConfig,
+): Promise<Response | null> {
+  const user = c.get('user') ?? null
+  const allowed = await checkAccess(collection.access?.read, { user })
+  if (!allowed) {
+    return accessDenied(c, user)
+  }
+  return null
+}
+
+async function resolveMimeAndDisposition(
+  buffer: Buffer,
+  filename: string,
+): Promise<{ mimeType: string; contentDisposition: string }> {
+  const sniffed = await fileTypeFromBuffer(buffer)
+  const mimeType = sniffed?.mime ?? 'application/octet-stream'
+  const isImage = mimeType.toLowerCase().startsWith('image/')
+  const baseFilename = filename.split('/').filter(Boolean).pop() ?? filename
+  const contentDisposition = isImage ? 'inline' : `attachment; filename="${baseFilename}"`
+  return { mimeType, contentDisposition }
+}
+
+export async function handleServeFile(
+  c: Context<LontarEnv>,
+  collection: CollectionConfig,
+  config: Config,
+): Promise<Response> {
+  if (!collection.upload) {
+    return c.json({ error: 'Collection does not support uploads' }, 404)
+  }
+
+  const denied = await checkCollectionReadAccess(c, collection)
+  if (denied) {
+    return denied
+  }
+
+  const storage = config.storage
+  if (!storage || typeof storage.read !== 'function') {
+    return c.json({ error: 'File serving is not supported by current storage adapter' }, 404)
+  }
+
+  const rawFilename = c.req.param('filename')
+  if (!rawFilename || isInvalidFilename(rawFilename)) {
+    return c.json({ error: 'Invalid filename' }, 400)
+  }
+
+  const buffer = await storage.read(rawFilename)
+  if (!buffer) {
+    return c.json({ error: 'File not found' }, 404)
+  }
+
+  const { mimeType, contentDisposition } = await resolveMimeAndDisposition(buffer, rawFilename)
+
+  return new Response(buffer as never, {
+    status: 200,
+    headers: {
+      'Content-Type': mimeType,
+      'Content-Disposition': contentDisposition,
+      'Content-Length': String(buffer.length),
+      'Cache-Control': 'public, max-age=31536000, immutable',
+    },
+  })
 }

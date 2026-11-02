@@ -41,14 +41,18 @@ async function uploadSizes(
   storage: StorageAdapter,
   sizes: Record<string, ProcessedImageSize>,
   uploadedKeys: string[],
+  collectionSlug?: string,
 ): Promise<Record<string, UploadedImageVariant>> {
   const result: Record<string, UploadedImageVariant> = {}
   for (const [name, variant] of Object.entries(sizes)) {
-    const uploadRes = await storage.upload({
-      filename: variant.filename,
-      buffer: variant.buffer,
-      mimeType: variant.mimeType,
-    })
+    const uploadRes = await storage.upload(
+      {
+        filename: variant.filename,
+        buffer: variant.buffer,
+        mimeType: variant.mimeType,
+      },
+      collectionSlug,
+    )
     uploadedKeys.push(uploadRes.filename)
     result[name] = {
       filename: uploadRes.filename,
@@ -66,8 +70,9 @@ export async function uploadMedia(args: {
   storage: StorageAdapter
   file: UploadFile
   uploadConfig?: boolean | UploadConfig
+  collectionSlug?: string
 }): Promise<UploadedMediaDoc> {
-  const { storage, file, uploadConfig } = args
+  const { storage, file, uploadConfig, collectionSlug } = args
   const sizes = typeof uploadConfig === 'object' ? uploadConfig.sizes : undefined
 
   const processed = await processImage({
@@ -79,15 +84,18 @@ export async function uploadMedia(args: {
 
   const uploadedKeys: string[] = []
   try {
-    const originalUpload = await storage.upload({
-      filename: processed.original.filename,
-      buffer: processed.original.buffer,
-      mimeType: processed.original.mimeType,
-      contentDisposition: file.contentDisposition,
-    })
+    const originalUpload = await storage.upload(
+      {
+        filename: processed.original.filename,
+        buffer: processed.original.buffer,
+        mimeType: processed.original.mimeType,
+        contentDisposition: file.contentDisposition,
+      },
+      collectionSlug,
+    )
     uploadedKeys.push(originalUpload.filename)
 
-    const uploadedSizes = await uploadSizes(storage, processed.sizes, uploadedKeys)
+    const uploadedSizes = await uploadSizes(storage, processed.sizes, uploadedKeys, collectionSlug)
     const hasSizes = Object.keys(uploadedSizes).length > 0
 
     return {

@@ -147,4 +147,53 @@ describe('@lontar/storage-s3', () => {
     expect(doc.url).toBe('https://my-bucket.s3.us-east-1.amazonaws.com/text.txt')
     expect(s3Mock.commandCalls(PutObjectCommand)).toHaveLength(1)
   })
+
+  it('resolves region from custom client config when region is not explicitly passed', async () => {
+    s3Mock.on(PutObjectCommand).resolves({})
+    const customClient = new S3Client({ region: 'eu-west-1' })
+
+    const adapter = s3Storage({
+      bucket: 'eu-bucket',
+      client: customClient,
+    })
+
+    const file = {
+      filename: 'sample.png',
+      buffer: Buffer.from('data'),
+      mimeType: 'image/png',
+    }
+
+    const result = await adapter.upload(file)
+    expect(result.url).toBe('https://eu-bucket.s3.eu-west-1.amazonaws.com/sample.png')
+    expect(adapter.getUrl('sample.png')).toBe(
+      'https://eu-bucket.s3.eu-west-1.amazonaws.com/sample.png',
+    )
+  })
+
+  it('normalizes leading slash in filename so S3 key and URL match', async () => {
+    s3Mock.on(PutObjectCommand).resolves({})
+    s3Mock.on(DeleteObjectCommand).resolves({})
+
+    const adapter = s3Storage({
+      bucket: 'test-bucket',
+      region: 'us-east-1',
+    })
+
+    const file = {
+      filename: '/nested/image.png',
+      buffer: Buffer.from('data'),
+      mimeType: 'image/png',
+    }
+
+    const result = await adapter.upload(file)
+    expect(result.filename).toBe('nested/image.png')
+    expect(result.url).toBe('https://test-bucket.s3.us-east-1.amazonaws.com/nested/image.png')
+
+    const putCalls = s3Mock.commandCalls(PutObjectCommand)
+    expect(putCalls[0]?.args[0].input.Key).toBe('nested/image.png')
+
+    await adapter.delete('/nested/image.png')
+    const deleteCalls = s3Mock.commandCalls(DeleteObjectCommand)
+    expect(deleteCalls[0]?.args[0].input.Key).toBe('nested/image.png')
+  })
 })

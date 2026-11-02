@@ -14,6 +14,7 @@ import { parseWhereFromSearchParams } from '../../query/parser'
 import { validateWhere } from '../../query/validator'
 import { DEFAULT_MAX_FILE_SIZE } from '../../storage'
 import {
+  handleServeFile,
   handleUploadCreate,
   handleUploadDelete,
   handleUploadUpdate,
@@ -513,6 +514,12 @@ export function registerCollectionRoutes(router: Hono<LontarEnv>, config: Config
     const col = findCol(c)
     if (!col) return c.json({ error: `Collection "${c.req.param('collection')}" not found` }, 404)
     return handleFind(c, col, config)
+  })
+
+  router.get('/:collection/file/:filename{.+}', (c) => {
+    const col = findCol(c)
+    if (!col) return c.json({ error: `Collection "${c.req.param('collection')}" not found` }, 404)
+    return handleServeFile(c, col, config)
   })
 
   router.get('/:collection/:id', (c) => {
