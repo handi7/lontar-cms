@@ -21,6 +21,7 @@ export interface PopulateOptions {
   user?: AuthUser | null
   req?: Request
   seen?: ReadonlySet<string>
+  overrideAccess?: boolean
 }
 
 function collectManyIds(
@@ -138,6 +139,7 @@ async function populateChildren(
   user: AuthUser | null,
   req?: Request,
   seen: ReadonlySet<string> = new Set(),
+  overrideAccess?: boolean,
 ): Promise<void> {
   const nextSeen = new Set(seen)
   for (const d of parentDocs) {
@@ -155,6 +157,7 @@ async function populateChildren(
     user,
     req,
     seen: nextSeen,
+    overrideAccess,
   })
   for (const child of populatedChildren) {
     if (typeof child.id === 'number') {
@@ -174,14 +177,27 @@ interface PopulateFieldArgs {
   user: AuthUser | null
   req?: Request
   seen: ReadonlySet<string>
+  overrideAccess?: boolean
 }
 
 async function populateField(args: PopulateFieldArgs): Promise<void> {
-  const { fieldName, field, docs, collection, depth, collections, db, user, req, seen } = args
+  const {
+    fieldName,
+    field,
+    docs,
+    collection,
+    depth,
+    collections,
+    db,
+    user,
+    req,
+    seen,
+    overrideAccess,
+  } = args
   const targetCol = collections.find((c) => c.slug === field.relationTo)
   if (!targetCol) return
 
-  const canRead = await checkAccess(targetCol.access?.read, { user })
+  const canRead = overrideAccess ? true : await checkAccess(targetCol.access?.read, { user })
   if (!canRead) return
 
   const hasMany = field.type === 'relationship' ? Boolean(field.hasMany) : false
@@ -200,6 +216,7 @@ async function populateField(args: PopulateFieldArgs): Promise<void> {
       user,
       req,
       seen,
+      overrideAccess,
     )
   }
 
@@ -209,7 +226,17 @@ async function populateField(args: PopulateFieldArgs): Promise<void> {
 }
 
 export async function populateDocs(options: PopulateOptions): Promise<DocumentData[]> {
-  const { docs, collection, depth, collections, db, user = null, req, seen = new Set() } = options
+  const {
+    docs,
+    collection,
+    depth,
+    collections,
+    db,
+    user = null,
+    req,
+    seen = new Set(),
+    overrideAccess,
+  } = options
   if (depth <= 0 || docs.length === 0) return docs
 
   const relFields = Object.entries(collection.fields).filter(
@@ -235,6 +262,7 @@ export async function populateDocs(options: PopulateOptions): Promise<DocumentDa
       user,
       req,
       seen,
+      overrideAccess,
     })
   }
 
