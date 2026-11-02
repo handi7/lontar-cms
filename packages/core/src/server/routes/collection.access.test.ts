@@ -150,7 +150,7 @@ describe('Collection Access Control', () => {
     expect(readSpy).toHaveBeenLastCalledWith({ user: null, id: 1 })
 
     // Sign up a user
-    const signUpRes = await app.request('/api/auth/sign-up/email', {
+    const signUpRes = await app.request('/api/_lontar/first-user', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -197,7 +197,7 @@ describe('Collection Access Control', () => {
     expect(await unauthRes.json()).toEqual({ error: 'Unauthorized' })
 
     // Authenticated (default user has no admin role) -> 403
-    const signUpRes = await app.request('/api/auth/sign-up/email', {
+    const signUpRes = await app.request('/api/_lontar/first-user', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -255,7 +255,7 @@ describe('Collection Access Control', () => {
     })
 
     // Sign up user
-    const signUpRes = await app.request('/api/auth/sign-up/email', {
+    const signUpRes = await app.request('/api/_lontar/first-user', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -317,7 +317,7 @@ describe('Collection Access Control', () => {
     })
 
     // Sign in user
-    const signUpRes = await app.request('/api/auth/sign-up/email', {
+    const signUpRes = await app.request('/api/_lontar/first-user', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -366,7 +366,7 @@ describe('Collection Access Control', () => {
     expect(deleteSpy).toHaveBeenCalledWith({ user: null, id: 1 })
 
     // Sign in user
-    const signUpRes = await app.request('/api/auth/sign-up/email', {
+    const signUpRes = await app.request('/api/_lontar/first-user', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({

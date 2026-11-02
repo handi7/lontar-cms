@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+import { createUser } from './commands/create-user'
 import { migrate } from './commands/migrate'
 import { migrateCreate } from './commands/migrate-create'
 
@@ -14,11 +15,35 @@ Usage:
 Commands:
   migrate:create   Generate a new SQL migration from config
   migrate          Run pending migrations against the database
+  create-user      Create a new user with --email, --password, and --name
 
 Options:
   -h, --help       Show help
   -v, --version    Show version
 `)
+}
+
+function parseCreateUserArgs(argv: string[]): {
+  email?: string
+  password?: string
+  name?: string
+} {
+  let email: string | undefined
+  let password: string | undefined
+  let name: string | undefined
+
+  for (let i = 1; i < argv.length; i++) {
+    const arg = argv[i]
+    if (arg === '--email' && argv[i + 1]) {
+      email = argv[++i]
+    } else if (arg === '--password' && argv[i + 1]) {
+      password = argv[++i]
+    } else if (arg === '--name' && argv[i + 1]) {
+      name = argv[++i]
+    }
+  }
+
+  return { email, password, name }
 }
 
 export async function run(argv: string[] = process.argv.slice(2)): Promise<void> {
@@ -41,6 +66,12 @@ export async function run(argv: string[] = process.argv.slice(2)): Promise<void>
 
   if (command === 'migrate') {
     await migrate()
+    return
+  }
+
+  if (command === 'create-user') {
+    const opts = parseCreateUserArgs(argv)
+    await createUser(opts)
     return
   }
 

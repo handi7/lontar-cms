@@ -5,14 +5,20 @@ test.describe('Lontar CMS Admin in Next.js', () => {
   const adminPassword = 'password123'
 
   test.beforeAll(async ({ request }) => {
-    // Ensure admin user exists via Better Auth sign-up endpoint
-    await request.post('/api/auth/sign-up/email', {
-      data: {
-        name: 'Admin User',
-        email: adminEmail,
-        password: adminPassword,
-      },
-    })
+    // Ensure admin user exists via first-user onboarding endpoint
+    const checkRes = await request.get('/api/_lontar/first-user')
+    if (checkRes.ok()) {
+      const { canRegisterFirstUser } = (await checkRes.json()) as { canRegisterFirstUser: boolean }
+      if (canRegisterFirstUser) {
+        await request.post('/api/_lontar/first-user', {
+          data: {
+            name: 'Admin User',
+            email: adminEmail,
+            password: adminPassword,
+          },
+        })
+      }
+    }
   })
 
   test('creates, displays, edits, and deletes a post', async ({ page }) => {

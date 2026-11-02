@@ -3,6 +3,7 @@ import os from 'node:os'
 import path from 'node:path'
 import { describe, expect, it, vi } from 'vitest'
 import { run, VERSION } from './cli'
+import { createUser } from './commands/create-user'
 import { migrate } from './commands/migrate'
 import { migrateCreate } from './commands/migrate-create'
 import { loadConfig } from './config'
@@ -108,5 +109,19 @@ describe('migrateCreate & migrate', () => {
     } finally {
       fs.rmSync(tempDir, { recursive: true, force: true })
     }
+  })
+
+  describe('createUser', () => {
+    it('validates email, password, and name options', async () => {
+      await expect(createUser({ email: 'invalid', password: '123' })).rejects.toThrow(
+        'A valid --email argument is required',
+      )
+      await expect(createUser({ email: 'admin@example.com', password: 'short' })).rejects.toThrow(
+        'A --password argument with at least 8 characters is required',
+      )
+      await expect(
+        createUser({ email: 'admin@example.com', password: 'password123', name: '' }),
+      ).rejects.toThrow('A --name argument is required')
+    })
   })
 })
