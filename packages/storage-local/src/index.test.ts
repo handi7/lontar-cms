@@ -101,4 +101,29 @@ describe('@lontar/storage-local', () => {
     expect(doc.url).toBe('/media/document.txt')
     expect(doc.filesize).toBe(5)
   })
+
+  it('rejects path traversal in upload, delete, and getUrl', async () => {
+    const adapter = localStorage({ uploadDir: tmpDir })
+    const traversalNames = ['../escaped.txt', '..\\escaped.txt', '/etc/passwd']
+
+    for (const name of traversalNames) {
+      await expect(
+        adapter.upload({
+          filename: name,
+          buffer: Buffer.from('malicious'),
+          mimeType: 'text/plain',
+        }),
+      ).rejects.toThrow('Path traversal detected')
+
+      await expect(adapter.delete(name)).rejects.toThrow('Path traversal detected')
+
+      expect(() => adapter.getUrl(name)).toThrow('Path traversal detected')
+    }
+  })
+
+  it('encodes special characters in getUrl', () => {
+    const adapter = localStorage({ uploadDir: tmpDir })
+    expect(adapter.getUrl('cover #1.jpg')).toBe('/uploads/cover%20%231.jpg')
+    expect(adapter.getUrl('100%.png')).toBe('/uploads/100%25.png')
+  })
 })

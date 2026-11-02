@@ -29,6 +29,28 @@ function isFileNotFoundError(error: unknown): boolean {
   )
 }
 
+function assertSafePath(uploadDir: string, filename: string): string {
+  if (filename.includes('\0')) {
+    throw new Error(`Path traversal detected: "${filename}" contains null byte`)
+  }
+  const normalized = filename.replace(/\\/g, '/')
+  const resolved = path.resolve(uploadDir, normalized)
+  const relative = path.relative(uploadDir, resolved)
+  if (relative.startsWith('..') || path.isAbsolute(relative)) {
+    throw new Error(`Path traversal detected: "${filename}" is outside upload directory`)
+  }
+  return resolved
+}
+
+function encodePathSegments(filename: string): string {
+  const normalized = filename.replace(/\\/g, '/')
+  return normalized
+    .split('/')
+    .filter(Boolean)
+    .map((seg) => encodeURIComponent(seg))
+    .join('/')
+}
+
 export function localStorage(options: LocalStorageOptions = {}): StorageAdapter {
   const uploadDir = options.uploadDir
     ? path.resolve(options.uploadDir)
@@ -43,13 +65,14 @@ export function localStorage(options: LocalStorageOptions = {}): StorageAdapter 
   }
 
   function getUrl(filename: string): string {
-    const cleanFilename = filename.replace(/^\/+/, '')
-    return `${baseUrl}/${cleanFilename}`
+    assertSafePath(uploadDir, filename)
+    const encoded = encodePathSegments(filename)
+    return `${baseUrl}/${encoded}`
   }
 
   async function upload(file: UploadFile): Promise<UploadResult> {
     await ensureDir()
-    const filePath = path.join(uploadDir, file.filename)
+    const filePath = assertSafePath(uploadDir, file.filename)
     const fileDir = path.dirname(filePath)
     if (fileDir !== uploadDir) {
       await fs.mkdir(fileDir, { recursive: true })
@@ -62,7 +85,7 @@ export function localStorage(options: LocalStorageOptions = {}): StorageAdapter 
   }
 
   async function remove(filename: string): Promise<void> {
-    const filePath = path.join(uploadDir, filename)
+    const filePath = assertSafePath(uploadDir, filename)
     try {
       await fs.unlink(filePath)
     } catch (error: unknown) {

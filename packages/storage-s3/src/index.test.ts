@@ -109,6 +109,19 @@ describe('@lontar/storage-s3', () => {
         'https://my-bucket.s3.ap-southeast-1.amazonaws.com/photo.jpg',
       )
     })
+
+    it('encodes special characters in getUrl', () => {
+      const adapter = s3Storage({
+        bucket: 'my-bucket',
+        region: 'us-east-1',
+      })
+      expect(adapter.getUrl('cover #1.jpg')).toBe(
+        'https://my-bucket.s3.us-east-1.amazonaws.com/cover%20%231.jpg',
+      )
+      expect(adapter.getUrl('100%.png')).toBe(
+        'https://my-bucket.s3.us-east-1.amazonaws.com/100%25.png',
+      )
+    })
   })
 
   it('integrates with uploadMedia from @lontar/core', async () => {
