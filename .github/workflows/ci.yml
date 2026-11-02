@@ -25,6 +25,7 @@ jobs:
         options: --health-cmd="mysqladmin ping -h 127.0.0.1 -ulontar -plontar" --health-interval=5s --health-timeout=5s --health-retries=20
     env:
       DATABASE_URL: mysql://lontar:lontar@127.0.0.1:3306/lontar
+      BETTER_AUTH_TRUSTED_ORIGINS: http://127.0.0.1:3000,http://localhost:3000
     steps:
       - uses: actions/checkout@v7
 

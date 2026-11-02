@@ -24,9 +24,10 @@ export function createLontar(config: Config, options: CreateLontarOptions = {}):
 
   const defaultOrigins =
     process.env.NODE_ENV === 'production' ? [] : ['http://localhost:3000', 'http://127.0.0.1:3000']
-  const envOrigins = process.env.BETTER_AUTH_TRUSTED_ORIGINS
-    ? process.env.BETTER_AUTH_TRUSTED_ORIGINS.split(',').map((s) => s.trim())
-    : []
+  const envOrigins = (process.env.BETTER_AUTH_TRUSTED_ORIGINS ?? process.env.TRUSTED_ORIGINS ?? '')
+    .split(',')
+    .map((s) => s.trim())
+    .filter(Boolean)
   const trustedOrigins = Array.from(
     new Set([...defaultOrigins, ...envOrigins, ...(options.trustedOrigins ?? [])]),
   )
