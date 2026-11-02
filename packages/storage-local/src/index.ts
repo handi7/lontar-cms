@@ -55,7 +55,7 @@ export function localStorage(options: LocalStorageOptions = {}): StorageAdapter 
   const uploadDir = options.uploadDir
     ? path.resolve(options.uploadDir)
     : path.resolve(process.cwd(), 'uploads')
-  const baseUrl = normalizeBaseUrl(options.baseUrl)
+  const customBaseUrl = options.baseUrl ? normalizeBaseUrl(options.baseUrl) : undefined
 
   let dirEnsured = false
   async function ensureDir(): Promise<void> {
@@ -64,13 +64,19 @@ export function localStorage(options: LocalStorageOptions = {}): StorageAdapter 
     dirEnsured = true
   }
 
-  function getUrl(filename: string): string {
+  function getUrl(filename: string, collectionSlug?: string): string {
     assertSafePath(uploadDir, filename)
     const encoded = encodePathSegments(filename)
-    return `${baseUrl}/${encoded}`
+    if (customBaseUrl !== undefined) {
+      return `${customBaseUrl}/${encoded}`
+    }
+    if (collectionSlug) {
+      return `/api/${collectionSlug}/file/${encoded}`
+    }
+    return `/uploads/${encoded}`
   }
 
-  async function upload(file: UploadFile): Promise<UploadResult> {
+  async function upload(file: UploadFile, collectionSlug?: string): Promise<UploadResult> {
     await ensureDir()
     const filePath = assertSafePath(uploadDir, file.filename)
     const fileDir = path.dirname(filePath)
@@ -80,7 +86,7 @@ export function localStorage(options: LocalStorageOptions = {}): StorageAdapter 
     await fs.writeFile(filePath, file.buffer)
     return {
       filename: file.filename,
-      url: getUrl(file.filename),
+      url: getUrl(file.filename, collectionSlug),
     }
   }
 
@@ -95,11 +101,24 @@ export function localStorage(options: LocalStorageOptions = {}): StorageAdapter 
     }
   }
 
+  async function read(filename: string): Promise<Buffer | null> {
+    const filePath = assertSafePath(uploadDir, filename)
+    try {
+      return await fs.readFile(filePath)
+    } catch (error: unknown) {
+      if (isFileNotFoundError(error)) {
+        return null
+      }
+      throw error
+    }
+  }
+
   return {
     name: 'local',
     upload,
     delete: remove,
     getUrl,
+    read,
   }
 }
 

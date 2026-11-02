@@ -114,14 +114,16 @@ function createMockDb(
   }
 }
 
-function createMockStorage() {
+function createMockStorage(initialFiles?: Record<string, Buffer>) {
   const uploaded: UploadFile[] = []
   const deleted: string[] = []
+  const files = new Map<string, Buffer>(Object.entries(initialFiles ?? {}))
 
   const storage: StorageAdapter = {
     name: 'mock',
     upload: (file: UploadFile): Promise<UploadResult> => {
       uploaded.push(file)
+      files.set(file.filename, file.buffer)
       return Promise.resolve({
         filename: file.filename,
         url: `/media/${file.filename}`,
@@ -129,12 +131,16 @@ function createMockStorage() {
     },
     delete: (filename: string): Promise<void> => {
       deleted.push(filename)
+      files.delete(filename)
       return Promise.resolve()
     },
     getUrl: (filename: string) => `/media/${filename}`,
+    read: (filename: string): Promise<Buffer | null> => {
+      return Promise.resolve(files.get(filename) ?? null)
+    },
   }
 
-  return { storage, uploaded, deleted }
+  return { storage, uploaded, deleted, files }
 }
 
 const TINY_PNG = Buffer.from(
@@ -1096,5 +1102,195 @@ describe('collection upload routes', () => {
     expect(res.status).toBe(500)
     const json = (await res.json()) as { error: string }
     expect(json.error).toBe('Upload failed')
+  })
+
+  describe('GET /:collection/file/:filename', () => {
+    it('serves image files with inline Content-Disposition and image mime type', async () => {
+      const { storage } = createMockStorage({
+        'pixel.png': TINY_PNG,
+      })
+      const db = createMockDb()
+      const config = defineConfig({
+        secret: 'test-secret',
+        db,
+        storage,
+        collections: [
+          {
+            slug: 'media',
+            access: publicAccess,
+            upload: true,
+            fields: {},
+          },
+        ],
+      })
+      const app = new Hono()
+      registerCollectionRoutes(app as never, config)
+
+      const res = await app.request('/media/file/pixel.png')
+      expect(res.status).toBe(200)
+      expect(res.headers.get('content-type')).toBe('image/png')
+      expect(res.headers.get('content-disposition')).toBe('inline')
+      expect(res.headers.get('cache-control')).toContain('immutable')
+      const bytes = Buffer.from(await res.arrayBuffer())
+      expect(bytes.equals(TINY_PNG)).toBe(true)
+    })
+
+    it('serves non-image files with attachment Content-Disposition', async () => {
+      const pdfBytes = Buffer.from('%PDF-1.4\n%âãÏÓ\n1 0 obj\n<<>>\nendobj\ntrailer\n<<>>\n%%EOF')
+      const { storage } = createMockStorage({
+        'document.pdf': pdfBytes,
+      })
+      const db = createMockDb()
+      const config = defineConfig({
+        secret: 'test-secret',
+        db,
+        storage,
+        collections: [
+          {
+            slug: 'media',
+            access: publicAccess,
+            upload: true,
+            fields: {},
+          },
+        ],
+      })
+      const app = new Hono()
+      registerCollectionRoutes(app as never, config)
+
+      const res = await app.request('/media/file/document.pdf')
+      expect(res.status).toBe(200)
+      expect(res.headers.get('content-type')).toBe('application/pdf')
+      expect(res.headers.get('content-disposition')).toBe('attachment; filename="document.pdf"')
+    })
+
+    it('returns 404 when file does not exist in storage', async () => {
+      const { storage } = createMockStorage()
+      const db = createMockDb()
+      const config = defineConfig({
+        secret: 'test-secret',
+        db,
+        storage,
+        collections: [
+          {
+            slug: 'media',
+            access: publicAccess,
+            upload: true,
+            fields: {},
+          },
+        ],
+      })
+      const app = new Hono()
+      registerCollectionRoutes(app as never, config)
+
+      const res = await app.request('/media/file/non-existent.png')
+      expect(res.status).toBe(404)
+      const json = (await res.json()) as { error: string }
+      expect(json.error).toBe('File not found')
+    })
+
+    it('returns 404 when collection is not an upload collection', async () => {
+      const { storage } = createMockStorage({ 'file.png': TINY_PNG })
+      const db = createMockDb()
+      const config = defineConfig({
+        secret: 'test-secret',
+        db,
+        storage,
+        collections: [
+          {
+            slug: 'posts',
+            access: publicAccess,
+            fields: {},
+          },
+        ],
+      })
+      const app = new Hono()
+      registerCollectionRoutes(app as never, config)
+
+      const res = await app.request('/posts/file/file.png')
+      expect(res.status).toBe(404)
+      const json = (await res.json()) as { error: string }
+      expect(json.error).toBe('Collection does not support uploads')
+    })
+
+    it('returns 404 when storage adapter does not implement read', async () => {
+      const storageWithoutRead: StorageAdapter = {
+        name: 'no-read',
+        upload: (f) => Promise.resolve({ filename: f.filename, url: `/media/${f.filename}` }),
+        delete: () => Promise.resolve(),
+        getUrl: (f) => `/media/${f}`,
+      }
+      const db = createMockDb()
+      const config = defineConfig({
+        secret: 'test-secret',
+        db,
+        storage: storageWithoutRead,
+        collections: [
+          {
+            slug: 'media',
+            access: publicAccess,
+            upload: true,
+            fields: {},
+          },
+        ],
+      })
+      const app = new Hono()
+      registerCollectionRoutes(app as never, config)
+
+      const res = await app.request('/media/file/file.png')
+      expect(res.status).toBe(404)
+      const json = (await res.json()) as { error: string }
+      expect(json.error).toBe('File serving is not supported by current storage adapter')
+    })
+
+    it('enforces read access control', async () => {
+      const { storage } = createMockStorage({ 'secret.png': TINY_PNG })
+      const db = createMockDb()
+      const config = defineConfig({
+        secret: 'test-secret',
+        db,
+        storage,
+        collections: [
+          {
+            slug: 'media',
+            access: {
+              ...publicAccess,
+              read: () => false,
+            },
+            upload: true,
+            fields: {},
+          },
+        ],
+      })
+      const app = new Hono()
+      registerCollectionRoutes(app as never, config)
+
+      const res = await app.request('/media/file/secret.png')
+      expect(res.status).toBe(401)
+    })
+
+    it('rejects path traversal attempts', async () => {
+      const { storage } = createMockStorage()
+      const db = createMockDb()
+      const config = defineConfig({
+        secret: 'test-secret',
+        db,
+        storage,
+        collections: [
+          {
+            slug: 'media',
+            access: publicAccess,
+            upload: true,
+            fields: {},
+          },
+        ],
+      })
+      const app = new Hono()
+      registerCollectionRoutes(app as never, config)
+
+      const res = await app.request('/media/file/..%2F..%2Fetc%2Fpasswd')
+      expect(res.status).toBe(400)
+      const json = (await res.json()) as { error: string }
+      expect(json.error).toBe('Invalid filename')
+    })
   })
 })

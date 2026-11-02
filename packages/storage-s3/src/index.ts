@@ -103,13 +103,37 @@ function createS3Client(options: S3StorageOptions): S3Client {
   return new S3Client(clientConfig)
 }
 
+function normalizeS3Key(filename: string): string {
+  return filename.replace(/\\/g, '/').replace(/^\/+/, '')
+}
+
+async function resolveClientRegion(client: S3Client): Promise<string | undefined> {
+  if (typeof client.config?.region === 'function') {
+    try {
+      return await client.config.region()
+    } catch {
+      return undefined
+    }
+  }
+  return undefined
+}
+
 export function s3Storage(options: S3StorageOptions): StorageAdapter {
   const bucket = options.bucket
-  const region = options.region ?? process.env.AWS_REGION ?? 'us-east-1'
+  let region = options.region ?? process.env.AWS_REGION ?? 'us-east-1'
   const client = createS3Client(options)
 
+  if (options.client && !options.region) {
+    resolveClientRegion(options.client)
+      .then((r) => {
+        if (r) region = r
+      })
+      .catch(() => {})
+  }
+
   function getUrl(filename: string): string {
-    return resolveS3Url(filename, {
+    const key = normalizeS3Key(filename)
+    return resolveS3Url(key, {
       bucket,
       region,
       endpoint: options.endpoint,
@@ -119,10 +143,16 @@ export function s3Storage(options: S3StorageOptions): StorageAdapter {
   }
 
   async function upload(file: UploadFile): Promise<UploadResult> {
+    if (options.client && !options.region) {
+      const resolved = await resolveClientRegion(options.client)
+      if (resolved) region = resolved
+    }
+
+    const key = normalizeS3Key(file.filename)
     await client.send(
       new PutObjectCommand({
         Bucket: bucket,
-        Key: file.filename,
+        Key: key,
         Body: file.buffer,
         ContentType: file.mimeType,
         ...(file.contentDisposition ? { ContentDisposition: file.contentDisposition } : {}),
@@ -130,17 +160,18 @@ export function s3Storage(options: S3StorageOptions): StorageAdapter {
       }),
     )
     return {
-      filename: file.filename,
-      url: getUrl(file.filename),
+      filename: key,
+      url: getUrl(key),
     }
   }
 
   async function remove(filename: string): Promise<void> {
+    const key = normalizeS3Key(filename)
     try {
       await client.send(
         new DeleteObjectCommand({
           Bucket: bucket,
-          Key: filename,
+          Key: key,
         }),
       )
     } catch (error: unknown) {
