@@ -75,7 +75,7 @@ function createMockAdapter(): DatabaseAdapter {
 }
 
 describe('Collection Access Control', () => {
-  it('allows all operations by default when access is not specified', async () => {
+  it('requires authenticated user by default when access is not specified', async () => {
     const adapter = createMockAdapter()
     const posts = collection({
       slug: 'posts',
@@ -87,35 +87,85 @@ describe('Collection Access Control', () => {
         db: adapter,
         collections: [posts],
       }),
+      { baseURL: 'http://localhost:3000' },
     )
 
-    // Unauthenticated GET list
+    // Unauthenticated GET list -> 401
     const listRes = await app.request('/api/posts')
-    expect(listRes.status).toBe(200)
+    expect(listRes.status).toBe(401)
+    expect(await listRes.json()).toEqual({ error: 'Unauthorized' })
 
-    // Unauthenticated GET by ID
+    // Unauthenticated GET by ID -> 401
     const getRes = await app.request('/api/posts/1')
-    expect(getRes.status).toBe(200)
+    expect(getRes.status).toBe(401)
+    expect(await getRes.json()).toEqual({ error: 'Unauthorized' })
 
-    // Unauthenticated POST create
+    // Unauthenticated POST create -> 401
     const createRes = await app.request('/api/posts', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ title: 'New Post' }),
     })
-    expect(createRes.status).toBe(201)
+    expect(createRes.status).toBe(401)
+    expect(await createRes.json()).toEqual({ error: 'Unauthorized' })
 
-    // Unauthenticated PATCH update
+    // Unauthenticated PATCH update -> 401
     const updateRes = await app.request('/api/posts/1', {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ title: 'Updated Post' }),
     })
-    expect(updateRes.status).toBe(200)
+    expect(updateRes.status).toBe(401)
+    expect(await updateRes.json()).toEqual({ error: 'Unauthorized' })
 
-    // Unauthenticated DELETE
+    // Unauthenticated DELETE -> 401
     const deleteRes = await app.request('/api/posts/1', { method: 'DELETE' })
-    expect(deleteRes.status).toBe(200)
+    expect(deleteRes.status).toBe(401)
+    expect(await deleteRes.json()).toEqual({ error: 'Unauthorized' })
+
+    // Bootstrap first user
+    const signUpRes = await app.request('/api/_lontar/first-user', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        email: 'default-admin@example.com',
+        password: 'password123',
+        name: 'Admin',
+      }),
+    })
+    expect(signUpRes.status).toBe(200)
+    const cookie = signUpRes.headers.get('set-cookie')!
+
+    // Authenticated GET list -> 200
+    const authList = await app.request('/api/posts', { headers: { cookie } })
+    expect(authList.status).toBe(200)
+
+    // Authenticated GET by ID -> 200
+    const authGet = await app.request('/api/posts/1', { headers: { cookie } })
+    expect(authGet.status).toBe(200)
+
+    // Authenticated POST create -> 201
+    const authCreate = await app.request('/api/posts', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', cookie },
+      body: JSON.stringify({ title: 'New Post' }),
+    })
+    expect(authCreate.status).toBe(201)
+
+    // Authenticated PATCH update -> 200
+    const authUpdate = await app.request('/api/posts/1', {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json', cookie },
+      body: JSON.stringify({ title: 'Updated Post' }),
+    })
+    expect(authUpdate.status).toBe(200)
+
+    // Authenticated DELETE -> 200
+    const authDelete = await app.request('/api/posts/1', {
+      method: 'DELETE',
+      headers: { cookie },
+    })
+    expect(authDelete.status).toBe(200)
   })
 
   it('enforces read access control on list and get by ID', async () => {

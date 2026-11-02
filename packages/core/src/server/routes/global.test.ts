@@ -74,6 +74,7 @@ describe('Global REST Routes', () => {
         globals: [
           global({
             slug: 'header',
+            access: { read: () => true, update: () => true },
             fields: { siteTitle: f.text() },
           }),
         ],
@@ -96,6 +97,7 @@ describe('Global REST Routes', () => {
         globals: [
           global({
             slug: 'header',
+            access: { read: () => true, update: () => true },
             fields: { siteTitle: f.text() },
           }),
         ],
@@ -133,6 +135,7 @@ describe('Global REST Routes', () => {
         globals: [
           global({
             slug: 'header',
+            access: { read: () => true, update: () => true },
             fields: { siteTitle: f.text() },
             hooks: {
               afterRead: [afterReadHook],
@@ -178,6 +181,7 @@ describe('Global REST Routes', () => {
         globals: [
           global({
             slug: 'header',
+            access: { read: () => true, update: () => true },
             fields: {
               siteTitle: f.text({ required: true }),
               tagline: f.text(),
@@ -240,5 +244,36 @@ describe('Global REST Routes', () => {
       }),
     )
     expect(postRes.status).toBe(401)
+  })
+
+  it('requires authenticated user by default when access is not specified', async () => {
+    const { db } = createMockAdapter()
+    const lontar = createLontar(
+      defineConfig({
+        secret: 'test-secret',
+        db,
+        collections: [],
+        globals: [
+          global({
+            slug: 'header',
+            fields: { siteTitle: f.text() },
+          }),
+        ],
+      }),
+    )
+
+    const getRes = await lontar.fetch(new Request('http://localhost/api/globals/header'))
+    expect(getRes.status).toBe(401)
+    expect(await getRes.json()).toEqual({ error: 'Unauthorized' })
+
+    const postRes = await lontar.fetch(
+      new Request('http://localhost/api/globals/header', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ siteTitle: 'Blocked' }),
+      }),
+    )
+    expect(postRes.status).toBe(401)
+    expect(await postRes.json()).toEqual({ error: 'Unauthorized' })
   })
 })

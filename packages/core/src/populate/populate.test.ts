@@ -71,6 +71,7 @@ describe('parseDepth', () => {
 describe('populateDocs', () => {
   const usersCollection: CollectionConfig = {
     slug: 'users',
+    access: { read: () => true },
     fields: {
       name: { type: 'text', required: true },
     },
@@ -78,6 +79,7 @@ describe('populateDocs', () => {
 
   const categoriesCollection: CollectionConfig = {
     slug: 'categories',
+    access: { read: () => true },
     fields: {
       name: { type: 'text', required: true },
     },
@@ -170,6 +172,7 @@ describe('populateDocs', () => {
   it('recursively populates nested relationships at depth 2', async () => {
     const rolesCollection: CollectionConfig = {
       slug: 'roles',
+      access: { read: () => true },
       fields: {
         title: { type: 'text', required: true },
       },
@@ -177,6 +180,7 @@ describe('populateDocs', () => {
 
     const usersWithRoleCol: CollectionConfig = {
       slug: 'users',
+      access: { read: () => true },
       fields: {
         name: { type: 'text', required: true },
         role: { type: 'relationship', relationTo: 'roles' },
@@ -221,6 +225,7 @@ describe('populateDocs', () => {
   it('prevents infinite recursion on circular relationships', async () => {
     const nodeA: CollectionConfig = {
       slug: 'nodeA',
+      access: { read: () => true },
       fields: {
         name: { type: 'text' },
         b: { type: 'relationship', relationTo: 'nodeB' },
@@ -229,6 +234,7 @@ describe('populateDocs', () => {
 
     const nodeB: CollectionConfig = {
       slug: 'nodeB',
+      access: { read: () => true },
       fields: {
         name: { type: 'text' },
         a: { type: 'relationship', relationTo: 'nodeA' },
@@ -332,6 +338,7 @@ describe('populateDocs', () => {
 
     const hookedUsersCol: CollectionConfig = {
       slug: 'users',
+      access: { read: () => true },
       fields: {
         name: { type: 'text' },
       },
@@ -354,6 +361,62 @@ describe('populateDocs', () => {
     expect(result[0]?.author).toMatchObject({
       name: 'Alice',
       computedField: 'computed',
+    })
+  })
+
+  it('denies relationship population on collections with default access for anonymous user and allows for authenticated user', async () => {
+    const defaultUsersCol: CollectionConfig = {
+      slug: 'default_users',
+      fields: {
+        name: { type: 'text' },
+      },
+    }
+
+    const postCol: CollectionConfig = {
+      slug: 'posts',
+      fields: {
+        author: { type: 'relationship', relationTo: 'default_users' },
+      },
+    }
+
+    const db = createMockAdapter({
+      default_users: [
+        { id: 1, name: 'Normal User', createdAt: '2026-01-01', updatedAt: '2026-01-01' },
+      ],
+    })
+
+    // Anonymous request (user = null) -> denied because default access requires auth
+    const anonResult = await populateDocs({
+      docs: [{ id: 10, author: 1 }],
+      collection: postCol,
+      depth: 1,
+      collections: [postCol, defaultUsersCol],
+      db,
+      user: null,
+    })
+    expect(anonResult[0]?.author).toBe(1)
+
+    // Authenticated request -> allowed
+    const authResult = await populateDocs({
+      docs: [{ id: 10, author: 1 }],
+      collection: postCol,
+      depth: 1,
+      collections: [postCol, defaultUsersCol],
+      db,
+      user: {
+        id: 'u1',
+        email: 'user@example.com',
+        name: 'User',
+        emailVerified: false,
+        createdAt: new Date(),
+        updatedAt: new Date(),
+      },
+    })
+    expect(authResult[0]?.author).toEqual({
+      id: 1,
+      name: 'Normal User',
+      createdAt: '2026-01-01',
+      updatedAt: '2026-01-01',
     })
   })
 

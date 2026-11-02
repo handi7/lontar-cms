@@ -1,29 +1,13 @@
 import type { Context, Hono } from 'hono'
-import type { AuthUser, LontarVariables } from '../../auth/types'
+import { accessDenied, checkAccess } from '../../access'
+import type { LontarVariables } from '../../auth/types'
 import { clientFieldsToZod } from '../../client/zod'
 import { toClientGlobal } from '../../config/to-client-config'
-import type { AccessArgs, AccessFunction, Config, GlobalConfig } from '../../config/types'
+import type { Config, GlobalConfig } from '../../config/types'
 import type { DatabaseAdapter, DocumentData, StoredDoc } from '../../database/adapter'
 import { runAfterChangeHooks, runAfterReadHooks, runBeforeChangeHooks } from '../../hooks'
 
 type LontarEnv = { Variables: LontarVariables }
-
-async function checkAccess(fn: AccessFunction | undefined, args: AccessArgs): Promise<boolean> {
-  if (!fn) return true
-  try {
-    const result = await fn(args)
-    return Boolean(result)
-  } catch {
-    return false
-  }
-}
-
-function accessDenied(c: Context<LontarEnv>, user: AuthUser | null) {
-  if (!user) {
-    return c.json({ error: 'Unauthorized' }, 401)
-  }
-  return c.json({ error: 'Forbidden' }, 403)
-}
 
 async function parseJsonBody(c: Context<LontarEnv>): Promise<unknown> {
   try {

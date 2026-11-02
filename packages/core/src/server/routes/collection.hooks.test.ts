@@ -87,6 +87,13 @@ function createMockAdapter() {
   }
 }
 
+const publicAccess = {
+  read: () => true,
+  create: () => true,
+  update: () => true,
+  delete: () => true,
+}
+
 describe('Collection Lifecycle Hooks', () => {
   it('executes beforeChange before create, modifying data sent to DB', async () => {
     const beforeChangeHook = vi.fn<BeforeChangeHook>(({ data, operation, originalDoc }) => {
@@ -100,6 +107,7 @@ describe('Collection Lifecycle Hooks', () => {
 
     const postsCol = collection({
       slug: 'posts',
+      access: publicAccess,
       fields: {
         title: f.text({ required: true }),
         slug: f.text(),
@@ -151,6 +159,7 @@ describe('Collection Lifecycle Hooks', () => {
 
     const postsCol = collection({
       slug: 'posts',
+      access: publicAccess,
       fields: {
         title: f.text(),
         slug: f.text(),
@@ -197,6 +206,7 @@ describe('Collection Lifecycle Hooks', () => {
 
     const postsCol = collection({
       slug: 'posts',
+      access: publicAccess,
       fields: {
         title: f.text(),
       },
@@ -238,6 +248,7 @@ describe('Collection Lifecycle Hooks', () => {
 
     const postsCol = collection({
       slug: 'posts',
+      access: publicAccess,
       fields: {
         title: f.text({ required: true }),
       },
@@ -279,6 +290,7 @@ describe('Collection Lifecycle Hooks', () => {
 
     const postsCol = collection({
       slug: 'posts',
+      access: publicAccess,
       fields: {
         title: f.text(),
       },

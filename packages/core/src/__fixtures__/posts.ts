@@ -8,6 +8,12 @@ export const Posts = collection({
   slug: 'posts',
   labels: { singular: 'Post', plural: 'Posts' },
   admin: { useAsTitle: 'title', defaultColumns: ['title', 'views', 'createdAt'] },
+  access: {
+    read: () => true,
+    create: () => true,
+    update: () => true,
+    delete: () => true,
+  },
   fields: {
     title: f.text({ required: true, maxLength: 120 }),
     views: f.number({ integer: true, min: 0 }),
