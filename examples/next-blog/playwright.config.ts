@@ -22,5 +22,8 @@ export default defineConfig({
     url: 'http://127.0.0.1:3000/api/_lontar/config',
     reuseExistingServer: !process.env.CI,
     timeout: 120000,
+    env: {
+      BETTER_AUTH_TRUSTED_ORIGINS: 'http://127.0.0.1:3000,http://localhost:3000',
+    },
   },
 })

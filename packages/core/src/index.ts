@@ -19,6 +19,12 @@ export type {
 } from './hooks'
 
 export type { Auth, AuthSession, AuthUser, LontarVariables } from './auth/types'
+export {
+  countTotalUsers,
+  createUserWithCredential,
+  type CreateUserData,
+  type CreatedUserResult,
+} from './auth/user'
 export type {
   AccessArgs,
   AccessFunction,

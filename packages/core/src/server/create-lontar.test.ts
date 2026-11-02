@@ -264,27 +264,65 @@ describe('createLontar REST API', () => {
       expect(typeof app.auth.handler).toBe('function')
     })
 
-    it('mounts auth routes and registers user with session cookie', async () => {
+    it('disables public email sign-up by default', async () => {
       const res = await app.request('/api/auth/sign-up/email', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          email: 'admin@example.com',
+          email: 'public-signup@example.com',
           password: 'password123',
-          name: 'Admin',
+          name: 'Public Attacker',
         }),
       })
 
-      expect(res.status).toBe(200)
-      const data = (await res.json()) as { user: { email: string } }
-      expect(data.user.email).toBe('admin@example.com')
-      expect(res.headers.get('set-cookie')).toBeDefined()
+      expect(res.status).toBe(400)
+      const data = (await res.json()) as { code?: string }
+      expect(data.code).toBe('EMAIL_PASSWORD_SIGN_UP_DISABLED')
+    })
+
+    it('supports first-user onboarding and blocks subsequent registrations', async () => {
+      const testApp = createLontar(config, { baseURL: 'http://localhost:3000' })
+
+      // Check initially that first user can be created
+      const initialCheck = await testApp.request('/api/_lontar/first-user')
+      expect(initialCheck.status).toBe(200)
+      const checkData = (await initialCheck.json()) as { canRegisterFirstUser: boolean }
+      expect(checkData.canRegisterFirstUser).toBe(true)
+
+      // Register first user
+      const registerRes = await testApp.request('/api/_lontar/first-user', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          email: 'first-admin@example.com',
+          password: 'password123',
+          name: 'First Admin',
+        }),
+      })
+
+      expect(registerRes.status).toBe(200)
+      const cookie = registerRes.headers.get('set-cookie')
+      expect(cookie).toBeTruthy()
+
+      // Attempting to register another user via first-user endpoint must fail with 403
+      const secondRes = await testApp.request('/api/_lontar/first-user', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          email: 'second-user@example.com',
+          password: 'password123',
+          name: 'Second User',
+        }),
+      })
+      expect(secondRes.status).toBe(403)
+      const secondData = (await secondRes.json()) as { error: string }
+      expect(secondData.error).toContain('First user has already been created')
     })
 
     it('extracts authenticated user via session middleware', async () => {
       const testApp = createLontar(config, { baseURL: 'http://localhost:3000' })
 
-      const signUpRes = await testApp.request('/api/auth/sign-up/email', {
+      const registerRes = await testApp.request('/api/_lontar/first-user', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -293,8 +331,8 @@ describe('createLontar REST API', () => {
           name: 'Session User',
         }),
       })
-      expect(signUpRes.status).toBe(200)
-      const cookie = signUpRes.headers.get('set-cookie')
+      expect(registerRes.status).toBe(200)
+      const cookie = registerRes.headers.get('set-cookie')
       expect(cookie).toBeTruthy()
 
       // Request without cookie -> user and session are null

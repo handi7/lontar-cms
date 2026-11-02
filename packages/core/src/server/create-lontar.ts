@@ -4,6 +4,7 @@ import type { Auth, AuthSession, AuthUser, LontarVariables } from '../auth/types
 import { toClientConfig } from '../config/to-client-config'
 import type { Config } from '../config/types'
 import { registerCollectionRoutes } from './routes/collection'
+import { registerFirstUserRoutes } from './routes/first-user'
 import { registerGlobalRoutes } from './routes/global'
 
 export interface CreateLontarOptions {
@@ -21,16 +22,14 @@ export function createLontar(config: Config, options: CreateLontarOptions = {}):
   const basePath = options.basePath ?? '/api'
   const router = new Hono<{ Variables: LontarVariables }>()
 
-  const envOrigins = process.env.BETTER_AUTH_TRUSTED_ORIGINS
-    ? process.env.BETTER_AUTH_TRUSTED_ORIGINS.split(',').map((s) => s.trim())
-    : []
+  const defaultOrigins =
+    process.env.NODE_ENV === 'production' ? [] : ['http://localhost:3000', 'http://127.0.0.1:3000']
+  const envOrigins = (process.env.BETTER_AUTH_TRUSTED_ORIGINS ?? process.env.TRUSTED_ORIGINS ?? '')
+    .split(',')
+    .map((s) => s.trim())
+    .filter(Boolean)
   const trustedOrigins = Array.from(
-    new Set([
-      'http://localhost:3000',
-      'http://127.0.0.1:3000',
-      ...envOrigins,
-      ...(options.trustedOrigins ?? []),
-    ]),
+    new Set([...defaultOrigins, ...envOrigins, ...(options.trustedOrigins ?? [])]),
   )
 
   const auth = betterAuth({
@@ -41,6 +40,7 @@ export function createLontar(config: Config, options: CreateLontarOptions = {}):
     ...(config.db.authAdapter ? { database: config.db.authAdapter } : {}),
     emailAndPassword: {
       enabled: true,
+      disableSignUp: true,
     },
   })
 
@@ -72,6 +72,9 @@ export function createLontar(config: Config, options: CreateLontarOptions = {}):
       session: c.get('session'),
     })
   })
+
+  // First-user onboarding routes
+  registerFirstUserRoutes(router, auth)
 
   // Global routes
   registerGlobalRoutes(router, config)

@@ -87,8 +87,20 @@ describe('Better Auth MySQL adapter (integration)', () => {
 
     const app = createLontar(config, { baseURL: 'http://localhost:3000' })
 
-    // 1. Sign up new admin user
-    const signUpRes = await app.request('/api/auth/sign-up/email', {
+    // 1. Verify public sign-up is disabled
+    const publicSignUpRes = await app.request('/api/auth/sign-up/email', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        email: 'attacker@example.com',
+        password: 'password123456',
+        name: 'Attacker',
+      }),
+    })
+    expect(publicSignUpRes.status).toBe(400)
+
+    // 2. Register first user via first-user onboarding endpoint
+    const signUpRes = await app.request('/api/_lontar/first-user', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -102,7 +114,19 @@ describe('Better Auth MySQL adapter (integration)', () => {
     const setCookie = signUpRes.headers.get('set-cookie')
     expect(setCookie).toBeTruthy()
 
-    // 2. Verify directly in MySQL tables
+    // 3. Subsequent first-user registrations must fail with 403
+    const secondUserRes = await app.request('/api/_lontar/first-user', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        email: 'another-user@example.com',
+        password: 'password123456',
+        name: 'Another User',
+      }),
+    })
+    expect(secondUserRes.status).toBe(403)
+
+    // 4. Verify directly in MySQL tables
     const [userRows] = (await pool.query('SELECT id, name, email FROM user WHERE email = ?', [
       'mysql-admin@example.com',
     ])) as [Array<{ id: string; name: string; email: string }>, unknown]
