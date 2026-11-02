@@ -125,6 +125,7 @@ export function s3Storage(options: S3StorageOptions): StorageAdapter {
         Key: file.filename,
         Body: file.buffer,
         ContentType: file.mimeType,
+        ...(file.contentDisposition ? { ContentDisposition: file.contentDisposition } : {}),
         ACL: options.acl,
       }),
     )

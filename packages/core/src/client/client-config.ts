@@ -21,6 +21,7 @@ export interface ClientGlobal {
 
 export interface ClientUploadConfig {
   mimeTypes?: string[]
+  maxFileSize?: number
 }
 
 export interface ClientCollection {

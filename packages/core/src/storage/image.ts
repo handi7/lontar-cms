@@ -1,4 +1,4 @@
-import sharp from 'sharp'
+import sharp, { type Metadata } from 'sharp'
 
 export type ImageFit = 'cover' | 'contain' | 'fill' | 'inside' | 'outside'
 export type ImageFormat = 'jpeg' | 'png' | 'webp' | 'avif'
@@ -12,11 +12,22 @@ export interface ImageSizeConfig {
   withoutEnlargement?: boolean
 }
 
+export const DEFAULT_MAX_FILE_SIZE = 10 * 1024 * 1024 // 10 MB
+
+export class InvalidImageError extends Error {
+  constructor(message = 'Invalid image') {
+    super(message)
+    this.name = 'InvalidImageError'
+  }
+}
+
 export interface UploadConfig {
   /** Resize presets keyed by size name (e.g. `thumb`, `hero`) */
   sizes?: Record<string, ImageSizeConfig>
   /** Optional allowed mime types list (e.g. `['image/jpeg', 'image/png']`) */
   mimeTypes?: string[]
+  /** Maximum allowed file size in bytes. Defaults to 10 MB (10 * 1024 * 1024). */
+  maxFileSize?: number
 }
 
 export interface ProcessedImageSize {
@@ -92,33 +103,38 @@ async function resizeVariant(
   originalFilename: string,
   originalMimeType: string,
 ): Promise<ProcessedImageSize> {
-  let pipeline = sharp(buffer).rotate()
-  pipeline = pipeline.resize({
-    width: config.width,
-    height: config.height,
-    fit: config.fit ?? 'cover',
-    withoutEnlargement: config.withoutEnlargement ?? true,
-  })
-
-  if (config.format) {
-    pipeline = pipeline.toFormat(config.format, {
-      quality: config.quality,
+  try {
+    let pipeline = sharp(buffer).rotate()
+    pipeline = pipeline.resize({
+      width: config.width,
+      height: config.height,
+      fit: config.fit ?? 'cover',
+      withoutEnlargement: config.withoutEnlargement ?? true,
     })
-  }
 
-  const resizedBuffer = await pipeline.toBuffer()
-  const meta = await sharp(resizedBuffer).metadata()
-  const mimeType = resolveMimeType(originalMimeType, config.format)
-  const filename = formatVariantFilename(originalFilename, name, config.format)
+    if (config.format) {
+      pipeline = pipeline.toFormat(config.format, {
+        quality: config.quality,
+      })
+    }
 
-  return {
-    name,
-    filename,
-    buffer: resizedBuffer,
-    width: meta.width,
-    height: meta.height,
-    filesize: resizedBuffer.length,
-    mimeType,
+    const resizedBuffer = await pipeline.toBuffer()
+    const meta = await sharp(resizedBuffer).metadata()
+    const mimeType = resolveMimeType(originalMimeType, config.format)
+    const filename = formatVariantFilename(originalFilename, name, config.format)
+
+    return {
+      name,
+      filename,
+      buffer: resizedBuffer,
+      width: meta.width,
+      height: meta.height,
+      filesize: resizedBuffer.length,
+      mimeType,
+    }
+  } catch (err) {
+    if (err instanceof InvalidImageError) throw err
+    throw new InvalidImageError('Invalid image')
   }
 }
 
@@ -142,7 +158,13 @@ export async function processImage(args: {
     }
   }
 
-  const meta = await sharp(buffer).metadata()
+  let meta: Metadata
+  try {
+    meta = await sharp(buffer).metadata()
+  } catch {
+    throw new InvalidImageError('Invalid image')
+  }
+
   const original: ProcessedOriginal = {
     filename,
     buffer,

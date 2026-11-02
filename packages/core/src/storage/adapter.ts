@@ -2,6 +2,7 @@ export interface UploadFile {
   filename: string
   buffer: Buffer
   mimeType: string
+  contentDisposition?: string
 }
 
 export interface UploadResult {

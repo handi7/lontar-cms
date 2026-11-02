@@ -62,6 +62,7 @@ export async function uploadMedia(args: {
     filename: processed.original.filename,
     buffer: processed.original.buffer,
     mimeType: processed.original.mimeType,
+    contentDisposition: file.contentDisposition,
   })
 
   const uploadedSizes = await uploadSizes(storage, processed.sizes)

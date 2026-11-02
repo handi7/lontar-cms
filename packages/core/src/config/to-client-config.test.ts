@@ -331,4 +331,43 @@ describe('toClientConfig', () => {
     expect(json).not.toContain('access')
     expect(json).not.toContain('hooks')
   })
+
+  it('serializes upload configuration including mimeTypes and maxFileSize', () => {
+    const fakeStorage = {
+      name: 'fake',
+      upload: () => Promise.resolve({ filename: 'f', url: '/f' }),
+      delete: () => Promise.resolve(),
+      getUrl: () => '/f',
+    }
+
+    const config = defineConfig({
+      secret: SECRET,
+      db: fakeAdapter,
+      storage: fakeStorage,
+      collections: [
+        {
+          slug: 'media',
+          upload: {
+            mimeTypes: ['image/jpeg', 'image/png'],
+            maxFileSize: 5 * 1024 * 1024,
+          },
+          fields: {
+            alt: f.text(),
+          },
+        },
+        {
+          slug: 'simple-media',
+          upload: true,
+          fields: {},
+        },
+      ],
+    })
+
+    const client = toClientConfig(config)
+    expect(client.collections[0]?.upload).toEqual({
+      mimeTypes: ['image/jpeg', 'image/png'],
+      maxFileSize: 5 * 1024 * 1024,
+    })
+    expect(client.collections[1]?.upload).toBe(true)
+  })
 })

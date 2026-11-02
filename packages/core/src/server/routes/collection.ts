@@ -1,4 +1,5 @@
-import type { Context, Hono } from 'hono'
+import type { Context, Hono, Next } from 'hono'
+import { bodyLimit } from 'hono/body-limit'
 import type { z } from 'zod'
 import { accessDenied, checkAccess } from '../../access'
 import type { AuthUser, LontarVariables } from '../../auth/types'
@@ -9,6 +10,7 @@ import type { DatabaseAdapter, DocumentData } from '../../database/adapter'
 import { runAfterChangeHooks, runAfterReadHooks, runBeforeChangeHooks } from '../../hooks'
 import { parseDepth, populateDoc, populateDocs } from '../../populate'
 import { parseWhereFromSearchParams } from '../../query/parser'
+import { DEFAULT_MAX_FILE_SIZE } from '../../storage'
 import {
   handleUploadCreate,
   handleUploadDelete,
@@ -351,6 +353,55 @@ async function handleDelete(c: Context<LontarEnv>, collection: CollectionConfig,
   return c.json(doc, 200)
 }
 
+function getUploadMaxFileSize(upload: CollectionConfig['upload']): number {
+  if (typeof upload === 'object' && upload?.maxFileSize) {
+    return upload.maxFileSize
+  }
+  return DEFAULT_MAX_FILE_SIZE
+}
+
+function checkUploadBodyLimit(
+  c: Context<LontarEnv>,
+  next: Next,
+  upload: CollectionConfig['upload'],
+) {
+  if (!upload || !isMultipartRequest(c)) {
+    return next()
+  }
+  const maxFileSize = getUploadMaxFileSize(upload)
+  return bodyLimit({
+    maxSize: maxFileSize + 1024 * 1024,
+    onError: () => c.json({ error: 'Payload too large' }, 413),
+  })(c as never, next)
+}
+
+function createPostUploadLimitMiddleware(
+  findCol: (c: Context<LontarEnv>) => CollectionConfig | null,
+) {
+  return async (c: Context<LontarEnv>, next: Next) => {
+    const col = findCol(c)
+    if (!col) return c.json({ error: `Collection "${c.req.param('collection')}" not found` }, 404)
+    const user = c.get('user') ?? null
+    const allowed = await checkAccess(col.access?.create, { user })
+    if (!allowed) return accessDenied(c, user)
+    return checkUploadBodyLimit(c, next, col.upload)
+  }
+}
+
+function createPatchUploadLimitMiddleware(
+  findCol: (c: Context<LontarEnv>) => CollectionConfig | null,
+) {
+  return async (c: Context<LontarEnv>, next: Next) => {
+    const col = findCol(c)
+    if (!col) return c.json({ error: `Collection "${c.req.param('collection')}" not found` }, 404)
+    const id = parseId(c.req.param('id'))
+    const user = c.get('user') ?? null
+    const allowed = await checkAccess(col.access?.update, { user, id: id ?? undefined })
+    if (!allowed) return accessDenied(c, user)
+    return checkUploadBodyLimit(c, next, col.upload)
+  }
+}
+
 export function registerCollectionRoutes(router: Hono<LontarEnv>, config: Config): void {
   const collections = new Map(config.collections.map((col) => [col.slug, col]))
 
@@ -359,6 +410,9 @@ export function registerCollectionRoutes(router: Hono<LontarEnv>, config: Config
     if (!slug) return null
     return collections.get(slug) ?? null
   }
+
+  const postLimit = createPostUploadLimitMiddleware(findCol)
+  const patchLimit = createPatchUploadLimitMiddleware(findCol)
 
   router.get('/:collection', (c) => {
     const col = findCol(c)
@@ -372,14 +426,14 @@ export function registerCollectionRoutes(router: Hono<LontarEnv>, config: Config
     return handleFindByID(c, col, config)
   })
 
-  router.post('/:collection', (c) => {
+  router.post('/:collection', postLimit, (c) => {
     const col = findCol(c)
     if (!col) return c.json({ error: `Collection "${c.req.param('collection')}" not found` }, 404)
     const schema = clientFieldsToZod(toClientCollection(col).fields)
     return handleCreate(c, col, config, schema)
   })
 
-  router.patch('/:collection/:id', (c) => {
+  router.patch('/:collection/:id', patchLimit, (c) => {
     const col = findCol(c)
     if (!col) return c.json({ error: `Collection "${c.req.param('collection')}" not found` }, 404)
     const partialSchema = clientFieldsToZod(toClientCollection(col).fields).partial()

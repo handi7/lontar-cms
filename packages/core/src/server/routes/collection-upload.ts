@@ -1,4 +1,5 @@
 import type { Context } from 'hono'
+import { fileTypeFromBuffer } from 'file-type'
 import type { z } from 'zod'
 import type { AuthUser, LontarVariables } from '../../auth/types'
 import type { AccessArgs, AccessFunction, CollectionConfig, Config } from '../../config/types'
@@ -6,14 +7,25 @@ import type { DatabaseAdapter, DocumentData } from '../../database/adapter'
 import type { Field } from '../../fields/types'
 import { parseDepth, populateDoc } from '../../populate'
 import {
+  DEFAULT_MAX_FILE_SIZE,
   deleteMedia,
   getUniqueFilename,
+  InvalidImageError,
   sanitizeFilename,
   uploadMedia,
   type UploadedMediaDoc,
 } from '../../storage'
 
 type LontarEnv = { Variables: LontarVariables }
+
+export const DANGEROUS_MIME_TYPES = new Set([
+  'text/html',
+  'image/svg+xml',
+  'application/xhtml+xml',
+  'text/javascript',
+  'application/javascript',
+  'application/x-javascript',
+])
 
 export function isMultipartRequest(c: Context<LontarEnv>): boolean {
   const contentType = c.req.header('content-type') ?? ''
@@ -29,7 +41,7 @@ export function isUploadFile(val: unknown): val is File {
   )
 }
 
-function matchesMimeType(actual: string, pattern: string): boolean {
+function matchesMimePattern(actual: string, pattern: string): boolean {
   if (pattern === '*/*') return true
   if (pattern.endsWith('/*')) {
     const prefix = pattern.slice(0, -1)
@@ -39,8 +51,73 @@ function matchesMimeType(actual: string, pattern: string): boolean {
 }
 
 export function isAllowedMimeType(mimeType: string, allowed?: string[]): boolean {
+  const lowerMime = mimeType.toLowerCase()
+  if (DANGEROUS_MIME_TYPES.has(lowerMime)) {
+    if (!allowed || allowed.length === 0) return false
+    return allowed.some((p) => p.toLowerCase() === lowerMime)
+  }
   if (!allowed || allowed.length === 0) return true
-  return allowed.some((pattern) => matchesMimeType(mimeType, pattern))
+  return allowed.some((pattern) => matchesMimePattern(lowerMime, pattern))
+}
+
+function hasScriptContent(sample: string): boolean {
+  return (
+    sample.includes('<script') ||
+    sample.includes('</script') ||
+    sample.includes('javascript:') ||
+    sample.includes('onload=') ||
+    sample.includes('onerror=')
+  )
+}
+
+function hasHtmlContent(sample: string): boolean {
+  return sample.includes('<html') || sample.includes('<!doctype html')
+}
+
+function hasSvgContent(sample: string): boolean {
+  return sample.includes('<svg') || sample.includes('xmlns="http://www.w3.org/2000/svg"')
+}
+
+function inspectBufferForDangerousContent(
+  buffer: Buffer,
+  allowed?: string[],
+): { safe: true } | { safe: false; error: string } {
+  const sample = buffer.subarray(0, Math.min(buffer.length, 8192)).toString('utf8').toLowerCase()
+
+  if (hasScriptContent(sample)) {
+    return { safe: false, error: 'Files containing executable scripts are not allowed' }
+  }
+
+  if (hasHtmlContent(sample)) {
+    const isHtmlExplicit = allowed?.some(
+      (m) => m.toLowerCase() === 'text/html' || m.toLowerCase() === 'application/xhtml+xml',
+    )
+    if (!isHtmlExplicit) {
+      return { safe: false, error: 'HTML file content is not allowed' }
+    }
+  }
+
+  if (hasSvgContent(sample)) {
+    const isSvgExplicit = allowed?.some((m) => m.toLowerCase() === 'image/svg+xml')
+    if (!isSvgExplicit) {
+      return { safe: false, error: 'SVG file content is not allowed' }
+    }
+  }
+
+  return { safe: true }
+}
+
+function isClientImageClaim(clientMime: string): boolean {
+  const lower = clientMime.toLowerCase()
+  return lower.startsWith('image/') && lower !== 'image/svg+xml'
+}
+
+function validateImageMime(clientMime: string, sniffedMime?: string): boolean {
+  if (!isClientImageClaim(clientMime)) return true
+  if (!sniffedMime || !sniffedMime.toLowerCase().startsWith('image/')) {
+    return false
+  }
+  return true
 }
 
 function parseNumericField(val: string): number | string {
@@ -131,7 +208,120 @@ async function rollbackNewMedia(config: Config, uploadDoc?: UploadedMediaDoc): P
 }
 
 type ProcessFileResult =
-  { ok: true; uploadDoc: UploadedMediaDoc } | { ok: false; error: string; status: 400 | 500 }
+  { ok: true; uploadDoc: UploadedMediaDoc } | { ok: false; error: string; status: 400 | 413 | 500 }
+
+function validateFileSize(fileSize: number, maxFileSize: number): string | null {
+  if (fileSize > maxFileSize) {
+    return `File size exceeds limit of ${maxFileSize} bytes`
+  }
+  return null
+}
+
+function resolveEffectiveMime(
+  file: File,
+  sniffed?: { ext: string; mime: string },
+): { effectiveMime: string; extSuffix: string } {
+  if (sniffed) {
+    return { effectiveMime: sniffed.mime, extSuffix: sniffed.ext }
+  }
+  const sanitized = sanitizeFilename(file.name || 'unnamed')
+  return { effectiveMime: file.type || 'application/octet-stream', extSuffix: sanitized.ext }
+}
+
+async function prepareUploadFilename(args: {
+  db: DatabaseAdapter
+  collection: CollectionConfig
+  file: File
+  extSuffix: string
+  excludeDocId?: number
+}): Promise<string> {
+  const { base } = sanitizeFilename(args.file.name || 'unnamed')
+  return getUniqueFilename({
+    db: args.db,
+    collection: args.collection,
+    base,
+    ext: args.extSuffix,
+    excludeDocId: args.excludeDocId,
+  })
+}
+
+async function readAndValidateUploadBuffer(
+  file: File,
+  maxFileSize: number,
+): Promise<{ ok: true; buffer: Buffer } | { ok: false; error: string; status: 413 }> {
+  const sizeErr = validateFileSize(file.size, maxFileSize)
+  if (sizeErr) return { ok: false, error: sizeErr, status: 413 }
+
+  const buffer = Buffer.from(await file.arrayBuffer())
+  const bufSizeErr = validateFileSize(buffer.length, maxFileSize)
+  if (bufSizeErr) return { ok: false, error: bufSizeErr, status: 413 }
+
+  return { ok: true, buffer }
+}
+
+async function validateUploadMime(
+  file: File,
+  buffer: Buffer,
+  mimeTypes?: string[],
+): Promise<
+  { ok: true; effectiveMime: string; extSuffix: string } | { ok: false; error: string; status: 400 }
+> {
+  const sniffed = await fileTypeFromBuffer(buffer)
+  const clientMime = file.type || 'application/octet-stream'
+  if (!validateImageMime(clientMime, sniffed?.mime)) {
+    return {
+      ok: false,
+      error: 'Invalid image: file content does not match image format',
+      status: 400,
+    }
+  }
+
+  const { effectiveMime, extSuffix } = resolveEffectiveMime(file, sniffed)
+  if (!isAllowedMimeType(effectiveMime, mimeTypes)) {
+    return { ok: false, error: `File type "${effectiveMime}" is not allowed`, status: 400 }
+  }
+
+  if (!sniffed?.mime.toLowerCase().startsWith('image/')) {
+    const inspection = inspectBufferForDangerousContent(buffer, mimeTypes)
+    if (!inspection.safe) return { ok: false, error: inspection.error, status: 400 }
+  }
+
+  return { ok: true, effectiveMime, extSuffix }
+}
+
+async function uploadMediaFile(args: {
+  storage: Config['storage']
+  collection: CollectionConfig
+  filename: string
+  buffer: Buffer
+  effectiveMime: string
+}): Promise<ProcessFileResult> {
+  if (!args.storage) {
+    return { ok: false, error: 'Storage adapter is not configured', status: 500 }
+  }
+  const contentDisposition = args.effectiveMime.toLowerCase().startsWith('image/')
+    ? undefined
+    : `attachment; filename="${args.filename}"`
+
+  try {
+    const uploadDoc = await uploadMedia({
+      storage: args.storage,
+      file: {
+        filename: args.filename,
+        buffer: args.buffer,
+        mimeType: args.effectiveMime,
+        contentDisposition,
+      },
+      uploadConfig: args.collection.upload,
+    })
+    return { ok: true, uploadDoc }
+  } catch (err) {
+    if (err instanceof InvalidImageError) {
+      return { ok: false, error: 'Invalid image', status: 400 }
+    }
+    return { ok: false, error: 'Upload failed', status: 500 }
+  }
+}
 
 async function processIncomingFile(
   file: File,
@@ -143,27 +333,29 @@ async function processIncomingFile(
     return { ok: false, error: 'Storage adapter is not configured', status: 500 }
   }
   const uploadConfig = typeof collection.upload === 'object' ? collection.upload : undefined
-  const mimeType = file.type || 'application/octet-stream'
-  if (!isAllowedMimeType(mimeType, uploadConfig?.mimeTypes)) {
-    return { ok: false, error: `File type "${mimeType}" is not allowed`, status: 400 }
-  }
+  const maxFileSize = uploadConfig?.maxFileSize ?? DEFAULT_MAX_FILE_SIZE
 
-  const { base, ext } = sanitizeFilename(file.name || 'unnamed')
-  const filename = await getUniqueFilename({
+  const bufResult = await readAndValidateUploadBuffer(file, maxFileSize)
+  if (!bufResult.ok) return bufResult
+
+  const mimeResult = await validateUploadMime(file, bufResult.buffer, uploadConfig?.mimeTypes)
+  if (!mimeResult.ok) return mimeResult
+
+  const filename = await prepareUploadFilename({
     db: config.db,
     collection,
-    base,
-    ext,
+    file,
+    extSuffix: mimeResult.extSuffix,
     excludeDocId,
   })
 
-  const buffer = Buffer.from(await file.arrayBuffer())
-  const uploadDoc = await uploadMedia({
+  return uploadMediaFile({
     storage: config.storage,
-    file: { filename, buffer, mimeType },
-    uploadConfig: collection.upload,
+    collection,
+    filename,
+    buffer: bufResult.buffer,
+    effectiveMime: mimeResult.effectiveMime,
   })
-  return { ok: true, uploadDoc }
 }
 
 function shouldDeleteVariant(
@@ -267,6 +459,11 @@ interface UploadCreateContext {
 export async function handleUploadCreate(ctx: UploadCreateContext): Promise<Response> {
   const { c, collection, config, schema, user, checkAccess, accessDenied, executeCreate } = ctx
 
+  const preliminaryAllowed = await checkAccess(collection.access?.create, { user })
+  if (!preliminaryAllowed) {
+    return accessDenied(c, user)
+  }
+
   const rawBody = (await c.req.parseBody()) as Record<string, unknown>
   const allowed = await checkAccess(collection.access?.create, { user, data: rawBody })
   if (!allowed) {
@@ -323,18 +520,62 @@ interface UploadUpdateContext {
   }) => Promise<{ doc?: DocumentData; error?: string }>
 }
 
-export async function handleUploadUpdate(ctx: UploadUpdateContext): Promise<Response> {
-  const {
-    c,
-    id,
+async function processOptionalUploadFile(
+  fileVal: unknown,
+  collection: CollectionConfig,
+  config: Config,
+  id: number,
+): Promise<
+  { ok: true; doc?: UploadedMediaDoc } | { ok: false; error: string; status: 400 | 413 | 500 }
+> {
+  if (!isUploadFile(fileVal)) {
+    return { ok: true }
+  }
+  const processed = await processIncomingFile(fileVal, collection, config, id)
+  if (!processed.ok) {
+    return { ok: false, error: processed.error, status: processed.status }
+  }
+  return { ok: true, doc: processed.uploadDoc }
+}
+
+async function applyValidatedUpdate(args: {
+  ctx: UploadUpdateContext
+  originalDoc: DocumentData
+  validation: { success: true; data: DocumentData }
+  newUploadDoc?: UploadedMediaDoc
+}): Promise<Response> {
+  const { c, id, collection, config, user, executeUpdate } = args.ctx
+  const updateData: DocumentData = {
+    ...args.validation.data,
+    ...(args.newUploadDoc ? args.newUploadDoc : {}),
+  }
+
+  const result = await executeUpdate({
     collection,
-    config,
-    partialSchema,
-    user,
-    checkAccess,
-    accessDenied,
-    executeUpdate,
-  } = ctx
+    data: updateData,
+    db: config.db,
+    id,
+    originalDoc: args.originalDoc,
+    req: c.req.raw,
+  })
+
+  if (!result.doc) {
+    await rollbackNewMedia(config, args.newUploadDoc)
+    const err = result.error ? result.error : 'Update operation failed'
+    return c.json({ error: err }, 400)
+  }
+
+  await cleanupReplacedMedia(config, args.originalDoc, args.newUploadDoc)
+  return respondPopulatedDoc(c, collection, config, result.doc, user, 200)
+}
+
+export async function handleUploadUpdate(ctx: UploadUpdateContext): Promise<Response> {
+  const { c, id, collection, config, partialSchema, user, checkAccess, accessDenied } = ctx
+
+  const preliminaryAllowed = await checkAccess(collection.access?.update, { user, id })
+  if (!preliminaryAllowed) {
+    return accessDenied(c, user)
+  }
 
   const rawBody = (await c.req.parseBody()) as Record<string, unknown>
   const allowed = await checkAccess(collection.access?.update, { user, id, data: rawBody })
@@ -347,42 +588,23 @@ export async function handleUploadUpdate(ctx: UploadUpdateContext): Promise<Resp
     return c.json({ error: `Document with ID ${id} not found` }, 404)
   }
 
-  let newUploadDoc: UploadedMediaDoc | undefined
-  if (isUploadFile(rawBody.file)) {
-    const processed = await processIncomingFile(rawBody.file, collection, config, id)
-    if (!processed.ok) {
-      return c.json({ error: processed.error }, processed.status)
-    }
-    newUploadDoc = processed.uploadDoc
+  const uploadResult = await processOptionalUploadFile(rawBody.file, collection, config, id)
+  if (!uploadResult.ok) {
+    return c.json({ error: uploadResult.error }, uploadResult.status)
   }
 
   const validation = parseAndValidateFields(rawBody, collection, partialSchema)
   if (!validation.success) {
-    await rollbackNewMedia(config, newUploadDoc)
+    await rollbackNewMedia(config, uploadResult.doc)
     return c.json({ error: 'Validation failed', issues: validation.issues }, 400)
   }
 
-  const updateData: DocumentData = {
-    ...validation.data,
-    ...(newUploadDoc ?? {}),
-  }
-
-  const result = await executeUpdate({
-    collection,
-    data: updateData,
-    db: config.db,
-    id,
+  return applyValidatedUpdate({
+    ctx,
     originalDoc,
-    req: c.req.raw,
+    validation,
+    newUploadDoc: uploadResult.doc,
   })
-
-  if (!result.doc) {
-    await rollbackNewMedia(config, newUploadDoc)
-    return c.json({ error: result.error ?? 'Update operation failed' }, 400)
-  }
-
-  await cleanupReplacedMedia(config, originalDoc, newUploadDoc)
-  return respondPopulatedDoc(c, collection, config, result.doc, user, 200)
 }
 
 export async function handleUploadDelete(

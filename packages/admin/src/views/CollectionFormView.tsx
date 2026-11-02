@@ -13,7 +13,7 @@ import { clientFieldsToZod, type ClientCollection, type ClientField } from '@lon
 import { useAdmin, useCollection } from '../context/AdminContext'
 import { fetchDoc, createDoc, updateDoc, deleteDoc } from '../api/client'
 import { FieldRenderer } from '../fields/FieldRenderer'
-import { FileUploadZone } from '../fields/FileUploadZone'
+import { FileUploadZone, formatFilesize } from '../fields/FileUploadZone'
 import { NotFoundView } from './NotFoundView'
 
 function DocumentMeta({ doc }: { doc?: Record<string, unknown> | null }) {
@@ -208,6 +208,7 @@ function FormBody({
               : null
           }
           accept={accept}
+          maxFileSize={uploadConfig?.maxFileSize}
           required={mode === 'create'}
           error={fileError ?? undefined}
         />
@@ -409,6 +410,13 @@ export function CollectionFormView({ mode }: { mode: 'create' | 'edit' }) {
     }
     if (mode === 'create' && !selectedFile) {
       setFileError('Please select a file to upload')
+      return
+    }
+    const uploadCfg = typeof collection.upload === 'object' ? collection.upload : undefined
+    if (selectedFile && uploadCfg?.maxFileSize && selectedFile.size > uploadCfg.maxFileSize) {
+      setFileError(
+        `File size exceeds maximum allowed size of ${formatFilesize(uploadCfg.maxFileSize)}`,
+      )
       return
     }
     saveMutation.mutate(buildUploadFormData(v, selectedFile))

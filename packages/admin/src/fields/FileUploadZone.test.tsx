@@ -97,4 +97,18 @@ describe('FileUploadZone', () => {
     expect(screen.getByText('File too large')).toBeTruthy()
     expect(screen.getByTestId('upload-dropzone').className).toContain('lontar-dropzone-error')
   })
+
+  it('rejects file larger than maxFileSize and displays error', () => {
+    const onChange = vi.fn()
+    render(<FileUploadZone onChange={onChange} maxFileSize={100} />)
+
+    expect(screen.getByText(/Max size: 100 B/i)).toBeTruthy()
+
+    const input = screen.getByTestId('upload-file-input')
+    const largeFile = new File(['a'.repeat(200)], 'large.png', { type: 'image/png' })
+
+    fireEvent.change(input, { target: { files: [largeFile] } })
+    expect(onChange).not.toHaveBeenCalled()
+    expect(screen.getByText(/File size exceeds maximum allowed size of 100 B/i)).toBeTruthy()
+  })
 })

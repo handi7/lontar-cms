@@ -12,6 +12,7 @@ export interface FileUploadZoneProps {
     height?: number | null
   } | null
   accept?: string
+  maxFileSize?: number
   error?: string
   required?: boolean
   disabled?: boolean
@@ -113,16 +114,78 @@ function CurrentFilePreview({
   )
 }
 
+function validateFileSize(file: File, maxFileSize?: number): string | null {
+  if (maxFileSize && file.size > maxFileSize) {
+    return `File size exceeds maximum allowed size of ${formatFilesize(maxFileSize)}`
+  }
+  return null
+}
+
+function DropzoneArea({
+  isDragging,
+  displayError,
+  accept,
+  maxFileSize,
+  onDragOver,
+  onDragLeave,
+  onDrop,
+  onClick,
+}: {
+  isDragging: boolean
+  displayError: string | null
+  accept?: string
+  maxFileSize?: number
+  onDragOver: (e: React.DragEvent) => void
+  onDragLeave: (e: React.DragEvent) => void
+  onDrop: (e: React.DragEvent) => void
+  onClick: () => void
+}) {
+  const handleKeyDown = (e: React.KeyboardEvent) => {
+    if (e.key === 'Enter' || e.key === ' ') {
+      onClick()
+    }
+  }
+
+  return (
+    <div
+      className={`lontar-dropzone ${isDragging ? 'lontar-dropzone-active' : ''} ${
+        displayError ? 'lontar-dropzone-error' : ''
+      }`}
+      onDragOver={onDragOver}
+      onDragLeave={onDragLeave}
+      onDrop={onDrop}
+      onClick={onClick}
+      data-testid="upload-dropzone"
+      role="button"
+      tabIndex={0}
+      onKeyDown={handleKeyDown}
+    >
+      <div className="lontar-dropzone-content">
+        <span className="lontar-dropzone-icon">📁</span>
+        <span className="lontar-dropzone-prompt">
+          Drag &amp; drop a file here, or click to browse
+        </span>
+        {accept && <span className="lontar-dropzone-hint">Accepted: {accept}</span>}
+        {maxFileSize && (
+          <span className="lontar-dropzone-hint">Max size: {formatFilesize(maxFileSize)}</span>
+        )}
+      </div>
+    </div>
+  )
+}
+
 export function FileUploadZone({
   value,
   onChange,
   currentFile,
   accept,
+  maxFileSize,
   error,
   required,
   disabled,
 }: FileUploadZoneProps) {
   const [isDragging, setIsDragging] = useState(false)
+  const [sizeError, setSizeError] = useState<string | null>(null)
   const inputRef = useRef<HTMLInputElement>(null)
 
   const handleDragOver = (e: React.DragEvent) => {
@@ -135,22 +198,34 @@ export function FileUploadZone({
     setIsDragging(false)
   }
 
+  const validateAndSelectFile = (file: File) => {
+    const err = validateFileSize(file, maxFileSize)
+    if (err) {
+      setSizeError(err)
+      return
+    }
+    setSizeError(null)
+    onChange(file)
+  }
+
   const handleDrop = (e: React.DragEvent) => {
     e.preventDefault()
     setIsDragging(false)
     if (disabled) return
     const droppedFile = e.dataTransfer.files?.[0]
     if (droppedFile) {
-      onChange(droppedFile)
+      validateAndSelectFile(droppedFile)
     }
   }
 
   const handleInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const selected = e.target.files?.[0]
     if (selected) {
-      onChange(selected)
+      validateAndSelectFile(selected)
     }
   }
+
+  const displayError = error ?? sizeError
 
   return (
     <div className="lontar-field-group lontar-upload-zone-wrapper">
@@ -160,35 +235,26 @@ export function FileUploadZone({
       </label>
 
       {value ? (
-        <SelectedFilePreview file={value} onClear={() => onChange(null)} />
+        <SelectedFilePreview
+          file={value}
+          onClear={() => {
+            setSizeError(null)
+            onChange(null)
+          }}
+        />
       ) : currentFile?.url ? (
         <CurrentFilePreview file={currentFile} onReplace={() => inputRef.current?.click()} />
       ) : (
-        <div
-          className={`lontar-dropzone ${isDragging ? 'lontar-dropzone-active' : ''} ${
-            error ? 'lontar-dropzone-error' : ''
-          }`}
+        <DropzoneArea
+          isDragging={isDragging}
+          displayError={displayError}
+          accept={accept}
+          maxFileSize={maxFileSize}
           onDragOver={handleDragOver}
           onDragLeave={handleDragLeave}
           onDrop={handleDrop}
           onClick={() => inputRef.current?.click()}
-          data-testid="upload-dropzone"
-          role="button"
-          tabIndex={0}
-          onKeyDown={(e) => {
-            if (e.key === 'Enter' || e.key === ' ') {
-              inputRef.current?.click()
-            }
-          }}
-        >
-          <div className="lontar-dropzone-content">
-            <span className="lontar-dropzone-icon">📁</span>
-            <span className="lontar-dropzone-prompt">
-              Drag &amp; drop a file here, or click to browse
-            </span>
-            {accept && <span className="lontar-dropzone-hint">Accepted: {accept}</span>}
-          </div>
-        </div>
+        />
       )}
 
       <input
@@ -201,7 +267,7 @@ export function FileUploadZone({
         disabled={disabled}
       />
 
-      {error && <span className="lontar-field-error">{error}</span>}
+      {displayError && <span className="lontar-field-error">{displayError}</span>}
     </div>
   )
 }

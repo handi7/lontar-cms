@@ -73,6 +73,8 @@ export type {
 } from './fields/types'
 
 export {
+  DEFAULT_MAX_FILE_SIZE,
+  InvalidImageError,
   deleteMedia,
   formatVariantFilename,
   isResizableImage,
