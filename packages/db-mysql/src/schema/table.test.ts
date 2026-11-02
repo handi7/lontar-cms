@@ -92,7 +92,7 @@ describe('collectionToTable', () => {
     expect(col(columns, 'status').columnType).toBe('MySqlVarChar')
     expect(col(columns, 'status').notNull).toBe(true)
     expect(col(columns, 'status').hasDefault).toBe(true)
-    expect(col(columns, 'publishedAt').columnType).toBe('MySqlTimestamp')
+    expect(col(columns, 'publishedAt').columnType).toBe('MySqlDateTime')
     expect(col(columns, 'publishedAt').notNull).toBe(true)
     expect(col(columns, 'body').columnType).toBe('MySqlJson')
     expect(col(columns, 'body').notNull).toBe(true)

@@ -106,7 +106,7 @@ function renderSelectField(name: string, field: SelectField): string {
 }
 
 function renderDateField(name: string, field: DateField): string {
-  let code = `timestamp('${name}')`
+  let code = `datetime('${name}', { mode: 'date', fsp: 3 })`
   if (field.defaultValue !== undefined) {
     code += `.default(new Date(${JSON.stringify(field.defaultValue)}))`
   }
@@ -172,7 +172,7 @@ const FIELD_TYPE_IMPORTS: Record<string, string> = {
   select: 'varchar',
   textarea: 'text',
   checkbox: 'boolean',
-  date: 'timestamp',
+  date: 'datetime',
   richText: 'json',
   relationship: 'int',
   upload: 'int',
