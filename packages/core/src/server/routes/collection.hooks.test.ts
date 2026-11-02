@@ -199,7 +199,7 @@ describe('Collection Lifecycle Hooks', () => {
     )
   })
 
-  it('returns 400 when beforeChange throws an error', async () => {
+  it('returns 500 when beforeChange throws an error', async () => {
     const errorHook: BeforeChangeHook = () => {
       throw new Error('Title is not allowed')
     }
@@ -232,9 +232,9 @@ describe('Collection Lifecycle Hooks', () => {
       }),
     )
 
-    expect(res.status).toBe(400)
+    expect(res.status).toBe(500)
     const json = (await res.json()) as { error: string }
-    expect(json.error).toBe('Title is not allowed')
+    expect(json.error).toBe('Internal Server Error')
     expect(mockCreate).not.toHaveBeenCalled()
   })
 

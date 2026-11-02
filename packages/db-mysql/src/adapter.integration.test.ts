@@ -4,7 +4,12 @@ import os from 'node:os'
 import path from 'node:path'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import mysql from 'mysql2/promise'
-import type { CollectionConfig, Config, GlobalConfig } from '@lontar/core'
+import {
+  UniqueConstraintError,
+  type CollectionConfig,
+  type Config,
+  type GlobalConfig,
+} from '@lontar/core'
 import { mysqlAdapter, type MysqlAdapter } from './adapter'
 
 const DATABASE_URL = process.env.DATABASE_URL || 'mysql://lontar:lontar@127.0.0.1:3306/lontar'
@@ -26,6 +31,14 @@ const categoriesCollection: CollectionConfig = {
   labels: { singular: 'Category', plural: 'Categories' },
   fields: {
     name: { type: 'text', required: true },
+  },
+}
+
+const tagsCollection: CollectionConfig = {
+  slug: 'tags',
+  labels: { singular: 'Tag', plural: 'Tags' },
+  fields: {
+    slug: { type: 'slug', unique: true, required: true },
   },
 }
 
@@ -52,6 +65,7 @@ describe('mysqlAdapter (integration)', () => {
     await pool.query('DROP TABLE IF EXISTS posts_categories')
     await pool.query('DROP TABLE IF EXISTS posts')
     await pool.query('DROP TABLE IF EXISTS categories')
+    await pool.query('DROP TABLE IF EXISTS tags')
     await pool.query('DROP TABLE IF EXISTS header')
     await pool.query('DROP TABLE IF EXISTS __drizzle_migrations')
     await pool.end()
@@ -61,7 +75,7 @@ describe('mysqlAdapter (integration)', () => {
     const config: Config = {
       secret: 'test-secret',
       db: adapter,
-      collections: [postsCollection, categoriesCollection],
+      collections: [postsCollection, categoriesCollection, tagsCollection],
       globals: [headerGlobal],
     }
 
@@ -101,6 +115,7 @@ describe('mysqlAdapter (integration)', () => {
       await pool.query('DROP TABLE IF EXISTS posts_categories')
       await pool.query('DROP TABLE IF EXISTS posts')
       await pool.query('DROP TABLE IF EXISTS categories')
+      await pool.query('DROP TABLE IF EXISTS tags')
       await pool.query('DROP TABLE IF EXISTS header')
       await pool.query('DROP TABLE IF EXISTS __drizzle_migrations')
       await pool.end()
@@ -507,5 +522,33 @@ describe('mysqlAdapter (integration)', () => {
     ])) as unknown as [Array<unknown>, unknown]
     expect(rowsAfter).toHaveLength(0)
     await pool.end()
+  })
+
+  it('maps real MySQL duplicate unique key to UniqueConstraintError', async () => {
+    const first = await adapter.create({
+      collection: tagsCollection,
+      data: { slug: 'unique-slug' },
+    })
+    expect(first.slug).toBe('unique-slug')
+
+    await expect(
+      adapter.create({
+        collection: tagsCollection,
+        data: { slug: 'unique-slug' },
+      }),
+    ).rejects.toThrow(UniqueConstraintError)
+
+    try {
+      await adapter.create({
+        collection: tagsCollection,
+        data: { slug: 'unique-slug' },
+      })
+      expect.fail('should have thrown UniqueConstraintError')
+    } catch (err) {
+      expect(err).toBeInstanceOf(UniqueConstraintError)
+      const uce = err as UniqueConstraintError
+      expect(uce.field).toBe('slug')
+      expect(uce.value).toBe('unique-slug')
+    }
   })
 })

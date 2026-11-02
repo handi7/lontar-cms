@@ -5,7 +5,9 @@ import { clientFieldsToZod } from '../../client/zod'
 import { toClientGlobal } from '../../config/to-client-config'
 import type { Config, GlobalConfig } from '../../config/types'
 import type { DatabaseAdapter, DocumentData, StoredDoc } from '../../database/adapter'
+import { formatUniqueConstraintError, UniqueConstraintError } from '../../database/errors'
 import { runAfterChangeHooks, runAfterReadHooks, runBeforeChangeHooks } from '../../hooks'
+import type { MutationExecutionResult } from './collection-upload'
 
 type LontarEnv = { Variables: LontarVariables }
 
@@ -17,17 +19,13 @@ async function parseJsonBody(c: Context<LontarEnv>): Promise<unknown> {
   }
 }
 
-function getErrorMessage(err: unknown, fallback: string): string {
-  return err instanceof Error ? err.message : fallback
-}
-
 async function executeGlobalUpdate(args: {
   global: GlobalConfig
   db: DatabaseAdapter
   existing: StoredDoc | null
   data: DocumentData
   req: Request
-}): Promise<{ doc?: DocumentData; error?: string }> {
+}): Promise<MutationExecutionResult> {
   try {
     const operation = args.existing ? 'update' : 'create'
     const data = await runBeforeChangeHooks({
@@ -45,9 +43,12 @@ async function executeGlobalUpdate(args: {
       previousDoc: args.existing ?? undefined,
       req: args.req,
     })
-    return { doc }
+    return { success: true, doc }
   } catch (err) {
-    return { error: getErrorMessage(err, 'Global update failed') }
+    if (err instanceof UniqueConstraintError) {
+      return { success: false, status: 400, body: formatUniqueConstraintError(err) }
+    }
+    throw err
   }
 }
 
@@ -97,8 +98,8 @@ async function handleUpdateGlobal(
     req: c.req.raw,
   })
 
-  if (result.error) {
-    return c.json({ error: result.error }, 400)
+  if (!result.success) {
+    return c.json(result.body, result.status)
   }
   return c.json(result.doc, 200)
 }

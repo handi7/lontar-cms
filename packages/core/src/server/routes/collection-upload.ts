@@ -440,6 +440,10 @@ async function respondPopulatedDoc(
   return c.json(populated, status)
 }
 
+export type MutationExecutionResult =
+  | { success: true; doc: DocumentData }
+  | { success: false; status: 400 | 404; body: { error: string; issues?: unknown[] } }
+
 interface UploadCreateContext {
   c: Context<LontarEnv>
   collection: CollectionConfig
@@ -453,7 +457,7 @@ interface UploadCreateContext {
     db: DatabaseAdapter
     data: DocumentData
     req: Request
-  }) => Promise<{ doc?: DocumentData; error?: string }>
+  }) => Promise<MutationExecutionResult>
 }
 
 export async function handleUploadCreate(ctx: UploadCreateContext): Promise<Response> {
@@ -486,16 +490,22 @@ export async function handleUploadCreate(ctx: UploadCreateContext): Promise<Resp
   }
 
   const payload: DocumentData = { ...validation.data, ...processed.uploadDoc }
-  const result = await executeCreate({
-    collection,
-    data: payload,
-    db: config.db,
-    req: c.req.raw,
-  })
-
-  if (!result.doc) {
+  let result: MutationExecutionResult
+  try {
+    result = await executeCreate({
+      collection,
+      data: payload,
+      db: config.db,
+      req: c.req.raw,
+    })
+  } catch (err) {
     await safeDeleteMedia(config, processed.uploadDoc)
-    return c.json({ error: result.error ?? 'Create operation failed' }, 400)
+    throw err
+  }
+
+  if (!result.success) {
+    await safeDeleteMedia(config, processed.uploadDoc)
+    return c.json(result.body, result.status)
   }
 
   return respondPopulatedDoc(c, collection, config, result.doc, user, 201)
@@ -517,7 +527,7 @@ interface UploadUpdateContext {
     originalDoc: DocumentData
     data: DocumentData
     req: Request
-  }) => Promise<{ doc?: DocumentData; error?: string }>
+  }) => Promise<MutationExecutionResult>
 }
 
 async function processOptionalUploadFile(
@@ -550,19 +560,24 @@ async function applyValidatedUpdate(args: {
     ...(args.newUploadDoc ? args.newUploadDoc : {}),
   }
 
-  const result = await executeUpdate({
-    collection,
-    data: updateData,
-    db: config.db,
-    id,
-    originalDoc: args.originalDoc,
-    req: c.req.raw,
-  })
-
-  if (!result.doc) {
+  let result: MutationExecutionResult
+  try {
+    result = await executeUpdate({
+      collection,
+      data: updateData,
+      db: config.db,
+      id,
+      originalDoc: args.originalDoc,
+      req: c.req.raw,
+    })
+  } catch (err) {
     await rollbackNewMedia(config, args.newUploadDoc)
-    const err = result.error ? result.error : 'Update operation failed'
-    return c.json({ error: err }, 400)
+    throw err
+  }
+
+  if (!result.success) {
+    await rollbackNewMedia(config, args.newUploadDoc)
+    return c.json(result.body, result.status)
   }
 
   await cleanupReplacedMedia(config, args.originalDoc, args.newUploadDoc)

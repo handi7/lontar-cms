@@ -31,20 +31,46 @@ export interface PaginatedDocs<T = Record<string, unknown>> {
   hasPrevPage: boolean
 }
 
+export interface ApiIssue {
+  code?: string
+  path?: (string | number)[]
+  message: string
+}
+
+export class ApiClientError extends Error {
+  readonly status: number
+  readonly issues?: ApiIssue[]
+
+  constructor(message: string, status: number, issues?: ApiIssue[]) {
+    super(message)
+    this.name = 'ApiClientError'
+    this.status = status
+    this.issues = issues
+  }
+}
+
 async function handleResponse<T>(res: Response): Promise<T> {
   if (!res.ok) {
     let errorMsg = `HTTP ${res.status}: ${res.statusText}`
+    let issues: ApiIssue[] | undefined
     try {
-      const data = (await res.json()) as { error?: string; message?: string }
+      const data = (await res.json()) as {
+        error?: string
+        message?: string
+        issues?: ApiIssue[]
+      }
       if (data?.error) {
         errorMsg = data.error
       } else if (data?.message) {
         errorMsg = data.message
       }
+      if (Array.isArray(data?.issues)) {
+        issues = data.issues
+      }
     } catch {
       // response was not JSON
     }
-    throw new Error(errorMsg)
+    throw new ApiClientError(errorMsg, res.status, issues)
   }
   return (await res.json()) as T
 }

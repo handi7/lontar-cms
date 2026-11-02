@@ -1,5 +1,5 @@
 import { betterAuth } from 'better-auth'
-import { Hono } from 'hono'
+import { Hono, type Context } from 'hono'
 import type { Auth, AuthSession, AuthUser, LontarVariables } from '../auth/types'
 import { toClientConfig } from '../config/to-client-config'
 import type { Config } from '../config/types'
@@ -21,6 +21,17 @@ export function createLontar(config: Config, options: CreateLontarOptions = {}):
   const app = new Hono<{ Variables: LontarVariables }>()
   const basePath = options.basePath ?? '/api'
   const router = new Hono<{ Variables: LontarVariables }>()
+
+  const defaultErrorHandler = (
+    err: Error,
+    c: Context<{ Variables: LontarVariables }>,
+  ): Response => {
+    console.error(err)
+    return c.json({ error: 'Internal Server Error' }, 500)
+  }
+
+  app.onError(defaultErrorHandler)
+  router.onError(defaultErrorHandler)
 
   const defaultOrigins =
     process.env.NODE_ENV === 'production' ? [] : ['http://localhost:3000', 'http://127.0.0.1:3000']
