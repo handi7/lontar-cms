@@ -59,6 +59,16 @@ export interface CollectionAdmin<Name extends string = string> {
   defaultColumns?: Name[]
 }
 
+export const DEFAULT_LIMIT = 10
+export const MAX_LIMIT = 100
+
+export interface PaginationConfig {
+  /** Default number of documents per page. Defaults to 10. */
+  defaultLimit?: number
+  /** Maximum allowable limit in pagination queries. Defaults to 100. */
+  maxLimit?: number
+}
+
 export type FieldName<F extends Fields, C = unknown> =
   | (keyof F & string)
   | SystemFieldName
@@ -73,6 +83,8 @@ export interface CollectionConfig<F extends Fields = Fields> {
   hooks?: CollectionHooks
   /** Enables file upload support and image resizing for this collection. */
   upload?: boolean | UploadConfig
+  /** Optional pagination settings (default and max limit). */
+  pagination?: PaginationConfig
   /** Authored as an object for type inference; order is preserved in ClientConfig. */
   fields: F
 }
@@ -84,6 +96,8 @@ export interface Config {
   db: DatabaseAdapter
   /** Optional file storage adapter. Required when any collection has upload enabled. */
   storage?: StorageAdapter
+  /** Optional global pagination settings. */
+  pagination?: PaginationConfig
   collections: readonly CollectionConfig[]
   globals?: readonly GlobalConfig[]
 }

@@ -1,6 +1,6 @@
 import { SYSTEM_FIELDS, UPLOAD_SYSTEM_FIELDS } from '../client/system-fields'
 import type { Field, TextareaField, TextField } from '../fields/types'
-import type { CollectionConfig, Config, GlobalConfig } from './types'
+import type { CollectionConfig, Config, GlobalConfig, PaginationConfig } from './types'
 
 const SLUG = /^[a-z][a-z0-9-]*$/
 const FIELD_NAME = /^[A-Za-z_][A-Za-z0-9_]*$/
@@ -32,6 +32,7 @@ export function defineConfig<C extends Config>(config: C): C {
 
 function validateConfig(config: Config): string[] {
   const issues = validateSecret(config.secret)
+  issues.push(...validatePagination('Config', config.pagination))
   const collectionsResult = validateCollections(config.collections)
   issues.push(...collectionsResult.issues)
   issues.push(...validateGlobals(config.globals, collectionsResult.slugs))
@@ -127,9 +128,37 @@ function validateCollection(collection: CollectionConfig): string[] {
     ...Object.entries(collection.fields).flatMap(([name, field]) =>
       validateField(where, name, field),
     ),
+    ...validatePagination(where, collection.pagination),
     ...validateAdmin(where, collection),
     ...validateAccess(where, collection),
   ]
+}
+
+function validatePaginationBound(
+  where: string,
+  key: 'defaultLimit' | 'maxLimit',
+  value: number | undefined,
+): string[] {
+  if (value === undefined) return []
+  if (!Number.isInteger(value) || value <= 0) {
+    return [`${where}: pagination.${key} must be a positive integer.`]
+  }
+  return []
+}
+
+function validatePagination(where: string, pagination: PaginationConfig | undefined): string[] {
+  if (!pagination) return []
+  const issues = [
+    ...validatePaginationBound(where, 'defaultLimit', pagination.defaultLimit),
+    ...validatePaginationBound(where, 'maxLimit', pagination.maxLimit),
+  ]
+  const { defaultLimit, maxLimit } = pagination
+  if (defaultLimit !== undefined && maxLimit !== undefined && defaultLimit > maxLimit) {
+    issues.push(
+      `${where}: pagination.defaultLimit (${defaultLimit}) cannot be greater than pagination.maxLimit (${maxLimit}).`,
+    )
+  }
+  return issues
 }
 
 function validateGlobal(global: GlobalConfig): string[] {

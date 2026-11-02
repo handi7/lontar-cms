@@ -5,7 +5,7 @@ import { accessDenied, checkAccess } from '../../access'
 import type { AuthUser, LontarVariables } from '../../auth/types'
 import { clientFieldsToZod } from '../../client/zod'
 import { toClientCollection } from '../../config/to-client-config'
-import type { CollectionConfig, Config } from '../../config/types'
+import { DEFAULT_LIMIT, MAX_LIMIT, type CollectionConfig, type Config } from '../../config/types'
 import type { DatabaseAdapter, DocumentData } from '../../database/adapter'
 import { formatUniqueConstraintError, UniqueConstraintError } from '../../database/errors'
 import { runAfterChangeHooks, runAfterReadHooks, runBeforeChangeHooks } from '../../hooks'
@@ -37,6 +37,41 @@ async function parseJsonBody(c: Context<LontarEnv>): Promise<unknown> {
   }
 }
 
+function resolvePaginationLimits(
+  collection: CollectionConfig,
+  config: Config,
+): { defaultLimit: number; maxLimit: number } {
+  const defaultLimit =
+    collection.pagination?.defaultLimit ?? config.pagination?.defaultLimit ?? DEFAULT_LIMIT
+  const maxLimit = collection.pagination?.maxLimit ?? config.pagination?.maxLimit ?? MAX_LIMIT
+  return { defaultLimit, maxLimit }
+}
+
+function parsePositiveInt(raw: string | undefined, fallback: number): number {
+  if (!raw) return fallback
+  const parsed = parseInt(raw, 10)
+  return Number.isInteger(parsed) && parsed > 0 ? parsed : fallback
+}
+
+function resolvePagination(
+  query: (key: string) => string | undefined,
+  collection: CollectionConfig,
+  config: Config,
+): { page: number; limit: number } {
+  const { defaultLimit, maxLimit } = resolvePaginationLimits(collection, config)
+  const page = parsePositiveInt(query('page'), 1)
+  const limit = Math.min(parsePositiveInt(query('limit'), defaultLimit), maxLimit)
+  return { page, limit }
+}
+
+function resolveWhereFilter(rawUrl: string, collection: CollectionConfig) {
+  const url = new URL(rawUrl)
+  const where = parseWhereFromSearchParams(url.searchParams)
+  if (!where) return { where: undefined }
+  const issues = validateWhere(where, collection)
+  return issues.length > 0 ? { issues } : { where }
+}
+
 async function handleFind(c: Context<LontarEnv>, collection: CollectionConfig, config: Config) {
   const user = c.get('user') ?? null
   const allowed = await checkAccess(collection.access?.read, { user })
@@ -44,21 +79,16 @@ async function handleFind(c: Context<LontarEnv>, collection: CollectionConfig, c
     return accessDenied(c, user)
   }
 
-  const page = Math.max(1, parseInt(c.req.query('page') ?? '1', 10) || 1)
-  const limit = Math.max(1, parseInt(c.req.query('limit') ?? '10', 10) || 10)
+  const { page, limit } = resolvePagination((k) => c.req.query(k), collection, config)
   const sort = c.req.query('sort')
   const depth = parseDepth(c.req.query('depth'))
 
-  const url = new URL(c.req.raw.url)
-  const where = parseWhereFromSearchParams(url.searchParams)
-  if (where) {
-    const issues = validateWhere(where, collection)
-    if (issues.length > 0) {
-      return c.json({ error: 'Validation failed', issues }, 400)
-    }
+  const whereResult = resolveWhereFilter(c.req.raw.url, collection)
+  if ('issues' in whereResult && whereResult.issues) {
+    return c.json({ error: 'Validation failed', issues: whereResult.issues }, 400)
   }
 
-  const result = await config.db.find({ collection, limit, page, sort, where })
+  const result = await config.db.find({ collection, limit, page, sort, where: whereResult.where })
   const docs = await Promise.all(
     result.docs.map((doc) => runAfterReadHooks({ collection, doc, req: c.req.raw })),
   )

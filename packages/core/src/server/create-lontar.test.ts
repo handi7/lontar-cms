@@ -1,6 +1,13 @@
 import { describe, expect, it, vi } from 'vitest'
 import { Posts } from '../__fixtures__/posts'
-import type { Config, DatabaseAdapter, StoredDoc } from '../index'
+import {
+  collection,
+  defineConfig,
+  fields,
+  type Config,
+  type DatabaseAdapter,
+  type StoredDoc,
+} from '../index'
 import { createLontar } from './create-lontar'
 
 const mockFind = vi.fn().mockResolvedValue({
@@ -170,6 +177,74 @@ describe('createLontar REST API', () => {
       const res = await app.request(`/api/posts?where=${jsonParam}`)
       expect(res.status).toBe(200)
       expect(({} as Record<string, unknown>).role).toBeUndefined()
+    })
+
+    it('clamps limit exceeding default maximum limit of 100', async () => {
+      mockFind.mockClear()
+      const res = await app.request('/api/posts?limit=100000000')
+      expect(res.status).toBe(200)
+      expect(mockFind).toHaveBeenCalledWith(
+        expect.objectContaining({
+          collection: Posts,
+          limit: 100,
+        }),
+      )
+    })
+
+    it('falls back to defaultLimit for non-positive or non-numeric limit values', async () => {
+      for (const query of ['limit=0', 'limit=-10', 'limit=not-a-number']) {
+        mockFind.mockClear()
+        const res = await app.request(`/api/posts?${query}`)
+        expect(res.status).toBe(200)
+        expect(mockFind).toHaveBeenCalledWith(
+          expect.objectContaining({
+            collection: Posts,
+            limit: 10,
+          }),
+        )
+      }
+    })
+
+    it('respects collection-level and config-level custom pagination limits', async () => {
+      const customPost = collection({
+        slug: 'articles',
+        access: {
+          read: () => true,
+        },
+        pagination: { defaultLimit: 25, maxLimit: 50 },
+        fields: { title: fields.text({ required: true }) },
+      })
+      const customApp = createLontar(
+        defineConfig({
+          secret: 'test-secret',
+          db: {
+            ...adapter,
+            find: mockFind,
+          },
+          pagination: { defaultLimit: 20, maxLimit: 80 },
+          collections: [customPost],
+        }),
+      )
+
+      mockFind.mockClear()
+      // Request with no limit uses collection's defaultLimit (25)
+      await customApp.request('/api/articles')
+      expect(mockFind).toHaveBeenCalledWith(
+        expect.objectContaining({
+          collection: customPost,
+          limit: 25,
+        }),
+      )
+
+      mockFind.mockClear()
+      // Request exceeding collection's maxLimit (50) is clamped to 50
+      await customApp.request('/api/articles?limit=999')
+      expect(mockFind).toHaveBeenCalledWith(
+        expect.objectContaining({
+          collection: customPost,
+          limit: 50,
+        }),
+      )
     })
 
     it('returns 404 for unknown collection', async () => {

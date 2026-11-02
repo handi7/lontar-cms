@@ -24,11 +24,17 @@ export interface ClientUploadConfig {
   maxFileSize?: number
 }
 
+export interface ClientPaginationConfig {
+  defaultLimit?: number
+  maxLimit?: number
+}
+
 export interface ClientCollection {
   slug: string
   labels: { singular: string; plural: string }
   admin: { useAsTitle: string; defaultColumns: string[] }
   upload?: boolean | ClientUploadConfig
+  pagination?: ClientPaginationConfig
   /** In config order. System fields are not listed: every document has them. */
   fields: ClientField[]
 }

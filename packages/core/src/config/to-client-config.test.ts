@@ -255,6 +255,15 @@ describe('toClientConfig', () => {
     ])
   })
 
+  it('serializes collection pagination settings when configured', () => {
+    const col = clientCollection({
+      slug: 'books',
+      pagination: { defaultLimit: 25, maxLimit: 50 },
+      fields: { title: f.text() },
+    })
+    expect(col?.pagination).toEqual({ defaultLimit: 25, maxLimit: 50 })
+  })
+
   it('keeps fields in config order', () => {
     const collection = clientCollection({
       slug: 'notes',

@@ -168,12 +168,19 @@ export function toClientCollection(collection: CollectionConfig): ClientCollecti
         })
       : true
     : undefined
+  const pagination = collection.pagination
+    ? defined({
+        defaultLimit: collection.pagination.defaultLimit,
+        maxLimit: collection.pagination.maxLimit,
+      })
+    : undefined
 
   return {
     slug: collection.slug,
     labels: clientLabels(collection),
     admin: clientAdmin(collection, fields),
     ...(upload ? { upload } : {}),
+    ...(pagination && Object.keys(pagination).length > 0 ? { pagination } : {}),
     fields,
   }
 }
