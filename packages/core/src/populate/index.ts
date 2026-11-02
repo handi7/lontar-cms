@@ -1,5 +1,6 @@
+import { checkAccess } from '../access'
 import type { AuthUser } from '../auth/types'
-import type { AccessArgs, AccessFunction, CollectionConfig } from '../config/types'
+import type { CollectionConfig } from '../config/types'
 import type { DatabaseAdapter, DocumentData } from '../database/adapter'
 import type { RelationshipField, UploadField } from '../fields/types'
 import { runAfterReadHooks } from '../hooks/runner'
@@ -20,16 +21,6 @@ export interface PopulateOptions {
   user?: AuthUser | null
   req?: Request
   seen?: ReadonlySet<string>
-}
-
-async function checkAccess(fn: AccessFunction | undefined, args: AccessArgs): Promise<boolean> {
-  if (!fn) return true
-  try {
-    const result = await fn(args)
-    return Boolean(result)
-  } catch {
-    return false
-  }
 }
 
 function collectManyIds(

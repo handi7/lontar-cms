@@ -82,6 +82,7 @@ function createDepthMockAdapter(store: Record<string, StoredDoc[]>): DatabaseAda
 describe('REST API depth query param', () => {
   const users = collection({
     slug: 'users',
+    access: { read: () => true },
     fields: {
       name: f.text({ required: true }),
     },
@@ -89,6 +90,7 @@ describe('REST API depth query param', () => {
 
   const categories = collection({
     slug: 'categories',
+    access: { read: () => true },
     fields: {
       name: f.text({ required: true }),
     },
@@ -96,6 +98,12 @@ describe('REST API depth query param', () => {
 
   const posts = collection({
     slug: 'posts',
+    access: {
+      read: () => true,
+      create: () => true,
+      update: () => true,
+      delete: () => true,
+    },
     fields: {
       title: f.text({ required: true }),
       author: f.relationship({ relationTo: 'users' }),

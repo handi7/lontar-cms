@@ -6,6 +6,13 @@ import type { DatabaseAdapter, DocumentData, StoredDoc } from '../../database/ad
 import type { StorageAdapter, UploadFile, UploadResult } from '../../storage/adapter'
 import { registerCollectionRoutes } from './collection'
 
+const publicAccess = {
+  read: () => true,
+  create: () => true,
+  update: () => true,
+  delete: () => true,
+}
+
 function matchesEqualsFilter(doc: StoredDoc, where: unknown): boolean {
   if (!where || typeof where !== 'object') return true
   for (const [key, filter] of Object.entries(where as Record<string, unknown>)) {
@@ -142,6 +149,7 @@ describe('collection upload routes', () => {
       collections: [
         {
           slug: 'media',
+          access: publicAccess,
           upload: {
             sizes: {
               thumb: { width: 10, height: 10 },
@@ -190,6 +198,7 @@ describe('collection upload routes', () => {
       collections: [
         {
           slug: 'media',
+          access: publicAccess,
           upload: true,
           fields: {
             alt: f.text({ required: true }),
@@ -225,6 +234,7 @@ describe('collection upload routes', () => {
       collections: [
         {
           slug: 'media',
+          access: publicAccess,
           upload: {
             mimeTypes: ['image/jpeg'],
           },
@@ -275,6 +285,7 @@ describe('collection upload routes', () => {
       collections: [
         {
           slug: 'media',
+          access: publicAccess,
           upload: true,
           fields: {
             alt: f.text(),
@@ -327,6 +338,7 @@ describe('collection upload routes', () => {
       collections: [
         {
           slug: 'media',
+          access: publicAccess,
           upload: true,
           fields: {},
         },
@@ -375,11 +387,13 @@ describe('collection upload routes', () => {
       collections: [
         {
           slug: 'media',
+          access: publicAccess,
           upload: true,
           fields: {},
         },
         {
           slug: 'articles',
+          access: publicAccess,
           fields: {
             title: f.text({ required: true }),
             cover: f.upload({ relationTo: 'media', required: true }),
@@ -411,6 +425,7 @@ describe('collection upload routes', () => {
       collections: [
         {
           slug: 'media',
+          access: publicAccess,
           upload: true,
           fields: {},
         },
@@ -458,6 +473,7 @@ describe('collection upload routes', () => {
       collections: [
         {
           slug: 'media',
+          access: publicAccess,
           upload: true,
           fields: {},
         },
@@ -503,6 +519,7 @@ describe('collection upload routes', () => {
       collections: [
         {
           slug: 'media',
+          access: publicAccess,
           upload: true,
           fields: {},
         },

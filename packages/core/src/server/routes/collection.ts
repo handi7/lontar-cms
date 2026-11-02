@@ -1,9 +1,10 @@
 import type { Context, Hono } from 'hono'
 import type { z } from 'zod'
+import { accessDenied, checkAccess } from '../../access'
 import type { AuthUser, LontarVariables } from '../../auth/types'
 import { clientFieldsToZod } from '../../client/zod'
 import { toClientCollection } from '../../config/to-client-config'
-import type { AccessArgs, AccessFunction, CollectionConfig, Config } from '../../config/types'
+import type { CollectionConfig, Config } from '../../config/types'
 import type { DatabaseAdapter, DocumentData } from '../../database/adapter'
 import { runAfterChangeHooks, runAfterReadHooks, runBeforeChangeHooks } from '../../hooks'
 import { parseDepth, populateDoc, populateDocs } from '../../populate'
@@ -21,23 +22,6 @@ function parseId(param: string | undefined): number | null {
   if (!param) return null
   const id = parseInt(param, 10)
   return isNaN(id) || id <= 0 ? null : id
-}
-
-async function checkAccess(fn: AccessFunction | undefined, args: AccessArgs): Promise<boolean> {
-  if (!fn) return true
-  try {
-    const result = await fn(args)
-    return Boolean(result)
-  } catch {
-    return false
-  }
-}
-
-function accessDenied(c: Context<LontarEnv>, user: AuthUser | null) {
-  if (!user) {
-    return c.json({ error: 'Unauthorized' }, 401)
-  }
-  return c.json({ error: 'Forbidden' }, 403)
 }
 
 async function parseJsonBody(c: Context<LontarEnv>): Promise<unknown> {

@@ -39,6 +39,10 @@ const config = defineConfig({
   collections: [
     {
       slug: 'posts',
+      access: {
+        read: () => true,
+        create: () => true,
+      },
       fields: {
         title: fields.text({ required: true }),
         views: fields.number(),

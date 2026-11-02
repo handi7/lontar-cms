@@ -25,6 +25,7 @@ export {
   type CreateUserData,
   type CreatedUserResult,
 } from './auth/user'
+export { accessDenied, checkAccess, defaultAccess } from './access'
 export type {
   AccessArgs,
   AccessFunction,

@@ -77,6 +77,8 @@ export default defineConfig({
 
 `fields` is deliberately an object rather than an array, which makes TypeScript type inference simpler.
 
+By default, operations on collections and globals require an authenticated user (`({ user }) => Boolean(user)`). To allow public or anonymous access, define the access rule explicitly (for example, `read: () => true`).
+
 ## Migrations and type generation
 
 ```bash
