@@ -120,7 +120,7 @@ prettier on staged files only). CI (`.github/workflows/ci.yml`) runs
   - [ ] Code review fixes that must land before release (checklist and fix order in #69)
     - [x] Security: #44, #45, #46, #47, #48
     - [x] Data integrity: #49 (done), #50 (done), #51 (done), #52 (done), #53 (done), #54 (done), #56 (done), #57 (done)
-    - [ ] Needed for #29: #59, #68
+    - [ ] Needed for #29: #59 (done), #68
     - [ ] Tooling: #55
 - [ ] **v0.1.x: Post-release fixes** (after v0.1; checklist in #69)
   - [ ] Admin UX: #60, #61, #62, #63, #64
