@@ -120,4 +120,61 @@ describe('parseWhere', () => {
     const where = parseWhereFromSearchParams(params)
     expect(where).toBeUndefined()
   })
+
+  describe('security guards against prototype pollution and resource exhaustion', () => {
+    it('prevents prototype pollution via __proto__ in bracket notation', () => {
+      const params = new URLSearchParams('where[__proto__][role]=admin')
+      const where = parseWhereFromSearchParams(params)
+      expect(where).toBeUndefined()
+      expect(({} as Record<string, unknown>).role).toBeUndefined()
+    })
+
+    it('prevents prototype pollution via constructor and prototype in bracket notation', () => {
+      const params = new URLSearchParams('where[constructor][prototype][role]=admin')
+      const where = parseWhereFromSearchParams(params)
+      expect(where).toBeUndefined()
+      expect(({} as Record<string, unknown>).role).toBeUndefined()
+    })
+
+    it('prevents prototype pollution via JSON where parameter', () => {
+      const params = new URLSearchParams({
+        where: JSON.stringify({
+          __proto__: { role: 'admin' },
+          title: { equals: 'hello' },
+        }),
+      })
+      const where = parseWhereFromSearchParams(params)
+      expect(where).toEqual({
+        title: { equals: 'hello' },
+      })
+      expect(({} as Record<string, unknown>).role).toBeUndefined()
+    })
+
+    it('prevents prototype pollution via nested constructor in JSON where', () => {
+      const params = new URLSearchParams({
+        where: JSON.stringify({
+          constructor: { prototype: { role: 'admin' } },
+          status: { equals: 'draft' },
+        }),
+      })
+      const where = parseWhereFromSearchParams(params)
+      expect(where).toEqual({
+        status: { equals: 'draft' },
+      })
+      expect(({} as Record<string, unknown>).role).toBeUndefined()
+    })
+
+    it('caps array indices to prevent sparse array allocation', () => {
+      const params = new URLSearchParams('where[or][99999999][status][equals]=draft')
+      const where = parseWhereFromSearchParams(params)
+      expect(where).toBeUndefined()
+    })
+
+    it('caps nesting depth to prevent excessive recursion', () => {
+      const deepKey = 'where' + '[level]'.repeat(15) + '[equals]'
+      const params = new URLSearchParams(`${deepKey}=deepValue`)
+      const where = parseWhereFromSearchParams(params)
+      expect(where).toBeUndefined()
+    })
+  })
 })
