@@ -23,6 +23,7 @@ const postsCollection: CollectionConfig = {
     content: { type: 'richText' },
     author: { type: 'relationship', relationTo: 'users' },
     categories: { type: 'relationship', relationTo: 'categories', hasMany: true },
+    publishedAt: { type: 'date' },
   },
 }
 
@@ -677,5 +678,53 @@ describe('mysqlAdapter (integration)', () => {
       where: { title: { equals: 'Rolled Back in Nested' } },
     })
     expect(nestedFound.docs).toHaveLength(0)
+  })
+
+  it('stores, updates, and round-trips date fields in UTC without drift', async () => {
+    // 1. Create with full UTC ISO string
+    const doc = await adapter.create({
+      collection: postsCollection,
+      data: {
+        title: 'Date Test Post',
+        publishedAt: '2024-05-01T03:00:00.000Z',
+      },
+    })
+    expect(doc.publishedAt).toBe('2024-05-01T03:00:00.000Z')
+
+    const fetched = await adapter.findByID({ collection: postsCollection, id: doc.id })
+    expect(fetched?.publishedAt).toBe('2024-05-01T03:00:00.000Z')
+
+    // 2. Update with offset-less string (treated as UTC explicitly, preventing local TZ drift)
+    const updated = await adapter.update({
+      collection: postsCollection,
+      id: doc.id,
+      data: {
+        publishedAt: '2024-05-01T03:00',
+      },
+    })
+    expect(updated?.publishedAt).toBe('2024-05-01T03:00:00.000Z')
+
+    // 3. Update with offset-less string containing seconds
+    const updatedWithSec = await adapter.update({
+      collection: postsCollection,
+      id: doc.id,
+      data: {
+        publishedAt: '2024-05-01T03:00:45',
+      },
+    })
+    expect(updatedWithSec?.publishedAt).toBe('2024-05-01T03:00:45.000Z')
+
+    // 4. Update with null to clear
+    const cleared = await adapter.update({
+      collection: postsCollection,
+      id: doc.id,
+      data: {
+        publishedAt: null,
+      },
+    })
+    expect(cleared?.publishedAt).toBeNull()
+
+    const fetchedCleared = await adapter.findByID({ collection: postsCollection, id: doc.id })
+    expect(fetchedCleared?.publishedAt).toBeNull()
   })
 })

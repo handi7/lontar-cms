@@ -10,11 +10,12 @@ import {
   type FieldErrors,
 } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
-import { clientFieldsToZod, type ClientCollection, type ClientField } from '@lontar/core/client'
+import { clientFieldsToZod, type ClientCollection } from '@lontar/core/client'
 import { useAdmin, useCollection } from '../context/AdminContext'
 import { fetchDoc, createDoc, updateDoc, deleteDoc, ApiClientError } from '../api/client'
 import { FieldRenderer } from '../fields/FieldRenderer'
 import { FileUploadZone, formatFilesize } from '../fields/FileUploadZone'
+import { computeDefaultValues, formatDocForForm, formatDocForSubmit } from '../utils/form-utils'
 import { NotFoundView } from './NotFoundView'
 
 function DocumentMeta({ doc }: { doc?: Record<string, unknown> | null }) {
@@ -80,72 +81,6 @@ function FormHeader({
       </div>
     </header>
   )
-}
-
-function getFieldDefault(f: ClientField): unknown {
-  if ('defaultValue' in f && f.defaultValue !== undefined) {
-    if (f.type === 'date' && typeof f.defaultValue === 'string') {
-      const d = new Date(f.defaultValue)
-      return !Number.isNaN(d.getTime()) ? d.toISOString().slice(0, 16) : f.defaultValue
-    }
-    return f.defaultValue
-  }
-  if (f.type === 'checkbox') return false
-  if (f.type === 'relationship' && f.hasMany) return []
-  return undefined
-}
-
-function computeDefaultValues(collection?: ClientCollection): Record<string, unknown> {
-  if (!collection) return {}
-  const defaults: Record<string, unknown> = {}
-  for (const f of collection.fields) {
-    const val = getFieldDefault(f)
-    if (val !== undefined) {
-      defaults[f.name] = val
-    }
-  }
-  return defaults
-}
-
-function extractIdFromItem(item: unknown): number | null {
-  if (typeof item === 'number' && item > 0) return item
-  if (typeof item === 'object' && item !== null && 'id' in item) {
-    const id = (item as Record<string, unknown>).id
-    if (typeof id === 'number' && id > 0) return id
-  }
-  return null
-}
-
-function normalizeRelationshipValue(val: unknown, hasMany?: boolean): unknown {
-  if (hasMany) {
-    if (!Array.isArray(val)) return []
-    return (val as unknown[]).map(extractIdFromItem).filter((id): id is number => id !== null)
-  }
-  return extractIdFromItem(val) ?? val
-}
-
-function formatFieldForForm(f: ClientField, val: unknown): unknown {
-  if (f.type === 'date' && typeof val === 'string') {
-    const d = new Date(val)
-    return !Number.isNaN(d.getTime()) ? d.toISOString().slice(0, 16) : val
-  }
-  if (f.type === 'relationship') {
-    return normalizeRelationshipValue(val, f.hasMany)
-  }
-  return val
-}
-
-function formatDocForForm(
-  collection: ClientCollection,
-  data: Record<string, unknown>,
-): Record<string, unknown> {
-  const formatted = { ...data }
-  for (const f of collection.fields) {
-    if (f.name in formatted) {
-      formatted[f.name] = formatFieldForForm(f, formatted[f.name])
-    }
-  }
-  return formatted
 }
 
 function getFormTitle(mode: 'create' | 'edit', singular: string, id?: string): string {
@@ -280,7 +215,7 @@ function useDocMutations({
         void navigate({ to: '/$collection', params: { collection: slug ?? '' } })
       } else {
         setSuccessMsg('Saved successfully!')
-        reset(collection ? formatDocForForm(collection, savedDoc) : savedDoc)
+        reset(collection ? formatDocForForm(collection.fields, savedDoc) : savedDoc)
       }
     },
     onError: (err: Error) => {
@@ -365,7 +300,7 @@ export function CollectionFormView({ mode }: { mode: 'create' | 'edit' }) {
     return collection ? clientFieldsToZod(collection.fields) : undefined
   }, [collection])
 
-  const defaultValues = useMemo(() => computeDefaultValues(collection), [collection])
+  const defaultValues = useMemo(() => computeDefaultValues(collection?.fields ?? []), [collection])
 
   const {
     register,
@@ -382,7 +317,7 @@ export function CollectionFormView({ mode }: { mode: 'create' | 'edit' }) {
 
   useEffect(() => {
     if (docQuery.data) {
-      reset(collection ? formatDocForForm(collection, docQuery.data) : docQuery.data)
+      reset(collection ? formatDocForForm(collection.fields, docQuery.data) : docQuery.data)
       setSelectedFile(null)
       setFileError(null)
     }
@@ -417,8 +352,9 @@ export function CollectionFormView({ mode }: { mode: 'create' | 'edit' }) {
   const title = getFormTitle(mode, collection.labels.singular, id)
 
   const handleFormSubmit = (v: Record<string, unknown>) => {
+    const payload = collection ? formatDocForSubmit(collection.fields, v) : v
     if (!collection.upload) {
-      saveMutation.mutate(v)
+      saveMutation.mutate(payload)
       return
     }
     if (mode === 'create' && !selectedFile) {
@@ -432,7 +368,7 @@ export function CollectionFormView({ mode }: { mode: 'create' | 'edit' }) {
       )
       return
     }
-    saveMutation.mutate(buildUploadFormData(v, selectedFile))
+    saveMutation.mutate(buildUploadFormData(payload, selectedFile))
   }
 
   return (

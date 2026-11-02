@@ -163,6 +163,7 @@ function DateFieldInput({
     <input
       id={field.name}
       type="datetime-local"
+      step="1"
       className="lontar-input"
       {...register(field.name)}
     />

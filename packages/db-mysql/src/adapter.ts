@@ -73,9 +73,19 @@ function toStoredDoc(row: Record<string, unknown>): StoredDoc {
   }
 }
 
+function normalizeDateString(str: string): string {
+  const trimmed = str.trim()
+  if (/^\d{4}-\d{2}-\d{2}[T ]\d{2}:\d{2}(:\d{2}(\.\d+)?)?$/.test(trimmed)) {
+    return `${trimmed.replace(' ', 'T')}Z`
+  }
+  return trimmed
+}
+
 function sanitizeDate(value: unknown): unknown {
   if (value === '' || value === null || value === undefined) return null
-  if (typeof value === 'string') return new Date(value)
+  if (typeof value === 'string') {
+    return new Date(normalizeDateString(value))
+  }
   return value
 }
 
@@ -655,7 +665,7 @@ function createDatabaseOperations(
 }
 
 export function mysqlAdapter(options: MysqlAdapterOptions): MysqlAdapter {
-  const pool = mysql.createPool(options.url)
+  const pool = mysql.createPool({ uri: options.url, timezone: 'Z' })
   const db = drizzle(pool, { schema: authTables, mode: 'default' })
   const authAdapter = drizzleAdapter(db, {
     provider: 'mysql',
