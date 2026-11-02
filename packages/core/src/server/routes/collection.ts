@@ -150,13 +150,24 @@ async function executeCreate(args: {
       req: args.req,
     })
     const created = await txDb.create({ collection: args.collection, data })
-    const doc = await runAfterChangeHooks({
-      collection: args.collection,
-      doc: created,
-      operation: 'create',
-      req: args.req,
-    })
-    return { success: true, doc }
+    try {
+      const doc = await runAfterChangeHooks({
+        collection: args.collection,
+        doc: created,
+        operation: 'create',
+        req: args.req,
+      })
+      return { success: true, doc }
+    } catch (hookErr) {
+      if (!args.db.transaction) {
+        try {
+          await txDb.delete({ collection: args.collection, id: created.id })
+        } catch {
+          // Non-fatal compensation error
+        }
+      }
+      throw hookErr
+    }
   }
 
   try {
@@ -233,6 +244,16 @@ async function handleCreate(
   return c.json(populated, 201)
 }
 
+function buildRevertData(originalDoc: DocumentData, appliedData: DocumentData): DocumentData {
+  const revertData: DocumentData = { ...originalDoc }
+  for (const key of Object.keys(appliedData)) {
+    if (!(key in revertData)) {
+      revertData[key] = null
+    }
+  }
+  return revertData
+}
+
 async function executeUpdate(args: {
   collection: CollectionConfig
   db: DatabaseAdapter
@@ -257,14 +278,29 @@ async function executeUpdate(args: {
         body: { error: `Document with ID ${args.id} not found` },
       }
     }
-    const doc = await runAfterChangeHooks({
-      collection: args.collection,
-      doc: updated,
-      operation: 'update',
-      previousDoc: args.originalDoc,
-      req: args.req,
-    })
-    return { success: true, doc }
+    try {
+      const doc = await runAfterChangeHooks({
+        collection: args.collection,
+        doc: updated,
+        operation: 'update',
+        previousDoc: args.originalDoc,
+        req: args.req,
+      })
+      return { success: true, doc }
+    } catch (hookErr) {
+      if (!args.db.transaction) {
+        try {
+          await txDb.update({
+            collection: args.collection,
+            id: args.id,
+            data: buildRevertData(args.originalDoc, data),
+          })
+        } catch {
+          // Non-fatal compensation error
+        }
+      }
+      throw hookErr
+    }
   }
 
   try {

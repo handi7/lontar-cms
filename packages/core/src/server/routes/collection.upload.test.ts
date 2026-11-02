@@ -87,6 +87,11 @@ function createMockDb(
         ...data,
         updatedAt: '2026-11-01T00:00:00.000Z',
       }
+      for (const [k, v] of Object.entries(data)) {
+        if (v === null) {
+          delete (updated as Record<string, unknown>)[k]
+        }
+      }
       all[idx] = updated
       return Promise.resolve(updated)
     },
@@ -946,5 +951,150 @@ describe('collection upload routes', () => {
 
     expect(res.status).toBe(201)
     expect(uploaded[0]?.contentDisposition).toBe('attachment; filename="contract.pdf"')
+  })
+
+  it('rolls back uploaded file and created row when afterChange throws on create', async () => {
+    const { storage, deleted } = createMockStorage()
+    const db = createMockDb()
+
+    const config = defineConfig({
+      secret: 'test-secret',
+      db,
+      storage,
+      collections: [
+        {
+          slug: 'media',
+          access: publicAccess,
+          upload: true,
+          fields: {},
+          hooks: {
+            afterChange: [
+              () => {
+                throw new Error('afterChange failed')
+              },
+            ],
+          },
+        },
+      ],
+    })
+
+    const app = new Hono()
+    registerCollectionRoutes(app as never, config)
+
+    const formData = new FormData()
+    const file = new File([TINY_PNG], 'pixel.png', { type: 'image/png' })
+    formData.append('file', file)
+
+    const res = await app.request('/media', {
+      method: 'POST',
+      body: formData,
+    })
+
+    expect(res.status).toBe(500)
+    // Uploaded file should have been deleted from storage
+    expect(deleted).toContain('pixel.png')
+    // Database should have 0 docs
+    const listRes = await db.find({ collection: config.collections[0]!, limit: 10, page: 1 })
+    expect(listRes.totalDocs).toBe(0)
+  })
+
+  it('rolls back newly uploaded file and restores original doc when afterChange throws on update', async () => {
+    const { storage, deleted } = createMockStorage()
+    const db = createMockDb({
+      media: [
+        {
+          id: 1,
+          filename: 'original.png',
+          mimeType: 'image/png',
+          filesize: 100,
+        },
+      ],
+    })
+
+    const config = defineConfig({
+      secret: 'test-secret',
+      db,
+      storage,
+      collections: [
+        {
+          slug: 'media',
+          access: publicAccess,
+          upload: true,
+          fields: {
+            alt: f.text(),
+          },
+          hooks: {
+            afterChange: [
+              () => {
+                throw new Error('afterChange failed on update')
+              },
+            ],
+          },
+        },
+      ],
+    })
+
+    const app = new Hono()
+    registerCollectionRoutes(app as never, config)
+
+    const formData = new FormData()
+    const newFile = new File([TINY_PNG], 'replaced.png', { type: 'image/png' })
+    formData.append('file', newFile)
+    formData.append('alt', 'New Alt Text')
+
+    const res = await app.request('/media/1', {
+      method: 'PATCH',
+      body: formData,
+    })
+
+    expect(res.status).toBe(500)
+    // Newly uploaded file was rolled back
+    expect(deleted).toContain('replaced.png')
+    // Original file was NOT deleted
+    expect(deleted).not.toContain('original.png')
+    // Original doc is preserved in DB
+    const doc = await db.findByID({ collection: config.collections[0]!, id: 1 })
+    expect(doc?.filename).toBe('original.png')
+    expect(doc?.alt).toBeUndefined()
+  })
+
+  it('returns 500 when storage upload fails', async () => {
+    const failingStorage: StorageAdapter = {
+      name: 'failing',
+      upload: () => Promise.reject(new Error('Disk full')),
+      delete: () => Promise.resolve(),
+      getUrl: (f) => `https://example.com/${f}`,
+    }
+    const db = createMockDb()
+
+    const config = defineConfig({
+      secret: 'test-secret',
+      db,
+      storage: failingStorage,
+      collections: [
+        {
+          slug: 'media',
+          access: publicAccess,
+          upload: true,
+          fields: {},
+        },
+      ],
+    })
+
+    const app = new Hono()
+    registerCollectionRoutes(app as never, config)
+
+    const formData = new FormData()
+    const file = new File([TINY_PNG], 'pixel.png', { type: 'image/png' })
+    formData.append('file', file)
+
+    const res = await app.request('/media', {
+      method: 'POST',
+      body: formData,
+    })
+
+    expect(res.status).toBe(500)
+    const json = (await res.json()) as { error: string }
+    expect(json.error).toBe('Upload failed')
   })
 })

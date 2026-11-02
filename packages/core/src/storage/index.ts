@@ -14,6 +14,7 @@ export {
   type UploadConfig,
 } from './image'
 export {
+  StorageUploadError,
   deleteMedia,
   uploadMedia,
   type UploadedImageVariant,

@@ -1,7 +1,7 @@
 import sharp from 'sharp'
 import { describe, expect, it, vi } from 'vitest'
 import type { StorageAdapter, UploadFile } from './adapter'
-import { deleteMedia, uploadMedia } from './pipeline'
+import { StorageUploadError, deleteMedia, uploadMedia } from './pipeline'
 
 describe('uploadMedia and deleteMedia pipeline', () => {
   function createMockStorage() {
@@ -132,5 +132,50 @@ describe('uploadMedia and deleteMedia pipeline', () => {
 
     expect(remove).toHaveBeenCalledTimes(1)
     expect(remove).toHaveBeenCalledWith('document.pdf')
+  })
+
+  it('cleans up previously uploaded variants and throws StorageUploadError if subsequent upload fails', async () => {
+    let callCount = 0
+    const upload = vi.fn((file: UploadFile) => {
+      callCount++
+      if (callCount === 2) {
+        return Promise.reject(new Error('S3 connection timed out'))
+      }
+      return Promise.resolve({
+        filename: file.filename,
+        url: `https://example.com/uploads/${file.filename}`,
+      })
+    })
+    const remove = vi.fn(() => Promise.resolve())
+    const storage: StorageAdapter = {
+      name: 'mock',
+      upload,
+      delete: remove,
+      getUrl: (f) => `https://example.com/uploads/${f}`,
+    }
+
+    const buffer = await createTestImage(600, 400)
+    await expect(
+      uploadMedia({
+        storage,
+        file: {
+          filename: 'failing.png',
+          buffer,
+          mimeType: 'image/png',
+        },
+        uploadConfig: {
+          sizes: {
+            thumb: { width: 150 },
+            card: { width: 300 },
+          },
+        },
+      }),
+    ).rejects.toThrow(StorageUploadError)
+
+    // First upload (original) succeeded, second (thumb) failed
+    expect(upload).toHaveBeenCalledTimes(2)
+    // The successful original upload should have been cleaned up
+    expect(remove).toHaveBeenCalledTimes(1)
+    expect(remove).toHaveBeenCalledWith('failing.png')
   })
 })

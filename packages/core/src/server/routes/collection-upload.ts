@@ -11,6 +11,7 @@ import {
   deleteMedia,
   getUniqueFilename,
   InvalidImageError,
+  StorageUploadError,
   sanitizeFilename,
   uploadMedia,
   type UploadedMediaDoc,
@@ -318,6 +319,9 @@ async function uploadMediaFile(args: {
   } catch (err) {
     if (err instanceof InvalidImageError) {
       return { ok: false, error: 'Invalid image', status: 400 }
+    }
+    if (err instanceof StorageUploadError) {
+      return { ok: false, error: 'Upload failed', status: 500 }
     }
     return { ok: false, error: 'Upload failed', status: 500 }
   }

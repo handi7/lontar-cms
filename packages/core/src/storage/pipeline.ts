@@ -1,5 +1,22 @@
 import type { StorageAdapter, UploadFile } from './adapter'
-import { processImage, type ProcessedImageSize, type UploadConfig } from './image'
+import {
+  InvalidImageError,
+  processImage,
+  type ProcessedImageSize,
+  type UploadConfig,
+} from './image'
+
+export class StorageUploadError extends Error {
+  readonly uploadedKeys: readonly string[]
+  override readonly cause?: unknown
+
+  constructor(message: string, uploadedKeys: string[], cause?: unknown) {
+    super(message, cause !== undefined ? { cause } : undefined)
+    this.name = 'StorageUploadError'
+    this.uploadedKeys = uploadedKeys
+    this.cause = cause
+  }
+}
 
 export interface UploadedImageVariant {
   filename: string
@@ -23,6 +40,7 @@ export interface UploadedMediaDoc {
 async function uploadSizes(
   storage: StorageAdapter,
   sizes: Record<string, ProcessedImageSize>,
+  uploadedKeys: string[],
 ): Promise<Record<string, UploadedImageVariant>> {
   const result: Record<string, UploadedImageVariant> = {}
   for (const [name, variant] of Object.entries(sizes)) {
@@ -31,6 +49,7 @@ async function uploadSizes(
       buffer: variant.buffer,
       mimeType: variant.mimeType,
     })
+    uploadedKeys.push(uploadRes.filename)
     result[name] = {
       filename: uploadRes.filename,
       url: uploadRes.url,
@@ -58,24 +77,40 @@ export async function uploadMedia(args: {
     sizes,
   })
 
-  const originalUpload = await storage.upload({
-    filename: processed.original.filename,
-    buffer: processed.original.buffer,
-    mimeType: processed.original.mimeType,
-    contentDisposition: file.contentDisposition,
-  })
+  const uploadedKeys: string[] = []
+  try {
+    const originalUpload = await storage.upload({
+      filename: processed.original.filename,
+      buffer: processed.original.buffer,
+      mimeType: processed.original.mimeType,
+      contentDisposition: file.contentDisposition,
+    })
+    uploadedKeys.push(originalUpload.filename)
 
-  const uploadedSizes = await uploadSizes(storage, processed.sizes)
-  const hasSizes = Object.keys(uploadedSizes).length > 0
+    const uploadedSizes = await uploadSizes(storage, processed.sizes, uploadedKeys)
+    const hasSizes = Object.keys(uploadedSizes).length > 0
 
-  return {
-    filename: originalUpload.filename,
-    url: originalUpload.url,
-    mimeType: processed.original.mimeType,
-    filesize: processed.original.filesize,
-    width: processed.original.width,
-    height: processed.original.height,
-    ...(hasSizes ? { sizes: uploadedSizes } : {}),
+    return {
+      filename: originalUpload.filename,
+      url: originalUpload.url,
+      mimeType: processed.original.mimeType,
+      filesize: processed.original.filesize,
+      width: processed.original.width,
+      height: processed.original.height,
+      ...(hasSizes ? { sizes: uploadedSizes } : {}),
+    }
+  } catch (err) {
+    if (uploadedKeys.length > 0) {
+      await Promise.allSettled(uploadedKeys.map((key) => storage.delete(key)))
+    }
+    if (err instanceof InvalidImageError) {
+      throw err
+    }
+    throw new StorageUploadError(
+      `Failed to upload media file: ${err instanceof Error ? err.message : String(err)}`,
+      uploadedKeys,
+      err,
+    )
   }
 }
 
