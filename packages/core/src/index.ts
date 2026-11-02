@@ -90,6 +90,7 @@ export type {
 export {
   DEFAULT_MAX_FILE_SIZE,
   InvalidImageError,
+  StorageUploadError,
   deleteMedia,
   formatVariantFilename,
   isResizableImage,
