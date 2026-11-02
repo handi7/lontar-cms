@@ -6,20 +6,28 @@ import type { AuthUser, LontarVariables } from '../../auth/types'
 import { clientFieldsToZod } from '../../client/zod'
 import { toClientCollection } from '../../config/to-client-config'
 import { DEFAULT_LIMIT, MAX_LIMIT, type CollectionConfig, type Config } from '../../config/types'
-import type { DatabaseAdapter, DocumentData } from '../../database/adapter'
-import { formatUniqueConstraintError, UniqueConstraintError } from '../../database/errors'
-import { runAfterChangeHooks, runAfterReadHooks, runBeforeChangeHooks } from '../../hooks'
-import { parseDepth, populateDoc, populateDocs } from '../../populate'
+import type { DocumentData } from '../../database/adapter'
+import {
+  AccessDeniedError,
+  createOperation,
+  deleteOperation,
+  executeCreate,
+  executeUpdate,
+  findByIDOperation,
+  findOperation,
+  NotFoundError,
+  updateOperation,
+  ValidationError,
+} from '../../operations'
+import { parseDepth } from '../../populate'
 import { parseWhereFromSearchParams } from '../../query/parser'
 import { validateWhere } from '../../query/validator'
 import { DEFAULT_MAX_FILE_SIZE } from '../../storage'
 import {
   handleServeFile,
   handleUploadCreate,
-  handleUploadDelete,
   handleUploadUpdate,
   isMultipartRequest,
-  type MutationExecutionResult,
 } from './collection-upload'
 
 type LontarEnv = { Variables: LontarVariables }
@@ -75,11 +83,6 @@ function resolveWhereFilter(rawUrl: string, collection: CollectionConfig) {
 
 async function handleFind(c: Context<LontarEnv>, collection: CollectionConfig, config: Config) {
   const user = c.get('user') ?? null
-  const allowed = await checkAccess(collection.access?.read, { user })
-  if (!allowed) {
-    return accessDenied(c, user)
-  }
-
   const { page, limit } = resolvePagination((k) => c.req.query(k), collection, config)
   const sort = c.req.query('sort')
   const depth = parseDepth(c.req.query('depth'))
@@ -89,96 +92,57 @@ async function handleFind(c: Context<LontarEnv>, collection: CollectionConfig, c
     return c.json({ error: 'Validation failed', issues: whereResult.issues }, 400)
   }
 
-  const result = await config.db.find({ collection, limit, page, sort, where: whereResult.where })
-  const docs = await Promise.all(
-    result.docs.map((doc) => runAfterReadHooks({ collection, doc, req: c.req.raw })),
-  )
-  const populated = await populateDocs({
-    docs,
-    collection,
-    depth,
-    collections: config.collections,
-    db: config.db,
-    user,
-    req: c.req.raw,
-  })
-  return c.json({ ...result, docs: populated }, 200)
+  try {
+    const result = await findOperation({
+      config,
+      collection,
+      where: whereResult.where,
+      sort,
+      page,
+      limit,
+      depth,
+      overrideAccess: false,
+      user,
+      req: c.req.raw,
+    })
+    return c.json(result, 200)
+  } catch (err) {
+    if (err instanceof AccessDeniedError) {
+      return accessDenied(c, user)
+    }
+    if (err instanceof ValidationError) {
+      return c.json({ error: 'Validation failed', issues: err.issues }, 400)
+    }
+    throw err
+  }
 }
 
 async function handleFindByID(c: Context<LontarEnv>, collection: CollectionConfig, config: Config) {
   const user = c.get('user') ?? null
   const id = parseId(c.req.param('id'))
-  const allowed = await checkAccess(collection.access?.read, {
-    user,
-    id: id ?? undefined,
-  })
-  if (!allowed) {
-    return accessDenied(c, user)
-  }
-
   if (id === null) {
     return c.json({ error: 'Invalid document ID' }, 400)
   }
 
   const depth = parseDepth(c.req.query('depth'))
-  const doc = await config.db.findByID({ collection, id })
-  if (!doc) {
-    return c.json({ error: `Document with ID ${id} not found` }, 404)
-  }
-  const transformed = await runAfterReadHooks({ collection, doc, req: c.req.raw })
-  const populated = await populateDoc(transformed, {
-    collection,
-    depth,
-    collections: config.collections,
-    db: config.db,
-    user,
-    req: c.req.raw,
-  })
-  return c.json(populated, 200)
-}
-
-async function executeCreate(args: {
-  collection: CollectionConfig
-  db: DatabaseAdapter
-  data: DocumentData
-  req: Request
-}): Promise<MutationExecutionResult> {
-  const run = async (txDb: DatabaseAdapter): Promise<MutationExecutionResult> => {
-    const data = await runBeforeChangeHooks({
-      collection: args.collection,
-      data: args.data,
-      operation: 'create',
-      req: args.req,
-    })
-    const created = await txDb.create({ collection: args.collection, data })
-    try {
-      const doc = await runAfterChangeHooks({
-        collection: args.collection,
-        doc: created,
-        operation: 'create',
-        req: args.req,
-      })
-      return { success: true, doc }
-    } catch (hookErr) {
-      if (!args.db.transaction) {
-        try {
-          await txDb.delete({ collection: args.collection, id: created.id })
-        } catch {
-          // Non-fatal compensation error
-        }
-      }
-      throw hookErr
-    }
-  }
 
   try {
-    if (args.db.transaction) {
-      return await args.db.transaction(run)
+    const doc = await findByIDOperation({
+      config,
+      collection,
+      id,
+      depth,
+      overrideAccess: false,
+      user,
+      req: c.req.raw,
+    })
+    if (!doc) {
+      return c.json({ error: `Document with ID ${id} not found` }, 404)
     }
-    return await run(args.db)
+    return c.json(doc, 200)
   } catch (err) {
-    if (err instanceof UniqueConstraintError) {
-      return { success: false, status: 400, body: formatUniqueConstraintError(err) }
+    if (err instanceof AccessDeniedError) {
+      return accessDenied(c, user)
     }
     throw err
   }
@@ -206,191 +170,76 @@ async function handleCreate(
   }
 
   const body = await parseJsonBody(c)
-
-  const allowed = await checkAccess(collection.access?.create, {
-    user,
-    data: body,
-  })
-  if (!allowed) {
-    return accessDenied(c, user)
-  }
-
   if (body === undefined) {
     return c.json({ error: 'Invalid JSON body' }, 400)
   }
 
-  const parsed = schema.safeParse(body)
-  if (!parsed.success) {
-    return c.json({ error: 'Validation failed', issues: parsed.error.issues }, 400)
-  }
-
-  const result = await executeCreate({
-    collection,
-    data: parsed.data as DocumentData,
-    db: config.db,
-    req: c.req.raw,
-  })
-  if (!result.success) {
-    return c.json(result.body, result.status)
-  }
   const depth = parseDepth(c.req.query('depth'))
-  const populated = await populateDoc(result.doc, {
-    collection,
-    depth,
-    collections: config.collections,
-    db: config.db,
-    user,
-    req: c.req.raw,
-  })
-  return c.json(populated, 201)
-}
-
-function buildRevertData(originalDoc: DocumentData, appliedData: DocumentData): DocumentData {
-  const revertData: DocumentData = { ...originalDoc }
-  for (const key of Object.keys(appliedData)) {
-    if (!(key in revertData)) {
-      revertData[key] = null
-    }
-  }
-  return revertData
-}
-
-async function executeUpdate(args: {
-  collection: CollectionConfig
-  db: DatabaseAdapter
-  id: number
-  originalDoc: DocumentData
-  data: DocumentData
-  req: Request
-}): Promise<MutationExecutionResult> {
-  const run = async (txDb: DatabaseAdapter): Promise<MutationExecutionResult> => {
-    const data = await runBeforeChangeHooks({
-      collection: args.collection,
-      data: args.data,
-      operation: 'update',
-      originalDoc: args.originalDoc,
-      req: args.req,
-    })
-    const updated = await txDb.update({ collection: args.collection, id: args.id, data })
-    if (!updated) {
-      return {
-        success: false,
-        status: 404,
-        body: { error: `Document with ID ${args.id} not found` },
-      }
-    }
-    try {
-      const doc = await runAfterChangeHooks({
-        collection: args.collection,
-        doc: updated,
-        operation: 'update',
-        previousDoc: args.originalDoc,
-        req: args.req,
-      })
-      return { success: true, doc }
-    } catch (hookErr) {
-      if (!args.db.transaction) {
-        try {
-          await txDb.update({
-            collection: args.collection,
-            id: args.id,
-            data: buildRevertData(args.originalDoc, data),
-          })
-        } catch {
-          // Non-fatal compensation error
-        }
-      }
-      throw hookErr
-    }
-  }
 
   try {
-    if (args.db.transaction) {
-      return await args.db.transaction(run)
-    }
-    return await run(args.db)
+    const doc = await createOperation({
+      config,
+      collection,
+      data: body as DocumentData,
+      depth,
+      overrideAccess: false,
+      user,
+      req: c.req.raw,
+    })
+    return c.json(doc, 201)
   } catch (err) {
-    if (err instanceof UniqueConstraintError) {
-      return { success: false, status: 400, body: formatUniqueConstraintError(err) }
+    if (err instanceof AccessDeniedError) {
+      return accessDenied(c, user)
+    }
+    if (err instanceof ValidationError) {
+      return c.json({ error: 'Validation failed', issues: err.issues }, 400)
     }
     throw err
   }
-}
-
-function validateUpdatePayload(
-  id: number | null,
-  body: unknown,
-  schema: z.ZodType,
-):
-  | { success: false; status: 400; body: { error: string; issues?: z.ZodIssue[] } }
-  | { success: true; data: DocumentData } {
-  if (id === null) {
-    return { success: false, status: 400, body: { error: 'Invalid document ID' } }
-  }
-  if (body === undefined) {
-    return { success: false, status: 400, body: { error: 'Invalid JSON body' } }
-  }
-  const parsed = schema.safeParse(body)
-  if (!parsed.success) {
-    return {
-      success: false,
-      status: 400,
-      body: { error: 'Validation failed', issues: parsed.error.issues },
-    }
-  }
-  return { success: true, data: parsed.data as DocumentData }
 }
 
 async function handleJsonUpdate(
   c: Context<LontarEnv>,
   collection: CollectionConfig,
   config: Config,
-  partialSchema: z.ZodType,
   id: number | null,
   user: AuthUser | null,
 ) {
+  if (id === null) {
+    return c.json({ error: 'Invalid document ID' }, 400)
+  }
+
   const body = await parseJsonBody(c)
-
-  const allowed = await checkAccess(collection.access?.update, {
-    user,
-    id: id ?? undefined,
-    data: body,
-  })
-  if (!allowed) {
-    return accessDenied(c, user)
+  if (body === undefined) {
+    return c.json({ error: 'Invalid JSON body' }, 400)
   }
 
-  const validated = validateUpdatePayload(id, body, partialSchema)
-  if (!validated.success) {
-    return c.json(validated.body, validated.status)
-  }
-
-  const originalDoc = await config.db.findByID({ collection, id: id as number })
-  if (!originalDoc) {
-    return c.json({ error: `Document with ID ${id} not found` }, 404)
-  }
-
-  const result = await executeUpdate({
-    collection,
-    data: validated.data,
-    db: config.db,
-    id: id as number,
-    originalDoc,
-    req: c.req.raw,
-  })
-  if (!result.success) {
-    return c.json(result.body, result.status)
-  }
   const depth = parseDepth(c.req.query('depth'))
-  const populated = await populateDoc(result.doc, {
-    collection,
-    depth,
-    collections: config.collections,
-    db: config.db,
-    user,
-    req: c.req.raw,
-  })
-  return c.json(populated, 200)
+
+  try {
+    const doc = await updateOperation({
+      config,
+      collection,
+      id,
+      data: body as DocumentData,
+      depth,
+      overrideAccess: false,
+      user,
+      req: c.req.raw,
+    })
+    return c.json(doc, 200)
+  } catch (err) {
+    if (err instanceof AccessDeniedError) {
+      return accessDenied(c, user)
+    }
+    if (err instanceof NotFoundError) {
+      return c.json({ error: err.message }, 404)
+    }
+    if (err instanceof ValidationError) {
+      return c.json({ error: 'Validation failed', issues: err.issues }, 400)
+    }
+    throw err
+  }
 }
 
 async function handleUpdate(
@@ -419,34 +268,34 @@ async function handleUpdate(
     })
   }
 
-  return handleJsonUpdate(c, collection, config, partialSchema, id, user)
+  return handleJsonUpdate(c, collection, config, id, user)
 }
 
 async function handleDelete(c: Context<LontarEnv>, collection: CollectionConfig, config: Config) {
   const user = c.get('user') ?? null
   const id = parseId(c.req.param('id'))
-
-  const allowed = await checkAccess(collection.access?.delete, {
-    user,
-    id: id ?? undefined,
-  })
-  if (!allowed) {
-    return accessDenied(c, user)
-  }
-
   if (id === null) {
     return c.json({ error: 'Invalid document ID' }, 400)
   }
 
-  const originalDoc = collection.upload ? await config.db.findByID({ collection, id }) : null
-  const doc = await config.db.delete({ collection, id })
-  if (!doc) {
-    return c.json({ error: `Document with ID ${id} not found` }, 404)
+  try {
+    const doc = await deleteOperation({
+      config,
+      collection,
+      id,
+      overrideAccess: false,
+      user,
+    })
+    if (!doc) {
+      return c.json({ error: `Document with ID ${id} not found` }, 404)
+    }
+    return c.json(doc, 200)
+  } catch (err) {
+    if (err instanceof AccessDeniedError) {
+      return accessDenied(c, user)
+    }
+    throw err
   }
-  if (originalDoc) {
-    await handleUploadDelete(collection, config, originalDoc)
-  }
-  return c.json(doc, 200)
 }
 
 function getUploadMaxFileSize(upload: CollectionConfig['upload']): number {

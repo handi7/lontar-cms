@@ -4,6 +4,39 @@ export { defineConfig, LontarConfigError } from './config/define-config'
 export { toClientCollection, toClientConfig, toClientGlobal } from './config/to-client-config'
 export { fields } from './fields'
 export { createLontar, type CreateLontarOptions, type LontarApp } from './server/create-lontar'
+export { getLontar } from './local'
+export type {
+  LontarClient,
+  LocalCreateOptions,
+  LocalDeleteOptions,
+  LocalFindByIDOptions,
+  LocalFindGlobalOptions,
+  LocalFindOptions,
+  LocalUpdateGlobalOptions,
+  LocalUpdateOptions,
+} from './local'
+export {
+  AccessDeniedError,
+  NotFoundError,
+  ValidationError,
+  createOperation,
+  deleteOperation,
+  findByIDOperation,
+  findGlobalOperation,
+  findOperation,
+  updateGlobalOperation,
+  updateOperation,
+} from './operations'
+export type {
+  CreateOperationArgs,
+  DeleteOperationArgs,
+  FindByIDOperationArgs,
+  FindGlobalOperationArgs,
+  FindOperationArgs,
+  OperationContext,
+  UpdateGlobalOperationArgs,
+  UpdateOperationArgs,
+} from './operations'
 export { parseSort, parseWhere, parseWhereFromSearchParams, validateWhere } from './query'
 export type {
   FieldFilter,

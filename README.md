@@ -19,6 +19,16 @@ import { defineConfig, collection, global, fields as f } from '@lontar/core'
 import { mysqlAdapter } from '@lontar/db-mysql'
 import { s3Storage } from '@lontar/storage-s3'
 
+const Authors = collection({
+  slug: 'authors',
+  labels: { singular: 'Author', plural: 'Authors' },
+  admin: { useAsTitle: 'name' },
+  fields: {
+    name: f.text({ required: true }),
+    bio: f.textarea(),
+  },
+})
+
 const Posts = collection({
   slug: 'posts',
   labels: { singular: 'Post', plural: 'Posts' },
@@ -34,7 +44,7 @@ const Posts = collection({
     slug: f.slug({ from: 'title', unique: true }),
     status: f.select({ options: ['draft', 'published'], defaultValue: 'draft' }),
     cover: f.upload({ relationTo: 'media' }),
-    author: f.relationship({ relationTo: 'users' }),
+    author: f.relationship({ relationTo: 'authors' }),
     categories: f.relationship({ relationTo: 'categories', hasMany: true }),
     content: f.richText(),
     publishedAt: f.date(),
@@ -69,8 +79,7 @@ export default defineConfig({
   secret: process.env.LONTAR_SECRET!,
   db: mysqlAdapter({ url: process.env.DATABASE_URL! }),
   storage: s3Storage({ bucket: 'media', endpoint: process.env.S3_ENDPOINT! }),
-  auth: { collection: 'users' }, // users collection is created automatically
-  collections: [Posts, Categories, Media],
+  collections: [Posts, Categories, Authors, Media],
   globals: [SiteSettings],
 })
 ```
@@ -139,6 +148,8 @@ const { docs, totalDocs } = await lontar.find('posts', {
 })
 // docs: Post[] with generated types
 ```
+
+The Local API runs with `overrideAccess: true` by default, making server queries straightforward. To enforce access control based on an authenticated user or role, pass `{ overrideAccess: false, user }`. The client also exposes `findByID`, `create`, `update`, `delete`, `findGlobal`, and `updateGlobal`.
 
 From the browser or other apps, use REST:
 
