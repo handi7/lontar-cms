@@ -37,6 +37,7 @@ import { humanize } from '../utils/humanize'
 import type { CollectionConfig, Config, GlobalConfig } from './types'
 
 const MAX_DEFAULT_COLUMNS = 4
+export const DEFAULT_STRING_MAX_LENGTH = 255
 
 function normalizeSelectOptions(options: readonly SelectOption[] = []): ClientSelectOption[] {
   return options.map((opt) => {
@@ -57,7 +58,7 @@ const toClientField = {
     ...baseField(name, field),
     ...defined({
       minLength: field.minLength,
-      maxLength: field.maxLength,
+      maxLength: field.maxLength ?? DEFAULT_STRING_MAX_LENGTH,
       defaultValue: field.defaultValue,
     }),
   }),
@@ -84,6 +85,7 @@ const toClientField = {
     ...defined({
       unique: field.unique,
       defaultValue: field.defaultValue,
+      maxLength: DEFAULT_STRING_MAX_LENGTH,
     }),
   }),
   slug: (name: string, field: SlugField): ClientSlugField => ({
@@ -92,6 +94,7 @@ const toClientField = {
       from: field.from,
       unique: field.unique,
       defaultValue: field.defaultValue,
+      maxLength: DEFAULT_STRING_MAX_LENGTH,
     }),
   }),
   checkbox: (name: string, field: CheckboxField): ClientCheckboxField => ({

@@ -307,4 +307,62 @@ describe('defineConfig', () => {
     }
     expect(defineConfig(config)).toBe(config)
   })
+
+  it('rejects text field with maxLength exceeding MySQL limit of 16383', () => {
+    expect(issuesOf([notes({ fields: { title: f.text({ maxLength: 20000 }) } })])).toEqual([
+      'Collection "notes": text field "title" maxLength (20000) exceeds MySQL VARCHAR limit of 16383. Use a textarea field for longer text.',
+    ])
+  })
+
+  it('rejects text field with negative or zero maxLength', () => {
+    expect(issuesOf([notes({ fields: { title: f.text({ maxLength: 0 }) } })])).toEqual([
+      'Collection "notes": text field "title" maxLength must be a positive integer.',
+    ])
+    expect(issuesOf([notes({ fields: { title: f.text({ maxLength: -5 }) } })])).toEqual([
+      'Collection "notes": text field "title" maxLength must be a positive integer.',
+    ])
+  })
+
+  it('rejects text field with negative minLength', () => {
+    expect(issuesOf([notes({ fields: { title: f.text({ minLength: -1 }) } })])).toEqual([
+      'Collection "notes": text field "title" minLength must be a non-negative integer.',
+    ])
+  })
+
+  it('rejects text field where minLength exceeds maxLength', () => {
+    expect(
+      issuesOf([notes({ fields: { title: f.text({ minLength: 10, maxLength: 5 }) } })]),
+    ).toEqual([
+      'Collection "notes": text field "title" minLength (10) cannot be greater than maxLength (5).',
+    ])
+  })
+
+  it('accepts valid text field with maxLength up to 16383', () => {
+    const config = {
+      secret: SECRET,
+      db: fakeAdapter,
+      collections: [notes({ fields: { title: f.text({ maxLength: 16383 }) } })],
+    }
+    expect(defineConfig(config)).toBe(config)
+  })
+
+  it('validates global text fields for maxLength exceeding 16383', () => {
+    expect(() =>
+      defineConfig({
+        secret: SECRET,
+        db: fakeAdapter,
+        collections: [notes()],
+        globals: [
+          {
+            slug: 'site-settings',
+            fields: {
+              tagline: f.text({ maxLength: 20000 }),
+            },
+          },
+        ],
+      }),
+    ).toThrow(
+      'Global "site-settings": text field "tagline" maxLength (20000) exceeds MySQL VARCHAR limit of 16383',
+    )
+  })
 })

@@ -66,6 +66,7 @@ export interface ClientEmailField extends ClientFieldBase {
   type: 'email'
   unique?: boolean
   defaultValue?: string
+  maxLength?: number
 }
 
 export interface ClientSlugField extends ClientFieldBase {
@@ -73,6 +74,7 @@ export interface ClientSlugField extends ClientFieldBase {
   from?: string
   unique?: boolean
   defaultValue?: string
+  maxLength?: number
 }
 
 export interface ClientCheckboxField extends ClientFieldBase {

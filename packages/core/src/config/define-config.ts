@@ -1,4 +1,5 @@
 import { SYSTEM_FIELDS, UPLOAD_SYSTEM_FIELDS } from '../client/system-fields'
+import type { Field, TextareaField, TextField } from '../fields/types'
 import type { CollectionConfig, Config, GlobalConfig } from './types'
 
 const SLUG = /^[a-z][a-z0-9-]*$/
@@ -7,6 +8,7 @@ const FIELD_NAME = /^[A-Za-z_][A-Za-z0-9_]*$/
 const RESERVED_SLUGS = new Set(['globals', 'auth', 'user', 'session', 'account', 'verification'])
 const SYSTEM_FIELD_NAMES = new Set<string>(SYSTEM_FIELDS)
 const UPLOAD_SYSTEM_FIELD_NAMES = new Set<string>(UPLOAD_SYSTEM_FIELDS)
+export const MAX_VARCHAR_LENGTH = 16383
 
 export class LontarConfigError extends Error {
   readonly issues: readonly string[]
@@ -122,6 +124,9 @@ function validateCollection(collection: CollectionConfig): string[] {
   return [
     ...validateSlug(collection.slug, 'Collection'),
     ...Object.keys(collection.fields).flatMap((name) => validateFieldName(where, name, isUpload)),
+    ...Object.entries(collection.fields).flatMap(([name, field]) =>
+      validateField(where, name, field),
+    ),
     ...validateAdmin(where, collection),
     ...validateAccess(where, collection),
   ]
@@ -132,8 +137,61 @@ function validateGlobal(global: GlobalConfig): string[] {
   return [
     ...validateSlug(global.slug, 'Global'),
     ...Object.keys(global.fields).flatMap((name) => validateFieldName(where, name)),
+    ...Object.entries(global.fields).flatMap(([name, field]) => validateField(where, name, field)),
     ...validateGlobalAccess(where, global),
   ]
+}
+
+function validateField(where: string, name: string, field: Field): string[] {
+  if (field.type === 'text') {
+    return validateTextField(where, name, field)
+  }
+  if (field.type === 'textarea') {
+    return validateTextareaField(where, name, field)
+  }
+  return []
+}
+
+function validateTextField(where: string, name: string, field: TextField): string[] {
+  const issues: string[] = []
+  if (field.maxLength !== undefined) {
+    if (!Number.isInteger(field.maxLength) || field.maxLength <= 0) {
+      issues.push(`${where}: text field "${name}" maxLength must be a positive integer.`)
+    } else if (field.maxLength > MAX_VARCHAR_LENGTH) {
+      issues.push(
+        `${where}: text field "${name}" maxLength (${field.maxLength}) exceeds MySQL VARCHAR limit of ${MAX_VARCHAR_LENGTH}. Use a textarea field for longer text.`,
+      )
+    }
+  }
+  if (field.minLength !== undefined) {
+    if (!Number.isInteger(field.minLength) || field.minLength < 0) {
+      issues.push(`${where}: text field "${name}" minLength must be a non-negative integer.`)
+    } else if (field.maxLength !== undefined && field.minLength > field.maxLength) {
+      issues.push(
+        `${where}: text field "${name}" minLength (${field.minLength}) cannot be greater than maxLength (${field.maxLength}).`,
+      )
+    }
+  }
+  return issues
+}
+
+function validateTextareaField(where: string, name: string, field: TextareaField): string[] {
+  const issues: string[] = []
+  if (field.maxLength !== undefined) {
+    if (!Number.isInteger(field.maxLength) || field.maxLength <= 0) {
+      issues.push(`${where}: textarea field "${name}" maxLength must be a positive integer.`)
+    }
+  }
+  if (field.minLength !== undefined) {
+    if (!Number.isInteger(field.minLength) || field.minLength < 0) {
+      issues.push(`${where}: textarea field "${name}" minLength must be a non-negative integer.`)
+    } else if (field.maxLength !== undefined && field.minLength > field.maxLength) {
+      issues.push(
+        `${where}: textarea field "${name}" minLength (${field.minLength}) cannot be greater than maxLength (${field.maxLength}).`,
+      )
+    }
+  }
+  return issues
 }
 
 function validateSlug(slug: string, kind = 'Collection'): string[] {
