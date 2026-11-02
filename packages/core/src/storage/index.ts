@@ -17,3 +17,4 @@ export {
   type UploadedImageVariant,
   type UploadedMediaDoc,
 } from './pipeline'
+export { getUniqueFilename, sanitizeFilename, type SanitizedFilename } from './filename'

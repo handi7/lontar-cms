@@ -43,6 +43,15 @@ function resolveEndpointUrl(
   }
 }
 
+function encodePathSegments(filename: string): string {
+  const normalized = filename.replace(/\\/g, '/')
+  return normalized
+    .split('/')
+    .filter(Boolean)
+    .map((seg) => encodeURIComponent(seg))
+    .join('/')
+}
+
 function resolveS3Url(
   filename: string,
   options: {
@@ -53,7 +62,7 @@ function resolveS3Url(
     forcePathStyle?: boolean
   },
 ): string {
-  const cleanFilename = filename.replace(/^\/+/, '')
+  const cleanFilename = encodePathSegments(filename)
   if (options.baseUrl) {
     return `${options.baseUrl.replace(/\/+$/, '')}/${cleanFilename}`
   }

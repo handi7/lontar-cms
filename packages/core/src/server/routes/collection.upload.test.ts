@@ -6,6 +6,16 @@ import type { DatabaseAdapter, DocumentData, StoredDoc } from '../../database/ad
 import type { StorageAdapter, UploadFile, UploadResult } from '../../storage/adapter'
 import { registerCollectionRoutes } from './collection'
 
+function matchesEqualsFilter(doc: StoredDoc, where: unknown): boolean {
+  if (!where || typeof where !== 'object') return true
+  for (const [key, filter] of Object.entries(where as Record<string, unknown>)) {
+    if (filter && typeof filter === 'object' && 'equals' in filter) {
+      if (doc[key] !== filter.equals) return false
+    }
+  }
+  return true
+}
+
 function createMockDb(
   initialDocs: Record<string, Array<DocumentData & { id?: number }>> = {},
 ): DatabaseAdapter {
@@ -27,7 +37,7 @@ function createMockDb(
   return {
     name: 'mock',
     find: ({ collection, where: _where, sort: _sort, page = 1, limit = 10 }) => {
-      const all = store.get(collection.slug) ?? []
+      const all = (store.get(collection.slug) ?? []).filter((d) => matchesEqualsFilter(d, _where))
       const start = (page - 1) * limit
       const docs = all.slice(start, start + limit)
       return Promise.resolve({
@@ -388,5 +398,132 @@ describe('collection upload routes', () => {
     expect(json.cover.id).toBe(42)
     expect(json.cover.filename).toBe('hero.png')
     expect(json.cover.url).toBe('/media/hero.png')
+  })
+
+  it('sanitizes traversal filename on POST /api/media', async () => {
+    const { storage, uploaded } = createMockStorage()
+    const db = createMockDb()
+
+    const config = defineConfig({
+      secret: 'test-secret',
+      db,
+      storage,
+      collections: [
+        {
+          slug: 'media',
+          upload: true,
+          fields: {},
+        },
+      ],
+    })
+
+    const app = new Hono()
+    registerCollectionRoutes(app as never, config)
+
+    const formData = new FormData()
+    const file = new File([TINY_PNG], '../escaped.png', { type: 'image/png' })
+    formData.append('file', file)
+
+    const res = await app.request('/media', {
+      method: 'POST',
+      body: formData,
+    })
+
+    expect(res.status).toBe(201)
+    const json = (await res.json()) as DocumentData
+    expect(json.filename).toBe('escaped.png')
+    const uploadedFilenames = uploaded.map((u) => u.filename)
+    expect(uploadedFilenames).toContain('escaped.png')
+    expect(uploadedFilenames.some((k) => k.includes('..'))).toBe(false)
+  })
+
+  it('generates unique filename when different document uploads same filename', async () => {
+    const { storage, uploaded } = createMockStorage()
+    const db = createMockDb({
+      media: [
+        {
+          id: 1,
+          filename: 'photo.png',
+          url: '/media/photo.png',
+          mimeType: 'image/png',
+          filesize: 100,
+        },
+      ],
+    })
+
+    const config = defineConfig({
+      secret: 'test-secret',
+      db,
+      storage,
+      collections: [
+        {
+          slug: 'media',
+          upload: true,
+          fields: {},
+        },
+      ],
+    })
+
+    const app = new Hono()
+    registerCollectionRoutes(app as never, config)
+
+    const formData = new FormData()
+    const file = new File([TINY_PNG], 'photo.png', { type: 'image/png' })
+    formData.append('file', file)
+
+    const res = await app.request('/media', {
+      method: 'POST',
+      body: formData,
+    })
+
+    expect(res.status).toBe(201)
+    const json = (await res.json()) as DocumentData
+    expect(json.filename).toBe('photo-1.png')
+    expect(uploaded.map((u) => u.filename)).toContain('photo-1.png')
+  })
+
+  it('does not delete file when re-uploading same filename on PATCH /api/media/:id', async () => {
+    const { storage, deleted } = createMockStorage()
+    const db = createMockDb({
+      media: [
+        {
+          id: 1,
+          filename: 'photo.png',
+          url: '/media/photo.png',
+          mimeType: 'image/png',
+          filesize: 100,
+        },
+      ],
+    })
+
+    const config = defineConfig({
+      secret: 'test-secret',
+      db,
+      storage,
+      collections: [
+        {
+          slug: 'media',
+          upload: true,
+          fields: {},
+        },
+      ],
+    })
+
+    const app = new Hono()
+    registerCollectionRoutes(app as never, config)
+
+    const formData = new FormData()
+    const file = new File([TINY_PNG], 'photo.png', { type: 'image/png' })
+    formData.append('file', file)
+
+    const res = await app.request('/media/1', {
+      method: 'PATCH',
+      body: formData,
+    })
+
+    expect(res.status).toBe(200)
+    const json = (await res.json()) as DocumentData
+    expect(json.filename).toBe('photo.png')
+    expect(deleted).not.toContain('photo.png')
   })
 })

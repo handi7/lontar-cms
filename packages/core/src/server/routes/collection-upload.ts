@@ -5,7 +5,13 @@ import type { AccessArgs, AccessFunction, CollectionConfig, Config } from '../..
 import type { DatabaseAdapter, DocumentData } from '../../database/adapter'
 import type { Field } from '../../fields/types'
 import { parseDepth, populateDoc } from '../../populate'
-import { deleteMedia, uploadMedia, type UploadedMediaDoc } from '../../storage'
+import {
+  deleteMedia,
+  getUniqueFilename,
+  sanitizeFilename,
+  uploadMedia,
+  type UploadedMediaDoc,
+} from '../../storage'
 
 type LontarEnv = { Variables: LontarVariables }
 
@@ -131,6 +137,7 @@ async function processIncomingFile(
   file: File,
   collection: CollectionConfig,
   config: Config,
+  excludeDocId?: number,
 ): Promise<ProcessFileResult> {
   if (!config.storage) {
     return { ok: false, error: 'Storage adapter is not configured', status: 500 }
@@ -141,8 +148,16 @@ async function processIncomingFile(
     return { ok: false, error: `File type "${mimeType}" is not allowed`, status: 400 }
   }
 
+  const { base, ext } = sanitizeFilename(file.name || 'unnamed')
+  const filename = await getUniqueFilename({
+    db: config.db,
+    collection,
+    base,
+    ext,
+    excludeDocId,
+  })
+
   const buffer = Buffer.from(await file.arrayBuffer())
-  const filename = file.name || 'unnamed'
   const uploadDoc = await uploadMedia({
     storage: config.storage,
     file: { filename, buffer, mimeType },
@@ -151,17 +166,53 @@ async function processIncomingFile(
   return { ok: true, uploadDoc }
 }
 
+function shouldDeleteVariant(
+  variant: { filename?: string } | undefined,
+  newVariantFilenames: Set<string>,
+  mainFilename: string,
+): variant is { filename: string } {
+  if (!variant?.filename) return false
+  if (newVariantFilenames.has(variant.filename)) return false
+  return variant.filename !== mainFilename
+}
+
+async function cleanupOldSizes(
+  storage: Config['storage'],
+  oldSizes: unknown,
+  newSizes: unknown,
+  mainFilename: string,
+): Promise<void> {
+  if (!storage || !oldSizes || typeof oldSizes !== 'object') return
+  const newSizesObj = (newSizes as Record<string, { filename: string }> | undefined) ?? {}
+  const newVariantFilenames = new Set(Object.values(newSizesObj).map((v) => v.filename))
+
+  for (const variant of Object.values(oldSizes as Record<string, { filename: string }>)) {
+    if (shouldDeleteVariant(variant, newVariantFilenames, mainFilename)) {
+      try {
+        await storage.delete(variant.filename)
+      } catch {
+        // Non-fatal cleanup error
+      }
+    }
+  }
+}
+
 async function cleanupReplacedMedia(
   config: Config,
   originalDoc: DocumentData,
   newUploadDoc?: UploadedMediaDoc,
 ): Promise<void> {
-  if (newUploadDoc && typeof originalDoc.filename === 'string') {
+  if (!newUploadDoc || typeof originalDoc.filename !== 'string') return
+
+  if (originalDoc.filename !== newUploadDoc.filename) {
     await safeDeleteMedia(config, {
       filename: originalDoc.filename,
       sizes: originalDoc.sizes,
     })
+    return
   }
+
+  await cleanupOldSizes(config.storage, originalDoc.sizes, newUploadDoc.sizes, originalDoc.filename)
 }
 
 function parseAndValidateFields(
@@ -298,7 +349,7 @@ export async function handleUploadUpdate(ctx: UploadUpdateContext): Promise<Resp
 
   let newUploadDoc: UploadedMediaDoc | undefined
   if (isUploadFile(rawBody.file)) {
-    const processed = await processIncomingFile(rawBody.file, collection, config)
+    const processed = await processIncomingFile(rawBody.file, collection, config, id)
     if (!processed.ok) {
       return c.json({ error: processed.error }, processed.status)
     }
