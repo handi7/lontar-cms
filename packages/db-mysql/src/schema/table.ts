@@ -1,5 +1,6 @@
 import {
   boolean,
+  datetime,
   double,
   index,
   int,
@@ -78,7 +79,7 @@ function selectToColumn(name: string, field: SelectField) {
 }
 
 function dateToColumn(name: string, field: DateField) {
-  const base = timestamp(name)
+  const base = datetime(name, { mode: 'date', fsp: 3 })
   const withDefault =
     field.defaultValue !== undefined ? base.default(new Date(field.defaultValue)) : base
   return field.required ? withDefault.notNull() : withDefault

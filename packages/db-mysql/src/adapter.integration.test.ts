@@ -727,4 +727,71 @@ describe('mysqlAdapter (integration)', () => {
     const fetchedCleared = await adapter.findByID({ collection: postsCollection, id: doc.id })
     expect(fetchedCleared?.publishedAt).toBeNull()
   })
+
+  it('supports date values outside the 1970-2038 TIMESTAMP range (e.g. 1900 and 2100)', async () => {
+    // 1. Past date (before 1970 UNIX epoch)
+    const pastDoc = await adapter.create({
+      collection: postsCollection,
+      data: {
+        title: 'Historical Event',
+        publishedAt: '1900-01-01T00:00:00.000Z',
+      },
+    })
+    expect(pastDoc.publishedAt).toBe('1900-01-01T00:00:00.000Z')
+
+    const fetchedPast = await adapter.findByID({ collection: postsCollection, id: pastDoc.id })
+    expect(fetchedPast?.publishedAt).toBe('1900-01-01T00:00:00.000Z')
+
+    // 2. Mid 20th-century date (1955)
+    const midCenturyDoc = await adapter.create({
+      collection: postsCollection,
+      data: {
+        title: 'Mid Century Post',
+        publishedAt: '1955-11-05T06:30:00.000Z',
+      },
+    })
+    expect(midCenturyDoc.publishedAt).toBe('1955-11-05T06:30:00.000Z')
+
+    // 3. Far future date (beyond 2038 Y2038 problem limit)
+    const futureDoc = await adapter.create({
+      collection: postsCollection,
+      data: {
+        title: 'Far Future Post',
+        publishedAt: '2100-12-31T23:59:59.000Z',
+      },
+    })
+    expect(futureDoc.publishedAt).toBe('2100-12-31T23:59:59.000Z')
+
+    const fetchedFuture = await adapter.findByID({ collection: postsCollection, id: futureDoc.id })
+    expect(fetchedFuture?.publishedAt).toBe('2100-12-31T23:59:59.000Z')
+
+    // 4. Query filtering across date ranges
+    const pastResults = await adapter.find({
+      collection: postsCollection,
+      page: 1,
+      limit: 10,
+      where: {
+        publishedAt: {
+          less_than: '1950-01-01T00:00:00.000Z',
+        },
+      },
+    })
+    expect(pastResults.docs).toHaveLength(1)
+    expect(pastResults.docs[0]?.title).toBe('Historical Event')
+    expect(pastResults.docs[0]?.publishedAt).toBe('1900-01-01T00:00:00.000Z')
+
+    const futureResults = await adapter.find({
+      collection: postsCollection,
+      page: 1,
+      limit: 10,
+      where: {
+        publishedAt: {
+          greater_than: '2050-01-01T00:00:00.000Z',
+        },
+      },
+    })
+    expect(futureResults.docs).toHaveLength(1)
+    expect(futureResults.docs[0]?.title).toBe('Far Future Post')
+    expect(futureResults.docs[0]?.publishedAt).toBe('2100-12-31T23:59:59.000Z')
+  })
 })

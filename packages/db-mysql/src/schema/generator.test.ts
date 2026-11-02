@@ -142,14 +142,14 @@ describe('generateSchemaFile', () => {
 
     const output = generateSchemaFile(config)
     expect(output).toContain(
-      "import { boolean, index, int, mysqlTable, text, timestamp, varchar } from 'drizzle-orm/mysql-core'",
+      "import { boolean, datetime, index, int, mysqlTable, text, timestamp, varchar } from 'drizzle-orm/mysql-core'",
     )
     expect(output).toContain("isPublished: boolean('isPublished').default(false),")
     expect(output).toContain(
       'status: varchar(\'status\', { length: 120 }).default("draft").notNull(),',
     )
     expect(output).toContain(
-      'publishedAt: timestamp(\'publishedAt\').default(new Date("2026-11-01T00:00:00.000Z")).notNull(),',
+      "publishedAt: datetime('publishedAt', { mode: 'date', fsp: 3 }).default(new Date(\"2026-11-01T00:00:00.000Z\")).notNull(),",
     )
   })
 

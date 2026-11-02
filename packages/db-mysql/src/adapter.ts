@@ -158,7 +158,7 @@ function castConfigField(
     return Number.isNaN(num) ? value : num
   }
   if (field.type === 'date') {
-    return typeof value === 'string' ? new Date(value) : value
+    return typeof value === 'string' ? new Date(normalizeDateString(value)) : value
   }
   if (field.type === 'checkbox') {
     return castCheckbox(value)
