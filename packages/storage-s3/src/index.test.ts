@@ -26,6 +26,7 @@ describe('@lontar/storage-s3', () => {
       filename: 'sample.png',
       buffer: Buffer.from('fake image content'),
       mimeType: 'image/png',
+      contentDisposition: 'attachment; filename="sample.png"',
     }
 
     const result = await adapter.upload(file)
@@ -39,6 +40,7 @@ describe('@lontar/storage-s3', () => {
       Bucket: 'test-bucket',
       Key: 'sample.png',
       ContentType: 'image/png',
+      ContentDisposition: 'attachment; filename="sample.png"',
       ACL: 'public-read',
     })
   })

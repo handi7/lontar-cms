@@ -1,5 +1,7 @@
 export type { StorageAdapter, UploadFile, UploadResult } from './adapter'
 export {
+  DEFAULT_MAX_FILE_SIZE,
+  InvalidImageError,
   formatVariantFilename,
   isResizableImage,
   processImage,

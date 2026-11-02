@@ -301,7 +301,6 @@ describe('Collection Access Control', () => {
     expect(unauthRes.status).toBe(401)
     expect(createSpy).toHaveBeenCalledWith({
       user: null,
-      data: { title: 'Post' },
     })
 
     // Sign up user
@@ -363,7 +362,6 @@ describe('Collection Access Control', () => {
     expect(updateSpy).toHaveBeenCalledWith({
       user: null,
       id: 1,
-      data: { title: 'New' },
     })
 
     // Sign in user

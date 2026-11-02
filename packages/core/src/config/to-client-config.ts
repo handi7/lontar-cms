@@ -159,7 +159,10 @@ export function toClientCollection(collection: CollectionConfig): ClientCollecti
   const fields = Object.entries(collection.fields).map(([name, field]) => clientField(name, field))
   const upload = collection.upload
     ? typeof collection.upload === 'object'
-      ? defined({ mimeTypes: collection.upload.mimeTypes })
+      ? defined({
+          mimeTypes: collection.upload.mimeTypes,
+          maxFileSize: collection.upload.maxFileSize,
+        })
       : true
     : undefined
 

@@ -543,4 +543,408 @@ describe('collection upload routes', () => {
     expect(json.filename).toBe('photo.png')
     expect(deleted).not.toContain('photo.png')
   })
+
+  it('rejects unauthenticated upload on POST /media with 401 without parsing body', async () => {
+    const { storage } = createMockStorage()
+    const db = createMockDb()
+
+    const config = defineConfig({
+      secret: 'test-secret',
+      db,
+      storage,
+      collections: [
+        {
+          slug: 'media',
+          access: {
+            create: ({ user }) => Boolean(user),
+          },
+          upload: true,
+          fields: {},
+        },
+      ],
+    })
+
+    const app = new Hono()
+    registerCollectionRoutes(app as never, config)
+
+    const formData = new FormData()
+    const file = new File([TINY_PNG], 'photo.png', { type: 'image/png' })
+    formData.append('file', file)
+
+    const res = await app.request('/media', {
+      method: 'POST',
+      body: formData,
+    })
+
+    expect(res.status).toBe(401)
+  })
+
+  it('rejects unauthenticated upload on PATCH /media/:id with 401 without parsing body', async () => {
+    const { storage } = createMockStorage()
+    const db = createMockDb({
+      media: [{ id: 1, filename: 'photo.png', url: '/media/photo.png', mimeType: 'image/png' }],
+    })
+
+    const config = defineConfig({
+      secret: 'test-secret',
+      db,
+      storage,
+      collections: [
+        {
+          slug: 'media',
+          access: {
+            update: ({ user }) => Boolean(user),
+          },
+          upload: true,
+          fields: {},
+        },
+      ],
+    })
+
+    const app = new Hono()
+    registerCollectionRoutes(app as never, config)
+
+    const formData = new FormData()
+    const file = new File([TINY_PNG], 'photo.png', { type: 'image/png' })
+    formData.append('file', file)
+
+    const res = await app.request('/media/1', {
+      method: 'PATCH',
+      body: formData,
+    })
+
+    expect(res.status).toBe(401)
+  })
+
+  it('enforces maxFileSize and returns 413 when file is too large', async () => {
+    const { storage } = createMockStorage()
+    const db = createMockDb()
+
+    const config = defineConfig({
+      secret: 'test-secret',
+      db,
+      storage,
+      collections: [
+        {
+          slug: 'media',
+          access: publicAccess,
+          upload: {
+            maxFileSize: 50, // 50 bytes limit
+          },
+          fields: {},
+        },
+      ],
+    })
+
+    const app = new Hono()
+    registerCollectionRoutes(app as never, config)
+
+    const formData = new FormData()
+    const largeBuffer = Buffer.alloc(200, 1)
+    const file = new File([largeBuffer], 'large.bin', { type: 'application/octet-stream' })
+    formData.append('file', file)
+
+    const res = await app.request('/media', {
+      method: 'POST',
+      body: formData,
+    })
+
+    expect(res.status).toBe(413)
+  })
+
+  it('rejects HTML disguised as image/png with 400', async () => {
+    const { storage } = createMockStorage()
+    const db = createMockDb()
+
+    const config = defineConfig({
+      secret: 'test-secret',
+      db,
+      storage,
+      collections: [
+        {
+          slug: 'media',
+          access: publicAccess,
+          upload: {
+            mimeTypes: ['image/*'],
+          },
+          fields: {},
+        },
+      ],
+    })
+
+    const app = new Hono()
+    registerCollectionRoutes(app as never, config)
+
+    const formData = new FormData()
+    const fakeHtml = Buffer.from('<html><body><script>alert(1)</script></body></html>')
+    const file = new File([fakeHtml], 'payload.png', { type: 'image/png' })
+    formData.append('file', file)
+
+    const res = await app.request('/media', {
+      method: 'POST',
+      body: formData,
+    })
+
+    expect(res.status).toBe(400)
+    const json = (await res.json()) as { error: string }
+    expect(json.error).toContain('Invalid image')
+  })
+
+  it('rejects HTML upload by default when mimeTypes is omitted', async () => {
+    const { storage } = createMockStorage()
+    const db = createMockDb()
+
+    const config = defineConfig({
+      secret: 'test-secret',
+      db,
+      storage,
+      collections: [
+        {
+          slug: 'media',
+          access: publicAccess,
+          upload: true,
+          fields: {},
+        },
+      ],
+    })
+
+    const app = new Hono()
+    registerCollectionRoutes(app as never, config)
+
+    const formData = new FormData()
+    const html = Buffer.from('<!DOCTYPE html><html><body>hello</body></html>')
+    const file = new File([html], 'page.html', { type: 'text/html' })
+    formData.append('file', file)
+
+    const res = await app.request('/media', {
+      method: 'POST',
+      body: formData,
+    })
+
+    expect(res.status).toBe(400)
+  })
+
+  it('rejects SVG with script tag even when image/svg+xml is allowed', async () => {
+    const { storage } = createMockStorage()
+    const db = createMockDb()
+
+    const config = defineConfig({
+      secret: 'test-secret',
+      db,
+      storage,
+      collections: [
+        {
+          slug: 'media',
+          access: publicAccess,
+          upload: {
+            mimeTypes: ['image/svg+xml'],
+          },
+          fields: {},
+        },
+      ],
+    })
+
+    const app = new Hono()
+    registerCollectionRoutes(app as never, config)
+
+    const formData = new FormData()
+    const evilSvg = Buffer.from(
+      '<svg xmlns="http://www.w3.org/2000/svg"><script>alert(1)</script></svg>',
+    )
+    const file = new File([evilSvg], 'vector.svg', { type: 'image/svg+xml' })
+    formData.append('file', file)
+
+    const res = await app.request('/media', {
+      method: 'POST',
+      body: formData,
+    })
+
+    expect(res.status).toBe(400)
+    const json = (await res.json()) as { error: string }
+    expect(json.error).toContain('executable scripts')
+  })
+
+  it('rejects SVG upload when wildcard image/* is configured without explicit image/svg+xml', async () => {
+    const { storage } = createMockStorage()
+    const db = createMockDb()
+
+    const config = defineConfig({
+      secret: 'test-secret',
+      db,
+      storage,
+      collections: [
+        {
+          slug: 'media',
+          access: publicAccess,
+          upload: {
+            mimeTypes: ['image/*'],
+          },
+          fields: {},
+        },
+      ],
+    })
+
+    const app = new Hono()
+    registerCollectionRoutes(app as never, config)
+
+    const formData = new FormData()
+    const svg = Buffer.from('<svg xmlns="http://www.w3.org/2000/svg"><circle r="10"/></svg>')
+    const file = new File([svg], 'circle.svg', { type: 'image/svg+xml' })
+    formData.append('file', file)
+
+    const res = await app.request('/media', {
+      method: 'POST',
+      body: formData,
+    })
+
+    expect(res.status).toBe(400)
+  })
+
+  it('allows safe SVG upload when image/svg+xml is explicitly allowed', async () => {
+    const { storage } = createMockStorage()
+    const db = createMockDb()
+
+    const config = defineConfig({
+      secret: 'test-secret',
+      db,
+      storage,
+      collections: [
+        {
+          slug: 'media',
+          access: publicAccess,
+          upload: {
+            mimeTypes: ['image/svg+xml'],
+          },
+          fields: {},
+        },
+      ],
+    })
+
+    const app = new Hono()
+    registerCollectionRoutes(app as never, config)
+
+    const formData = new FormData()
+    const svg = Buffer.from('<svg xmlns="http://www.w3.org/2000/svg"><circle r="10"/></svg>')
+    const file = new File([svg], 'circle.svg', { type: 'image/svg+xml' })
+    formData.append('file', file)
+
+    const res = await app.request('/media', {
+      method: 'POST',
+      body: formData,
+    })
+
+    expect(res.status).toBe(201)
+  })
+
+  it('maps sharp decode error to 400 Invalid image', async () => {
+    const { storage } = createMockStorage()
+    const db = createMockDb()
+
+    const config = defineConfig({
+      secret: 'test-secret',
+      db,
+      storage,
+      collections: [
+        {
+          slug: 'media',
+          access: publicAccess,
+          upload: true,
+          fields: {},
+        },
+      ],
+    })
+
+    const app = new Hono()
+    registerCollectionRoutes(app as never, config)
+
+    const formData = new FormData()
+    // Valid PNG header & IHDR chunk, but corrupted IDAT / payload so sharp decode fails
+    const corruptPng = Buffer.from(TINY_PNG)
+    corruptPng.write('corrupt data here!!!', 35)
+    const file = new File([corruptPng], 'broken.png', { type: 'image/png' })
+    formData.append('file', file)
+
+    const res = await app.request('/media', {
+      method: 'POST',
+      body: formData,
+    })
+
+    expect(res.status).toBe(400)
+    const json = (await res.json()) as { error: string }
+    expect(json.error).toBe('Invalid image')
+  })
+
+  it('normalizes filename extension based on sniffed magic bytes', async () => {
+    const { storage } = createMockStorage()
+    const db = createMockDb()
+
+    const config = defineConfig({
+      secret: 'test-secret',
+      db,
+      storage,
+      collections: [
+        {
+          slug: 'media',
+          access: publicAccess,
+          upload: true,
+          fields: {},
+        },
+      ],
+    })
+
+    const app = new Hono()
+    registerCollectionRoutes(app as never, config)
+
+    const formData = new FormData()
+    // TINY_PNG with .jpg extension provided by client
+    const file = new File([TINY_PNG], 'image.jpg', { type: 'image/png' })
+    formData.append('file', file)
+
+    const res = await app.request('/media', {
+      method: 'POST',
+      body: formData,
+    })
+
+    expect(res.status).toBe(201)
+    const json = (await res.json()) as DocumentData
+    expect(json.filename).toBe('image.png')
+  })
+
+  it('sets Content-Disposition: attachment on non-image uploads', async () => {
+    const { storage, uploaded } = createMockStorage()
+    const db = createMockDb()
+
+    const config = defineConfig({
+      secret: 'test-secret',
+      db,
+      storage,
+      collections: [
+        {
+          slug: 'media',
+          access: publicAccess,
+          upload: {
+            mimeTypes: ['application/pdf'],
+          },
+          fields: {},
+        },
+      ],
+    })
+
+    const app = new Hono()
+    registerCollectionRoutes(app as never, config)
+
+    const formData = new FormData()
+    // PDF magic bytes %PDF-
+    const pdfBuf = Buffer.from('%PDF-1.4 mock pdf document content')
+    const file = new File([pdfBuf], 'contract.pdf', { type: 'application/pdf' })
+    formData.append('file', file)
+
+    const res = await app.request('/media', {
+      method: 'POST',
+      body: formData,
+    })
+
+    expect(res.status).toBe(201)
+    expect(uploaded[0]?.contentDisposition).toBe('attachment; filename="contract.pdf"')
+  })
 })
