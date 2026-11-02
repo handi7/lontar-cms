@@ -7,6 +7,8 @@ export { createLontar, type CreateLontarOptions, type LontarApp } from './server
 export { getLontar } from './local'
 export type {
   LontarClient,
+  LontarCollections,
+  LontarGlobals,
   LocalCreateOptions,
   LocalDeleteOptions,
   LocalFindByIDOptions,

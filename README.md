@@ -93,7 +93,7 @@ By default, operations on collections and globals require an authenticated user 
 ```bash
 pnpm lontar migrate:create   # diff config against the DB schema, write a migration file
 pnpm lontar migrate          # run migrations
-pnpm lontar generate:types   # write lontar-types.d.ts
+pnpm lontar generate:types   # write lontar-types.ts
 ```
 
 ## Mount in Next.js
