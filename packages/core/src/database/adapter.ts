@@ -1,3 +1,9 @@
+export {
+  DatabaseError,
+  UniqueConstraintError,
+  type ValidationErrorResponse,
+  formatUniqueConstraintError,
+} from './errors'
 import type { SystemFields } from '../client/system-fields'
 import type { CollectionConfig, Config, GlobalConfig } from '../config/types'
 import type { SortItem, Where } from '../query/types'

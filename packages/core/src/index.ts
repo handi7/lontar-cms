@@ -37,6 +37,12 @@ export type {
   GlobalConfig,
   GlobalHooks,
 } from './config/types'
+export {
+  DatabaseError,
+  UniqueConstraintError,
+  type ValidationErrorResponse,
+  formatUniqueConstraintError,
+} from './database/errors'
 export type {
   DatabaseAdapter,
   DocumentData,

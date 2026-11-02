@@ -6,12 +6,13 @@ import {
   type UseFormRegister,
   type UseFormSetValue,
   type UseFormWatch,
+  type UseFormSetError,
   type FieldErrors,
 } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
 import { clientFieldsToZod, type ClientField } from '@lontar/core/client'
 import { useAdmin, useGlobal } from '../context/AdminContext'
-import { fetchGlobal, saveGlobal } from '../api/client'
+import { fetchGlobal, saveGlobal, ApiClientError } from '../api/client'
 import { FieldRenderer } from '../fields/FieldRenderer'
 import { NotFoundView } from './NotFoundView'
 
@@ -145,6 +146,7 @@ function useGlobalSaveMutation({
   slug,
   fields,
   reset,
+  setError,
   setApiError,
   setSuccessMsg,
 }: {
@@ -152,6 +154,7 @@ function useGlobalSaveMutation({
   slug: string
   fields: ClientField[]
   reset: (values?: Record<string, unknown>) => void
+  setError?: UseFormSetError<Record<string, unknown>>
   setApiError: (msg: string | null) => void
   setSuccessMsg: (msg: string | null) => void
 }) {
@@ -169,6 +172,14 @@ function useGlobalSaveMutation({
       void queryClient.invalidateQueries({ queryKey: ['globals', slug] })
     },
     onError: (err: Error) => {
+      if (err instanceof ApiClientError && err.issues && setError) {
+        for (const issue of err.issues) {
+          const fieldName = issue.path?.[0]
+          if (fieldName !== undefined) {
+            setError(String(fieldName), { message: issue.message })
+          }
+        }
+      }
       setApiError(err.message || 'Failed to save changes.')
     },
   })
@@ -220,6 +231,7 @@ export function GlobalFormView() {
     reset,
     setValue,
     watch,
+    setError,
     formState: { errors, isSubmitting },
   } = useForm<Record<string, unknown>>({
     resolver: schema ? zodResolver(schema) : undefined,
@@ -237,6 +249,7 @@ export function GlobalFormView() {
     slug: slug ?? '',
     fields: global?.fields ?? [],
     reset,
+    setError,
     setApiError,
     setSuccessMsg,
   })

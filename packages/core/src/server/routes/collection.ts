@@ -7,6 +7,7 @@ import { clientFieldsToZod } from '../../client/zod'
 import { toClientCollection } from '../../config/to-client-config'
 import type { CollectionConfig, Config } from '../../config/types'
 import type { DatabaseAdapter, DocumentData } from '../../database/adapter'
+import { formatUniqueConstraintError, UniqueConstraintError } from '../../database/errors'
 import { runAfterChangeHooks, runAfterReadHooks, runBeforeChangeHooks } from '../../hooks'
 import { parseDepth, populateDoc, populateDocs } from '../../populate'
 import { parseWhereFromSearchParams } from '../../query/parser'
@@ -16,6 +17,7 @@ import {
   handleUploadDelete,
   handleUploadUpdate,
   isMultipartRequest,
+  type MutationExecutionResult,
 } from './collection-upload'
 
 type LontarEnv = { Variables: LontarVariables }
@@ -32,10 +34,6 @@ async function parseJsonBody(c: Context<LontarEnv>): Promise<unknown> {
   } catch {
     return undefined
   }
-}
-
-function getErrorMessage(err: unknown, fallback: string): string {
-  return err instanceof Error ? err.message : fallback
 }
 
 async function handleFind(c: Context<LontarEnv>, collection: CollectionConfig, config: Config) {
@@ -106,7 +104,7 @@ async function executeCreate(args: {
   db: DatabaseAdapter
   data: DocumentData
   req: Request
-}): Promise<{ doc?: DocumentData; error?: string }> {
+}): Promise<MutationExecutionResult> {
   try {
     const data = await runBeforeChangeHooks({
       collection: args.collection,
@@ -121,9 +119,12 @@ async function executeCreate(args: {
       operation: 'create',
       req: args.req,
     })
-    return { doc }
+    return { success: true, doc }
   } catch (err) {
-    return { error: getErrorMessage(err, 'Create operation failed') }
+    if (err instanceof UniqueConstraintError) {
+      return { success: false, status: 400, body: formatUniqueConstraintError(err) }
+    }
+    throw err
   }
 }
 
@@ -173,8 +174,8 @@ async function handleCreate(
     db: config.db,
     req: c.req.raw,
   })
-  if (result.error || !result.doc) {
-    return c.json({ error: result.error ?? 'Create operation failed' }, 400)
+  if (!result.success) {
+    return c.json(result.body, result.status)
   }
   const depth = parseDepth(c.req.query('depth'))
   const populated = await populateDoc(result.doc, {
@@ -195,7 +196,7 @@ async function executeUpdate(args: {
   originalDoc: DocumentData
   data: DocumentData
   req: Request
-}): Promise<{ doc?: DocumentData; error?: string }> {
+}): Promise<MutationExecutionResult> {
   try {
     const data = await runBeforeChangeHooks({
       collection: args.collection,
@@ -206,7 +207,11 @@ async function executeUpdate(args: {
     })
     const updated = await args.db.update({ collection: args.collection, id: args.id, data })
     if (!updated) {
-      return { error: `Document with ID ${args.id} not found` }
+      return {
+        success: false,
+        status: 404,
+        body: { error: `Document with ID ${args.id} not found` },
+      }
     }
     const doc = await runAfterChangeHooks({
       collection: args.collection,
@@ -215,9 +220,12 @@ async function executeUpdate(args: {
       previousDoc: args.originalDoc,
       req: args.req,
     })
-    return { doc }
+    return { success: true, doc }
   } catch (err) {
-    return { error: getErrorMessage(err, 'Update operation failed') }
+    if (err instanceof UniqueConstraintError) {
+      return { success: false, status: 400, body: formatUniqueConstraintError(err) }
+    }
+    throw err
   }
 }
 
@@ -282,8 +290,8 @@ async function handleJsonUpdate(
     originalDoc,
     req: c.req.raw,
   })
-  if (result.error || !result.doc) {
-    return c.json({ error: result.error ?? 'Update operation failed' }, 400)
+  if (!result.success) {
+    return c.json(result.body, result.status)
   }
   const depth = parseDepth(c.req.query('depth'))
   const populated = await populateDoc(result.doc, {

@@ -42,6 +42,7 @@ import {
   type DynamicTable,
   type JunctionTable,
 } from './schema/table'
+import { handleDatabaseError, toErrorContext } from './errors'
 import type { AnyMySqlColumn } from 'drizzle-orm/mysql-core'
 
 export interface MysqlAdapterOptions {
@@ -423,14 +424,18 @@ export function mysqlAdapter(options: MysqlAdapterOptions): MysqlAdapter {
     collection: CollectionConfig
     id: number
   }): Promise<StoredDoc | null> {
-    const table = getTable(collection)
-    const [row] = (await db.select().from(table).where(eq(table.id, id)).limit(1)) as [
-      Record<string, unknown> | undefined,
-    ]
-    if (!row) return null
-    const doc = toStoredDoc(row)
-    await populateHasManyRelations(collection, [doc])
-    return doc
+    try {
+      const table = getTable(collection)
+      const [row] = (await db.select().from(table).where(eq(table.id, id)).limit(1)) as [
+        Record<string, unknown> | undefined,
+      ]
+      if (!row) return null
+      const doc = toStoredDoc(row)
+      await populateHasManyRelations(collection, [doc])
+      return doc
+    } catch (err) {
+      handleDatabaseError(err, toErrorContext(collection))
+    }
   }
 
   async function create({
@@ -440,16 +445,20 @@ export function mysqlAdapter(options: MysqlAdapterOptions): MysqlAdapter {
     collection: CollectionConfig
     data: DocumentData
   }): Promise<StoredDoc> {
-    const table = getTable(collection)
-    const values = sanitizeData(collection, data) as unknown as InsertValues
-    const [result] = (await db.insert(table).values(values)) as unknown as [mysql.ResultSetHeader]
-    const id = result.insertId
-    await syncHasManyRelations(collection, id, data)
-    const created = await findByID({ collection, id })
-    if (!created) {
-      throw new Error(`Failed to retrieve created document in collection "${collection.slug}".`)
+    try {
+      const table = getTable(collection)
+      const values = sanitizeData(collection, data) as unknown as InsertValues
+      const [result] = (await db.insert(table).values(values)) as unknown as [mysql.ResultSetHeader]
+      const id = result.insertId
+      await syncHasManyRelations(collection, id, data)
+      const created = await findByID({ collection, id })
+      if (!created) {
+        throw new Error(`Failed to retrieve created document in collection "${collection.slug}".`)
+      }
+      return created
+    } catch (err) {
+      handleDatabaseError(err, toErrorContext(collection))
     }
-    return created
   }
 
   async function update({
@@ -461,17 +470,21 @@ export function mysqlAdapter(options: MysqlAdapterOptions): MysqlAdapter {
     id: number
     data: DocumentData
   }): Promise<StoredDoc | null> {
-    const existing = await findByID({ collection, id })
-    if (!existing) return null
+    try {
+      const existing = await findByID({ collection, id })
+      if (!existing) return null
 
-    const table = getTable(collection)
-    const values = {
-      ...sanitizeData(collection, data),
-      updatedAt: new Date(),
-    } as unknown as UpdateSetValues
-    await db.update(table).set(values).where(eq(table.id, id))
-    await syncHasManyRelations(collection, id, data)
-    return findByID({ collection, id })
+      const table = getTable(collection)
+      const values = {
+        ...sanitizeData(collection, data),
+        updatedAt: new Date(),
+      } as unknown as UpdateSetValues
+      await db.update(table).set(values).where(eq(table.id, id))
+      await syncHasManyRelations(collection, id, data)
+      return findByID({ collection, id })
+    } catch (err) {
+      handleDatabaseError(err, toErrorContext(collection))
+    }
   }
 
   async function remove({
@@ -481,52 +494,60 @@ export function mysqlAdapter(options: MysqlAdapterOptions): MysqlAdapter {
     collection: CollectionConfig
     id: number
   }): Promise<StoredDoc | null> {
-    const existing = await findByID({ collection, id })
-    if (!existing) return null
+    try {
+      const existing = await findByID({ collection, id })
+      if (!existing) return null
 
-    const junctionTables = getJunctionTables(collection)
-    for (const jTable of Object.values(junctionTables)) {
-      await db.delete(jTable).where(eq(jTable.parentId, id))
+      const junctionTables = getJunctionTables(collection)
+      for (const jTable of Object.values(junctionTables)) {
+        await db.delete(jTable).where(eq(jTable.parentId, id))
+      }
+
+      const table = getTable(collection)
+      await db.delete(table).where(eq(table.id, id))
+      return existing
+    } catch (err) {
+      handleDatabaseError(err, toErrorContext(collection))
     }
-
-    const table = getTable(collection)
-    await db.delete(table).where(eq(table.id, id))
-    return existing
   }
 
   async function find({ collection, limit, page, sort, where }: FindArgs): Promise<PaginatedDocs> {
-    const table = getTable(collection)
-    const safeLimit = Math.max(1, limit)
-    const safePage = Math.max(1, page)
-    const offset = (safePage - 1) * safeLimit
-    const whereSql = resolveWhere(collection, table, where)
+    try {
+      const table = getTable(collection)
+      const safeLimit = Math.max(1, limit)
+      const safePage = Math.max(1, page)
+      const offset = (safePage - 1) * safeLimit
+      const whereSql = resolveWhere(collection, table, where)
 
-    const countQuery = db.select({ value: count() }).from(table)
-    if (whereSql) {
-      countQuery.where(whereSql)
-    }
-    const [countRow] = (await countQuery) as [{ value: number | string } | undefined]
-    const totalDocs = Number(countRow?.value ?? 0)
-    const totalPages = Math.ceil(totalDocs / safeLimit)
+      const countQuery = db.select({ value: count() }).from(table)
+      if (whereSql) {
+        countQuery.where(whereSql)
+      }
+      const [countRow] = (await countQuery) as [{ value: number | string } | undefined]
+      const totalDocs = Number(countRow?.value ?? 0)
+      const totalPages = Math.ceil(totalDocs / safeLimit)
 
-    const query = db.select().from(table).limit(safeLimit).offset(offset)
-    if (whereSql) {
-      query.where(whereSql)
-    }
-    const orderByList = resolveOrderBy(table, sort)
-    if (orderByList.length > 0) {
-      query.orderBy(...orderByList)
-    }
+      const query = db.select().from(table).limit(safeLimit).offset(offset)
+      if (whereSql) {
+        query.where(whereSql)
+      }
+      const orderByList = resolveOrderBy(table, sort)
+      if (orderByList.length > 0) {
+        query.orderBy(...orderByList)
+      }
 
-    const rows = (await query) as Record<string, unknown>[]
-    const docs = rows.map(toStoredDoc)
-    await populateHasManyRelations(collection, docs)
-    return {
-      docs,
-      totalDocs,
-      limit: safeLimit,
-      page: safePage,
-      totalPages,
+      const rows = (await query) as Record<string, unknown>[]
+      const docs = rows.map(toStoredDoc)
+      await populateHasManyRelations(collection, docs)
+      return {
+        docs,
+        totalDocs,
+        limit: safeLimit,
+        page: safePage,
+        totalPages,
+      }
+    } catch (err) {
+      handleDatabaseError(err, toErrorContext(collection))
     }
   }
 
@@ -540,9 +561,15 @@ export function mysqlAdapter(options: MysqlAdapterOptions): MysqlAdapter {
   }
 
   async function findGlobal({ global }: { global: GlobalConfig }): Promise<StoredDoc | null> {
-    const table = getGlobalTable(global)
-    const [row] = (await db.select().from(table).limit(1)) as [Record<string, unknown> | undefined]
-    return row ? toStoredDoc(row) : null
+    try {
+      const table = getGlobalTable(global)
+      const [row] = (await db.select().from(table).limit(1)) as [
+        Record<string, unknown> | undefined,
+      ]
+      return row ? toStoredDoc(row) : null
+    } catch (err) {
+      handleDatabaseError(err, toErrorContext(global))
+    }
   }
 
   async function updateGlobal({
@@ -552,26 +579,30 @@ export function mysqlAdapter(options: MysqlAdapterOptions): MysqlAdapter {
     global: GlobalConfig
     data: DocumentData
   }): Promise<StoredDoc> {
-    const table = getGlobalTable(global)
-    const existing = await findGlobal({ global })
-    const values = sanitizeData(global, data)
+    try {
+      const table = getGlobalTable(global)
+      const existing = await findGlobal({ global })
+      const values = sanitizeData(global, data)
 
-    if (existing) {
-      const setValues = values as unknown as UpdateSetValues
-      await db
-        .update(table)
-        .set(setValues)
-        .where(eq(table.id, Number(existing.id)))
-    } else {
-      const insertValues = values as unknown as InsertValues
-      await db.insert(table).values(insertValues)
-    }
+      if (existing) {
+        const setValues = values as unknown as UpdateSetValues
+        await db
+          .update(table)
+          .set(setValues)
+          .where(eq(table.id, Number(existing.id)))
+      } else {
+        const insertValues = values as unknown as InsertValues
+        await db.insert(table).values(insertValues)
+      }
 
-    const updated = await findGlobal({ global })
-    if (!updated) {
-      throw new Error(`Failed to retrieve global "${global.slug}".`)
+      const updated = await findGlobal({ global })
+      if (!updated) {
+        throw new Error(`Failed to retrieve global "${global.slug}".`)
+      }
+      return updated
+    } catch (err) {
+      handleDatabaseError(err, toErrorContext(global))
     }
-    return updated
   }
 
   return {
