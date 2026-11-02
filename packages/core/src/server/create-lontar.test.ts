@@ -125,6 +125,21 @@ describe('createLontar REST API', () => {
       })
     })
 
+    it('prevents prototype pollution via where[__proto__] query param', async () => {
+      mockFind.mockClear()
+      const res = await app.request('/api/posts?where[__proto__][role]=admin')
+      expect(res.status).toBe(200)
+      expect(({} as Record<string, unknown>).role).toBeUndefined()
+    })
+
+    it('prevents prototype pollution via JSON where query param', async () => {
+      mockFind.mockClear()
+      const jsonParam = encodeURIComponent(JSON.stringify({ __proto__: { role: 'admin' } }))
+      const res = await app.request(`/api/posts?where=${jsonParam}`)
+      expect(res.status).toBe(200)
+      expect(({} as Record<string, unknown>).role).toBeUndefined()
+    })
+
     it('returns 404 for unknown collection', async () => {
       const res = await app.request('/api/unknown')
       expect(res.status).toBe(404)
