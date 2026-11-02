@@ -11,6 +11,7 @@ import { formatUniqueConstraintError, UniqueConstraintError } from '../../databa
 import { runAfterChangeHooks, runAfterReadHooks, runBeforeChangeHooks } from '../../hooks'
 import { parseDepth, populateDoc, populateDocs } from '../../populate'
 import { parseWhereFromSearchParams } from '../../query/parser'
+import { validateWhere } from '../../query/validator'
 import { DEFAULT_MAX_FILE_SIZE } from '../../storage'
 import {
   handleUploadCreate,
@@ -50,6 +51,12 @@ async function handleFind(c: Context<LontarEnv>, collection: CollectionConfig, c
 
   const url = new URL(c.req.raw.url)
   const where = parseWhereFromSearchParams(url.searchParams)
+  if (where) {
+    const issues = validateWhere(where, collection)
+    if (issues.length > 0) {
+      return c.json({ error: 'Validation failed', issues }, 400)
+    }
+  }
 
   const result = await config.db.find({ collection, limit, page, sort, where })
   const docs = await Promise.all(

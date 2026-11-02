@@ -13,6 +13,7 @@ import {
   lte,
   ne,
   or,
+  sql,
   type SQL,
 } from 'drizzle-orm'
 import { drizzle, type MySql2Database } from 'drizzle-orm/mysql2'
@@ -224,22 +225,62 @@ function buildCondition(
   )
 }
 
-function parseFieldConditions(
-  collection: CollectionConfig,
+function parseHasManyOpCondition(
   table: DynamicTable,
-  fieldName: string,
+  junctionTable: JunctionTable,
+  op: string,
+  val: unknown,
+): SQL | undefined {
+  if (val === undefined || val === null) return undefined
+  if (op === 'equals') {
+    const id = Number(val)
+    return Number.isNaN(id)
+      ? undefined
+      : sql`${table.id} IN (SELECT ${junctionTable.parentId} FROM ${junctionTable} WHERE ${junctionTable.targetId} = ${id})`
+  }
+  if (op === 'not_equals') {
+    const id = Number(val)
+    return Number.isNaN(id)
+      ? undefined
+      : sql`${table.id} NOT IN (SELECT ${junctionTable.parentId} FROM ${junctionTable} WHERE ${junctionTable.targetId} = ${id})`
+  }
+  if (op === 'in') {
+    const arr = Array.isArray(val) ? val : [val]
+    const ids = arr.map(Number).filter((n) => !Number.isNaN(n))
+    return ids.length > 0
+      ? sql`${table.id} IN (SELECT ${junctionTable.parentId} FROM ${junctionTable} WHERE ${inArray(junctionTable.targetId, ids)})`
+      : undefined
+  }
+  return undefined
+}
+
+function parseHasManyConditions(
+  table: DynamicTable,
+  junctionTable: JunctionTable | undefined,
   filter: unknown,
 ): SQL[] {
-  const column = table[fieldName]
-  if (!column) return []
-
+  if (!junctionTable) return []
   if (filter === null || typeof filter !== 'object') {
-    const val = castFieldValue(collection, fieldName, filter)
-    return [eq(column, val)]
+    const cond = parseHasManyOpCondition(table, junctionTable, 'equals', filter)
+    return cond ? [cond] : []
   }
 
   const conditions: SQL[] = []
   for (const [op, rawVal] of Object.entries(filter as Record<string, unknown>)) {
+    const cond = parseHasManyOpCondition(table, junctionTable, op, rawVal)
+    if (cond) conditions.push(cond)
+  }
+  return conditions
+}
+
+function parseObjectFilterConditions(
+  collection: CollectionConfig,
+  column: AnyMySqlColumn,
+  fieldName: string,
+  filter: Record<string, unknown>,
+): SQL[] {
+  const conditions: SQL[] = []
+  for (const [op, rawVal] of Object.entries(filter)) {
     if (rawVal === undefined) continue
     const val =
       op === 'in' && Array.isArray(rawVal)
@@ -252,14 +293,44 @@ function parseFieldConditions(
   return conditions
 }
 
+function parseFieldConditions(
+  collection: CollectionConfig,
+  table: DynamicTable,
+  junctionTables: Record<string, JunctionTable>,
+  fieldName: string,
+  filter: unknown,
+): SQL[] {
+  const field = collection.fields[fieldName]
+  if (field?.type === 'relationship' && field.hasMany) {
+    return parseHasManyConditions(table, junctionTables[fieldName], filter)
+  }
+
+  if (!Object.hasOwn(table, fieldName)) return []
+  const column = table[fieldName]
+  if (!column) return []
+
+  if (filter === null || typeof filter !== 'object') {
+    const val = castFieldValue(collection, fieldName, filter)
+    return [eq(column, val)]
+  }
+
+  return parseObjectFilterConditions(
+    collection,
+    column,
+    fieldName,
+    filter as Record<string, unknown>,
+  )
+}
+
 function resolveLogicalGroup(
   collection: CollectionConfig,
   table: DynamicTable,
+  junctionTables: Record<string, JunctionTable>,
   group: Where[],
   combiner: (...conditions: SQL[]) => SQL | undefined,
 ): SQL | undefined {
   const clauses = group
-    .map((subWhere) => resolveWhere(collection, table, subWhere))
+    .map((subWhere) => resolveWhere(collection, table, junctionTables, subWhere))
     .filter((c): c is SQL => Boolean(c))
   return clauses.length > 0 ? combiner(...clauses) : undefined
 }
@@ -267,21 +338,23 @@ function resolveLogicalGroup(
 function resolveWhereEntry(
   collection: CollectionConfig,
   table: DynamicTable,
+  junctionTables: Record<string, JunctionTable>,
   key: string,
   val: unknown,
 ): SQL | SQL[] | undefined {
   if (key === 'or' && Array.isArray(val)) {
-    return resolveLogicalGroup(collection, table, val as Where[], or)
+    return resolveLogicalGroup(collection, table, junctionTables, val as Where[], or)
   }
   if (key === 'and' && Array.isArray(val)) {
-    return resolveLogicalGroup(collection, table, val as Where[], and)
+    return resolveLogicalGroup(collection, table, junctionTables, val as Where[], and)
   }
-  return parseFieldConditions(collection, table, key, val)
+  return parseFieldConditions(collection, table, junctionTables, key, val)
 }
 
 function resolveWhere(
   collection: CollectionConfig,
   table: DynamicTable,
+  junctionTables: Record<string, JunctionTable>,
   where?: Where,
 ): SQL | undefined {
   if (!where || typeof where !== 'object') return undefined
@@ -289,7 +362,7 @@ function resolveWhere(
   const clauses: SQL[] = []
   for (const [key, val] of Object.entries(where)) {
     if (val === undefined) continue
-    const resolved = resolveWhereEntry(collection, table, key, val)
+    const resolved = resolveWhereEntry(collection, table, junctionTables, key, val)
     if (Array.isArray(resolved)) {
       clauses.push(...resolved)
     } else if (resolved) {
@@ -314,6 +387,7 @@ function resolveOrderBy(table: DynamicTable, sort?: string | SortItem[]): SQL[] 
 
   const orderByList: SQL[] = []
   for (const item of sortItems) {
+    if (!Object.hasOwn(table, item.field)) continue
     const column = table[item.field]
     if (column) {
       orderByList.push(item.direction === 'desc' ? desc(column) : asc(column))
@@ -543,10 +617,11 @@ async function findDocs(
 ): Promise<PaginatedDocs> {
   try {
     const table = getTable(caches, collection)
+    const junctionTables = getJunctionTables(caches, collection)
     const safeLimit = Math.max(1, limit)
     const safePage = Math.max(1, page)
     const offset = (safePage - 1) * safeLimit
-    const whereSql = resolveWhere(collection, table, where)
+    const whereSql = resolveWhere(collection, table, junctionTables, where)
 
     const countQuery = executor.select({ value: count() }).from(table)
     if (whereSql) {

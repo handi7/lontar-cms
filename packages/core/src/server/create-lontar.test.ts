@@ -110,7 +110,7 @@ describe('createLontar REST API', () => {
     it('passes where and sort query parameters to db.find', async () => {
       mockFind.mockClear()
       const res = await app.request(
-        '/api/posts?where[status][equals]=published&where[views][greater_than]=10&sort=-createdAt,title',
+        '/api/posts?where[title][equals]=hello&where[views][greater_than]=10&sort=-createdAt,title',
       )
       expect(res.status).toBe(200)
       expect(mockFind).toHaveBeenCalledWith({
@@ -119,10 +119,42 @@ describe('createLontar REST API', () => {
         limit: 10,
         sort: '-createdAt,title',
         where: {
-          status: { equals: 'published' },
+          title: { equals: 'hello' },
           views: { greater_than: '10' },
         },
       })
+    })
+
+    it('returns 400 when where query contains unknown fields', async () => {
+      mockFind.mockClear()
+      const res = await app.request('/api/posts?where[titel][equals]=nope')
+      expect(res.status).toBe(400)
+      const body = (await res.json()) as {
+        error: string
+        issues: { path: string; message: string }[]
+      }
+      expect(body.error).toBe('Validation failed')
+      expect(body.issues).toContainEqual({
+        path: 'titel',
+        message: 'Unknown field "titel"',
+      })
+      expect(mockFind).not.toHaveBeenCalled()
+    })
+
+    it('returns 400 when where query contains unknown operators', async () => {
+      mockFind.mockClear()
+      const res = await app.request('/api/posts?where[title][eqauls]=x')
+      expect(res.status).toBe(400)
+      const body = (await res.json()) as {
+        error: string
+        issues: { path: string; message: string }[]
+      }
+      expect(body.error).toBe('Validation failed')
+      expect(body.issues).toContainEqual({
+        path: 'title.eqauls',
+        message: 'Unknown operator "eqauls"',
+      })
+      expect(mockFind).not.toHaveBeenCalled()
     })
 
     it('prevents prototype pollution via where[__proto__] query param', async () => {
