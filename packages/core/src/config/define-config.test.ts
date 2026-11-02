@@ -365,4 +365,45 @@ describe('defineConfig', () => {
       'Global "site-settings": text field "tagline" maxLength (20000) exceeds MySQL VARCHAR limit of 16383',
     )
   })
+
+  it('rejects collection pagination with non-positive defaultLimit or maxLimit', () => {
+    expect(issuesOf([notes({ pagination: { defaultLimit: 0 } })])).toEqual([
+      'Collection "notes": pagination.defaultLimit must be a positive integer.',
+    ])
+    expect(issuesOf([notes({ pagination: { maxLimit: -1 } })])).toEqual([
+      'Collection "notes": pagination.maxLimit must be a positive integer.',
+    ])
+    expect(issuesOf([notes({ pagination: { defaultLimit: 1.5 } })])).toEqual([
+      'Collection "notes": pagination.defaultLimit must be a positive integer.',
+    ])
+  })
+
+  it('rejects collection pagination when defaultLimit exceeds maxLimit', () => {
+    expect(issuesOf([notes({ pagination: { defaultLimit: 50, maxLimit: 20 } })])).toEqual([
+      'Collection "notes": pagination.defaultLimit (50) cannot be greater than pagination.maxLimit (20).',
+    ])
+  })
+
+  it('rejects config-level pagination with invalid limits', () => {
+    expect(() =>
+      defineConfig({
+        secret: SECRET,
+        db: fakeAdapter,
+        pagination: { defaultLimit: 200, maxLimit: 50 },
+        collections: [notes()],
+      }),
+    ).toThrow(
+      'Config: pagination.defaultLimit (200) cannot be greater than pagination.maxLimit (50)',
+    )
+  })
+
+  it('accepts valid collection and config pagination settings', () => {
+    const config = {
+      secret: SECRET,
+      db: fakeAdapter,
+      pagination: { defaultLimit: 20, maxLimit: 100 },
+      collections: [notes({ pagination: { defaultLimit: 15, maxLimit: 50 } })],
+    }
+    expect(defineConfig(config)).toBe(config)
+  })
 })

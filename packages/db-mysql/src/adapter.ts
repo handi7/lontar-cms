@@ -610,6 +610,47 @@ async function removeDoc(
   }
 }
 
+function computeSafeLimit(limit: number, maxLimit?: number): number {
+  if (limit === 0) return 0
+  const positive = Math.max(1, limit)
+  return maxLimit !== undefined ? Math.min(positive, maxLimit) : positive
+}
+
+async function countMatchingDocs(
+  executor: DbExecutor,
+  table: DynamicTable,
+  whereSql: SQL | undefined,
+): Promise<number> {
+  const countQuery = executor.select({ value: count() }).from(table)
+  if (whereSql) {
+    countQuery.where(whereSql)
+  }
+  const [countRow] = (await countQuery) as [{ value: number | string } | undefined]
+  return Number(countRow?.value ?? 0)
+}
+
+function buildFindDocsQuery(
+  executor: DbExecutor,
+  table: DynamicTable,
+  whereSql: SQL | undefined,
+  sort: string | SortItem[] | undefined,
+  safeLimit: number,
+  offset: number,
+) {
+  const query = executor.select().from(table)
+  if (whereSql) {
+    query.where(whereSql)
+  }
+  const orderByList = resolveOrderBy(table, sort)
+  if (orderByList.length > 0) {
+    query.orderBy(...orderByList)
+  }
+  if (safeLimit > 0) {
+    query.limit(safeLimit).offset(offset)
+  }
+  return query
+}
+
 async function findDocs(
   executor: DbExecutor,
   caches: AdapterCaches,
@@ -618,28 +659,15 @@ async function findDocs(
   try {
     const table = getTable(caches, collection)
     const junctionTables = getJunctionTables(caches, collection)
-    const safeLimit = Math.max(1, limit)
+    const safeLimit = computeSafeLimit(limit, collection.pagination?.maxLimit)
     const safePage = Math.max(1, page)
     const offset = (safePage - 1) * safeLimit
     const whereSql = resolveWhere(collection, table, junctionTables, where)
 
-    const countQuery = executor.select({ value: count() }).from(table)
-    if (whereSql) {
-      countQuery.where(whereSql)
-    }
-    const [countRow] = (await countQuery) as [{ value: number | string } | undefined]
-    const totalDocs = Number(countRow?.value ?? 0)
-    const totalPages = Math.ceil(totalDocs / safeLimit)
+    const totalDocs = await countMatchingDocs(executor, table, whereSql)
+    const totalPages = safeLimit === 0 ? 1 : Math.ceil(totalDocs / safeLimit)
 
-    const query = executor.select().from(table).limit(safeLimit).offset(offset)
-    if (whereSql) {
-      query.where(whereSql)
-    }
-    const orderByList = resolveOrderBy(table, sort)
-    if (orderByList.length > 0) {
-      query.orderBy(...orderByList)
-    }
-
+    const query = buildFindDocsQuery(executor, table, whereSql, sort, safeLimit, offset)
     const rows = (await query) as Record<string, unknown>[]
     const docs = rows.map(toStoredDoc)
     await populateHasManyRelations(executor, caches, collection, docs)

@@ -220,6 +220,31 @@ describe('mysqlAdapter (integration)', () => {
     expect(descSort.docs[1]?.id).toBe(1)
   })
 
+  it('supports unlimited queries with limit: 0 and honors collection maxLimit', async () => {
+    const unlimited = await adapter.find({
+      collection: postsCollection,
+      limit: 0,
+      page: 1,
+      sort: 'id',
+    })
+    expect(unlimited.limit).toBe(0)
+    expect(unlimited.totalPages).toBe(1)
+    expect(unlimited.docs.length).toBeGreaterThanOrEqual(2)
+
+    const cappedCol = {
+      ...postsCollection,
+      pagination: { maxLimit: 1 },
+    }
+    const capped = await adapter.find({
+      collection: cappedCol,
+      limit: 10,
+      page: 1,
+      sort: 'id',
+    })
+    expect(capped.limit).toBe(1)
+    expect(capped.docs).toHaveLength(1)
+  })
+
   it('filters documents with operators: equals, not_equals, contains, in, greater_than, less_than', async () => {
     // Insert more sample posts
     await adapter.create({

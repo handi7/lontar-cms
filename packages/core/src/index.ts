@@ -43,7 +43,9 @@ export type {
   GlobalAccess,
   GlobalConfig,
   GlobalHooks,
+  PaginationConfig,
 } from './config/types'
+export { DEFAULT_LIMIT, MAX_LIMIT } from './config/types'
 export {
   DatabaseError,
   UniqueConstraintError,
