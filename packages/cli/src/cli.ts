@@ -1,9 +1,12 @@
 #!/usr/bin/env node
 import { createUser } from './commands/create-user'
+import { generateTypesCommand } from './commands/generate-types'
 import { migrate } from './commands/migrate'
 import { migrateCreate } from './commands/migrate-create'
 
 export const VERSION = '0.0.0'
+export { generateTypes } from './typegen/generator'
+export { generateTypesCommand, type GenerateTypesOptions } from './commands/generate-types'
 
 function printHelp(): void {
   console.log(`
@@ -15,12 +18,24 @@ Usage:
 Commands:
   migrate:create   Generate a new SQL migration from config
   migrate          Run pending migrations against the database
+  generate:types   Generate TypeScript types from config (--output <path>)
   create-user      Create a new user with --email, --password, and --name
 
 Options:
   -h, --help       Show help
   -v, --version    Show version
 `)
+}
+
+function parseGenerateTypesArgs(argv: string[]): { output?: string } {
+  let output: string | undefined
+  for (let i = 1; i < argv.length; i++) {
+    const arg = argv[i]
+    if ((arg === '--output' || arg === '-o') && argv[i + 1]) {
+      output = argv[++i]
+    }
+  }
+  return { output }
 }
 
 function parseCreateUserArgs(argv: string[]): {
@@ -46,6 +61,25 @@ function parseCreateUserArgs(argv: string[]): {
   return { email, password, name }
 }
 
+type CommandHandler = (argv: string[]) => Promise<void>
+
+const COMMAND_HANDLERS: Record<string, CommandHandler> = {
+  'migrate:create': async () => {
+    await migrateCreate()
+  },
+  migrate: async () => {
+    await migrate()
+  },
+  'generate:types': async (argv) => {
+    const opts = parseGenerateTypesArgs(argv)
+    await generateTypesCommand(opts)
+  },
+  'create-user': async (argv) => {
+    const opts = parseCreateUserArgs(argv)
+    await createUser(opts)
+  },
+}
+
 export async function run(argv: string[] = process.argv.slice(2)): Promise<void> {
   const command = argv[0]
 
@@ -59,19 +93,9 @@ export async function run(argv: string[] = process.argv.slice(2)): Promise<void>
     return
   }
 
-  if (command === 'migrate:create') {
-    await migrateCreate()
-    return
-  }
-
-  if (command === 'migrate') {
-    await migrate()
-    return
-  }
-
-  if (command === 'create-user') {
-    const opts = parseCreateUserArgs(argv)
-    await createUser(opts)
+  const handler = COMMAND_HANDLERS[command]
+  if (handler) {
+    await handler(argv)
     return
   }
 

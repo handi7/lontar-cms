@@ -115,7 +115,7 @@ prettier on staged files only). CI (`.github/workflows/ci.yml`) runs
 - [ ] **M5: Uploads, Typegen & v0.1 Release** (Current)
   - [x] #26 `uploads: implement storage adapters (local & S3) and Sharp image resizing`
   - [x] #27 `fields: implement upload field type and media collection handling`
-  - [ ] #28 `cli: implement lontar generate:types command`
+  - [x] #28 `cli: implement lontar generate:types command`
   - [ ] #29 `examples/next-blog: complete real blog demo with auth, media, and rich text`
   - [ ] Code review fixes that must land before release (checklist and fix order in #69)
     - [x] Security: #44, #45, #46, #47, #48

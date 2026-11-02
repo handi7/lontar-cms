@@ -1,0 +1,264 @@
+import { describe, expect, it } from 'vitest'
+import ts from 'typescript'
+import {
+  generateTypes,
+  resolveCollectionInterfaceName,
+  resolveGlobalInterfaceName,
+  singularize,
+  toPascalCase,
+} from './generator'
+import type { Config, CollectionConfig, GlobalConfig } from '@lontar/core'
+
+describe('singularize', () => {
+  it('handles regular plural nouns', () => {
+    expect(singularize('posts')).toBe('post')
+    expect(singularize('authors')).toBe('author')
+    expect(singularize('tags')).toBe('tag')
+  })
+
+  it('handles -ies plural endings', () => {
+    expect(singularize('categories')).toBe('category')
+    expect(singularize('stories')).toBe('story')
+  })
+
+  it('handles -es plural endings (-xes, -shes, -ches, -sses)', () => {
+    expect(singularize('boxes')).toBe('box')
+    expect(singularize('dishes')).toBe('dish')
+    expect(singularize('watches')).toBe('watch')
+    expect(singularize('addresses')).toBe('address')
+  })
+
+  it('preserves invariable words and exceptions', () => {
+    expect(singularize('media')).toBe('media')
+    expect(singularize('news')).toBe('news')
+    expect(singularize('series')).toBe('series')
+    expect(singularize('species')).toBe('species')
+    expect(singularize('status')).toBe('status')
+  })
+})
+
+describe('toPascalCase', () => {
+  it('converts kebab-case, snake_case, and spaced strings to PascalCase', () => {
+    expect(toPascalCase('post')).toBe('Post')
+    expect(toPascalCase('blog-posts')).toBe('BlogPosts')
+    expect(toPascalCase('site_settings')).toBe('SiteSettings')
+    expect(toPascalCase('user profile info')).toBe('UserProfileInfo')
+    expect(toPascalCase('')).toBe('Document')
+  })
+})
+
+describe('resolveCollectionInterfaceName & resolveGlobalInterfaceName', () => {
+  it('uses labels.singular if defined', () => {
+    const col: CollectionConfig = {
+      slug: 'articles',
+      labels: { singular: 'Blog Post' },
+      fields: {},
+    }
+    expect(resolveCollectionInterfaceName(col)).toBe('BlogPost')
+  })
+
+  it('falls back to singularized slug', () => {
+    const col: CollectionConfig = {
+      slug: 'categories',
+      fields: {},
+    }
+    expect(resolveCollectionInterfaceName(col)).toBe('Category')
+  })
+
+  it('uses global label if defined, else slug', () => {
+    const g1: GlobalConfig = {
+      slug: 'settings',
+      label: 'Site Header',
+      fields: {},
+    }
+    const g2: GlobalConfig = {
+      slug: 'footer-nav',
+      fields: {},
+    }
+    expect(resolveGlobalInterfaceName(g1)).toBe('SiteHeader')
+    expect(resolveGlobalInterfaceName(g2)).toBe('FooterNav')
+  })
+})
+
+describe('generateTypes', () => {
+  it('generates complete, valid TypeScript declarations from config', () => {
+    const config: Config = {
+      secret: 'test-secret',
+      db: { name: 'mock' } as unknown as Config['db'],
+      collections: [
+        {
+          slug: 'authors',
+          labels: { singular: 'Author', plural: 'Authors' },
+          fields: {
+            name: { type: 'text', required: true },
+            bio: { type: 'textarea' },
+          },
+        },
+        {
+          slug: 'categories',
+          fields: {
+            name: { type: 'text', required: true },
+          },
+        },
+        {
+          slug: 'media',
+          upload: {
+            sizes: {
+              thumb: { width: 400 },
+              hero: { width: 1600 },
+            },
+          },
+          fields: {
+            alt: { type: 'text', required: true },
+          },
+        },
+        {
+          slug: 'posts',
+          labels: { singular: 'Post', plural: 'Posts' },
+          fields: {
+            title: { type: 'text', required: true },
+            slug: { type: 'slug' },
+            views: { type: 'number' },
+            isFeatured: { type: 'checkbox' },
+            status: {
+              type: 'select',
+              options: ['draft', 'published'],
+              required: true,
+            },
+            role: {
+              type: 'select',
+              options: [
+                { label: 'Admin', value: 'admin' },
+                { label: 'Editor', value: 'editor' },
+              ],
+            },
+            publishedAt: { type: 'date' },
+            content: { type: 'richText' },
+            cover: { type: 'upload', relationTo: 'media' },
+            author: { type: 'relationship', relationTo: 'authors', required: true },
+            categories: {
+              type: 'relationship',
+              relationTo: 'categories',
+              hasMany: true,
+            },
+          },
+        },
+      ],
+      globals: [
+        {
+          slug: 'site-settings',
+          label: 'Site Settings',
+          fields: {
+            siteName: { type: 'text', required: true },
+            footerText: { type: 'textarea' },
+          },
+        },
+      ],
+    }
+
+    const output = generateTypes(config)
+
+    // Checks header
+    expect(output).toContain('// Generated by @lontar/cli. Do not edit directly.')
+
+    // Checks Author interface
+    expect(output).toContain('export interface Author {')
+    expect(output).toContain('  id: number')
+    expect(output).toContain('  createdAt: string')
+    expect(output).toContain('  updatedAt: string')
+    expect(output).toContain('  name: string')
+    expect(output).toContain('  bio?: string | null')
+
+    // Checks Category interface
+    expect(output).toContain('export interface Category {')
+
+    // Checks Media interface with upload fields and sizes
+    expect(output).toContain('export interface Media {')
+    expect(output).toContain('  filename: string')
+    expect(output).toContain('  url: string')
+    expect(output).toContain('  mimeType: string')
+    expect(output).toContain('  filesize: number')
+    expect(output).toContain('  width?: number | null')
+    expect(output).toContain('  height?: number | null')
+    expect(output).toContain('  sizes?: {')
+    expect(output).toContain('    thumb?: {')
+    expect(output).toContain('    hero?: {')
+
+    // Checks Post interface with relationship types and select unions
+    expect(output).toContain('export interface Post {')
+    expect(output).toContain('  title: string')
+    expect(output).toContain('  slug?: string | null')
+    expect(output).toContain('  views?: number | null')
+    expect(output).toContain('  isFeatured?: boolean | null')
+    expect(output).toContain('  status: "draft" | "published"')
+    expect(output).toContain('  role?: "admin" | "editor" | null')
+    expect(output).toContain('  publishedAt?: string | null')
+    expect(output).toContain('  content?: Record<string, unknown> | null')
+    expect(output).toContain('  cover?: number | Media | null')
+    expect(output).toContain('  author: number | Author')
+    expect(output).toContain('  categories?: (number | Category)[] | null')
+
+    // Checks SiteSettings global
+    expect(output).toContain('export interface SiteSettings {')
+    expect(output).toContain('  siteName: string')
+    expect(output).toContain('  footerText?: string | null')
+
+    // Checks Config interface
+    expect(output).toContain('export interface Config {')
+    expect(output).toContain('    authors: Author')
+    expect(output).toContain('    categories: Category')
+    expect(output).toContain('    media: Media')
+    expect(output).toContain('    posts: Post')
+    expect(output).toContain('    "site-settings": SiteSettings')
+
+    // Checks Module augmentation
+    expect(output).toContain("declare module '@lontar/core' {")
+    expect(output).toContain('  interface LontarCollections {')
+    expect(output).toContain('  interface LontarGlobals {')
+
+    // Verify generated code compiles cleanly as valid TypeScript
+    const transpileResult = ts.transpileModule(output, {
+      compilerOptions: {
+        module: ts.ModuleKind.ESNext,
+        target: ts.ScriptTarget.ES2022,
+      },
+    })
+    expect(transpileResult.outputText).toBeDefined()
+  })
+
+  it('handles collision between interface names gracefully', () => {
+    const config: Config = {
+      secret: 'test-secret',
+      db: { name: 'mock' } as unknown as Config['db'],
+      collections: [
+        {
+          slug: 'config',
+          fields: { name: { type: 'text' } },
+        },
+        {
+          slug: 'posts',
+          labels: { singular: 'Post' },
+          fields: {},
+        },
+        {
+          slug: 'posts-archive',
+          labels: { singular: 'Post' },
+          fields: {},
+        },
+      ],
+      globals: [
+        {
+          slug: 'posts',
+          label: 'Post',
+          fields: {},
+        },
+      ],
+    }
+
+    const output = generateTypes(config)
+    expect(output).toContain('export interface ConfigDoc {')
+    expect(output).toContain('export interface Post {')
+    expect(output).toContain('export interface PostDoc {')
+    expect(output).toContain('export interface PostGlobal {')
+  })
+})

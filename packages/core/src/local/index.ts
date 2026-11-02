@@ -65,32 +65,77 @@ export interface LocalUpdateGlobalOptions {
   user?: AuthUser | null
 }
 
+// Target for module augmentation from generated types (lontar generate:types)
+// eslint-disable-next-line @typescript-eslint/no-empty-object-type
+export interface LontarCollections {}
+
+// Target for module augmentation from generated types (lontar generate:types)
+// eslint-disable-next-line @typescript-eslint/no-empty-object-type
+export interface LontarGlobals {}
+
 export interface LontarClient {
   readonly config: Config
+  find<K extends keyof LontarCollections>(
+    collectionSlug: K,
+    options?: LocalFindOptions,
+  ): Promise<PaginatedDocs<LontarCollections[K]>>
   find<T = DocumentData>(
     collectionSlug: string,
     options?: LocalFindOptions,
   ): Promise<PaginatedDocs<T>>
+
+  findByID<K extends keyof LontarCollections>(
+    collectionSlug: K,
+    idOrOptions: number | string | LocalFindByIDOptions,
+    maybeOptions?: Omit<LocalFindByIDOptions, 'id'>,
+  ): Promise<LontarCollections[K] | null>
   findByID<T = DocumentData>(
     collectionSlug: string,
     idOrOptions: number | string | LocalFindByIDOptions,
     maybeOptions?: Omit<LocalFindByIDOptions, 'id'>,
   ): Promise<T | null>
+
+  create<K extends keyof LontarCollections>(
+    collectionSlug: K,
+    dataOrOptions: Partial<LontarCollections[K]> | LocalCreateOptions,
+  ): Promise<LontarCollections[K]>
   create<T = DocumentData>(
     collectionSlug: string,
     dataOrOptions: DocumentData | LocalCreateOptions,
   ): Promise<T>
+
+  update<K extends keyof LontarCollections>(
+    collectionSlug: K,
+    idOrOptions: number | string | LocalUpdateOptions,
+    maybeDataOrOptions?: Partial<LontarCollections[K]> | Omit<LocalUpdateOptions, 'id'>,
+  ): Promise<LontarCollections[K]>
   update<T = DocumentData>(
     collectionSlug: string,
     idOrOptions: number | string | LocalUpdateOptions,
     maybeDataOrOptions?: DocumentData | Omit<LocalUpdateOptions, 'id'>,
   ): Promise<T>
+
+  delete<K extends keyof LontarCollections>(
+    collectionSlug: K,
+    idOrOptions: number | string | LocalDeleteOptions,
+    maybeOptions?: Omit<LocalDeleteOptions, 'id'>,
+  ): Promise<LontarCollections[K] | null>
   delete<T = DocumentData>(
     collectionSlug: string,
     idOrOptions: number | string | LocalDeleteOptions,
     maybeOptions?: Omit<LocalDeleteOptions, 'id'>,
   ): Promise<T | null>
+
+  findGlobal<K extends keyof LontarGlobals>(
+    globalSlug: K,
+    options?: LocalFindGlobalOptions,
+  ): Promise<LontarGlobals[K]>
   findGlobal<T = DocumentData>(globalSlug: string, options?: LocalFindGlobalOptions): Promise<T>
+
+  updateGlobal<K extends keyof LontarGlobals>(
+    globalSlug: K,
+    dataOrOptions?: Partial<LontarGlobals[K]> | LocalUpdateGlobalOptions,
+  ): Promise<LontarGlobals[K]>
   updateGlobal<T = DocumentData>(
     globalSlug: string,
     dataOrOptions?: DocumentData | LocalUpdateGlobalOptions,

@@ -4,6 +4,7 @@ import path from 'node:path'
 import { describe, expect, it, vi } from 'vitest'
 import { run, VERSION } from './cli'
 import { createUser } from './commands/create-user'
+import { generateTypesCommand } from './commands/generate-types'
 import { migrate } from './commands/migrate'
 import { migrateCreate } from './commands/migrate-create'
 import { loadConfig } from './config'
@@ -20,6 +21,7 @@ describe('CLI run', () => {
     const consoleSpy = vi.spyOn(console, 'log').mockImplementation(() => {})
     await run(['--help'])
     expect(consoleSpy).toHaveBeenCalledWith(expect.stringContaining('Lontar CLI'))
+    expect(consoleSpy).toHaveBeenCalledWith(expect.stringContaining('generate:types'))
     consoleSpy.mockRestore()
   })
 
@@ -122,6 +124,74 @@ describe('migrateCreate & migrate', () => {
       await expect(
         createUser({ email: 'admin@example.com', password: 'password123', name: '' }),
       ).rejects.toThrow('A --name argument is required')
+    })
+  })
+
+  describe('generateTypesCommand', () => {
+    it('generates types to default lontar-types.ts', async () => {
+      const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'lontar-cli-gen-types-'))
+      try {
+        const configFile = path.join(tempDir, 'lontar.config.js')
+        fs.writeFileSync(
+          configFile,
+          `
+          export default {
+            secret: 'test',
+            db: { name: 'mysql' },
+            collections: [
+              {
+                slug: 'posts',
+                fields: {
+                  title: { type: 'text', required: true },
+                },
+              },
+            ],
+          }
+        `,
+        )
+
+        const logSpy = vi.spyOn(console, 'log').mockImplementation(() => {})
+        await generateTypesCommand({ cwd: tempDir })
+        const defaultOutput = path.join(tempDir, 'lontar-types.ts')
+        expect(fs.existsSync(defaultOutput)).toBe(true)
+        const content = fs.readFileSync(defaultOutput, 'utf-8')
+        expect(content).toContain('export interface Post {')
+        expect(content).toContain('  title: string')
+        expect(logSpy).toHaveBeenCalledWith(
+          expect.stringContaining('Generated types at lontar-types.ts'),
+        )
+        logSpy.mockRestore()
+      } finally {
+        fs.rmSync(tempDir, { recursive: true, force: true })
+      }
+    })
+
+    it('generates types to custom output path when specified', async () => {
+      const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'lontar-cli-gen-types-custom-'))
+      try {
+        const configFile = path.join(tempDir, 'lontar.config.js')
+        fs.writeFileSync(
+          configFile,
+          `
+          export default {
+            secret: 'test',
+            db: { name: 'mysql' },
+            collections: [],
+          }
+        `,
+        )
+
+        const logSpy = vi.spyOn(console, 'log').mockImplementation(() => {})
+        await generateTypesCommand({ cwd: tempDir, output: 'src/types/schema.ts' })
+        const customOutput = path.join(tempDir, 'src', 'types', 'schema.ts')
+        expect(fs.existsSync(customOutput)).toBe(true)
+        expect(logSpy).toHaveBeenCalledWith(
+          expect.stringContaining('Generated types at src/types/schema.ts'),
+        )
+        logSpy.mockRestore()
+      } finally {
+        fs.rmSync(tempDir, { recursive: true, force: true })
+      }
     })
   })
 })
