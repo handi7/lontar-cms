@@ -12,6 +12,7 @@ import type {
   ClientSlugField,
   ClientTextareaField,
   ClientTextField,
+  ClientUploadField,
 } from './client-config'
 import { clientFieldsToZod, clientFieldToZod } from './zod'
 
@@ -124,6 +125,18 @@ function relationship(overrides: Partial<ClientRelationshipField> = {}) {
     type: 'relationship',
     label: 'Author',
     relationTo: 'users',
+    required: false,
+    ...overrides,
+  }
+  return clientFieldToZod(field)
+}
+
+function upload(overrides: Partial<ClientUploadField> = {}) {
+  const field: ClientUploadField = {
+    name: 'avatar',
+    type: 'upload',
+    label: 'Avatar',
+    relationTo: 'media',
     required: false,
     ...overrides,
   }
@@ -393,6 +406,41 @@ describe('clientFieldToZod', () => {
       expect(schema.safeParse([]).success).toBe(true)
       expect(schema.safeParse(null).success).toBe(true)
       expect(schema.safeParse(undefined).success).toBe(true)
+    })
+
+    it('enforces maximum 32-bit signed integer for single relationship', () => {
+      const schema = relationship({ required: true })
+      expect(schema.safeParse(2147483647).success).toBe(true)
+      expect(schema.safeParse(2147483648).success).toBe(false)
+      expect(schema.safeParse(3000000000).success).toBe(false)
+    })
+
+    it('enforces maximum 32-bit signed integer for hasMany relationship', () => {
+      const schema = relationship({ hasMany: true, required: true })
+      expect(schema.safeParse([1, 2147483647]).success).toBe(true)
+      expect(schema.safeParse([1, 2147483648]).success).toBe(false)
+      expect(schema.safeParse([3000000000]).success).toBe(false)
+    })
+  })
+
+  describe('upload', () => {
+    it('validates upload as positive integer within 32-bit signed range', () => {
+      const schema = upload({ required: true })
+      expect(schema.safeParse(1).success).toBe(true)
+      expect(schema.safeParse(2147483647).success).toBe(true)
+      expect(schema.safeParse(2147483648).success).toBe(false)
+      expect(schema.safeParse(0).success).toBe(false)
+      expect(schema.safeParse(-1).success).toBe(false)
+      expect(schema.safeParse('1').success).toBe(false)
+      expect(schema.safeParse(null).success).toBe(false)
+    })
+
+    it('allows null and undefined when optional', () => {
+      const schema = upload({ required: false })
+      expect(schema.safeParse(1).success).toBe(true)
+      expect(schema.safeParse(null).success).toBe(true)
+      expect(schema.safeParse(undefined).success).toBe(true)
+      expect(schema.safeParse(2147483648).success).toBe(false)
     })
   })
 })

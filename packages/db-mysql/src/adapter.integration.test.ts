@@ -551,4 +551,131 @@ describe('mysqlAdapter (integration)', () => {
       expect(uce.value).toBe('unique-slug')
     }
   })
+
+  it('rolls back main row creation when junction row insertion fails in create', async () => {
+    // 3000000000 exceeds MySQL signed 32-bit INT max (2147483647)
+    await expect(
+      adapter.create({
+        collection: postsCollection,
+        data: {
+          title: 'Failing Create Post',
+          categories: [3000000000],
+        },
+      }),
+    ).rejects.toThrow()
+
+    // Assert that the post was not persisted in MySQL
+    const found = await adapter.find({
+      collection: postsCollection,
+      page: 1,
+      limit: 10,
+      where: { title: { equals: 'Failing Create Post' } },
+    })
+    expect(found.docs).toHaveLength(0)
+
+    const pool = mysql.createPool(DATABASE_URL)
+    const [rows] = (await pool.query('SELECT * FROM posts WHERE title = ?', [
+      'Failing Create Post',
+    ])) as unknown as [Array<unknown>, unknown]
+    expect(rows).toHaveLength(0)
+    await pool.end()
+  })
+
+  it('rolls back update and preserves previous relations when junction row insertion fails in update', async () => {
+    const post = await adapter.create({
+      collection: postsCollection,
+      data: {
+        title: 'Initial Post Title',
+        categories: [1, 2],
+      },
+    })
+    expect(post.title).toBe('Initial Post Title')
+    expect(post.categories).toEqual([1, 2])
+
+    // Update with invalid targetId that fails junction row insertion
+    await expect(
+      adapter.update({
+        collection: postsCollection,
+        id: post.id,
+        data: {
+          title: 'Modified Post Title',
+          categories: [1, 3000000000],
+        },
+      }),
+    ).rejects.toThrow()
+
+    // Assert that the post was NOT modified and previous categories were NOT wiped
+    const fetched = await adapter.findByID({ collection: postsCollection, id: post.id })
+    expect(fetched?.title).toBe('Initial Post Title')
+    expect(fetched?.categories).toEqual([1, 2])
+
+    const pool = mysql.createPool(DATABASE_URL)
+    const [jRows] = (await pool.query(
+      'SELECT target_id FROM posts_categories WHERE parent_id = ? ORDER BY `order` ASC',
+      [post.id],
+    )) as unknown as [Array<{ target_id: number }>, unknown]
+    expect(jRows.map((r) => r.target_id)).toEqual([1, 2])
+    await pool.end()
+  })
+
+  it('rolls back document operations when an error is thrown inside transaction', async () => {
+    expect(typeof adapter.transaction).toBe('function')
+
+    await expect(
+      adapter.transaction!(async (tx) => {
+        await tx.create({
+          collection: postsCollection,
+          data: { title: 'Transaction Post' },
+        })
+        throw new Error('Simulated hook failure')
+      }),
+    ).rejects.toThrow('Database operation failed')
+
+    // Document must not exist
+    const found = await adapter.find({
+      collection: postsCollection,
+      page: 1,
+      limit: 10,
+      where: { title: { equals: 'Transaction Post' } },
+    })
+    expect(found.docs).toHaveLength(0)
+  })
+
+  it('supports nested transactions with savepoints and partial rollback', async () => {
+    await adapter.transaction!(async (tx) => {
+      const doc1 = await tx.create({
+        collection: postsCollection,
+        data: { title: 'Committed in Outer' },
+      })
+      expect(doc1.id).toBeDefined()
+
+      try {
+        await tx.transaction!(async (nestedTx) => {
+          await nestedTx.create({
+            collection: postsCollection,
+            data: { title: 'Rolled Back in Nested' },
+          })
+          throw new Error('Nested failure')
+        })
+      } catch (err) {
+        expect((err as Error).message).toContain('Database operation failed')
+      }
+    })
+
+    const outerFound = await adapter.find({
+      collection: postsCollection,
+      page: 1,
+      limit: 10,
+      where: { title: { equals: 'Committed in Outer' } },
+    })
+    expect(outerFound.docs).toHaveLength(1)
+
+    const nestedFound = await adapter.find({
+      collection: postsCollection,
+      page: 1,
+      limit: 10,
+      where: { title: { equals: 'Rolled Back in Nested' } },
+    })
+    expect(nestedFound.docs).toHaveLength(0)
+  })
 })

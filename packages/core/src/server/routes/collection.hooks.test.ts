@@ -63,6 +63,9 @@ function createMockAdapter() {
   const mockUpdateGlobal = vi.fn().mockResolvedValue(null)
   const mockToSchemaFile = vi.fn().mockReturnValue('')
   const mockMigrate = vi.fn().mockResolvedValue(undefined)
+  const mockTransaction = vi
+    .fn()
+    .mockImplementation((cb: (txDb: DatabaseAdapter) => unknown) => cb(db))
 
   const db: DatabaseAdapter = {
     name: 'mock',
@@ -73,6 +76,7 @@ function createMockAdapter() {
     delete: mockDelete,
     findGlobal: mockFindGlobal,
     updateGlobal: mockUpdateGlobal,
+    transaction: mockTransaction,
     toSchemaFile: mockToSchemaFile,
     migrate: mockMigrate,
   }
@@ -84,6 +88,7 @@ function createMockAdapter() {
     mockCreate,
     mockUpdate,
     mockDelete,
+    mockTransaction,
   }
 }
 
@@ -319,5 +324,43 @@ describe('Collection Lifecycle Hooks', () => {
     expect(itemRes.status).toBe(200)
     const itemJson = (await itemRes.json()) as { formattedTitle: string }
     expect(itemJson.formattedTitle).toBe('PREFIX: First Post')
+  })
+
+  it('runs create within a database transaction and bubbles error when afterChange throws', async () => {
+    const afterChangeHook = vi.fn<AfterChangeHook>(() => {
+      throw new Error('afterChange failure')
+    })
+
+    const postsCol = collection({
+      slug: 'posts',
+      access: publicAccess,
+      fields: {
+        title: f.text({ required: true }),
+      },
+      hooks: {
+        afterChange: [afterChangeHook],
+      },
+    })
+
+    const { db, mockTransaction } = createMockAdapter()
+    const lontar = createLontar(
+      defineConfig({
+        secret: 'test-secret',
+        db,
+        collections: [postsCol],
+      }),
+    )
+
+    const res = await lontar.fetch(
+      new Request('http://localhost/api/posts', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ title: 'Transaction Test' }),
+      }),
+    )
+
+    expect(mockTransaction).toHaveBeenCalledTimes(1)
+    expect(res.status).toBe(500)
+    expect(await res.json()).toEqual({ error: 'Internal Server Error' })
   })
 })

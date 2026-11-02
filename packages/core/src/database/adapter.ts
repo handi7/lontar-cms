@@ -63,6 +63,12 @@ export interface DatabaseAdapter {
   findGlobal(args: { global: GlobalConfig }): Promise<StoredDoc | null>
   updateGlobal(args: { global: GlobalConfig; data: DocumentData }): Promise<StoredDoc>
 
+  /**
+   * Run operations within a database transaction.
+   * If cb throws, the transaction must be rolled back.
+   */
+  transaction?<T>(cb: (txDb: DatabaseAdapter) => Promise<T>): Promise<T>
+
   // Build-time: called only by the CLI, never during a request.
   toSchemaFile(config: Config): string
   migrate(args: { migrationsDir: string }): Promise<void>

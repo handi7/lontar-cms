@@ -214,10 +214,15 @@ describe('generateSchemaFile', () => {
     // hasMany should not be rendered as a column on posts
     expect(output).not.toContain("categories: int('categories')")
     // hasMany should be rendered as a junction table
-    expect(output).toContain("export const postsCategories = mysqlTable('posts_categories', {")
+    expect(output).toContain("export const postsCategories = mysqlTable(\n  'posts_categories',")
     expect(output).toContain("parentId: int('parent_id').notNull(),")
     expect(output).toContain("targetId: int('target_id').notNull(),")
     expect(output).toContain("order: int('order').default(0).notNull(),")
+    expect(output).toContain("index('posts_categories_parent_idx').on(table.parentId)")
+    expect(output).toContain("index('posts_categories_target_idx').on(table.targetId)")
+    expect(output).toContain(
+      "unique('posts_categories_parent_target_unique').on(table.parentId, table.targetId)",
+    )
   })
 
   it('generates schema for upload fields and media collections', () => {

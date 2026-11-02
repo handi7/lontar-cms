@@ -313,14 +313,52 @@ function resolveOrderBy(table: DynamicTable, sort?: string | SortItem[]): SQL[] 
 }
 
 type AdapterDb = MySql2Database<typeof authTables>
+type TransactionCallback = Parameters<AdapterDb['transaction']>[0]
+type AdapterTx = Parameters<TransactionCallback>[0]
+type DbExecutor = AdapterDb | AdapterTx
+
+interface AdapterCaches {
+  tableCache: Map<string, DynamicTable>
+  junctionTablesCache: Map<string, Record<string, JunctionTable>>
+}
+
+function getTable(caches: AdapterCaches, collection: CollectionConfig): DynamicTable {
+  let table = caches.tableCache.get(collection.slug)
+  if (!table) {
+    table = collectionToTable(collection)
+    caches.tableCache.set(collection.slug, table)
+  }
+  return table
+}
+
+function getJunctionTables(
+  caches: AdapterCaches,
+  collection: CollectionConfig,
+): Record<string, JunctionTable> {
+  let tables = caches.junctionTablesCache.get(collection.slug)
+  if (!tables) {
+    tables = getCollectionJunctionTables(collection)
+    caches.junctionTablesCache.set(collection.slug, tables)
+  }
+  return tables
+}
+
+function getGlobalTable(caches: AdapterCaches, global: GlobalConfig): DynamicTable {
+  let table = caches.tableCache.get(global.slug)
+  if (!table) {
+    table = globalToTable(global)
+    caches.tableCache.set(global.slug, table)
+  }
+  return table
+}
 
 async function syncSingleHasManyRelation(
-  db: AdapterDb,
+  executor: DbExecutor,
   jTable: JunctionTable,
   parentId: number,
   targetIds: unknown,
 ): Promise<void> {
-  await db.delete(jTable).where(eq(jTable.parentId, parentId))
+  await executor.delete(jTable).where(eq(jTable.parentId, parentId))
   if (!Array.isArray(targetIds) || targetIds.length === 0) return
 
   const rows = targetIds
@@ -332,16 +370,16 @@ async function syncSingleHasManyRelation(
     .filter((row) => !Number.isNaN(row.targetId))
 
   if (rows.length > 0) {
-    await db.insert(jTable).values(rows)
+    await executor.insert(jTable).values(rows)
   }
 }
 
 async function fetchJunctionRows(
-  db: AdapterDb,
+  executor: DbExecutor,
   jTable: JunctionTable,
   parentIds: number[],
 ): Promise<Array<{ parentId: number; targetId: number }>> {
-  return (await db
+  return (await executor
     .select({
       parentId: jTable.parentId,
       targetId: jTable.targetId,
@@ -351,6 +389,271 @@ async function fetchJunctionRows(
     .orderBy(asc(jTable.order))) as Array<{ parentId: number; targetId: number }>
 }
 
+async function syncHasManyRelations(
+  executor: DbExecutor,
+  caches: AdapterCaches,
+  collection: CollectionConfig,
+  parentId: number,
+  data: DocumentData,
+): Promise<void> {
+  const junctionTables = getJunctionTables(caches, collection)
+  for (const [name, jTable] of Object.entries(junctionTables)) {
+    if (name in data) {
+      await syncSingleHasManyRelation(executor, jTable, parentId, data[name])
+    }
+  }
+}
+
+async function populateHasManyRelations(
+  executor: DbExecutor,
+  caches: AdapterCaches,
+  collection: CollectionConfig,
+  docs: StoredDoc[],
+): Promise<void> {
+  if (docs.length === 0) return
+  const junctionTables = getJunctionTables(caches, collection)
+  const junctionEntries = Object.entries(junctionTables)
+  if (junctionEntries.length === 0) return
+
+  const parentIds = docs.map((d) => d.id)
+
+  for (const [fieldName, jTable] of junctionEntries) {
+    for (const doc of docs) {
+      doc[fieldName] = []
+    }
+    const rows = await fetchJunctionRows(executor, jTable, parentIds)
+    for (const row of rows) {
+      const doc = docs.find((d) => d.id === row.parentId)
+      if (doc) {
+        ;(doc[fieldName] as number[]).push(row.targetId)
+      }
+    }
+  }
+}
+
+async function findDocByID(
+  executor: DbExecutor,
+  caches: AdapterCaches,
+  collection: CollectionConfig,
+  id: number,
+): Promise<StoredDoc | null> {
+  try {
+    const table = getTable(caches, collection)
+    const [row] = (await executor.select().from(table).where(eq(table.id, id)).limit(1)) as [
+      Record<string, unknown> | undefined,
+    ]
+    if (!row) return null
+    const doc = toStoredDoc(row)
+    await populateHasManyRelations(executor, caches, collection, [doc])
+    return doc
+  } catch (err) {
+    handleDatabaseError(err, toErrorContext(collection))
+  }
+}
+
+async function createDoc(
+  executor: DbExecutor,
+  caches: AdapterCaches,
+  collection: CollectionConfig,
+  data: DocumentData,
+): Promise<StoredDoc> {
+  try {
+    return await executor.transaction(async (tx) => {
+      const table = getTable(caches, collection)
+      const values = sanitizeData(collection, data) as unknown as InsertValues
+      const [result] = (await tx.insert(table).values(values)) as unknown as [mysql.ResultSetHeader]
+      const id = result.insertId
+      await syncHasManyRelations(tx, caches, collection, id, data)
+      const created = await findDocByID(tx, caches, collection, id)
+      if (!created) {
+        throw new Error(`Failed to retrieve created document in collection "${collection.slug}".`)
+      }
+      return created
+    })
+  } catch (err) {
+    handleDatabaseError(err, toErrorContext(collection))
+  }
+}
+
+async function updateDoc(
+  executor: DbExecutor,
+  caches: AdapterCaches,
+  collection: CollectionConfig,
+  id: number,
+  data: DocumentData,
+): Promise<StoredDoc | null> {
+  try {
+    return await executor.transaction(async (tx) => {
+      const existing = await findDocByID(tx, caches, collection, id)
+      if (!existing) return null
+
+      const table = getTable(caches, collection)
+      const values = {
+        ...sanitizeData(collection, data),
+        updatedAt: new Date(),
+      } as unknown as UpdateSetValues
+      await tx.update(table).set(values).where(eq(table.id, id))
+      await syncHasManyRelations(tx, caches, collection, id, data)
+      return findDocByID(tx, caches, collection, id)
+    })
+  } catch (err) {
+    handleDatabaseError(err, toErrorContext(collection))
+  }
+}
+
+async function removeDoc(
+  executor: DbExecutor,
+  caches: AdapterCaches,
+  collection: CollectionConfig,
+  id: number,
+): Promise<StoredDoc | null> {
+  try {
+    return await executor.transaction(async (tx) => {
+      const existing = await findDocByID(tx, caches, collection, id)
+      if (!existing) return null
+
+      const junctionTables = getJunctionTables(caches, collection)
+      for (const jTable of Object.values(junctionTables)) {
+        await tx.delete(jTable).where(eq(jTable.parentId, id))
+      }
+
+      const table = getTable(caches, collection)
+      await tx.delete(table).where(eq(table.id, id))
+      return existing
+    })
+  } catch (err) {
+    handleDatabaseError(err, toErrorContext(collection))
+  }
+}
+
+async function findDocs(
+  executor: DbExecutor,
+  caches: AdapterCaches,
+  { collection, limit, page, sort, where }: FindArgs,
+): Promise<PaginatedDocs> {
+  try {
+    const table = getTable(caches, collection)
+    const safeLimit = Math.max(1, limit)
+    const safePage = Math.max(1, page)
+    const offset = (safePage - 1) * safeLimit
+    const whereSql = resolveWhere(collection, table, where)
+
+    const countQuery = executor.select({ value: count() }).from(table)
+    if (whereSql) {
+      countQuery.where(whereSql)
+    }
+    const [countRow] = (await countQuery) as [{ value: number | string } | undefined]
+    const totalDocs = Number(countRow?.value ?? 0)
+    const totalPages = Math.ceil(totalDocs / safeLimit)
+
+    const query = executor.select().from(table).limit(safeLimit).offset(offset)
+    if (whereSql) {
+      query.where(whereSql)
+    }
+    const orderByList = resolveOrderBy(table, sort)
+    if (orderByList.length > 0) {
+      query.orderBy(...orderByList)
+    }
+
+    const rows = (await query) as Record<string, unknown>[]
+    const docs = rows.map(toStoredDoc)
+    await populateHasManyRelations(executor, caches, collection, docs)
+    return {
+      docs,
+      totalDocs,
+      limit: safeLimit,
+      page: safePage,
+      totalPages,
+    }
+  } catch (err) {
+    handleDatabaseError(err, toErrorContext(collection))
+  }
+}
+
+async function findGlobalDoc(
+  executor: DbExecutor,
+  caches: AdapterCaches,
+  global: GlobalConfig,
+): Promise<StoredDoc | null> {
+  try {
+    const table = getGlobalTable(caches, global)
+    const [row] = (await executor.select().from(table).limit(1)) as [
+      Record<string, unknown> | undefined,
+    ]
+    return row ? toStoredDoc(row) : null
+  } catch (err) {
+    handleDatabaseError(err, toErrorContext(global))
+  }
+}
+
+async function updateGlobalDoc(
+  executor: DbExecutor,
+  caches: AdapterCaches,
+  global: GlobalConfig,
+  data: DocumentData,
+): Promise<StoredDoc> {
+  try {
+    return await executor.transaction(async (tx) => {
+      const table = getGlobalTable(caches, global)
+      const existing = await findGlobalDoc(tx, caches, global)
+      const values = sanitizeData(global, data)
+
+      if (existing) {
+        const setValues = values as unknown as UpdateSetValues
+        await tx
+          .update(table)
+          .set(setValues)
+          .where(eq(table.id, Number(existing.id)))
+      } else {
+        const insertValues = values as unknown as InsertValues
+        await tx.insert(table).values(insertValues)
+      }
+
+      const updated = await findGlobalDoc(tx, caches, global)
+      if (!updated) {
+        throw new Error(`Failed to retrieve global "${global.slug}".`)
+      }
+      return updated
+    })
+  } catch (err) {
+    handleDatabaseError(err, toErrorContext(global))
+  }
+}
+
+function createDatabaseOperations(
+  executor: DbExecutor,
+  caches: AdapterCaches,
+  authAdapter?: unknown,
+): DatabaseAdapter {
+  return {
+    name: 'mysql',
+    authAdapter,
+    find: (args) => findDocs(executor, caches, args),
+    findByID: ({ collection, id }) => findDocByID(executor, caches, collection, id),
+    create: ({ collection, data }) => createDoc(executor, caches, collection, data),
+    update: ({ collection, id, data }) => updateDoc(executor, caches, collection, id, data),
+    delete: ({ collection, id }) => removeDoc(executor, caches, collection, id),
+    findGlobal: ({ global }) => findGlobalDoc(executor, caches, global),
+    updateGlobal: ({ global, data }) => updateGlobalDoc(executor, caches, global, data),
+    async transaction<T>(cb: (txDb: DatabaseAdapter) => Promise<T>): Promise<T> {
+      try {
+        return await executor.transaction(async (tx) => {
+          const txOps = createDatabaseOperations(tx, caches, authAdapter)
+          return await cb(txOps)
+        })
+      } catch (err) {
+        handleDatabaseError(err)
+      }
+    },
+    toSchemaFile(config: Config): string {
+      return generateSchemaFile(config)
+    },
+    migrate(): Promise<void> {
+      return Promise.reject(new Error('Cannot run migrations inside a transaction'))
+    },
+  }
+}
+
 export function mysqlAdapter(options: MysqlAdapterOptions): MysqlAdapter {
   const pool = mysql.createPool(options.url)
   const db = drizzle(pool, { schema: authTables, mode: 'default' })
@@ -358,266 +661,14 @@ export function mysqlAdapter(options: MysqlAdapterOptions): MysqlAdapter {
     provider: 'mysql',
     schema: authTables,
   })
-  const tableCache = new Map<string, DynamicTable>()
-  const junctionTablesCache = new Map<string, Record<string, JunctionTable>>()
-
-  function getTable(collection: CollectionConfig): DynamicTable {
-    let table = tableCache.get(collection.slug)
-    if (!table) {
-      table = collectionToTable(collection)
-      tableCache.set(collection.slug, table)
-    }
-    return table
+  const caches: AdapterCaches = {
+    tableCache: new Map(),
+    junctionTablesCache: new Map(),
   }
-
-  function getJunctionTables(collection: CollectionConfig): Record<string, JunctionTable> {
-    let tables = junctionTablesCache.get(collection.slug)
-    if (!tables) {
-      tables = getCollectionJunctionTables(collection)
-      junctionTablesCache.set(collection.slug, tables)
-    }
-    return tables
-  }
-
-  async function syncHasManyRelations(
-    collection: CollectionConfig,
-    parentId: number,
-    data: DocumentData,
-  ): Promise<void> {
-    const junctionTables = getJunctionTables(collection)
-    for (const [name, jTable] of Object.entries(junctionTables)) {
-      if (name in data) {
-        await syncSingleHasManyRelation(db, jTable, parentId, data[name])
-      }
-    }
-  }
-
-  async function populateHasManyRelations(
-    collection: CollectionConfig,
-    docs: StoredDoc[],
-  ): Promise<void> {
-    if (docs.length === 0) return
-    const junctionTables = getJunctionTables(collection)
-    const junctionEntries = Object.entries(junctionTables)
-    if (junctionEntries.length === 0) return
-
-    const parentIds = docs.map((d) => d.id)
-
-    for (const [fieldName, jTable] of junctionEntries) {
-      for (const doc of docs) {
-        doc[fieldName] = []
-      }
-      const rows = await fetchJunctionRows(db, jTable, parentIds)
-      for (const row of rows) {
-        const doc = docs.find((d) => d.id === row.parentId)
-        if (doc) {
-          ;(doc[fieldName] as number[]).push(row.targetId)
-        }
-      }
-    }
-  }
-
-  async function findByID({
-    collection,
-    id,
-  }: {
-    collection: CollectionConfig
-    id: number
-  }): Promise<StoredDoc | null> {
-    try {
-      const table = getTable(collection)
-      const [row] = (await db.select().from(table).where(eq(table.id, id)).limit(1)) as [
-        Record<string, unknown> | undefined,
-      ]
-      if (!row) return null
-      const doc = toStoredDoc(row)
-      await populateHasManyRelations(collection, [doc])
-      return doc
-    } catch (err) {
-      handleDatabaseError(err, toErrorContext(collection))
-    }
-  }
-
-  async function create({
-    collection,
-    data,
-  }: {
-    collection: CollectionConfig
-    data: DocumentData
-  }): Promise<StoredDoc> {
-    try {
-      const table = getTable(collection)
-      const values = sanitizeData(collection, data) as unknown as InsertValues
-      const [result] = (await db.insert(table).values(values)) as unknown as [mysql.ResultSetHeader]
-      const id = result.insertId
-      await syncHasManyRelations(collection, id, data)
-      const created = await findByID({ collection, id })
-      if (!created) {
-        throw new Error(`Failed to retrieve created document in collection "${collection.slug}".`)
-      }
-      return created
-    } catch (err) {
-      handleDatabaseError(err, toErrorContext(collection))
-    }
-  }
-
-  async function update({
-    collection,
-    id,
-    data,
-  }: {
-    collection: CollectionConfig
-    id: number
-    data: DocumentData
-  }): Promise<StoredDoc | null> {
-    try {
-      const existing = await findByID({ collection, id })
-      if (!existing) return null
-
-      const table = getTable(collection)
-      const values = {
-        ...sanitizeData(collection, data),
-        updatedAt: new Date(),
-      } as unknown as UpdateSetValues
-      await db.update(table).set(values).where(eq(table.id, id))
-      await syncHasManyRelations(collection, id, data)
-      return findByID({ collection, id })
-    } catch (err) {
-      handleDatabaseError(err, toErrorContext(collection))
-    }
-  }
-
-  async function remove({
-    collection,
-    id,
-  }: {
-    collection: CollectionConfig
-    id: number
-  }): Promise<StoredDoc | null> {
-    try {
-      const existing = await findByID({ collection, id })
-      if (!existing) return null
-
-      const junctionTables = getJunctionTables(collection)
-      for (const jTable of Object.values(junctionTables)) {
-        await db.delete(jTable).where(eq(jTable.parentId, id))
-      }
-
-      const table = getTable(collection)
-      await db.delete(table).where(eq(table.id, id))
-      return existing
-    } catch (err) {
-      handleDatabaseError(err, toErrorContext(collection))
-    }
-  }
-
-  async function find({ collection, limit, page, sort, where }: FindArgs): Promise<PaginatedDocs> {
-    try {
-      const table = getTable(collection)
-      const safeLimit = Math.max(1, limit)
-      const safePage = Math.max(1, page)
-      const offset = (safePage - 1) * safeLimit
-      const whereSql = resolveWhere(collection, table, where)
-
-      const countQuery = db.select({ value: count() }).from(table)
-      if (whereSql) {
-        countQuery.where(whereSql)
-      }
-      const [countRow] = (await countQuery) as [{ value: number | string } | undefined]
-      const totalDocs = Number(countRow?.value ?? 0)
-      const totalPages = Math.ceil(totalDocs / safeLimit)
-
-      const query = db.select().from(table).limit(safeLimit).offset(offset)
-      if (whereSql) {
-        query.where(whereSql)
-      }
-      const orderByList = resolveOrderBy(table, sort)
-      if (orderByList.length > 0) {
-        query.orderBy(...orderByList)
-      }
-
-      const rows = (await query) as Record<string, unknown>[]
-      const docs = rows.map(toStoredDoc)
-      await populateHasManyRelations(collection, docs)
-      return {
-        docs,
-        totalDocs,
-        limit: safeLimit,
-        page: safePage,
-        totalPages,
-      }
-    } catch (err) {
-      handleDatabaseError(err, toErrorContext(collection))
-    }
-  }
-
-  function getGlobalTable(global: GlobalConfig): DynamicTable {
-    let table = tableCache.get(global.slug)
-    if (!table) {
-      table = globalToTable(global)
-      tableCache.set(global.slug, table)
-    }
-    return table
-  }
-
-  async function findGlobal({ global }: { global: GlobalConfig }): Promise<StoredDoc | null> {
-    try {
-      const table = getGlobalTable(global)
-      const [row] = (await db.select().from(table).limit(1)) as [
-        Record<string, unknown> | undefined,
-      ]
-      return row ? toStoredDoc(row) : null
-    } catch (err) {
-      handleDatabaseError(err, toErrorContext(global))
-    }
-  }
-
-  async function updateGlobal({
-    global,
-    data,
-  }: {
-    global: GlobalConfig
-    data: DocumentData
-  }): Promise<StoredDoc> {
-    try {
-      const table = getGlobalTable(global)
-      const existing = await findGlobal({ global })
-      const values = sanitizeData(global, data)
-
-      if (existing) {
-        const setValues = values as unknown as UpdateSetValues
-        await db
-          .update(table)
-          .set(setValues)
-          .where(eq(table.id, Number(existing.id)))
-      } else {
-        const insertValues = values as unknown as InsertValues
-        await db.insert(table).values(insertValues)
-      }
-
-      const updated = await findGlobal({ global })
-      if (!updated) {
-        throw new Error(`Failed to retrieve global "${global.slug}".`)
-      }
-      return updated
-    } catch (err) {
-      handleDatabaseError(err, toErrorContext(global))
-    }
-  }
+  const ops = createDatabaseOperations(db, caches, authAdapter)
 
   return {
-    name: 'mysql',
-    authAdapter,
-    find,
-    findByID,
-    create,
-    update,
-    delete: remove,
-    findGlobal,
-    updateGlobal,
-    toSchemaFile(config: Config): string {
-      return generateSchemaFile(config)
-    },
+    ...ops,
     async migrate({ migrationsDir }: { migrationsDir: string }): Promise<void> {
       await migrate(db, { migrationsFolder: migrationsDir })
     },

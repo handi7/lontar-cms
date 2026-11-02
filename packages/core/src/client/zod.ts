@@ -14,6 +14,8 @@ import type {
   ClientUploadField,
 } from './client-config'
 
+const MAX_INT_32 = 2147483647
+
 /*
  * The one place field rules become validation (docs/adr/0003-client-config-format.md).
  * The server runs its fields through toClientConfig() and then these same
@@ -97,7 +99,7 @@ const zodByType = {
     return base
   },
   relationship: (field: ClientRelationshipField) => {
-    const idSchema = z.number().int().positive()
+    const idSchema = z.number().int().positive().max(MAX_INT_32)
     if (field.hasMany) {
       const arr = z.array(idSchema)
       return field.required ? arr.min(1, 'At least one relation is required') : arr
@@ -105,7 +107,7 @@ const zodByType = {
     return idSchema
   },
   upload: (_field: ClientUploadField) => {
-    return z.number().int().positive()
+    return z.number().int().positive().max(MAX_INT_32)
   },
 } satisfies { [K in ClientField['type']]: (field: Extract<ClientField, { type: K }>) => z.ZodType }
 

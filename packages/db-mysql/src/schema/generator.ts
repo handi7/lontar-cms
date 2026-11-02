@@ -203,6 +203,9 @@ function collectImports(
   globals: readonly GlobalConfig[] = [],
 ): string[] {
   const imports = new Set<string>(AUTH_BASE_IMPORTS)
+  if (findJunctionTableNames(collections).length > 0) {
+    imports.add('unique')
+  }
   for (const collection of collections) {
     if (collection.upload) {
       imports.add('json')
@@ -324,12 +327,20 @@ export const verification = mysqlTable(
 
 function renderJunctionTable(tableName: string): string {
   const identifier = slugToIdentifier(tableName)
-  return `export const ${identifier} = mysqlTable('${tableName}', {
-  id: int('id').autoincrement().primaryKey(),
-  parentId: int('parent_id').notNull(),
-  targetId: int('target_id').notNull(),
-  order: int('order').default(0).notNull(),
-})`
+  return `export const ${identifier} = mysqlTable(
+  '${tableName}',
+  {
+    id: int('id').autoincrement().primaryKey(),
+    parentId: int('parent_id').notNull(),
+    targetId: int('target_id').notNull(),
+    order: int('order').default(0).notNull(),
+  },
+  (table) => [
+    index('${tableName}_parent_idx').on(table.parentId),
+    index('${tableName}_target_idx').on(table.targetId),
+    unique('${tableName}_parent_target_unique').on(table.parentId, table.targetId),
+  ],
+)`
 }
 
 function findJunctionTableNames(collections: readonly CollectionConfig[]): string[] {
