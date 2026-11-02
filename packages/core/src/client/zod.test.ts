@@ -167,6 +167,12 @@ describe('clientFieldToZod', () => {
       expect(schema.safeParse('abcdef').success).toBe(false)
     })
 
+    it('defaults maxLength to 255 when not specified', () => {
+      const schema = text()
+      expect(schema.safeParse('a'.repeat(255)).success).toBe(true)
+      expect(schema.safeParse('a'.repeat(256)).success).toBe(false)
+    })
+
     it('keeps a minLength above 1 on a required field', () => {
       expect(text({ required: true, minLength: 3 }).safeParse('ab').success).toBe(false)
     })
@@ -244,6 +250,14 @@ describe('clientFieldToZod', () => {
         expect(schema.safeParse(value).success).toBe(false)
       }
     })
+
+    it('enforces maxLength of 255', () => {
+      const schema = email({ required: true })
+      const validLong = `${'a'.repeat(243)}@example.com` // 255 chars
+      const tooLong = `${'a'.repeat(244)}@example.com` // 256 chars
+      expect(schema.safeParse(validLong).success).toBe(true)
+      expect(schema.safeParse(tooLong).success).toBe(false)
+    })
   })
 
   describe('slug', () => {
@@ -270,6 +284,12 @@ describe('clientFieldToZod', () => {
       for (const value of ['Invalid Slug', 'slug/with/slash', 'slug_with_underscore']) {
         expect(schema.safeParse(value).success).toBe(false)
       }
+    })
+
+    it('enforces maxLength of 255', () => {
+      const schema = slug({ required: true })
+      expect(schema.safeParse('a'.repeat(255)).success).toBe(true)
+      expect(schema.safeParse('a'.repeat(256)).success).toBe(false)
     })
   })
 

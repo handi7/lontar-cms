@@ -15,6 +15,7 @@ import type {
 } from './client-config'
 
 const MAX_INT_32 = 2147483647
+const DEFAULT_STRING_MAX_LENGTH = 255
 
 /*
  * The one place field rules become validation (docs/adr/0003-client-config-format.md).
@@ -25,9 +26,10 @@ const zodByType = {
   text: (field: ClientTextField) => {
     // A required text field must not be blank, whatever its minLength.
     const minLength = Math.max(field.minLength ?? 0, field.required ? 1 : 0)
+    const maxLength = field.maxLength ?? DEFAULT_STRING_MAX_LENGTH
     let schema = z.string()
     if (minLength > 0) schema = schema.min(minLength)
-    if (field.maxLength !== undefined) schema = schema.max(field.maxLength)
+    schema = schema.max(maxLength)
     return schema
   },
   number: (field: ClientNumberField) => {
@@ -45,21 +47,25 @@ const zodByType = {
     return schema
   },
   email: (field: ClientEmailField) => {
+    const maxLength = field.maxLength ?? DEFAULT_STRING_MAX_LENGTH
     if (field.required) {
-      return z.string().min(1, 'Email is required').email('Invalid email address')
+      return z.string().min(1, 'Email is required').max(maxLength).email('Invalid email address')
     }
-    return z.string().email('Invalid email address').or(z.literal(''))
+    return z.string().max(maxLength).email('Invalid email address').or(z.literal(''))
   },
   slug: (field: ClientSlugField) => {
     const slugRegex = /^[a-z0-9]+(?:-[a-z0-9]+)*$/
+    const maxLength = field.maxLength ?? DEFAULT_STRING_MAX_LENGTH
     if (field.required) {
       return z
         .string()
         .min(1, 'Slug is required')
+        .max(maxLength)
         .regex(slugRegex, 'Must be a valid URL slug (lowercase letters, numbers, and hyphens)')
     }
     return z
       .string()
+      .max(maxLength)
       .regex(slugRegex, 'Must be a valid URL slug (lowercase letters, numbers, and hyphens)')
       .or(z.literal(''))
   },

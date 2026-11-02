@@ -263,4 +263,33 @@ describe('API Error Handling and SQL Leak Prevention', () => {
     expect(json.issues[0]?.path).toEqual(['code'])
     expect(json.issues[0]?.message).toBe('Value "dup-code" is already taken')
   })
+
+  it('rejects string field exceeding 255 characters with a Zod validation issue instead of DB error', async () => {
+    const { db, mockCreate } = createErrorMockAdapter()
+    const lontar = createLontar(
+      defineConfig({
+        secret: 'test-secret',
+        db,
+        collections: [postsCol],
+      }),
+    )
+
+    const res = await lontar.fetch(
+      new Request('http://localhost/api/posts', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ title: 'a'.repeat(300) }),
+      }),
+    )
+
+    expect(res.status).toBe(400)
+    const json = (await res.json()) as {
+      error: string
+      issues: Array<{ path: string[]; message: string }>
+    }
+    expect(json.error).toBe('Validation failed')
+    expect(json.issues[0]?.path).toEqual(['title'])
+    expect(json.issues[0]?.message).toContain('<=255 characters')
+    expect(mockCreate).not.toHaveBeenCalled()
+  })
 })

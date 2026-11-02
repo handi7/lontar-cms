@@ -107,7 +107,15 @@ function EmailFieldInput({
   field: ClientEmailField
   register: UseFormRegister<Record<string, unknown>>
 }) {
-  return <input id={field.name} type="email" className="lontar-input" {...register(field.name)} />
+  return (
+    <input
+      id={field.name}
+      type="email"
+      className="lontar-input"
+      maxLength={field.maxLength}
+      {...register(field.name)}
+    />
+  )
 }
 
 function CheckboxFieldInput({
@@ -213,6 +221,7 @@ function SlugFieldInput({
         id={field.name}
         type="text"
         className="lontar-input"
+        maxLength={field.maxLength}
         {...restRegister}
         onChange={(e) => {
           setIsCustomized(true)

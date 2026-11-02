@@ -177,6 +177,7 @@ describe('toClientConfig', () => {
         required: true,
         unique: true,
         defaultValue: 'hello@example.com',
+        maxLength: 255,
       },
       {
         name: 'slug',
@@ -186,6 +187,7 @@ describe('toClientConfig', () => {
         unique: true,
         from: 'text',
         defaultValue: 'my-slug',
+        maxLength: 255,
       },
       {
         name: 'checkbox',
@@ -234,6 +236,22 @@ describe('toClientConfig', () => {
         relationTo: 'categories',
         hasMany: true,
       },
+    ])
+  })
+
+  it('defaults maxLength to 255 for text, email, and slug fields', () => {
+    const col = clientCollection({
+      slug: 'strings',
+      fields: {
+        title: f.text(),
+        contact: f.email(),
+        slug: f.slug(),
+      },
+    })
+    expect(col?.fields).toEqual([
+      { name: 'title', type: 'text', label: 'Title', required: false, maxLength: 255 },
+      { name: 'contact', type: 'email', label: 'Contact', required: false, maxLength: 255 },
+      { name: 'slug', type: 'slug', label: 'Slug', required: false, maxLength: 255 },
     ])
   })
 
@@ -316,14 +334,22 @@ describe('toClientConfig', () => {
         slug: 'header',
         label: 'Site Header',
         fields: [
-          { name: 'title', type: 'text', label: 'Header Title', required: true },
+          { name: 'title', type: 'text', label: 'Header Title', required: true, maxLength: 255 },
           { name: 'sticky', type: 'checkbox', label: 'Sticky', required: false },
         ],
       },
       {
         slug: 'footer',
         label: 'Footer',
-        fields: [{ name: 'copyright', type: 'text', label: 'Copyright', required: false }],
+        fields: [
+          {
+            name: 'copyright',
+            type: 'text',
+            label: 'Copyright',
+            required: false,
+            maxLength: 255,
+          },
+        ],
       },
     ])
 

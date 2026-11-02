@@ -81,6 +81,7 @@ describe('FieldRenderer', () => {
       type: 'email',
       label: 'Email Address',
       required: false,
+      maxLength: 255,
     }
 
     const { container } = render(
@@ -92,6 +93,7 @@ describe('FieldRenderer', () => {
     const input = container.querySelector('input#email') as HTMLInputElement
     expect(input).toBeTruthy()
     expect(input.type).toBe('email')
+    expect(input.getAttribute('maxlength')).toBe('255')
     expect(screen.getByText('Email Address')).toBeTruthy()
   })
 
