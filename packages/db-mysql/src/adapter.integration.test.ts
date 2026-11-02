@@ -525,6 +525,95 @@ describe('mysqlAdapter (integration)', () => {
     await pool.end()
   })
 
+  it('filters documents by hasMany relationship fields with equals, in, and not_equals', async () => {
+    const post1 = await adapter.create({
+      collection: postsCollection,
+      data: {
+        title: 'Tech News 1',
+        categories: [101, 102],
+      },
+    })
+    const post2 = await adapter.create({
+      collection: postsCollection,
+      data: {
+        title: 'Tech News 2',
+        categories: [102, 103],
+      },
+    })
+    const post3 = await adapter.create({
+      collection: postsCollection,
+      data: {
+        title: 'Lifestyle 3',
+        categories: [103, 104],
+      },
+    })
+
+    // 1. equals operator
+    const resEquals = await adapter.find({
+      collection: postsCollection,
+      page: 1,
+      limit: 10,
+      where: { categories: { equals: 101 } },
+    })
+    expect(resEquals.docs).toHaveLength(1)
+    expect(resEquals.docs[0]?.id).toBe(post1.id)
+
+    // 2. shorthand value (equals)
+    const resShorthand = await adapter.find({
+      collection: postsCollection,
+      page: 1,
+      limit: 10,
+      where: { categories: 101 },
+    })
+    expect(resShorthand.docs).toHaveLength(1)
+    expect(resShorthand.docs[0]?.id).toBe(post1.id)
+
+    // 3. in operator
+    const resIn = await adapter.find({
+      collection: postsCollection,
+      page: 1,
+      limit: 10,
+      where: { categories: { in: [101, 104] } },
+    })
+    const inIds = resIn.docs.map((d) => d.id).sort()
+    expect(inIds).toEqual([post1.id, post3.id].sort())
+
+    // 4. not_equals operator (excludes posts with category 102)
+    const resNotEquals = await adapter.find({
+      collection: postsCollection,
+      page: 1,
+      limit: 10,
+      where: {
+        and: [{ categories: { not_equals: 102 } }, { id: { in: [post1.id, post2.id, post3.id] } }],
+      },
+    })
+    expect(resNotEquals.docs).toHaveLength(1)
+    expect(resNotEquals.docs[0]?.id).toBe(post3.id)
+
+    // 5. combined filter with title and hasMany relationship
+    const resCombined = await adapter.find({
+      collection: postsCollection,
+      page: 1,
+      limit: 10,
+      where: {
+        categories: { equals: 102 },
+        title: { equals: 'Tech News 2' },
+      },
+    })
+    expect(resCombined.docs).toHaveLength(1)
+    expect(resCombined.docs[0]?.id).toBe(post2.id)
+
+    // 6. safely ignores lookup of Object prototype properties on table and sort
+    const resProto = await adapter.find({
+      collection: postsCollection,
+      page: 1,
+      limit: 10,
+      where: { constructor: { equals: 1 } },
+      sort: 'constructor',
+    })
+    expect(resProto.docs).toBeDefined()
+  })
+
   it('maps real MySQL duplicate unique key to UniqueConstraintError', async () => {
     const first = await adapter.create({
       collection: tagsCollection,

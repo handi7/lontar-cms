@@ -4,8 +4,15 @@ export { defineConfig, LontarConfigError } from './config/define-config'
 export { toClientCollection, toClientConfig, toClientGlobal } from './config/to-client-config'
 export { fields } from './fields'
 export { createLontar, type CreateLontarOptions, type LontarApp } from './server/create-lontar'
-export { parseSort, parseWhere, parseWhereFromSearchParams } from './query'
-export type { FieldFilter, FilterOperator, SortItem, Where, WhereClause } from './query'
+export { parseSort, parseWhere, parseWhereFromSearchParams, validateWhere } from './query'
+export type {
+  FieldFilter,
+  FilterOperator,
+  QueryValidationIssue,
+  SortItem,
+  Where,
+  WhereClause,
+} from './query'
 export { runAfterChangeHooks, runAfterReadHooks, runBeforeChangeHooks } from './hooks'
 export { parseDepth, populateDoc, populateDocs, type PopulateOptions } from './populate'
 export type {
