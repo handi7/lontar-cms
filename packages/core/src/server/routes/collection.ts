@@ -105,14 +105,14 @@ async function executeCreate(args: {
   data: DocumentData
   req: Request
 }): Promise<MutationExecutionResult> {
-  try {
+  const run = async (txDb: DatabaseAdapter): Promise<MutationExecutionResult> => {
     const data = await runBeforeChangeHooks({
       collection: args.collection,
       data: args.data,
       operation: 'create',
       req: args.req,
     })
-    const created = await args.db.create({ collection: args.collection, data })
+    const created = await txDb.create({ collection: args.collection, data })
     const doc = await runAfterChangeHooks({
       collection: args.collection,
       doc: created,
@@ -120,6 +120,13 @@ async function executeCreate(args: {
       req: args.req,
     })
     return { success: true, doc }
+  }
+
+  try {
+    if (args.db.transaction) {
+      return await args.db.transaction(run)
+    }
+    return await run(args.db)
   } catch (err) {
     if (err instanceof UniqueConstraintError) {
       return { success: false, status: 400, body: formatUniqueConstraintError(err) }
@@ -197,7 +204,7 @@ async function executeUpdate(args: {
   data: DocumentData
   req: Request
 }): Promise<MutationExecutionResult> {
-  try {
+  const run = async (txDb: DatabaseAdapter): Promise<MutationExecutionResult> => {
     const data = await runBeforeChangeHooks({
       collection: args.collection,
       data: args.data,
@@ -205,7 +212,7 @@ async function executeUpdate(args: {
       originalDoc: args.originalDoc,
       req: args.req,
     })
-    const updated = await args.db.update({ collection: args.collection, id: args.id, data })
+    const updated = await txDb.update({ collection: args.collection, id: args.id, data })
     if (!updated) {
       return {
         success: false,
@@ -221,6 +228,13 @@ async function executeUpdate(args: {
       req: args.req,
     })
     return { success: true, doc }
+  }
+
+  try {
+    if (args.db.transaction) {
+      return await args.db.transaction(run)
+    }
+    return await run(args.db)
   } catch (err) {
     if (err instanceof UniqueConstraintError) {
       return { success: false, status: 400, body: formatUniqueConstraintError(err) }

@@ -1,11 +1,13 @@
 import {
   boolean,
   double,
+  index,
   int,
   json,
   mysqlTable,
   text,
   timestamp,
+  unique,
   varchar,
   type AnyMySqlColumn,
   type MySqlColumnBuilder,
@@ -145,7 +147,11 @@ export function createJunctionTable(tableName: string): JunctionTable {
     targetId: int('target_id').notNull(),
     order: int('order').default(0).notNull(),
   }
-  return mysqlTable(tableName, columns)
+  return mysqlTable(tableName, columns, (t) => [
+    index(`${tableName}_parent_idx`).on(t.parentId),
+    index(`${tableName}_target_idx`).on(t.targetId),
+    unique(`${tableName}_parent_target_unique`).on(t.parentId, t.targetId),
+  ])
 }
 
 export function getCollectionJunctionTables(

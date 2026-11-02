@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import type { AnyMySqlColumn } from 'drizzle-orm/mysql-core'
+import { getTableConfig, type AnyMySqlColumn } from 'drizzle-orm/mysql-core'
 import { getTableColumns } from 'drizzle-orm'
 import type { CollectionConfig, GlobalConfig } from '@lontar/core'
 import { collectionToTable, getCollectionJunctionTables, globalToTable } from './table'
@@ -147,6 +147,15 @@ describe('collectionToTable', () => {
     expect(col(columns, 'parentId').notNull).toBe(true)
     expect(col(columns, 'targetId').notNull).toBe(true)
     expect(col(columns, 'order').notNull).toBe(true)
+
+    const config = getTableConfig(junctionTables.categories!)
+    expect(config.indexes.map((i) => i.config.name)).toEqual([
+      'posts_categories_parent_idx',
+      'posts_categories_target_idx',
+    ])
+    expect(config.uniqueConstraints.map((u) => u.name)).toEqual([
+      'posts_categories_parent_target_unique',
+    ])
   })
 
   it('creates table for globals with globalToTable', () => {

@@ -26,7 +26,7 @@ async function executeGlobalUpdate(args: {
   data: DocumentData
   req: Request
 }): Promise<MutationExecutionResult> {
-  try {
+  const run = async (txDb: DatabaseAdapter): Promise<MutationExecutionResult> => {
     const operation = args.existing ? 'update' : 'create'
     const data = await runBeforeChangeHooks({
       global: args.global,
@@ -35,7 +35,7 @@ async function executeGlobalUpdate(args: {
       originalDoc: args.existing ?? undefined,
       req: args.req,
     })
-    const saved = await args.db.updateGlobal({ global: args.global, data })
+    const saved = await txDb.updateGlobal({ global: args.global, data })
     const doc = await runAfterChangeHooks({
       global: args.global,
       doc: saved,
@@ -44,6 +44,13 @@ async function executeGlobalUpdate(args: {
       req: args.req,
     })
     return { success: true, doc }
+  }
+
+  try {
+    if (args.db.transaction) {
+      return await args.db.transaction(run)
+    }
+    return await run(args.db)
   } catch (err) {
     if (err instanceof UniqueConstraintError) {
       return { success: false, status: 400, body: formatUniqueConstraintError(err) }
