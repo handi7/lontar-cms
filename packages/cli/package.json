@@ -1,6 +1,6 @@
 {
   "name": "@lontar/cli",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Lontar CLI: database migrations and TypeScript type generation.",
   "keywords": [
     "lontar",

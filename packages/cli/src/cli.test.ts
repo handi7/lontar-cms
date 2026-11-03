@@ -17,6 +17,13 @@ describe('CLI run', () => {
     consoleSpy.mockRestore()
   })
 
+  it('reports the version from package.json', () => {
+    const pkg = JSON.parse(
+      fs.readFileSync(path.join(import.meta.dirname, '../package.json'), 'utf8'),
+    ) as { version: string }
+    expect(VERSION).toBe(pkg.version)
+  })
+
   it('prints help with --help', async () => {
     const consoleSpy = vi.spyOn(console, 'log').mockImplementation(() => {})
     await run(['--help'])

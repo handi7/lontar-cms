@@ -1,6 +1,6 @@
 {
   "name": "@lontar/admin",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Admin panel for Lontar: a prebuilt client-side React SPA.",
   "keywords": [
     "lontar",

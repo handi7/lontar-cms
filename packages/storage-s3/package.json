@@ -1,6 +1,6 @@
 {
   "name": "@lontar/storage-s3",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "S3-compatible storage adapter for Lontar uploads.",
   "keywords": [
     "lontar",

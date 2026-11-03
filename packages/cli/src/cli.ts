@@ -1,10 +1,15 @@
 #!/usr/bin/env node
+import { createRequire } from 'node:module'
 import { createUser } from './commands/create-user'
 import { generateTypesCommand } from './commands/generate-types'
 import { migrate } from './commands/migrate'
 import { migrateCreate } from './commands/migrate-create'
 
-export const VERSION = '0.0.0'
+// Read at runtime so `lontar --version` always matches the installed package.
+// '../package.json' resolves the same from src/ (tests) and dist/ (published build).
+export const VERSION: string = (
+  createRequire(import.meta.url)('../package.json') as { version: string }
+).version
 export { generateTypes } from './typegen/generator'
 export { generateTypesCommand, type GenerateTypesOptions } from './commands/generate-types'
 
