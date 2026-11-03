@@ -24,7 +24,10 @@
       "@lontar/core/client": ["../../packages/core/src/client/index.ts"],
       "@lontar/core/*": ["../../packages/core/src/*"],
       "@lontar/db-mysql": ["../../packages/db-mysql/src/index.ts"],
-      "@lontar/next": ["../../packages/next/src/index.ts"]
+      "@lontar/admin": ["../../packages/admin/src/index.ts"],
+      "@lontar/next": ["../../packages/next/src/index.ts"],
+      "@lontar/storage-local": ["../../packages/storage-local/src/index.ts"],
+      "@lontar/storage-s3": ["../../packages/storage-s3/src/index.ts"]
     }
   },
   "include": ["next-env.d.ts", "**/*.ts", "**/*.tsx", ".next/types/**/*.ts"],
