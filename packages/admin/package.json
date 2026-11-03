@@ -1,6 +1,25 @@
 {
   "name": "@lontar/admin",
   "version": "0.1.0",
+  "description": "Admin panel for Lontar: a prebuilt client-side React SPA.",
+  "keywords": [
+    "lontar",
+    "cms",
+    "headless-cms",
+    "typescript",
+    "admin",
+    "react"
+  ],
+  "license": "MIT",
+  "homepage": "https://github.com/handi7/lontar-cms#readme",
+  "bugs": {
+    "url": "https://github.com/handi7/lontar-cms/issues"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/handi7/lontar-cms.git",
+    "directory": "packages/admin"
+  },
   "type": "module",
   "sideEffects": [
     "*.css"
@@ -24,12 +43,21 @@
     "typecheck": "tsc --noEmit"
   },
   "peerDependencies": {
+    "@lontar/core": "workspace:^",
     "react": "^19.0.0",
     "react-dom": "^19.0.0"
   },
   "devDependencies": {
+    "@hookform/resolvers": "^6.0.2",
     "@lontar/core": "workspace:*",
+    "@tanstack/react-query": "^5.105.0",
+    "@tanstack/react-router": "^1.170.46",
+    "@tanstack/react-table": "^8.21.3",
     "@testing-library/react": "^16.3.3",
+    "@tiptap/extension-link": "^3.32.2",
+    "@tiptap/pm": "^3.32.2",
+    "@tiptap/react": "^3.32.2",
+    "@tiptap/starter-kit": "^3.32.2",
     "@types/node": "^26.6.6",
     "@types/react": "^19.3.0",
     "@types/react-dom": "^19.3.0",
@@ -37,19 +65,18 @@
     "happy-dom": "^21.0.4",
     "react": "^19.3.1",
     "react-dom": "^19.3.1",
+    "react-hook-form": "^7.91.0",
     "vite": "^8.3.5",
-    "vite-plugin-dts": "^5.1.2"
+    "vite-plugin-dts": "^5.1.2",
+    "zod": "^4.6.7"
   },
   "dependencies": {
-    "@hookform/resolvers": "^6.0.2",
-    "@tanstack/react-query": "^5.105.0",
-    "@tanstack/react-router": "^1.170.46",
-    "@tanstack/react-table": "^8.21.3",
-    "@tiptap/extension-link": "^3.32.2",
-    "@tiptap/pm": "^3.32.2",
-    "@tiptap/react": "^3.32.2",
-    "@tiptap/starter-kit": "^3.32.2",
-    "react-hook-form": "^7.91.0",
-    "zod": "^4.6.7"
+    "@tanstack/history": "^1.162.5"
+  },
+  "engines": {
+    "node": ">=22.22.1"
+  },
+  "publishConfig": {
+    "access": "public"
   }
 }

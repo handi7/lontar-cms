@@ -7,7 +7,7 @@ An open source, TypeScript-first headless CMS. Define your schema in a config fi
 ## Installation
 
 ```bash
-pnpm add @lontar/core @lontar/db-mysql @lontar/next
+pnpm add @lontar/core @lontar/db-mysql @lontar/next @lontar/admin
 pnpm add -D @lontar/cli
 ```
 
@@ -161,3 +161,7 @@ PATCH /api/posts/:id
 DELETE /api/posts/:id
 GET /api/globals/site-settings
 ```
+
+## License
+
+[MIT](LICENSE)

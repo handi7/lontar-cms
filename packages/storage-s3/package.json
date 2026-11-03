@@ -1,6 +1,26 @@
 {
   "name": "@lontar/storage-s3",
   "version": "0.1.0",
+  "description": "S3-compatible storage adapter for Lontar uploads.",
+  "keywords": [
+    "lontar",
+    "cms",
+    "headless-cms",
+    "typescript",
+    "storage",
+    "uploads",
+    "s3"
+  ],
+  "license": "MIT",
+  "homepage": "https://github.com/handi7/lontar-cms#readme",
+  "bugs": {
+    "url": "https://github.com/handi7/lontar-cms/issues"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/handi7/lontar-cms.git",
+    "directory": "packages/storage-s3"
+  },
   "type": "module",
   "sideEffects": false,
   "exports": {
@@ -27,5 +47,11 @@
     "@lontar/core": "workspace:*",
     "@types/node": "^26.6.6",
     "aws-sdk-client-mock": "^4.1.0"
+  },
+  "engines": {
+    "node": ">=22.22.1"
+  },
+  "publishConfig": {
+    "access": "public"
   }
 }

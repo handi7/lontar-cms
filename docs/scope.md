@@ -66,7 +66,7 @@ The following are intentionally left out of v0.1 so the MVP can ship in 2–3 mo
 - How are custom admin components registered: through a client-side registry, or import paths resolved at build time?
 - DB schema: one table per collection with a column per field, or store some fields as JSON (e.g. rich text and, later, blocks)?
 - Stored rich text format: Tiptap JSON, HTML, or both?
-- License: MIT or Apache-2.0?
+- ~~License: MIT or Apache-2.0?~~ Decided: MIT ([ADR 0018](adr/0018-license-mit.md)).
 
 **Next steps**
 

@@ -1,6 +1,26 @@
 {
   "name": "@lontar/cli",
   "version": "0.1.0",
+  "description": "Lontar CLI: database migrations and TypeScript type generation.",
+  "keywords": [
+    "lontar",
+    "cms",
+    "headless-cms",
+    "typescript",
+    "cli",
+    "migrations",
+    "codegen"
+  ],
+  "license": "MIT",
+  "homepage": "https://github.com/handi7/lontar-cms#readme",
+  "bugs": {
+    "url": "https://github.com/handi7/lontar-cms/issues"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/handi7/lontar-cms.git",
+    "directory": "packages/cli"
+  },
   "type": "module",
   "bin": {
     "lontar": "./bin/lontar.js"
@@ -21,11 +41,20 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
-    "@lontar/core": "workspace:*",
     "drizzle-kit": "^0.31.11",
     "jiti": "^2.7.0"
   },
+  "peerDependencies": {
+    "@lontar/core": "workspace:^"
+  },
   "devDependencies": {
+    "@lontar/core": "workspace:*",
     "@types/node": "^26.6.6"
+  },
+  "engines": {
+    "node": ">=22.22.1"
+  },
+  "publishConfig": {
+    "access": "public"
   }
 }

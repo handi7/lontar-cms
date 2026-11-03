@@ -1,6 +1,26 @@
 {
   "name": "@lontar/db-mysql",
   "version": "0.1.0",
+  "description": "MySQL database adapter for Lontar, built on Drizzle ORM.",
+  "keywords": [
+    "lontar",
+    "cms",
+    "headless-cms",
+    "typescript",
+    "mysql",
+    "drizzle",
+    "database-adapter"
+  ],
+  "license": "MIT",
+  "homepage": "https://github.com/handi7/lontar-cms#readme",
+  "bugs": {
+    "url": "https://github.com/handi7/lontar-cms/issues"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/handi7/lontar-cms.git",
+    "directory": "packages/db-mysql"
+  },
   "type": "module",
   "sideEffects": false,
   "exports": {
@@ -29,5 +49,11 @@
   "devDependencies": {
     "@lontar/core": "workspace:*",
     "@types/node": "^26.6.6"
+  },
+  "engines": {
+    "node": ">=22.22.1"
+  },
+  "publishConfig": {
+    "access": "public"
   }
 }

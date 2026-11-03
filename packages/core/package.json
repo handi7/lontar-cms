@@ -1,6 +1,26 @@
 {
   "name": "@lontar/core",
   "version": "0.1.0",
+  "description": "Lontar core: config, fields, validation, hooks, access control, REST API (Hono) and Local API.",
+  "keywords": [
+    "lontar",
+    "cms",
+    "headless-cms",
+    "typescript",
+    "hono",
+    "zod",
+    "rest-api"
+  ],
+  "license": "MIT",
+  "homepage": "https://github.com/handi7/lontar-cms#readme",
+  "bugs": {
+    "url": "https://github.com/handi7/lontar-cms/issues"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/handi7/lontar-cms.git",
+    "directory": "packages/core"
+  },
   "type": "module",
   "sideEffects": false,
   "exports": {
@@ -30,5 +50,11 @@
   },
   "devDependencies": {
     "@types/node": "^26.6.6"
+  },
+  "engines": {
+    "node": ">=22.22.1"
+  },
+  "publishConfig": {
+    "access": "public"
   }
 }
