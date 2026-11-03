@@ -50,7 +50,7 @@ test.describe('Lontar CMS Admin in Next.js', () => {
     await expect(page.getByRole('heading', { name: 'Create Post' })).toBeVisible()
     const uniqueTitle = `E2E Test Post ${Date.now()}`
     await page.locator('input[name="title"]').fill(uniqueTitle)
-    await page.locator('input[name="views"]').fill('123')
+    await page.locator('select[name="status"]').selectOption('published')
 
     // 7. Submit form
     await page.getByRole('button', { name: 'Create Post' }).click()
@@ -77,12 +77,12 @@ test.describe('Lontar CMS Admin in Next.js', () => {
     await page.getByRole('link', { name: uniqueTitle }).click()
     await expect(page.getByRole('heading', { name: /Edit Post/ })).toBeVisible()
     await expect(page.locator('input[name="title"]')).toHaveValue(uniqueTitle)
-    await expect(page.locator('input[name="views"]')).toHaveValue('123')
+    await expect(page.locator('select[name="status"]')).toHaveValue('published')
 
     // 10. Update the post
     const updatedTitle = `${uniqueTitle} (Updated)`
     await page.locator('input[name="title"]').fill(updatedTitle)
-    await page.locator('input[name="views"]').fill('456')
+    await page.locator('select[name="status"]').selectOption('draft')
     await page.getByRole('button', { name: 'Save Changes' }).click()
     await expect(page.getByText('Saved successfully!')).toBeVisible()
 

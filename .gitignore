@@ -17,6 +17,9 @@ out/
 .env.local
 .env.*.local
 
+# Uploads
+uploads/
+
 # Playwright
 test-results/
 playwright-report/

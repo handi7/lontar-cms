@@ -70,9 +70,10 @@ The following are intentionally left out of v0.1 so the MVP can ship in 2–3 mo
 
 **Next steps**
 
-- [ ] Finalize the project name and check npm package name availability
-- [ ] Review the config example in the README and iterate until it feels good to use
-- [ ] Write ADRs for the first 3 decisions: SPA admin, Drizzle + MySQL, `ClientConfig` format
-- [ ] Set up the monorepo (pnpm + Turborepo) with `core`, `db-mysql`, `admin`, `next`, `cli` packages
-- [ ] Walking skeleton: a `posts` collection with `text` and `number` fields, working end-to-end from config to the admin edit form
-- [ ] Break the MVP scope table into milestones and issues in GitHub Projects
+- [x] Finalize the project name and check npm package name availability
+- [x] Review the config example in the README and iterate until it feels good to use
+- [x] Write ADRs for the first decisions: SPA admin, Drizzle + MySQL, `ClientConfig` format
+- [x] Set up the monorepo (pnpm + Turborepo) with `core`, `db-mysql`, `admin`, `next`, `cli` packages
+- [x] Walking skeleton: a `posts` collection with `text` and `number` fields, working end-to-end from config to the admin edit form
+- [x] Break the MVP scope table into milestones and issues in GitHub Projects
+- [x] Complete MVP scope (v0.1) with a full Next.js blog demo (`examples/next-blog`) featuring auth, media uploads, and rich text

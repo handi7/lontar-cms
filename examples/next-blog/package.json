@@ -9,6 +9,7 @@
     "start": "next start",
     "migrate:create": "lontar migrate:create",
     "migrate": "lontar migrate",
+    "generate:types": "lontar generate:types",
     "typecheck": "tsc --noEmit",
     "test:e2e": "lontar migrate && playwright test"
   },
@@ -16,7 +17,8 @@
     "@lontar/admin": "workspace:*",
     "@lontar/core": "workspace:*",
     "@lontar/db-mysql": "workspace:*",
-    "@lontar/next": "workspace:*"
+    "@lontar/next": "workspace:*",
+    "@lontar/storage-local": "workspace:*"
   },
   "devDependencies": {
     "@lontar/cli": "workspace:*",
