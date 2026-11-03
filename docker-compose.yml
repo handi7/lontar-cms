@@ -14,6 +14,7 @@ services:
       - '3306:3306'
     volumes:
       - lontar-mysql-data:/var/lib/mysql
+      - ./docker/mysql-init:/docker-entrypoint-initdb.d:ro
     healthcheck:
       test: ['CMD', 'mysqladmin', 'ping', '-h', '127.0.0.1', '-ulontar', '-plontar']
       interval: 5s
