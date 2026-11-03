@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import { QueryClient, QueryClientProvider, useQuery } from '@tanstack/react-query'
-import { RouterProvider, type RouterHistory } from '@tanstack/react-router'
+import type { RouterHistory } from '@tanstack/history'
+import { RouterProvider } from '@tanstack/react-router'
 import { AdminContext } from './context/AdminContext'
 import { AuthProvider } from './context/AuthContext'
 import { fetchClientConfig } from './api/client'

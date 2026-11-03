@@ -1,6 +1,25 @@
 {
   "name": "@lontar/next",
   "version": "0.1.0",
+  "description": "Next.js adapter for Lontar: serve the API from App Router route handlers.",
+  "keywords": [
+    "lontar",
+    "cms",
+    "headless-cms",
+    "typescript",
+    "nextjs",
+    "next"
+  ],
+  "license": "MIT",
+  "homepage": "https://github.com/handi7/lontar-cms#readme",
+  "bugs": {
+    "url": "https://github.com/handi7/lontar-cms/issues"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/handi7/lontar-cms.git",
+    "directory": "packages/next"
+  },
   "type": "module",
   "sideEffects": false,
   "exports": {
@@ -17,7 +36,16 @@
     "dev": "tsdown --watch",
     "typecheck": "tsc --noEmit"
   },
-  "dependencies": {
+  "peerDependencies": {
+    "@lontar/core": "workspace:^"
+  },
+  "devDependencies": {
     "@lontar/core": "workspace:*"
+  },
+  "engines": {
+    "node": ">=22.22.1"
+  },
+  "publishConfig": {
+    "access": "public"
   }
 }

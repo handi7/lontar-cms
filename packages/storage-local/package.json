@@ -1,6 +1,25 @@
 {
   "name": "@lontar/storage-local",
   "version": "0.1.0",
+  "description": "Local disk storage adapter for Lontar uploads.",
+  "keywords": [
+    "lontar",
+    "cms",
+    "headless-cms",
+    "typescript",
+    "storage",
+    "uploads"
+  ],
+  "license": "MIT",
+  "homepage": "https://github.com/handi7/lontar-cms#readme",
+  "bugs": {
+    "url": "https://github.com/handi7/lontar-cms/issues"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/handi7/lontar-cms.git",
+    "directory": "packages/storage-local"
+  },
   "type": "module",
   "sideEffects": false,
   "exports": {
@@ -23,5 +42,11 @@
   "devDependencies": {
     "@lontar/core": "workspace:*",
     "@types/node": "^26.6.6"
+  },
+  "engines": {
+    "node": ">=22.22.1"
+  },
+  "publishConfig": {
+    "access": "public"
   }
 }

@@ -18,8 +18,15 @@ function cssDts(): Plugin {
 
 // The admin ships prebuilt (docs/adr/0001-spa-admin.md): everything is bundled
 // except React, which must come from the host app so there is only one copy.
+// That's why the bundled libraries are devDependencies in package.json.
+// `pathsToAliases: false` keeps `@lontar/core/client` a bare import in the
+// emitted .d.ts instead of a relative path into the monorepo's source.
 export default defineConfig({
-  plugins: [react(), dts({ entryRoot: 'src', exclude: ['**/*.test.*'] }), cssDts()],
+  plugins: [
+    react(),
+    dts({ entryRoot: 'src', include: ['src'], exclude: ['**/*.test.*'], pathsToAliases: false }),
+    cssDts(),
+  ],
   resolve: {
     alias: [
       {
