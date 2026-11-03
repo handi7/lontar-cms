@@ -65,6 +65,9 @@ importers:
       '@lontar/next':
         specifier: workspace:*
         version: link:../../packages/next
+      '@lontar/storage-local':
+        specifier: workspace:*
+        version: link:../../packages/storage-local
     devDependencies:
       '@lontar/cli':
         specifier: workspace:*

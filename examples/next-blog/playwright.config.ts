@@ -1,5 +1,7 @@
 import { defineConfig, devices } from '@playwright/test'
 
+const port = process.env.PORT || '3005'
+
 export default defineConfig({
   testDir: './e2e',
   fullyParallel: false,
@@ -8,7 +10,7 @@ export default defineConfig({
   workers: 1,
   reporter: 'list',
   use: {
-    baseURL: 'http://127.0.0.1:3000',
+    baseURL: `http://127.0.0.1:${port}`,
     trace: 'on-first-retry',
   },
   projects: [
@@ -18,12 +20,12 @@ export default defineConfig({
     },
   ],
   webServer: {
-    command: 'pnpm start -p 3000',
-    url: 'http://127.0.0.1:3000/api/_lontar/config',
+    command: `pnpm start -p ${port}`,
+    url: `http://127.0.0.1:${port}/api/_lontar/config`,
     reuseExistingServer: !process.env.CI,
     timeout: 120000,
     env: {
-      BETTER_AUTH_TRUSTED_ORIGINS: 'http://127.0.0.1:3000,http://localhost:3000',
+      BETTER_AUTH_TRUSTED_ORIGINS: `http://127.0.0.1:${port},http://localhost:${port}`,
     },
   },
 })

@@ -15,6 +15,13 @@
       "when": 1793491729588,
       "tag": "0001_famous_vengeance",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "5",
+      "when": 1793673446226,
+      "tag": "0002_light_doctor_doom",
+      "breakpoints": true
     }
   ]
 }

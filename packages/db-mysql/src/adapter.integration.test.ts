@@ -59,6 +59,9 @@ describe('mysqlAdapter (integration)', () => {
   beforeAll(async () => {
     // Drop existing tables if any
     const pool = mysql.createPool(DATABASE_URL)
+    await pool.query('DROP TABLE IF EXISTS `site-settings`')
+    await pool.query('DROP TABLE IF EXISTS media')
+    await pool.query('DROP TABLE IF EXISTS authors')
     await pool.query('DROP TABLE IF EXISTS session')
     await pool.query('DROP TABLE IF EXISTS account')
     await pool.query('DROP TABLE IF EXISTS verification')
@@ -109,6 +112,9 @@ describe('mysqlAdapter (integration)', () => {
   afterAll(async () => {
     try {
       const pool = mysql.createPool(DATABASE_URL)
+      await pool.query('DROP TABLE IF EXISTS `site-settings`')
+      await pool.query('DROP TABLE IF EXISTS media')
+      await pool.query('DROP TABLE IF EXISTS authors')
       await pool.query('DROP TABLE IF EXISTS session')
       await pool.query('DROP TABLE IF EXISTS account')
       await pool.query('DROP TABLE IF EXISTS verification')

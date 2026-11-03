@@ -72,7 +72,7 @@ export interface PaginationConfig {
 export type FieldName<F extends Fields, C = unknown> =
   | (keyof F & string)
   | SystemFieldName
-  | (C extends { upload: true | object } ? UploadSystemFieldName : never)
+  | (C extends { upload: true | object } | true | UploadConfig ? UploadSystemFieldName : never)
 
 export interface CollectionConfig<F extends Fields = Fields> {
   /** Used in URLs and as the table name. Kebab-case: `posts`, `blog-posts`. */

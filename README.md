@@ -2,7 +2,7 @@
 
 An open source, TypeScript-first headless CMS. Define your schema in a config file and get a REST API, an admin panel, database migrations, and TypeScript types generated for you. The admin is a pure SPA, and the engine runs on Hono, so you can mount it in Next.js, standalone Node, or other runtimes.
 
-> **Status: pre-alpha.** Nothing is implemented yet. This README describes the target API and serves as the spec for v0.1. See [`docs/scope.md`](docs/scope.md) for scope and non-goals.
+> **Status: v0.1 ready.** All core features including standard fields, Zod validation, auth, collection-level access control, hooks, globals, rich text (Tiptap), relationships, file uploads (local & S3 storage with Sharp image resizing), type generation, Local API (`getLontar`), and the complete Next.js blog example are implemented. See [`docs/scope.md`](docs/scope.md) for scope and non-goals.
 
 ## Installation
 

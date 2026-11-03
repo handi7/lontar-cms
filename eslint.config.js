@@ -13,6 +13,7 @@ export default tseslint.config(
       '**/.lontar/**',
       '**/coverage/**',
       '**/next-env.d.ts',
+      '**/lontar-types.ts',
     ],
   },
   js.configs.recommended,
