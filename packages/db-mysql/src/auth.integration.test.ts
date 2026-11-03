@@ -6,26 +6,19 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import mysql from 'mysql2/promise'
 import { createLontar, type Config } from '@lontar/core'
 import { mysqlAdapter, type MysqlAdapter } from './adapter'
-
-const DATABASE_URL = process.env.DATABASE_URL || 'mysql://lontar:lontar@127.0.0.1:3306/lontar'
+import { setupTestDatabase, type TestDatabase } from './test-database'
 
 describe('Better Auth MySQL adapter (integration)', () => {
+  let testDb: TestDatabase
   let adapter: MysqlAdapter
   let tempDir: string
   let migrationsDir: string
   let pool: mysql.Pool
 
   beforeAll(async () => {
-    pool = mysql.createPool({ uri: DATABASE_URL, multipleStatements: true })
-    await pool.query(`
-      DROP TABLE IF EXISTS session;
-      DROP TABLE IF EXISTS account;
-      DROP TABLE IF EXISTS verification;
-      DROP TABLE IF EXISTS user;
-      DROP TABLE IF EXISTS __drizzle_migrations;
-    `)
-
-    adapter = mysqlAdapter({ url: DATABASE_URL })
+    testDb = await setupTestDatabase()
+    pool = mysql.createPool({ uri: testDb.url, multipleStatements: true })
+    adapter = mysqlAdapter({ url: testDb.url })
 
     const config: Config = {
       secret: 'a-very-long-secret-key-that-is-at-least-32-chars-long!',
@@ -59,21 +52,20 @@ describe('Better Auth MySQL adapter (integration)', () => {
   afterAll(async () => {
     try {
       if (pool) {
-        await pool.query(`
-          DROP TABLE IF EXISTS session;
-          DROP TABLE IF EXISTS account;
-          DROP TABLE IF EXISTS verification;
-          DROP TABLE IF EXISTS user;
-          DROP TABLE IF EXISTS __drizzle_migrations;
-        `)
         await pool.end()
       }
     } finally {
-      if (adapter) {
-        await adapter.close()
-      }
-      if (tempDir && fs.existsSync(tempDir)) {
-        fs.rmSync(tempDir, { recursive: true, force: true })
+      try {
+        if (adapter) {
+          await adapter.close()
+        }
+        if (tempDir && fs.existsSync(tempDir)) {
+          fs.rmSync(tempDir, { recursive: true, force: true })
+        }
+      } finally {
+        if (testDb) {
+          await testDb.teardown()
+        }
       }
     }
   })

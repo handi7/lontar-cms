@@ -11,8 +11,7 @@ import {
   type GlobalConfig,
 } from '@lontar/core'
 import { mysqlAdapter, type MysqlAdapter } from './adapter'
-
-const DATABASE_URL = process.env.DATABASE_URL || 'mysql://lontar:lontar@127.0.0.1:3306/lontar'
+import { setupTestDatabase, type TestDatabase } from './test-database'
 
 const postsCollection: CollectionConfig = {
   slug: 'posts',
@@ -52,29 +51,16 @@ const headerGlobal: GlobalConfig = {
 }
 
 describe('mysqlAdapter (integration)', () => {
+  let testDb: TestDatabase
+  let testDatabaseUrl: string
   let adapter: MysqlAdapter
   let tempDir: string
   let migrationsDir: string
 
   beforeAll(async () => {
-    // Drop existing tables if any
-    const pool = mysql.createPool(DATABASE_URL)
-    await pool.query('DROP TABLE IF EXISTS `site-settings`')
-    await pool.query('DROP TABLE IF EXISTS media')
-    await pool.query('DROP TABLE IF EXISTS authors')
-    await pool.query('DROP TABLE IF EXISTS session')
-    await pool.query('DROP TABLE IF EXISTS account')
-    await pool.query('DROP TABLE IF EXISTS verification')
-    await pool.query('DROP TABLE IF EXISTS user')
-    await pool.query('DROP TABLE IF EXISTS posts_categories')
-    await pool.query('DROP TABLE IF EXISTS posts')
-    await pool.query('DROP TABLE IF EXISTS categories')
-    await pool.query('DROP TABLE IF EXISTS tags')
-    await pool.query('DROP TABLE IF EXISTS header')
-    await pool.query('DROP TABLE IF EXISTS __drizzle_migrations')
-    await pool.end()
-
-    adapter = mysqlAdapter({ url: DATABASE_URL })
+    testDb = await setupTestDatabase()
+    testDatabaseUrl = testDb.url
+    adapter = mysqlAdapter({ url: testDatabaseUrl })
 
     const config: Config = {
       secret: 'test-secret',
@@ -111,25 +97,15 @@ describe('mysqlAdapter (integration)', () => {
 
   afterAll(async () => {
     try {
-      const pool = mysql.createPool(DATABASE_URL)
-      await pool.query('DROP TABLE IF EXISTS `site-settings`')
-      await pool.query('DROP TABLE IF EXISTS media')
-      await pool.query('DROP TABLE IF EXISTS authors')
-      await pool.query('DROP TABLE IF EXISTS session')
-      await pool.query('DROP TABLE IF EXISTS account')
-      await pool.query('DROP TABLE IF EXISTS verification')
-      await pool.query('DROP TABLE IF EXISTS user')
-      await pool.query('DROP TABLE IF EXISTS posts_categories')
-      await pool.query('DROP TABLE IF EXISTS posts')
-      await pool.query('DROP TABLE IF EXISTS categories')
-      await pool.query('DROP TABLE IF EXISTS tags')
-      await pool.query('DROP TABLE IF EXISTS header')
-      await pool.query('DROP TABLE IF EXISTS __drizzle_migrations')
-      await pool.end()
-    } finally {
-      await adapter.close()
+      if (adapter) {
+        await adapter.close()
+      }
       if (tempDir && fs.existsSync(tempDir)) {
         fs.rmSync(tempDir, { recursive: true, force: true })
+      }
+    } finally {
+      if (testDb) {
+        await testDb.teardown()
       }
     }
   })
@@ -534,7 +510,7 @@ describe('mysqlAdapter (integration)', () => {
     expect(listResult.docs[0]?.categories).toEqual([30, 10])
 
     // Verify junction rows exist directly via pool query
-    const pool = mysql.createPool(DATABASE_URL)
+    const pool = mysql.createPool(testDatabaseUrl)
     const [rowsBefore] = (await pool.query(
       'SELECT target_id, `order` FROM posts_categories WHERE parent_id = ? ORDER BY `order` ASC',
       [post.id],
@@ -694,7 +670,7 @@ describe('mysqlAdapter (integration)', () => {
     })
     expect(found.docs).toHaveLength(0)
 
-    const pool = mysql.createPool(DATABASE_URL)
+    const pool = mysql.createPool(testDatabaseUrl)
     const [rows] = (await pool.query('SELECT * FROM posts WHERE title = ?', [
       'Failing Create Post',
     ])) as unknown as [Array<unknown>, unknown]
@@ -730,7 +706,7 @@ describe('mysqlAdapter (integration)', () => {
     expect(fetched?.title).toBe('Initial Post Title')
     expect(fetched?.categories).toEqual([1, 2])
 
-    const pool = mysql.createPool(DATABASE_URL)
+    const pool = mysql.createPool(testDatabaseUrl)
     const [jRows] = (await pool.query(
       'SELECT target_id FROM posts_categories WHERE parent_id = ? ORDER BY `order` ASC',
       [post.id],

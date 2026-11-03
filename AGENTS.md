@@ -71,11 +71,13 @@ pnpm db:down      # stop it
 pnpm build        # turbo: build every package
 pnpm dev          # turbo: watch-build every package
 pnpm typecheck    # turbo: tsc --noEmit per package
-pnpm test         # vitest across all packages
+pnpm test         # vitest across all packages (uses TEST_DATABASE_URL, safe for dev data)
 pnpm lint         # eslint
 pnpm format       # prettier --write
 pnpm format:check # prettier --check
 ```
+
+Integration tests connect using `TEST_DATABASE_URL` (defaults to `mysql://lontar:lontar@127.0.0.1:3306/lontar_test`). Each test file dynamically creates and drops its own isolated database (`lontar_test_<hex>`), completely protecting the local development database (`DATABASE_URL`).
 
 Packages build with tsdown, except `admin`, which is a Vite library build.
 `publint` runs as part of each tsdown build, so a `package.json` whose `exports`
@@ -112,16 +114,16 @@ prettier on staged files only). CI (`.github/workflows/ci.yml`) runs
   - [x] #23 `fields: implement relationship field (single and hasMany)`
   - [x] #24 `api: support depth query param to populate relationships in REST API`
   - [x] #25 `admin: relationship picker component in edit forms`
-- [ ] **M5: Uploads, Typegen & v0.1 Release** (Current)
+- [x] **M5: Uploads, Typegen & v0.1 Release** (Done)
   - [x] #26 `uploads: implement storage adapters (local & S3) and Sharp image resizing`
   - [x] #27 `fields: implement upload field type and media collection handling`
   - [x] #28 `cli: implement lontar generate:types command`
   - [x] #29 `examples/next-blog: complete real blog demo with auth, media, and rich text`
-  - [ ] Code review fixes that must land before release (checklist and fix order in #69)
+  - [x] Code review fixes that must land before release (checklist and fix order in #69)
     - [x] Security: #44, #45, #46, #47, #48
     - [x] Data integrity: #49 (done), #50 (done), #51 (done), #52 (done), #53 (done), #54 (done), #56 (done), #57 (done)
-    - [ ] Needed for #29: #59 (done), #68 (done)
-    - [ ] Tooling: #55
+    - [x] Needed for #29: #59 (done), #68 (done)
+    - [x] Tooling: #55 (done)
 - [ ] **v0.1.x: Post-release fixes** (after v0.1; checklist in #69)
   - [ ] Admin UX: #60, #61, #62, #63, #64
   - [ ] Other: #58, #65, #66, #67
