@@ -195,6 +195,45 @@ describe('migrateCreate & migrate', () => {
     }
   })
 
+  it('generates migration when schema imports drizzle-orm via absolute path (pnpm non-hoisted support)', async () => {
+    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'lontar-cli-pnpm-test-'))
+    try {
+      const configFile = path.join(tempDir, 'lontar.config.js')
+      const { createRequire } = await import('node:module')
+      const req = createRequire(import.meta.url)
+      const ormPath = req.resolve('drizzle-orm/mysql-core').replace(/\\/g, '/')
+
+      fs.writeFileSync(
+        configFile,
+        `
+        export default {
+          secret: 'test',
+          db: {
+            name: 'mysql',
+            toSchemaFile: () => \`import { mysqlTable, serial, varchar } from '${ormPath}'
+export const items = mysqlTable('items', {
+  id: serial('id').primaryKey(),
+  title: varchar('title', { length: 255 }).notNull(),
+})
+\`,
+            migrate: async () => {},
+          },
+          collections: [],
+        }
+      `,
+      )
+
+      await migrateCreate({ cwd: tempDir })
+
+      const migrationsDir = path.join(tempDir, 'migrations')
+      expect(fs.existsSync(migrationsDir)).toBe(true)
+      const migrationFiles = fs.readdirSync(migrationsDir)
+      expect(migrationFiles.some((f) => f.endsWith('.sql'))).toBe(true)
+    } finally {
+      fs.rmSync(tempDir, { recursive: true, force: true })
+    }
+  })
+
   it('reports when migrations directory is missing', async () => {
     const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'lontar-cli-no-mig-'))
     try {
