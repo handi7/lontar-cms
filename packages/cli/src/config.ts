@@ -2,6 +2,11 @@ import fs from 'node:fs'
 import path from 'node:path'
 import { createJiti } from 'jiti'
 import type { Config } from '@lontar/core'
+import { loadEnv } from './utils/env'
+
+export interface LoadConfigOptions {
+  envFile?: string
+}
 
 function extractConfig(mod: unknown): Config | null {
   if (typeof mod !== 'object' || mod === null) return null
@@ -11,7 +16,9 @@ function extractConfig(mod: unknown): Config | null {
   return mod as Config
 }
 
-export async function loadConfig(cwd: string): Promise<Config> {
+export async function loadConfig(cwd: string, options: LoadConfigOptions = {}): Promise<Config> {
+  loadEnv({ cwd, envFile: options.envFile })
+
   const possiblePaths = [
     path.resolve(cwd, 'lontar.config.ts'),
     path.resolve(cwd, 'lontar.config.js'),

@@ -7,11 +7,12 @@ import { findDrizzleKitBin } from '../utils/drizzle-kit'
 export interface MigrateCreateOptions {
   cwd?: string
   name?: string
+  envFile?: string
 }
 
 export async function migrateCreate(options: MigrateCreateOptions = {}): Promise<void> {
   const cwd = options.cwd ?? process.cwd()
-  const config = await loadConfig(cwd)
+  const config = await loadConfig(cwd, { envFile: options.envFile })
 
   const schemaContent = config.db.toSchemaFile(config)
   const lontarDir = path.resolve(cwd, '.lontar')

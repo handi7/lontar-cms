@@ -6,11 +6,12 @@ import { generateTypes } from '../typegen/generator'
 export interface GenerateTypesOptions {
   cwd?: string
   output?: string
+  envFile?: string
 }
 
 export async function generateTypesCommand(options: GenerateTypesOptions = {}): Promise<string> {
   const cwd = options.cwd ?? process.cwd()
-  const config = await loadConfig(cwd)
+  const config = await loadConfig(cwd, { envFile: options.envFile })
   const typesContent = generateTypes(config)
 
   const outputPath = options.output ?? 'lontar-types.ts'

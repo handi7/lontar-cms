@@ -5,11 +5,12 @@ import { closeDb } from '../utils/db'
 
 export interface MigrateOptions {
   cwd?: string
+  envFile?: string
 }
 
 export async function migrate(options: MigrateOptions = {}): Promise<void> {
   const cwd = options.cwd ?? process.cwd()
-  const config = await loadConfig(cwd)
+  const config = await loadConfig(cwd, { envFile: options.envFile })
   const migrationsDir = path.resolve(cwd, 'migrations')
 
   if (!fs.existsSync(migrationsDir)) {
