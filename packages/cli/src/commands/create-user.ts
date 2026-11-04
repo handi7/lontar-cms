@@ -1,5 +1,6 @@
 import { createLontar, createUserWithCredential } from '@lontar/core'
 import { loadConfig } from '../config'
+import { closeDb } from '../utils/db'
 
 export interface CreateUserOptions {
   cwd?: string
@@ -25,8 +26,13 @@ export async function createUser(options: CreateUserOptions = {}): Promise<void>
 
   const cwd = options.cwd ?? process.cwd()
   const config = await loadConfig(cwd)
-  const app = createLontar(config)
-  const user = await createUserWithCredential(app.auth, { email, password, name })
 
-  console.log(`Created user ${user.email} (${user.name}) [id: ${user.id}]`)
+  try {
+    const app = createLontar(config)
+    const user = await createUserWithCredential(app.auth, { email, password, name })
+
+    console.log(`Created user ${user.email} (${user.name}) [id: ${user.id}]`)
+  } finally {
+    await closeDb(config.db)
+  }
 }

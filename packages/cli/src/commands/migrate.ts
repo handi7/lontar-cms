@@ -1,17 +1,10 @@
 import fs from 'node:fs'
 import path from 'node:path'
 import { loadConfig } from '../config'
+import { closeDb } from '../utils/db'
 
 export interface MigrateOptions {
   cwd?: string
-}
-
-interface Closable {
-  close(): Promise<void>
-}
-
-function isClosable(db: unknown): db is Closable {
-  return typeof db === 'object' && db !== null && 'close' in db && typeof db.close === 'function'
 }
 
 export async function migrate(options: MigrateOptions = {}): Promise<void> {
@@ -24,11 +17,10 @@ export async function migrate(options: MigrateOptions = {}): Promise<void> {
     return
   }
 
-  await config.db.migrate({ migrationsDir })
-
-  if (isClosable(config.db)) {
-    await config.db.close()
+  try {
+    await config.db.migrate({ migrationsDir })
+    console.log('Migrations applied successfully.')
+  } finally {
+    await closeDb(config.db)
   }
-
-  console.log('Migrations applied successfully.')
 }
