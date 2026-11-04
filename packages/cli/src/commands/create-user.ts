@@ -7,6 +7,7 @@ export interface CreateUserOptions {
   email?: string
   password?: string
   name?: string
+  envFile?: string
 }
 
 export async function createUser(options: CreateUserOptions = {}): Promise<void> {
@@ -25,7 +26,7 @@ export async function createUser(options: CreateUserOptions = {}): Promise<void>
   }
 
   const cwd = options.cwd ?? process.cwd()
-  const config = await loadConfig(cwd)
+  const config = await loadConfig(cwd, { envFile: options.envFile })
 
   try {
     const app = createLontar(config)

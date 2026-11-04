@@ -1,2 +1,7 @@
 #!/usr/bin/env node
-import '../dist/cli.js'
+import { run } from '../dist/cli.js'
+
+run().catch((err) => {
+  console.error(err instanceof Error ? err.message : String(err))
+  process.exit(1)
+})

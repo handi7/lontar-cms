@@ -2,7 +2,7 @@ import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import { describe, expect, it, vi } from 'vitest'
-import { run, VERSION } from './cli'
+import { isMainModule, parseGlobalFlags, run, VERSION } from './cli'
 import { createUser } from './commands/create-user'
 import { generateTypesCommand } from './commands/generate-types'
 import { migrate } from './commands/migrate'
@@ -29,6 +29,7 @@ describe('CLI run', () => {
     await run(['--help'])
     expect(consoleSpy).toHaveBeenCalledWith(expect.stringContaining('Lontar CLI'))
     expect(consoleSpy).toHaveBeenCalledWith(expect.stringContaining('generate:types'))
+    expect(consoleSpy).toHaveBeenCalledWith(expect.stringContaining('--env-file'))
     consoleSpy.mockRestore()
   })
 
@@ -44,6 +45,59 @@ describe('CLI run', () => {
   })
 })
 
+describe('isMainModule (Windows & Unix support)', () => {
+  it('returns true when argv1 file URL matches metaUrl', () => {
+    expect(isMainModule('/project/dist/cli.js', 'file:///project/dist/cli.js')).toBe(true)
+  })
+
+  it('returns true for Unix paths ending in /cli.js or /cli.ts', () => {
+    expect(isMainModule('/Users/handiani/lontar/packages/cli/dist/cli.js', 'file:///other')).toBe(
+      true,
+    )
+    expect(isMainModule('/Users/handiani/lontar/packages/cli/src/cli.ts', 'file:///other')).toBe(
+      true,
+    )
+  })
+
+  it('returns true for Windows paths with backslashes ending in \\cli.js or \\cli.ts', () => {
+    expect(
+      isMainModule('C:\\Users\\handiani\\lontar\\packages\\cli\\dist\\cli.js', 'file:///other'),
+    ).toBe(true)
+    expect(
+      isMainModule('C:\\Users\\handiani\\lontar\\packages\\cli\\src\\cli.ts', 'file:///other'),
+    ).toBe(true)
+  })
+
+  it('returns false when argv1 is undefined or does not match cli entry', () => {
+    expect(isMainModule(undefined, 'file:///other')).toBe(false)
+    expect(isMainModule('/path/to/worker.js', 'file:///other')).toBe(false)
+    expect(isMainModule('C:\\path\\to\\other.js', 'file:///other')).toBe(false)
+  })
+})
+
+describe('parseGlobalFlags', () => {
+  it('extracts --env-file with separate argument', () => {
+    const result = parseGlobalFlags(['migrate', '--env-file', 'custom.env', '--foo'])
+    expect(result.envFile).toBe('custom.env')
+    expect(result.cleanArgv).toEqual(['migrate', '--foo'])
+  })
+
+  it('extracts --env-file with = syntax', () => {
+    const result = parseGlobalFlags(['--env-file=.env.staging', 'generate:types'])
+    expect(result.envFile).toBe('.env.staging')
+    expect(result.cleanArgv).toEqual(['generate:types'])
+  })
+
+  it('throws error when --env-file is missing a value', () => {
+    expect(() => parseGlobalFlags(['migrate', '--env-file'])).toThrow(
+      'A path argument is required for --env-file',
+    )
+    expect(() => parseGlobalFlags(['migrate', '--env-file='])).toThrow(
+      'A path argument is required for --env-file',
+    )
+  })
+})
+
 describe('loadConfig', () => {
   it('throws when lontar.config.ts is missing', async () => {
     const emptyDir = fs.mkdtempSync(path.join(os.tmpdir(), 'lontar-cli-empty-'))
@@ -51,6 +105,55 @@ describe('loadConfig', () => {
       await expect(loadConfig(emptyDir)).rejects.toThrow('Could not find lontar.config.ts')
     } finally {
       fs.rmSync(emptyDir, { recursive: true, force: true })
+    }
+  })
+
+  it('loads .env so config can read process.env', async () => {
+    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'lontar-cli-env-config-'))
+    try {
+      fs.writeFileSync(path.join(tempDir, '.env'), 'CLI_TEST_SECRET=super-secret-loaded-from-env\n')
+      fs.writeFileSync(
+        path.join(tempDir, 'lontar.config.js'),
+        `
+        export default {
+          secret: process.env.CLI_TEST_SECRET,
+          db: { name: 'mysql' },
+          collections: [],
+        }
+      `,
+      )
+
+      const config = await loadConfig(tempDir)
+      expect(config.secret).toBe('super-secret-loaded-from-env')
+    } finally {
+      delete process.env.CLI_TEST_SECRET
+      fs.rmSync(tempDir, { recursive: true, force: true })
+    }
+  })
+
+  it('supports custom env file via options', async () => {
+    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'lontar-cli-env-custom-'))
+    try {
+      fs.writeFileSync(
+        path.join(tempDir, 'staging.env'),
+        'CLI_TEST_STAGING_KEY=staging-secret-key\n',
+      )
+      fs.writeFileSync(
+        path.join(tempDir, 'lontar.config.js'),
+        `
+        export default {
+          secret: process.env.CLI_TEST_STAGING_KEY,
+          db: { name: 'mysql' },
+          collections: [],
+        }
+      `,
+      )
+
+      const config = await loadConfig(tempDir, { envFile: 'staging.env' })
+      expect(config.secret).toBe('staging-secret-key')
+    } finally {
+      delete process.env.CLI_TEST_STAGING_KEY
+      fs.rmSync(tempDir, { recursive: true, force: true })
     }
   })
 })
