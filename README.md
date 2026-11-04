@@ -11,6 +11,8 @@ pnpm add @lontar/core @lontar/db-mysql @lontar/next @lontar/admin
 pnpm add -D @lontar/cli
 ```
 
+> **Note for pnpm 11+:** `@lontar/cli` uses `drizzle-kit` for migrations. If pnpm blocks dependency build scripts (`ERR_PNPM_IGNORED_BUILDS`), run `pnpm approve-builds` or add `allowBuilds: { esbuild: true }` in `pnpm-workspace.yaml`.
+
 ## Define your config
 
 ```ts
