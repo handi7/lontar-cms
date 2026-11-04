@@ -120,6 +120,51 @@ describe('migrateCreate & migrate', () => {
     }
   })
 
+  it('calls close on db adapter when migrate succeeds and when it fails', async () => {
+    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'lontar-cli-mig-close-'))
+    const logSpy = vi.spyOn(console, 'log').mockImplementation(() => {})
+    try {
+      const migrationsDir = path.join(tempDir, 'migrations')
+      fs.mkdirSync(migrationsDir, { recursive: true })
+
+      const closeSpy = vi.fn().mockResolvedValue(undefined)
+      const migrateSpy = vi.fn().mockResolvedValue(undefined)
+
+      const configFile = path.join(tempDir, 'lontar.config.js')
+      fs.writeFileSync(
+        configFile,
+        `
+        export default {
+          secret: 'test',
+          db: {
+            name: 'mysql',
+            migrate: globalThis.__testMigrate,
+            close: globalThis.__testClose,
+          },
+          collections: [],
+        }
+      `,
+      )
+
+      ;(globalThis as Record<string, unknown>).__testMigrate = migrateSpy
+      ;(globalThis as Record<string, unknown>).__testClose = closeSpy
+
+      await migrate({ cwd: tempDir })
+      expect(migrateSpy).toHaveBeenCalledTimes(1)
+      expect(closeSpy).toHaveBeenCalledTimes(1)
+
+      // When migrate throws, close() is still called
+      migrateSpy.mockRejectedValueOnce(new Error('Migration failed'))
+      await expect(migrate({ cwd: tempDir })).rejects.toThrow('Migration failed')
+      expect(closeSpy).toHaveBeenCalledTimes(2)
+    } finally {
+      logSpy?.mockRestore()
+      delete (globalThis as Record<string, unknown>).__testMigrate
+      delete (globalThis as Record<string, unknown>).__testClose
+      fs.rmSync(tempDir, { recursive: true, force: true })
+    }
+  })
+
   describe('createUser', () => {
     it('validates email, password, and name options', async () => {
       await expect(createUser({ email: 'invalid', password: '123' })).rejects.toThrow(
