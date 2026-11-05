@@ -26,7 +26,8 @@ Detailed docs:
 - API: Hono (REST)
 - Auth: Better Auth, httpOnly session cookie
 - Uploads: Sharp for resizing, local storage + S3-compatible adapter
-- Admin: Vite, React, TanStack Router, TanStack Query, TanStack Table, React Hook Form, dnd-kit, Tiptap, shadcn/ui + Tailwind
+- Admin: Vite, React, TanStack Router, TanStack Query, TanStack Table, React Hook Form, Tiptap, scoped hand-written CSS
+- Planned admin styling: shadcn/ui + scoped Tailwind v4 (M6, tracked in #123)
 - Build: tsdown/tsup for packages
 - Tests: Vitest (unit/integration), Playwright (admin e2e)
 
@@ -127,6 +128,18 @@ prettier on staged files only). CI (`.github/workflows/ci.yml`) runs
 - [x] **v0.1.x: Post-release fixes** (after v0.1; checklist in #69)
   - [x] Admin UX: #60 (done), #61 (done), #62 (done), #63 (done), #64 (done)
   - [x] Other: #58 (done), #65 (done), #66 (done), #67 (done)
+
+- [ ] **M6: Admin styling with shadcn/ui + scoped Tailwind v4** (planned; tracking in #123)
+  - [ ] #113 Styling ADR
+  - [ ] #114 Scoped Tailwind build and token mapping
+  - [ ] #115 Primitives and scoped portal container
+  - [ ] #116 Non-portal components
+  - [ ] #117 Portal components
+  - [ ] #118 Date and checkbox fields
+  - [ ] #119 Radix unit test setup
+  - [ ] #120 Admin e2e updates
+  - [ ] #121 Dark mode (optional)
+  - [ ] #122 Theming token documentation and Stack correction
 
 Update this section when a milestone or issue is done.
 
