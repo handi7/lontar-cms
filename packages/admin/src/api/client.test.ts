@@ -1,5 +1,12 @@
 import { describe, expect, it, vi, afterEach } from 'vitest'
-import { ApiClientError, createDoc, setOnUnauthorized, signOut, updateDoc } from './client'
+import {
+  ApiClientError,
+  createDoc,
+  formatApiErrorMessage,
+  setOnUnauthorized,
+  signOut,
+  updateDoc,
+} from './client'
 
 describe('ApiClientError and API Client error handling', () => {
   afterEach(() => {
@@ -110,5 +117,31 @@ describe('ApiClientError and API Client error handling', () => {
       expect((err as ApiClientError).status).toBe(401)
       expect(onUnauthorized).toHaveBeenCalledTimes(1)
     }
+  })
+
+  describe('formatApiErrorMessage', () => {
+    it('formats ApiClientError with issue details', () => {
+      const err = new ApiClientError('Validation failed', 400, [
+        { message: 'Title is required' },
+        { message: 'Slug is already taken' },
+      ])
+      expect(formatApiErrorMessage(err)).toBe(
+        'Validation failed: Title is required, Slug is already taken',
+      )
+    })
+
+    it('returns error message when ApiClientError has no issues', () => {
+      const err = new ApiClientError('Forbidden', 403)
+      expect(formatApiErrorMessage(err)).toBe('Forbidden')
+    })
+
+    it('returns standard Error message', () => {
+      const err = new Error('Network failure')
+      expect(formatApiErrorMessage(err)).toBe('Network failure')
+    })
+
+    it('returns string representation of unknown error', () => {
+      expect(formatApiErrorMessage('Something went wrong')).toBe('Something went wrong')
+    })
   })
 })

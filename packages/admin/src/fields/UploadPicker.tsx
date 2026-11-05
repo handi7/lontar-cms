@@ -1,9 +1,9 @@
 import { useState, useEffect, useContext, useRef } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import type { UseFormRegister, UseFormSetValue, UseFormWatch } from 'react-hook-form'
-import type { ClientUploadField } from '@lontar/core/client'
+import type { ClientConfig, ClientUploadField } from '@lontar/core/client'
 import { AdminContext } from '../context/AdminContext'
-import { fetchCollectionDocs, fetchDoc, createDoc } from '../api/client'
+import { fetchCollectionDocs, fetchDoc, createDoc, formatApiErrorMessage } from '../api/client'
 import { formatFilesize } from './FileUploadZone'
 
 export interface UploadPickerProps {
@@ -210,34 +210,53 @@ interface EmptyPickerActionsProps {
   onBrowse: () => void
   onUploadFile: (file: File) => void
   isPending: boolean
+  accept?: string
+  error?: string | null
 }
 
-function EmptyPickerActions({ onBrowse, onUploadFile, isPending }: EmptyPickerActionsProps) {
+function EmptyPickerActions({
+  onBrowse,
+  onUploadFile,
+  isPending,
+  accept,
+  error,
+}: EmptyPickerActionsProps) {
   const fileInputRef = useRef<HTMLInputElement>(null)
 
   return (
     <div className="lontar-upload-picker-empty">
-      <button
-        type="button"
-        className="lontar-btn lontar-btn-secondary lontar-btn-sm"
-        onClick={onBrowse}
-        data-testid="upload-picker-browse-btn"
-      >
-        Select from Media
-      </button>
-      <button
-        type="button"
-        className="lontar-btn lontar-btn-secondary lontar-btn-sm"
-        onClick={() => fileInputRef.current?.click()}
-        disabled={isPending}
-        data-testid="upload-picker-upload-btn"
-      >
-        {isPending ? 'Uploading...' : 'Upload New File'}
-      </button>
+      <div className="lontar-upload-picker-buttons">
+        <button
+          type="button"
+          className="lontar-btn lontar-btn-secondary lontar-btn-sm"
+          onClick={onBrowse}
+          data-testid="upload-picker-browse-btn"
+        >
+          Select from Media
+        </button>
+        <button
+          type="button"
+          className="lontar-btn lontar-btn-secondary lontar-btn-sm"
+          onClick={() => fileInputRef.current?.click()}
+          disabled={isPending}
+          data-testid="upload-picker-upload-btn"
+        >
+          {isPending ? 'Uploading...' : 'Upload New File'}
+        </button>
+      </div>
+      {error && (
+        <div
+          className="lontar-alert lontar-alert-error lontar-upload-picker-error"
+          data-testid="upload-picker-error"
+        >
+          {error}
+        </div>
+      )}
       <input
         ref={fileInputRef}
         type="file"
         style={{ display: 'none' }}
+        accept={accept}
         onChange={(e) => {
           const file = e.target.files?.[0]
           if (file) {
@@ -260,7 +279,12 @@ function useUploadDoc(apiBase: string, relationTo: string, selectedId: number | 
   })
 }
 
-function useUploadMutation(apiBase: string, relationTo: string, onUploaded: (id: number) => void) {
+function useUploadMutation(
+  apiBase: string,
+  relationTo: string,
+  onUploaded: (id: number) => void,
+  onError?: (err: Error) => void,
+) {
   const queryClient = useQueryClient()
   return useMutation({
     mutationFn: async (file: File) => {
@@ -273,13 +297,28 @@ function useUploadMutation(apiBase: string, relationTo: string, onUploaded: (id:
       void queryClient.invalidateQueries({ queryKey: [relationTo] })
       onUploaded(Number(newDoc.id))
     },
+    onError,
   })
+}
+
+function getTargetUploadAccept(
+  config: ClientConfig | undefined,
+  relationTo: string,
+): string | undefined {
+  const collection = config?.collections.find((c) => c.slug === relationTo)
+  if (!collection || typeof collection.upload !== 'object') return undefined
+  const mimeTypes = collection.upload?.mimeTypes
+  return mimeTypes && mimeTypes.length > 0 ? mimeTypes.join(',') : undefined
 }
 
 export function UploadPicker({ field, register, setValue, watch }: UploadPickerProps) {
   const adminCtx = useContext(AdminContext)
   const apiBase = adminCtx?.apiBase ?? '/api'
   const basePath = adminCtx?.basePath ?? '/admin'
+  const accept = getTargetUploadAccept(adminCtx?.config, field.relationTo)
+
+  const [uploadError, setUploadError] = useState<string | null>(null)
+  const [isSearching, setIsSearching] = useState(false)
 
   useEffect(() => {
     register(field.name)
@@ -287,13 +326,31 @@ export function UploadPicker({ field, register, setValue, watch }: UploadPickerP
 
   const rawValue = watch ? watch(field.name) : undefined
   const selectedId = extractNumericId(rawValue)
-  const [isSearching, setIsSearching] = useState(false)
 
   const docQuery = useUploadDoc(apiBase, field.relationTo, selectedId)
-  const uploadMutation = useUploadMutation(apiBase, field.relationTo, (id) => {
+  const uploadMutation = useUploadMutation(
+    apiBase,
+    field.relationTo,
+    (id) => {
+      setUploadError(null)
+      setValue?.(field.name, id, { shouldValidate: true, shouldDirty: true })
+      setIsSearching(false)
+    },
+    (err) => {
+      setUploadError(formatApiErrorMessage(err))
+    },
+  )
+
+  const handleSelectDoc = (id: number) => {
+    setUploadError(null)
     setValue?.(field.name, id, { shouldValidate: true, shouldDirty: true })
     setIsSearching(false)
-  })
+  }
+
+  const handleRemove = () => {
+    setUploadError(null)
+    setValue?.(field.name, null, { shouldValidate: true, shouldDirty: true })
+  }
 
   if (selectedId && !isSearching) {
     return (
@@ -303,7 +360,7 @@ export function UploadPicker({ field, register, setValue, watch }: UploadPickerP
         basePath={basePath}
         relationTo={field.relationTo}
         onChange={() => setIsSearching(true)}
-        onRemove={() => setValue?.(field.name, null, { shouldValidate: true, shouldDirty: true })}
+        onRemove={handleRemove}
       />
     )
   }
@@ -314,17 +371,22 @@ export function UploadPicker({ field, register, setValue, watch }: UploadPickerP
         <MediaDropdown
           relationTo={field.relationTo}
           apiBase={apiBase}
-          onSelect={(doc) => {
-            setValue?.(field.name, Number(doc.id), { shouldValidate: true, shouldDirty: true })
-            setIsSearching(false)
-          }}
-          onCancel={selectedId ? () => setIsSearching(false) : undefined}
+          onSelect={(doc) => handleSelectDoc(Number(doc.id))}
+          onCancel={() => setIsSearching(false)}
         />
       ) : (
         <EmptyPickerActions
-          onBrowse={() => setIsSearching(true)}
-          onUploadFile={(file) => uploadMutation.mutate(file)}
+          onBrowse={() => {
+            setUploadError(null)
+            setIsSearching(true)
+          }}
+          onUploadFile={(file) => {
+            setUploadError(null)
+            uploadMutation.mutate(file)
+          }}
           isPending={uploadMutation.isPending}
+          accept={accept}
+          error={uploadError}
         />
       )}
     </div>

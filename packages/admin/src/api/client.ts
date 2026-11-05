@@ -49,6 +49,25 @@ export class ApiClientError extends Error {
   }
 }
 
+export function formatApiErrorMessage(err: unknown): string {
+  if (err instanceof ApiClientError) {
+    if (err.issues && err.issues.length > 0) {
+      const issueDetails = err.issues
+        .map((i) => i.message)
+        .filter(Boolean)
+        .join(', ')
+      if (issueDetails) {
+        return `${err.message}: ${issueDetails}`
+      }
+    }
+    return err.message
+  }
+  if (err instanceof Error) {
+    return err.message
+  }
+  return String(err)
+}
+
 export type UnauthorizedHandler = () => void
 let onUnauthorizedHandler: UnauthorizedHandler | null = null
 
