@@ -4,6 +4,8 @@ on:
   pull_request:
   push:
     branches: [main]
+  # release.yml runs these same checks before publishing.
+  workflow_call:
 
 concurrency:
   group: ci-${{ github.ref }}
@@ -44,6 +46,11 @@ jobs:
       - run: pnpm lint
       - run: pnpm typecheck
       - run: pnpm build
+      # Installs the packed tarballs outside the workspace, the way users get them.
+      - name: Pack and smoke-test the packages
+        run: |
+          pnpm pack:packages "$RUNNER_TEMP/packed"
+          pnpm smoke:packages "$RUNNER_TEMP/packed"
       - run: pnpm test
       - name: Install Playwright Chromium
         run: pnpm --filter next-blog exec playwright install chromium --with-deps

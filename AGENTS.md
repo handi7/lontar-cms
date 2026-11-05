@@ -75,6 +75,9 @@ pnpm test         # vitest across all packages (uses TEST_DATABASE_URL, safe for
 pnpm lint         # eslint
 pnpm format       # prettier --write
 pnpm format:check # prettier --check
+
+pnpm pack:packages <dir>   # pnpm pack every public package into <dir> (run pnpm build first)
+pnpm smoke:packages <dir>  # install those tarballs outside the workspace and check imports, bins, types
 ```
 
 Integration tests connect using `TEST_DATABASE_URL` (defaults to `mysql://lontar:lontar@127.0.0.1:3306/lontar_test`). Each test file dynamically creates and drops its own isolated database (`lontar_test_<hex>`), completely protecting the local development database (`DATABASE_URL`).
@@ -85,7 +88,11 @@ disagree with the build output fails the build rather than the install.
 
 `pnpm install` sets up a Husky pre-commit hook that runs lint-staged (eslint --fix and
 prettier on staged files only). CI (`.github/workflows/ci.yml`) runs
-`format:check` → `lint` → `typecheck` → `build` → `test` on every PR and on pushes to `main`.
+`format:check` → `lint` → `typecheck` → `build` → pack + smoke test → `test` → e2e on every PR
+and on pushes to `main`.
+
+Releases are published by `.github/workflows/release.yml` when a `vX.Y.Z` tag is pushed, after
+approval on the `npm` environment. Don't run `pnpm publish` by hand; see `docs/releasing.md`.
 
 ## Conventions
 
