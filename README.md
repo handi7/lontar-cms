@@ -121,6 +121,46 @@ export default function AdminPage() {
 
 On load, the admin fetches the `ClientConfig` from `/api/_lontar/config` and renders lists and forms from it.
 
+### Admin theming
+
+The CSS custom properties below are the supported theming surface. Override them on
+`.lontar-admin` in a stylesheet loaded after `@lontar/admin/styles.css`:
+
+```css
+.lontar-admin {
+  --lontar-primary: #2563eb;
+  --lontar-primary-hover: #1d4ed8;
+  --lontar-primary-text: #ffffff;
+  --lontar-radius: 8px;
+}
+```
+
+The defaults are defined in [`packages/admin/src/styles.css`](packages/admin/src/styles.css).
+
+| Token                     | Default   | Purpose                                |
+| ------------------------- | --------- | -------------------------------------- |
+| `--lontar-bg`             | `#f8fafc` | Admin background                       |
+| `--lontar-surface`        | `#ffffff` | Panels, cards, and input backgrounds   |
+| `--lontar-surface-hover`  | `#f1f5f9` | Hovered surfaces and muted backgrounds |
+| `--lontar-border`         | `#e2e8f0` | Borders and separators                 |
+| `--lontar-text`           | `#0f172a` | Main text                              |
+| `--lontar-text-muted`     | `#64748b` | Secondary text                         |
+| `--lontar-primary`        | `#0f172a` | Primary actions and accents            |
+| `--lontar-primary-hover`  | `#1e293b` | Hovered primary actions                |
+| `--lontar-primary-text`   | `#ffffff` | Text on primary actions                |
+| `--lontar-danger`         | `#ef4444` | Destructive actions and invalid fields |
+| `--lontar-danger-hover`   | `#dc2626` | Hovered destructive actions            |
+| `--lontar-success-bg`     | `#ecfdf5` | Success message background             |
+| `--lontar-success-border` | `#a7f3d0` | Success message border                 |
+| `--lontar-success-text`   | `#065f46` | Success message text                   |
+| `--lontar-error-bg`       | `#fef2f2` | Error message background               |
+| `--lontar-error-border`   | `#fecaca` | Error message border                   |
+| `--lontar-error-text`     | `#991b1b` | Error message text                     |
+| `--lontar-radius`         | `6px`     | Base corner radius                     |
+
+Internal class names and any utility prefix are implementation details, not supported
+theming APIs. Use the tokens rather than targeting individual admin components.
+
 ## Mount in standalone Node
 
 ```ts
