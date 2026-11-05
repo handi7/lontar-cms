@@ -3,6 +3,8 @@ export {
   DEFAULT_MAX_FILE_SIZE,
   InvalidImageError,
   formatVariantFilename,
+  getOrientedDimensions,
+  isAnimatedMimeType,
   isResizableImage,
   processImage,
   type ImageFit,
