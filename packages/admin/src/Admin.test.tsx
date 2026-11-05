@@ -889,5 +889,74 @@ describe('Admin SPA', () => {
       const footerInput = await screen.findByLabelText<HTMLInputElement>(/copyright/i)
       expect(footerInput.value).toBe('Footer Copyright')
     })
+
+    it('uses collection useAsTitle as default search field instead of id', async () => {
+      const searchConfig: ClientConfig = {
+        version: 1,
+        collections: [
+          {
+            slug: 'articles',
+            labels: { singular: 'Article', plural: 'Articles' },
+            admin: { useAsTitle: 'headline', defaultColumns: ['headline'] },
+            fields: [
+              { name: 'headline', label: 'Headline', type: 'text', required: true },
+              { name: 'author', label: 'Author', type: 'text', required: true },
+            ],
+          },
+        ],
+        globals: [],
+      }
+
+      const fetchedUrls: string[] = []
+      vi.stubGlobal(
+        'fetch',
+        vi.fn().mockImplementation((url: string) => {
+          fetchedUrls.push(url)
+          if (url.includes('/_lontar/config')) {
+            return mockJsonResponse(searchConfig)
+          }
+          if (url.includes('/auth/get-session')) {
+            return mockJsonResponse({ user: mockAuthUser, session: mockAuthSession })
+          }
+          if (url.includes('/api/articles')) {
+            return mockJsonResponse({
+              docs: [{ id: 1, headline: 'Breaking News', author: 'Jane' }],
+              totalDocs: 1,
+              limit: 10,
+              page: 1,
+              totalPages: 1,
+            })
+          }
+          return Promise.reject(new Error(`Unhandled URL: ${url}`))
+        }),
+      )
+
+      const history = createMemoryHistory({ initialEntries: ['/admin/articles'] })
+      render(<Admin apiBase="/api" basePath="/admin" history={history} />)
+
+      await waitFor(() => {
+        expect(screen.getByText('Breaking News')).toBeTruthy()
+      })
+
+      const searchInput = screen.getByRole<HTMLInputElement>('searchbox', {
+        name: /search articles/i,
+      })
+      fireEvent.change(searchInput, { target: { value: 'Breaking' } })
+
+      await waitFor(() => {
+        expect(
+          fetchedUrls.some(
+            (u) =>
+              u.includes('/api/articles') &&
+              decodeURIComponent(u).includes('where[headline][contains]=Breaking'),
+          ),
+        ).toBe(true)
+        expect(
+          fetchedUrls.some(
+            (u) => u.includes('/api/articles') && decodeURIComponent(u).includes('where[id]'),
+          ),
+        ).toBe(false)
+      })
+    })
   })
 })

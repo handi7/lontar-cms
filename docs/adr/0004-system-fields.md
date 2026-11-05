@@ -16,7 +16,7 @@ Every collection gets three **system fields** that are not declared in config:
 
 System fields are read-only to API clients. The Zod schema built from a collection's fields strips them from input, so a client cannot choose an `id` or backdate a document.
 
-Their names are reserved: `defineConfig` rejects a field called `id`, `createdAt` or `updatedAt`. They are not listed in `ClientCollection.fields`, since every document has them, but `admin.useAsTitle` and `admin.defaultColumns` may name them. `useAsTitle` defaults to `id`.
+Their names are reserved: `defineConfig` rejects a field called `id`, `createdAt` or `updatedAt`. They are not listed in `ClientCollection.fields`, since every document has them, but `admin.useAsTitle` and `admin.defaultColumns` may name them. `useAsTitle` defaults to the first `text`/`email`/`slug` field, `filename` for upload collections, or `id`.
 
 Dates are ISO 8601 strings on every API surface, the Local API included, so a document has the same type whether it came over HTTP or not.
 

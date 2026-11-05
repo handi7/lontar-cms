@@ -197,13 +197,23 @@ function clientLabels({ slug, labels = {} }: CollectionConfig): ClientCollection
   return { singular: labels.singular ?? plural, plural }
 }
 
+function isTextLike(type: ClientField['type']): boolean {
+  return type === 'text' || type === 'email' || type === 'slug'
+}
+
+function resolveDefaultTitle(fields: ClientField[], upload: boolean): string {
+  const textLikeField = fields.find((field) => isTextLike(field.type))
+  if (textLikeField) return textLikeField.name
+  if (upload) return 'filename'
+  return 'id'
+}
+
 function clientAdmin(
   collection: CollectionConfig,
   fields: ClientField[],
 ): ClientCollection['admin'] {
   const { admin = {}, upload } = collection
-  const defaultTitle = upload ? 'filename' : 'id'
-  const useAsTitle = admin.useAsTitle ?? defaultTitle
+  const useAsTitle = admin.useAsTitle ?? resolveDefaultTitle(fields, Boolean(upload))
   const others = fields.map((field) => field.name).filter((name) => name !== useAsTitle)
   return {
     useAsTitle,
