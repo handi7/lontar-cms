@@ -5,6 +5,7 @@ import { RouterProvider } from '@tanstack/react-router'
 import { AdminContext } from './context/AdminContext'
 import { AuthProvider } from './context/AuthContext'
 import { fetchClientConfig } from './api/client'
+import { createAdminBrowserHistory } from './router/history'
 import { createAdminRouter } from './router/routes'
 
 export interface AdminProps {
@@ -43,7 +44,7 @@ function AdminInner({
 
   const router = useMemo(() => {
     if (!mounted) return null
-    return createAdminRouter({ basePath, history })
+    return createAdminRouter({ basePath, history: history ?? createAdminBrowserHistory() })
   }, [mounted, basePath, history])
 
   if (!mounted || isLoading || !router) {
