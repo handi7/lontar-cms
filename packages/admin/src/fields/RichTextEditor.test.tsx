@@ -84,4 +84,69 @@ describe('RichTextEditor', () => {
     const prosemirror = editorEl.querySelector('.ProseMirror')
     expect(prosemirror?.getAttribute('contenteditable')).toBe('false')
   })
+
+  it('does not emit onChange on initial mount with value', () => {
+    const onChange = vi.fn()
+    const initial = {
+      type: 'doc',
+      content: [
+        {
+          type: 'paragraph',
+          content: [{ type: 'text', text: 'Sample paragraph' }],
+        },
+      ],
+    }
+    render(<RichTextEditor name="content" value={initial} onChange={onChange} />)
+    expect(onChange).not.toHaveBeenCalled()
+  })
+
+  it('does not emit onChange when disabled toggles', () => {
+    const onChange = vi.fn()
+    const initial = {
+      type: 'doc',
+      content: [
+        {
+          type: 'paragraph',
+          content: [{ type: 'text', text: 'Sample paragraph' }],
+        },
+      ],
+    }
+    const { rerender } = render(
+      <RichTextEditor name="content" value={initial} onChange={onChange} disabled={false} />,
+    )
+    expect(onChange).not.toHaveBeenCalled()
+
+    rerender(<RichTextEditor name="content" value={initial} onChange={onChange} disabled={true} />)
+    expect(onChange).not.toHaveBeenCalled()
+  })
+
+  it('does not emit onChange when value prop is updated from outside', () => {
+    const onChange = vi.fn()
+    const initial = {
+      type: 'doc',
+      content: [
+        {
+          type: 'paragraph',
+          content: [{ type: 'text', text: 'Initial' }],
+        },
+      ],
+    }
+    const { rerender } = render(
+      <RichTextEditor name="content" value={initial} onChange={onChange} />,
+    )
+    expect(onChange).not.toHaveBeenCalled()
+
+    const updated = {
+      type: 'doc',
+      content: [
+        {
+          type: 'paragraph',
+          content: [{ type: 'text', text: 'Updated from server' }],
+        },
+      ],
+    }
+    rerender(<RichTextEditor name="content" value={updated} onChange={onChange} />)
+    expect(onChange).not.toHaveBeenCalled()
+    expect(screen.getByText('Updated from server')).toBeTruthy()
+  })
 })

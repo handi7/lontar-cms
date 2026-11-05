@@ -1142,5 +1142,127 @@ describe('Admin SPA', () => {
         ).toBe(false)
       })
     })
+
+    it('clearing optional upload-doc fields sends empty string in FormData', async () => {
+      const uploadConfig: ClientConfig = {
+        version: 1,
+        collections: [
+          {
+            slug: 'media',
+            labels: { singular: 'Media', plural: 'Media' },
+            admin: { useAsTitle: 'filename', defaultColumns: ['filename'] },
+            upload: true,
+            fields: [
+              { name: 'alt', label: 'Alt text', type: 'text', required: false },
+              { name: 'caption', label: 'Caption', type: 'text', required: false },
+            ],
+          },
+        ],
+        globals: [],
+      }
+
+      let capturedBody: unknown = null
+      vi.stubGlobal(
+        'fetch',
+        vi.fn().mockImplementation((url: string, init?: RequestInit) => {
+          if (url.includes('/_lontar/config')) {
+            return mockJsonResponse(uploadConfig)
+          }
+          if (url.includes('/auth/get-session')) {
+            return mockJsonResponse({ user: mockAuthUser, session: mockAuthSession })
+          }
+          if (url.includes('/api/media/10') && init?.method === 'PATCH') {
+            capturedBody = init.body
+            return mockJsonResponse({
+              id: 10,
+              filename: 'pic.png',
+              alt: null,
+              caption: '',
+            })
+          }
+          if (url.includes('/api/media/10')) {
+            return mockJsonResponse({
+              id: 10,
+              filename: 'pic.png',
+              alt: 'Initial Alt',
+              caption: 'Initial Caption',
+            })
+          }
+          return Promise.reject(new Error(`Unhandled URL: ${url}`))
+        }),
+      )
+
+      const history = createMemoryHistory({ initialEntries: ['/admin/media/10'] })
+      render(<Admin apiBase="/api" basePath="/admin" history={history} />)
+
+      await waitFor(() => {
+        expect(screen.getByText('Edit Media #10')).toBeTruthy()
+      })
+
+      const altInput = await screen.findByLabelText<HTMLInputElement>(/alt text/i)
+      await waitFor(() => {
+        expect(altInput.value).toBe('Initial Alt')
+      })
+
+      // Clear the alt field
+      fireEvent.change(altInput, { target: { value: '' } })
+      expect(altInput.value).toBe('')
+
+      const saveBtn = screen.getByRole('button', { name: /save changes/i })
+      fireEvent.click(saveBtn)
+
+      await waitFor(() => {
+        expect(screen.getByText(/saved successfully!/i)).toBeTruthy()
+      })
+
+      expect(capturedBody).toBeInstanceOf(FormData)
+      if (capturedBody instanceof FormData) {
+        expect(capturedBody.get('alt')).toBe('')
+      }
+    })
+
+    it('does not overwrite dirty form edits when refetch occurs in edit mode', async () => {
+      let fetchCount = 0
+      vi.stubGlobal(
+        'fetch',
+        vi.fn().mockImplementation((url: string) => {
+          if (url.includes('/_lontar/config')) {
+            return mockJsonResponse(mockConfig)
+          }
+          if (url.includes('/auth/get-session')) {
+            return mockJsonResponse({ user: mockAuthUser, session: mockAuthSession })
+          }
+          if (url.includes('/api/posts/42')) {
+            fetchCount++
+            return mockJsonResponse({
+              id: 42,
+              title: fetchCount === 1 ? 'Original Title' : 'Server Refetched Title',
+              views: 100,
+            })
+          }
+          return Promise.reject(new Error(`Unhandled URL: ${url}`))
+        }),
+      )
+
+      const history = createMemoryHistory({ initialEntries: ['/admin/posts/42'] })
+      render(<Admin apiBase="/api" basePath="/admin" history={history} />)
+
+      const titleInput = await screen.findByLabelText<HTMLInputElement>(/title/i)
+      await waitFor(() => {
+        expect(titleInput.value).toBe('Original Title')
+      })
+
+      // User types into the form, making it dirty
+      fireEvent.change(titleInput, { target: { value: 'User Edited Title' } })
+      expect(titleInput.value).toBe('User Edited Title')
+
+      // Trigger window focus event
+      window.dispatchEvent(new Event('focus'))
+
+      // Title must remain user's edit, not reset to server data
+      await waitFor(() => {
+        expect(titleInput.value).toBe('User Edited Title')
+      })
+    })
   })
 })

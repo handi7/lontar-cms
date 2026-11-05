@@ -111,4 +111,27 @@ describe('FileUploadZone', () => {
     expect(onChange).not.toHaveBeenCalled()
     expect(screen.getByText(/File size exceeds maximum allowed size of 100 B/i)).toBeTruthy()
   })
+
+  it('resets file input value so selecting the same file again triggers onChange', () => {
+    const onChange = vi.fn()
+    const { rerender } = render(<FileUploadZone onChange={onChange} />)
+
+    const input = screen.getByTestId<HTMLInputElement>('upload-file-input')
+    const file = new File(['content'], 'test.png', { type: 'image/png' })
+
+    fireEvent.change(input, { target: { files: [file] } })
+    expect(onChange).toHaveBeenCalledTimes(1)
+    expect(onChange).toHaveBeenCalledWith(file)
+    expect(input.value).toBe('')
+
+    rerender(<FileUploadZone value={file} onChange={onChange} />)
+    const removeBtn = screen.getByTestId('upload-remove-file')
+    fireEvent.click(removeBtn)
+    expect(onChange).toHaveBeenCalledWith(null)
+    expect(input.value).toBe('')
+
+    rerender(<FileUploadZone onChange={onChange} />)
+    fireEvent.change(input, { target: { files: [file] } })
+    expect(onChange).toHaveBeenCalledTimes(3)
+  })
 })

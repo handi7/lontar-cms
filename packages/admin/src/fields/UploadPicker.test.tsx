@@ -32,9 +32,11 @@ function mockJsonResponse(data: unknown, status = 200): Promise<Response> {
 function TestWrapper({
   children,
   defaultValues = {},
+  onSubmit,
 }: {
   children: (methods: ReturnType<typeof useForm<Record<string, unknown>>>) => React.ReactNode
   defaultValues?: Record<string, unknown>
+  onSubmit?: React.FormEventHandler<HTMLFormElement>
 }) {
   const queryClient = new QueryClient({
     defaultOptions: {
@@ -55,7 +57,7 @@ function TestWrapper({
           basePath: '/admin',
         }}
       >
-        <form>{children(methods)}</form>
+        <form onSubmit={onSubmit}>{children(methods)}</form>
       </AdminContext.Provider>
     </QueryClientProvider>
   )
@@ -189,5 +191,72 @@ describe('UploadPicker', () => {
     await waitFor(() => {
       expect(screen.getByTestId('upload-picker-browse-btn')).toBeTruthy()
     })
+  })
+
+  it('prevents form submission when Enter key is pressed in search input', () => {
+    const field: ClientUploadField = {
+      name: 'cover',
+      label: 'Cover Image',
+      type: 'upload',
+      relationTo: 'media',
+      required: false,
+    }
+
+    const onSubmit = vi.fn((e: React.FormEvent) => {
+      e.preventDefault()
+    })
+
+    render(
+      <TestWrapper onSubmit={onSubmit}>
+        {({ register, setValue, watch }) => (
+          <UploadPicker field={field} register={register} setValue={setValue} watch={watch} />
+        )}
+      </TestWrapper>,
+    )
+
+    fireEvent.click(screen.getByTestId('upload-picker-browse-btn'))
+    const searchInput = screen.getByTestId('upload-picker-search')
+
+    fireEvent.keyDown(searchInput, { key: 'Enter', code: 'Enter' })
+    expect(onSubmit).not.toHaveBeenCalled()
+  })
+
+  it('resets file input value after file selection in quick upload', () => {
+    const field: ClientUploadField = {
+      name: 'cover',
+      label: 'Cover Image',
+      type: 'upload',
+      relationTo: 'media',
+      required: false,
+    }
+
+    vi.mocked(fetch).mockImplementation(() =>
+      mockJsonResponse({
+        id: 99,
+        filename: 'avatar.png',
+        url: '/media/avatar.png',
+        mimeType: 'image/png',
+      }),
+    )
+
+    render(
+      <TestWrapper>
+        {({ register, setValue, watch }) => (
+          <UploadPicker field={field} register={register} setValue={setValue} watch={watch} />
+        )}
+      </TestWrapper>,
+    )
+
+    const fileInput = screen.getByTestId<HTMLInputElement>('upload-picker-quick-input')
+    const file = new File(['content'], 'avatar.png', { type: 'image/png' })
+
+    Object.defineProperty(fileInput, 'files', {
+      value: [file],
+      writable: true,
+    })
+
+    fireEvent.change(fileInput)
+
+    expect(fileInput.value).toBe('')
   })
 })

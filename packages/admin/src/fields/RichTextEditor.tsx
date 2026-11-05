@@ -1,4 +1,4 @@
-import { useEffect } from 'react'
+import { useEffect, useRef } from 'react'
 import { useEditor, EditorContent, type Editor } from '@tiptap/react'
 import StarterKit from '@tiptap/starter-kit'
 
@@ -192,11 +192,13 @@ function EditorToolbar({ editor }: { editor: Editor }) {
 export interface RichTextEditorProps {
   name: string
   value?: Record<string, unknown> | null
-  onChange?: (value: Record<string, unknown>) => void
+  onChange?: (value: Record<string, unknown> | null) => void
   disabled?: boolean
 }
 
 export function RichTextEditor({ name, value, onChange, disabled }: RichTextEditorProps) {
+  const skipUpdateRef = useRef(false)
+
   const editor = useEditor({
     extensions: [
       StarterKit.configure({
@@ -212,7 +214,10 @@ export function RichTextEditor({ name, value, onChange, disabled }: RichTextEdit
     content: value ?? undefined,
     editable: !disabled,
     onUpdate: ({ editor: currentEditor }) => {
-      onChange?.(currentEditor.getJSON())
+      if (skipUpdateRef.current) return
+      onChange?.(
+        currentEditor.isEmpty ? null : (currentEditor.getJSON() as Record<string, unknown>),
+      )
     },
   })
 
@@ -220,19 +225,25 @@ export function RichTextEditor({ name, value, onChange, disabled }: RichTextEdit
     if (!editor || editor.isFocused) return
     if (!value) {
       if (!editor.isEmpty) {
-        editor.commands.clearContent()
+        skipUpdateRef.current = true
+        editor.commands.clearContent(false)
+        skipUpdateRef.current = false
       }
       return
     }
     const current = editor.getJSON()
     if (JSON.stringify(current) !== JSON.stringify(value)) {
-      editor.commands.setContent(value)
+      skipUpdateRef.current = true
+      editor.commands.setContent(value, { emitUpdate: false })
+      skipUpdateRef.current = false
     }
   }, [editor, value])
 
   useEffect(() => {
-    if (editor) {
+    if (editor && editor.isEditable !== !disabled) {
+      skipUpdateRef.current = true
       editor.setEditable(!disabled)
+      skipUpdateRef.current = false
     }
   }, [editor, disabled])
 

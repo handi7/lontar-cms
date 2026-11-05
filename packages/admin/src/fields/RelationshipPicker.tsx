@@ -151,6 +151,11 @@ function RelationshipSearchDropdown({
           placeholder={`Search ${pluralLabel}...`}
           value={searchTerm}
           onChange={(e) => setSearchTerm(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter') {
+              e.preventDefault()
+            }
+          }}
           autoFocus={autoFocus}
           data-testid="relationship-search"
         />

@@ -170,6 +170,11 @@ function MediaDropdown({
           placeholder="Search media by filename..."
           value={searchTerm}
           onChange={(e) => setSearchTerm(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter') {
+              e.preventDefault()
+            }
+          }}
           autoFocus
           data-testid="upload-picker-search"
         />
@@ -238,6 +243,7 @@ function EmptyPickerActions({ onBrowse, onUploadFile, isPending }: EmptyPickerAc
           if (file) {
             onUploadFile(file)
           }
+          e.target.value = ''
         }}
         data-testid="upload-picker-quick-input"
       />
