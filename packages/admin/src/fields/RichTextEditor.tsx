@@ -200,6 +200,8 @@ export function RichTextEditor({ name, value, onChange, disabled }: RichTextEdit
   const skipUpdateRef = useRef(false)
 
   const editor = useEditor({
+    // The admin only renders on the client (ADR 0001), so there is no hydration to protect.
+    immediatelyRender: true,
     extensions: [
       StarterKit.configure({
         link: {

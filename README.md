@@ -105,8 +105,12 @@ pnpm lontar generate:types   # write lontar-types.ts
 import config from '@/lontar.config'
 import { createRouteHandlers } from '@lontar/next'
 
-export const { GET, POST, PATCH, DELETE } = createRouteHandlers(config)
+export const { GET, POST, PATCH, DELETE } = createRouteHandlers(config, {
+  baseURL: process.env.LONTAR_URL, // e.g. http://localhost:3000
+})
 ```
+
+`baseURL` is the public origin of your app. Better Auth uses it for auth redirects and to check request origins. If you leave it out, Better Auth falls back to the `BETTER_AUTH_URL` environment variable, and without either it logs a "Base URL is not set" warning on every request. Set it to the URL users reach the app at, including behind a proxy.
 
 ```tsx
 // app/admin/[[...path]]/page.tsx
@@ -128,9 +132,11 @@ import { serve } from '@hono/node-server'
 import { createLontar } from '@lontar/core'
 import config from './lontar.config'
 
-const app = createLontar(config) // a Hono instance
+const app = createLontar(config, { baseURL: process.env.LONTAR_URL }) // a Hono instance
 serve({ fetch: app.fetch, port: 3001 })
 ```
+
+`createLontar` takes the same `baseURL` option as `createRouteHandlers`. Here that would be `http://localhost:3001` in development.
 
 ## Querying from the frontend
 
