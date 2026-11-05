@@ -411,15 +411,7 @@ export function CollectionListView() {
   const [activeFilters, setActiveFilters] = useState<ActiveFilter[]>([])
   const [sorting, setSorting] = useState<SortingState>([])
 
-  const searchField = useMemo(() => {
-    if (!collection) return 'title'
-    return (
-      collection.admin.useAsTitle ||
-      collection.fields.find((f) => f.type === 'text' || f.type === 'email' || f.type === 'slug')
-        ?.name ||
-      'title'
-    )
-  }, [collection])
+  const searchField = collection?.admin.useAsTitle || 'title'
 
   const where = useMemo(
     () => buildWhereQuery(searchTerm, searchField, activeFilters),

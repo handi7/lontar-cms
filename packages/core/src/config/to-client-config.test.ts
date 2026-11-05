@@ -6,10 +6,18 @@ import { defineConfig } from './define-config'
 import { toClientConfig } from './to-client-config'
 import type { CollectionConfig } from './types'
 
+const fakeStorage = {
+  name: 'fake',
+  upload: () => Promise.resolve({ filename: 'f', url: '/f' }),
+  delete: () => Promise.resolve(),
+  getUrl: () => '/f',
+}
+
 function clientCollection(collection: CollectionConfig, extraCollections: CollectionConfig[] = []) {
   const config = defineConfig({
     secret: SECRET,
     db: fakeAdapter,
+    storage: fakeStorage,
     collections: [collection, ...extraCollections],
   })
   return toClientConfig(config).collections[0]
@@ -302,9 +310,70 @@ describe('toClientConfig', () => {
       'Word Count',
     ])
     expect(collection?.admin).toStrictEqual({
-      useAsTitle: 'id',
-      defaultColumns: ['id', 'headline', 'publishedAt', 'readingTime'],
+      useAsTitle: 'headline',
+      defaultColumns: ['headline', 'publishedAt', 'readingTime', 'wordCount'],
     })
+  })
+
+  it('falls back useAsTitle to first email field if no text field exists', () => {
+    const collection = clientCollection({
+      slug: 'subscribers',
+      fields: {
+        score: f.number(),
+        email: f.email(),
+      },
+    })
+    expect(collection?.admin.useAsTitle).toBe('email')
+    expect(collection?.admin.defaultColumns).toEqual(['email', 'score'])
+  })
+
+  it('falls back useAsTitle to first slug field if no text or email field exists', () => {
+    const collection = clientCollection({
+      slug: 'tags',
+      fields: {
+        count: f.number(),
+        slug: f.slug(),
+      },
+    })
+    expect(collection?.admin.useAsTitle).toBe('slug')
+    expect(collection?.admin.defaultColumns).toEqual(['slug', 'count'])
+  })
+
+  it('falls back useAsTitle to filename for upload collections without text-like fields', () => {
+    const collection = clientCollection({
+      slug: 'media',
+      upload: true,
+      fields: {
+        featured: f.checkbox(),
+      },
+    })
+    expect(collection?.admin.useAsTitle).toBe('filename')
+    expect(collection?.admin.defaultColumns).toEqual(['filename', 'featured'])
+  })
+
+  it('falls back useAsTitle to id when no text-like fields and not an upload collection', () => {
+    const collection = clientCollection({
+      slug: 'counters',
+      fields: {
+        count: f.number(),
+        active: f.checkbox(),
+      },
+    })
+    expect(collection?.admin.useAsTitle).toBe('id')
+    expect(collection?.admin.defaultColumns).toEqual(['id', 'count', 'active'])
+  })
+
+  it('preserves explicitly configured admin.useAsTitle even when text fields exist', () => {
+    const collection = clientCollection({
+      slug: 'items',
+      admin: { useAsTitle: 'code' },
+      fields: {
+        name: f.text(),
+        code: f.text(),
+      },
+    })
+    expect(collection?.admin.useAsTitle).toBe('code')
+    expect(collection?.admin.defaultColumns).toEqual(['code', 'name'])
   })
 
   it('starts the default columns with useAsTitle', () => {
