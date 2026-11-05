@@ -1,7 +1,8 @@
-import { createContext, useContext, useMemo, type ReactNode } from 'react'
+import { createContext, useContext, useEffect, useMemo, useRef, type ReactNode } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import {
   fetchSession,
+  setOnUnauthorized,
   signIn as apiSignIn,
   signOut as apiSignOut,
   type AdminSession,
@@ -18,6 +19,12 @@ export interface AuthContextValue {
 
 export const AuthContext = createContext<AuthContextValue | null>(null)
 
+function clearUserData(queryClient: ReturnType<typeof useQueryClient>) {
+  queryClient.removeQueries({
+    predicate: (query) => !String(query.queryKey[0]).startsWith('_lontar_'),
+  })
+}
+
 export function AuthProvider({ apiBase, children }: { apiBase: string; children: ReactNode }) {
   const queryClient = useQueryClient()
 
@@ -27,19 +34,46 @@ export function AuthProvider({ apiBase, children }: { apiBase: string; children:
     staleTime: 1000 * 60 * 5,
   })
 
+  const userId = data?.user?.id
+  const prevUserIdRef = useRef<string | undefined>(undefined)
+
+  useEffect(() => {
+    if (prevUserIdRef.current && userId && prevUserIdRef.current !== userId) {
+      clearUserData(queryClient)
+    }
+    prevUserIdRef.current = userId
+  }, [userId, queryClient])
+
+  useEffect(() => {
+    setOnUnauthorized(() => {
+      clearUserData(queryClient)
+      queryClient.setQueryData(['_lontar_session', apiBase], null)
+      void queryClient.invalidateQueries({ queryKey: ['_lontar_session'] })
+    })
+    return () => {
+      setOnUnauthorized(null)
+    }
+  }, [queryClient, apiBase])
+
   const signInMutation = useMutation({
     mutationFn: (credentials: { email: string; password: string }) =>
       apiSignIn(apiBase, credentials),
-    onSuccess: (result) => {
-      queryClient.setQueryData(['_lontar_session', apiBase], result)
+    onSuccess: async (result) => {
+      const sessionData = await fetchSession(apiBase)
+      queryClient.setQueryData(
+        ['_lontar_session', apiBase],
+        sessionData ??
+          (result.user ? { user: result.user, session: result.session ?? null } : null),
+      )
     },
   })
 
   const signOutMutation = useMutation({
     mutationFn: () => apiSignOut(apiBase),
     onSuccess: () => {
+      clearUserData(queryClient)
       queryClient.setQueryData(['_lontar_session', apiBase], null)
-      void queryClient.invalidateQueries()
+      void queryClient.invalidateQueries({ queryKey: ['_lontar_session'] })
     },
   })
 

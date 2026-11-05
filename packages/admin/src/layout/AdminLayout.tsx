@@ -1,9 +1,10 @@
-import { Navigate, Outlet } from '@tanstack/react-router'
+import { Navigate, Outlet, useRouter } from '@tanstack/react-router'
 import { useAuth } from '../context/AuthContext'
 import { Sidebar } from './Sidebar'
 
 export function AdminLayout() {
   const { user, isLoading } = useAuth()
+  const router = useRouter()
 
   if (isLoading) {
     return (
@@ -15,7 +16,16 @@ export function AdminLayout() {
   }
 
   if (!user) {
-    return <Navigate to="/login" />
+    const pathname = router.state.location.pathname
+    const redirectPath =
+      pathname && pathname !== '/' && pathname !== '/login' ? pathname : undefined
+    return (
+      <Navigate
+        to="/login"
+        search={redirectPath ? { redirect: redirectPath } : undefined}
+        replace
+      />
+    )
   }
 
   return (

@@ -67,6 +67,8 @@ export function Sidebar() {
     setIsSigningOut(true)
     try {
       await signOut()
+    } catch {
+      // Failed to sign out on server; remain signed in
     } finally {
       setIsSigningOut(false)
     }

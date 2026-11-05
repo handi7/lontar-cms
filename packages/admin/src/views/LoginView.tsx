@@ -1,9 +1,10 @@
 import { useState, type FormEvent } from 'react'
-import { Navigate } from '@tanstack/react-router'
+import { Navigate, useRouter } from '@tanstack/react-router'
 import { useAuth } from '../context/AuthContext'
 
 export function LoginView() {
   const { user, signIn, isLoading: isAuthLoading } = useAuth()
+  const router = useRouter()
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
   const [error, setError] = useState<string | null>(null)
@@ -19,7 +20,10 @@ export function LoginView() {
   }
 
   if (user) {
-    return <Navigate to="/" />
+    const searchStr = router.state.location.searchStr
+    const redirect = new URLSearchParams(searchStr).get('redirect')
+    const to = redirect && redirect.startsWith('/') && !redirect.startsWith('//') ? redirect : '/'
+    return <Navigate to={to} replace />
   }
 
   const handleSubmit = async (e: FormEvent) => {

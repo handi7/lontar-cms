@@ -49,27 +49,44 @@ export class ApiClientError extends Error {
   }
 }
 
+export type UnauthorizedHandler = () => void
+let onUnauthorizedHandler: UnauthorizedHandler | null = null
+
+export function setOnUnauthorized(handler: UnauthorizedHandler | null): void {
+  onUnauthorizedHandler = handler
+}
+
+async function parseErrorDetails(
+  res: Response,
+): Promise<{ errorMsg: string; issues?: ApiIssue[] }> {
+  let errorMsg = `HTTP ${res.status}: ${res.statusText}`
+  let issues: ApiIssue[] | undefined
+  try {
+    const data = (await res.json()) as {
+      error?: string
+      message?: string
+      issues?: ApiIssue[]
+    }
+    if (data?.error) {
+      errorMsg = data.error
+    } else if (data?.message) {
+      errorMsg = data.message
+    }
+    if (Array.isArray(data?.issues)) {
+      issues = data.issues
+    }
+  } catch {
+    // response was not JSON
+  }
+  return { errorMsg, issues }
+}
+
 async function handleResponse<T>(res: Response): Promise<T> {
   if (!res.ok) {
-    let errorMsg = `HTTP ${res.status}: ${res.statusText}`
-    let issues: ApiIssue[] | undefined
-    try {
-      const data = (await res.json()) as {
-        error?: string
-        message?: string
-        issues?: ApiIssue[]
-      }
-      if (data?.error) {
-        errorMsg = data.error
-      } else if (data?.message) {
-        errorMsg = data.message
-      }
-      if (Array.isArray(data?.issues)) {
-        issues = data.issues
-      }
-    } catch {
-      // response was not JSON
+    if (res.status === 401) {
+      onUnauthorizedHandler?.()
     }
+    const { errorMsg, issues } = await parseErrorDetails(res)
     throw new ApiClientError(errorMsg, res.status, issues)
   }
   return (await res.json()) as T
@@ -117,12 +134,15 @@ export async function signIn(
 
 export async function signOut(apiBase: string): Promise<void> {
   const base = apiBase.replace(/\/+$/, '')
-  await fetch(`${base}/auth/sign-out`, {
+  const res = await fetch(`${base}/auth/sign-out`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     credentials: 'include',
     body: JSON.stringify({}),
   })
+  if (!res.ok) {
+    await handleResponse(res)
+  }
 }
 
 function serializePrimitive(params: URLSearchParams, prefix: string, value: unknown) {
