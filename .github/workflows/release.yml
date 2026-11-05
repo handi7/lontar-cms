@@ -1,0 +1,94 @@
+name: Release
+
+# Pushing a vX.Y.Z tag runs CI, then waits for approval on the `npm` environment before
+# publishing every package to npm and creating the GitHub Release. Running it by hand
+# (workflow_dispatch) does a dry run of the current versions instead. See docs/releasing.md.
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  # Fails fast on a tag that doesn't match the package versions or has no CHANGELOG section.
+  verify:
+    if: github.event_name == 'push'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+      - run: node scripts/release/prepare-release.mjs "$GITHUB_REF_NAME" "$RUNNER_TEMP/notes.md"
+
+  ci:
+    needs: verify
+    # verify is skipped on workflow_dispatch; run CI anyway unless it failed.
+    if: ${{ !failure() && !cancelled() }}
+    uses: ./.github/workflows/ci.yml
+
+  publish:
+    needs: ci
+    if: github.event_name == 'push'
+    runs-on: ubuntu-latest
+    # Requires approval, and npm's trusted publisher config only accepts this environment.
+    environment: npm
+    permissions:
+      contents: write # gh release create
+      id-token: write # npm trusted publishing (OIDC) and provenance
+    steps:
+      - uses: actions/checkout@v7
+      - uses: pnpm/action-setup@v6
+      # No registry-url here: it writes an .npmrc expecting a token, which gets in the way of OIDC.
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          cache: pnpm
+      # Trusted publishing needs npm >= 11.5.1; Node 22 ships npm 10.
+      - run: npm install -g npm@^11.5.1
+      - run: pnpm install --frozen-lockfile
+      - run: node scripts/release/prepare-release.mjs "$GITHUB_REF_NAME" "$RUNNER_TEMP/notes.md"
+      - run: pnpm build
+      - run: pnpm pack:packages "$RUNNER_TEMP/packed"
+      # Publish exactly the tarballs that passed the smoke test.
+      - run: pnpm smoke:packages "$RUNNER_TEMP/packed"
+      - run: node scripts/release/publish.mjs "$RUNNER_TEMP/packed"
+      - name: Create GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          if gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1; then
+            echo "Release $GITHUB_REF_NAME already exists"
+          else
+            gh release create "$GITHUB_REF_NAME" --title "$GITHUB_REF_NAME" \
+              --notes-file "$RUNNER_TEMP/notes.md" --verify-tag
+          fi
+
+  dry-run:
+    needs: ci
+    if: github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: pnpm/action-setup@v6
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          cache: pnpm
+      - run: npm install -g npm@^11.5.1
+      - run: pnpm install --frozen-lockfile
+      # Checks the versions and CHANGELOG as if the current version were being tagged.
+      - run: |
+          version=$(node -p "require('./package.json').version")
+          node scripts/release/prepare-release.mjs "v$version" "$RUNNER_TEMP/notes.md"
+          cat "$RUNNER_TEMP/notes.md"
+      - run: pnpm build
+      - run: pnpm pack:packages "$RUNNER_TEMP/packed"
+      - run: pnpm smoke:packages "$RUNNER_TEMP/packed"
+      - run: node scripts/release/publish.mjs "$RUNNER_TEMP/packed" --dry-run
