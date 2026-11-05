@@ -128,6 +128,8 @@ export {
   StorageUploadError,
   deleteMedia,
   formatVariantFilename,
+  getOrientedDimensions,
+  isAnimatedMimeType,
   isResizableImage,
   processImage,
   uploadMedia,

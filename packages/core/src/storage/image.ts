@@ -78,6 +78,29 @@ export function isResizableImage(mimeType: string): boolean {
   return RESIZABLE_MIME_TYPES.has(mimeType.toLowerCase())
 }
 
+export function isAnimatedMimeType(mimeType: string): boolean {
+  const lower = mimeType.toLowerCase()
+  return lower === 'image/gif' || lower === 'image/webp'
+}
+
+export function getOrientedDimensions(meta: {
+  width?: number
+  height?: number
+  orientation?: number
+  pageHeight?: number
+}): { width?: number; height?: number } {
+  if (meta.width === undefined || meta.height === undefined) {
+    return { width: meta.width, height: meta.height }
+  }
+  // Orientation values 5, 6, 7, 8 transpose width and height (90° or 270° rotation)
+  const isTransposed = typeof meta.orientation === 'number' && meta.orientation >= 5
+  const rawHeight = meta.pageHeight ?? meta.height
+  return {
+    width: isTransposed ? rawHeight : meta.width,
+    height: isTransposed ? meta.width : rawHeight,
+  }
+}
+
 export function formatVariantFilename(
   originalFilename: string,
   sizeName: string,
@@ -104,7 +127,9 @@ async function resizeVariant(
   originalMimeType: string,
 ): Promise<ProcessedImageSize> {
   try {
-    let pipeline = sharp(buffer).rotate()
+    const targetMimeType = resolveMimeType(originalMimeType, config.format)
+    const isAnimated = isAnimatedMimeType(originalMimeType) && isAnimatedMimeType(targetMimeType)
+    let pipeline = sharp(buffer, isAnimated ? { animated: true } : undefined).rotate()
     pipeline = pipeline.resize({
       width: config.width,
       height: config.height,
@@ -119,18 +144,18 @@ async function resizeVariant(
     }
 
     const resizedBuffer = await pipeline.toBuffer()
-    const meta = await sharp(resizedBuffer).metadata()
-    const mimeType = resolveMimeType(originalMimeType, config.format)
+    const meta = await sharp(resizedBuffer, isAnimated ? { animated: true } : undefined).metadata()
     const filename = formatVariantFilename(originalFilename, name, config.format)
+    const { width, height } = getOrientedDimensions(meta)
 
     return {
       name,
       filename,
       buffer: resizedBuffer,
-      width: meta.width,
-      height: meta.height,
+      width,
+      height,
       filesize: resizedBuffer.length,
-      mimeType,
+      mimeType: targetMimeType,
     }
   } catch (err) {
     if (err instanceof InvalidImageError) throw err
@@ -160,16 +185,18 @@ export async function processImage(args: {
 
   let meta: Metadata
   try {
-    meta = await sharp(buffer).metadata()
+    meta = await sharp(buffer, { animated: isAnimatedMimeType(mimeType) }).metadata()
   } catch {
     throw new InvalidImageError('Invalid image')
   }
 
+  const { width, height } = getOrientedDimensions(meta)
+
   const original: ProcessedOriginal = {
     filename,
     buffer,
-    width: meta.width,
-    height: meta.height,
+    width,
+    height,
     filesize: buffer.length,
     mimeType,
   }
