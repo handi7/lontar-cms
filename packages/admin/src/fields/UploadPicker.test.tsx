@@ -13,7 +13,9 @@ const mockConfig: ClientConfig = {
       slug: 'media',
       labels: { singular: 'Media', plural: 'Media' },
       admin: { useAsTitle: 'filename', defaultColumns: ['id', 'filename'] },
-      upload: true,
+      upload: {
+        mimeTypes: ['image/png', 'image/jpeg'],
+      },
       fields: [{ name: 'alt', label: 'Alt', type: 'text', required: false }],
     },
   ],
@@ -258,5 +260,73 @@ describe('UploadPicker', () => {
     fireEvent.change(fileInput)
 
     expect(fileInput.value).toBe('')
+  })
+
+  it('passes accept attribute to quick upload input based on collection mimeTypes', () => {
+    const field: ClientUploadField = {
+      name: 'cover',
+      label: 'Cover Image',
+      type: 'upload',
+      relationTo: 'media',
+      required: false,
+    }
+
+    render(
+      <TestWrapper>
+        {({ register, setValue, watch }) => (
+          <UploadPicker field={field} register={register} setValue={setValue} watch={watch} />
+        )}
+      </TestWrapper>,
+    )
+
+    const fileInput = screen.getByTestId<HTMLInputElement>('upload-picker-quick-input')
+    expect(fileInput.getAttribute('accept')).toBe('image/png,image/jpeg')
+  })
+
+  it('displays error message when quick upload mutation fails', async () => {
+    const field: ClientUploadField = {
+      name: 'cover',
+      label: 'Cover Image',
+      type: 'upload',
+      relationTo: 'media',
+      required: false,
+    }
+
+    vi.mocked(fetch).mockImplementation(() =>
+      mockJsonResponse(
+        {
+          error: 'Upload rejected',
+          issues: [{ message: 'File format not supported' }],
+        },
+        400,
+      ),
+    )
+
+    render(
+      <TestWrapper>
+        {({ register, setValue, watch }) => (
+          <UploadPicker field={field} register={register} setValue={setValue} watch={watch} />
+        )}
+      </TestWrapper>,
+    )
+
+    const fileInput = screen.getByTestId<HTMLInputElement>('upload-picker-quick-input')
+    const file = new File(['bad'], 'test.exe', { type: 'application/x-msdownload' })
+
+    Object.defineProperty(fileInput, 'files', {
+      value: [file],
+      writable: true,
+    })
+
+    fireEvent.change(fileInput)
+
+    await waitFor(() => {
+      const errorEl = screen.getByTestId('upload-picker-error')
+      expect(errorEl.textContent).toContain('Upload rejected: File format not supported')
+    })
+
+    // Clicking browse clears the error
+    fireEvent.click(screen.getByTestId('upload-picker-browse-btn'))
+    expect(screen.queryByTestId('upload-picker-error')).toBeNull()
   })
 })

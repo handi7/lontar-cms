@@ -1264,5 +1264,86 @@ describe('Admin SPA', () => {
         expect(titleInput.value).toBe('User Edited Title')
       })
     })
+
+    it('renders delete error alert when deleting document in list view fails', async () => {
+      window.confirm = vi.fn().mockReturnValue(true)
+
+      vi.stubGlobal(
+        'fetch',
+        vi.fn().mockImplementation((url: string, init?: RequestInit) => {
+          if (url.includes('/_lontar/config')) {
+            return mockJsonResponse(mockConfig)
+          }
+          if (url.includes('/auth/get-session')) {
+            return mockJsonResponse({ user: mockAuthUser, session: mockAuthSession })
+          }
+          if (url.includes('/api/posts/1') && init?.method === 'DELETE') {
+            return mockJsonResponse(
+              { error: 'You do not have permission to delete this post' },
+              403,
+              'Forbidden',
+            )
+          }
+          if (url.includes('/api/posts')) {
+            return mockJsonResponse({
+              docs: [{ id: 1, title: 'Sample Post', views: 50 }],
+              totalDocs: 1,
+              limit: 10,
+              page: 1,
+              totalPages: 1,
+            })
+          }
+          return Promise.reject(new Error(`Unhandled URL: ${url}`))
+        }),
+      )
+
+      const history = createMemoryHistory({ initialEntries: ['/admin/posts'] })
+      render(<Admin apiBase="/api" basePath="/admin" history={history} />)
+
+      await waitFor(() => {
+        expect(screen.getByText('Sample Post')).toBeTruthy()
+      })
+
+      const deleteBtn = screen.getByRole('button', { name: /^delete$/i })
+      fireEvent.click(deleteBtn)
+
+      await waitFor(() => {
+        const errorAlert = screen.getByTestId('delete-error-alert')
+        expect(errorAlert.textContent).toContain('You do not have permission to delete this post')
+      })
+    })
+
+    it('does not render empty state when list query fails with an error', async () => {
+      vi.stubGlobal(
+        'fetch',
+        vi.fn().mockImplementation((url: string) => {
+          if (url.includes('/_lontar/config')) {
+            return mockJsonResponse(mockConfig)
+          }
+          if (url.includes('/auth/get-session')) {
+            return mockJsonResponse({ user: mockAuthUser, session: mockAuthSession })
+          }
+          if (url.includes('/api/posts')) {
+            return mockJsonResponse(
+              { error: 'Failed to fetch posts from database' },
+              500,
+              'Internal Server Error',
+            )
+          }
+          return Promise.reject(new Error(`Unhandled URL: ${url}`))
+        }),
+      )
+
+      const history = createMemoryHistory({ initialEntries: ['/admin/posts'] })
+      render(<Admin apiBase="/api" basePath="/admin" history={history} />)
+
+      await waitFor(() => {
+        expect(screen.getByText('Failed to fetch posts from database')).toBeTruthy()
+      })
+
+      // The empty state "Create the first post" should NOT be rendered
+      expect(screen.queryByText(/create the first post/i)).toBeNull()
+      expect(screen.queryByText(/no posts found/i)).toBeNull()
+    })
   })
 })

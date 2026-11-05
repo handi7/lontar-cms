@@ -1,4 +1,4 @@
-import { useState, useMemo } from 'react'
+import { useState, useMemo, useEffect } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { Link, useParams } from '@tanstack/react-router'
 import {
@@ -11,7 +11,12 @@ import {
 } from '@tanstack/react-table'
 import type { ClientCollection, ClientField, ClientSelectField, Where } from '@lontar/core/client'
 import { useAdmin, useCollection } from '../context/AdminContext'
-import { fetchCollectionDocs, deleteDoc, type PaginatedDocs } from '../api/client'
+import {
+  fetchCollectionDocs,
+  deleteDoc,
+  formatApiErrorMessage,
+  type PaginatedDocs,
+} from '../api/client'
 import { CollectionFilterBar, type ActiveFilter } from './CollectionFilterBar'
 import { NotFoundView } from './NotFoundView'
 
@@ -361,6 +366,7 @@ function EmptyState({ collection }: { collection: ClientCollection }) {
 
 function ListContent({
   isLoading,
+  isError,
   docsCount,
   hasActiveFilters,
   collection,
@@ -370,6 +376,7 @@ function ListContent({
   onPageChange,
 }: {
   isLoading: boolean
+  isError?: boolean
   docsCount: number
   hasActiveFilters: boolean
   collection: ClientCollection
@@ -380,6 +387,9 @@ function ListContent({
 }) {
   if (isLoading) {
     return <div className="lontar-loading">Loading documents...</div>
+  }
+  if (isError) {
+    return null
   }
   if (docsCount === 0) {
     if (hasActiveFilters) {
@@ -401,27 +411,15 @@ function ListContent({
   return <CollectionTable table={table} data={data} onPageChange={onPageChange} />
 }
 
-export function CollectionListView() {
-  const { apiBase } = useAdmin()
-  const { collection: slug } = useParams({ strict: false })
-  const collection = useCollection(slug)
-  const queryClient = useQueryClient()
+function formatSortParam(sorting: SortingState): string | undefined {
+  if (sorting.length === 0) return undefined
+  return sorting.map((s) => (s.desc ? `-${s.id}` : s.id)).join(',')
+}
+
+function useListFilters() {
   const [page, setPage] = useState(1)
   const [searchTerm, setSearchTerm] = useState('')
   const [activeFilters, setActiveFilters] = useState<ActiveFilter[]>([])
-  const [sorting, setSorting] = useState<SortingState>([])
-
-  const searchField = collection?.admin.useAsTitle || 'title'
-
-  const where = useMemo(
-    () => buildWhereQuery(searchTerm, searchField, activeFilters),
-    [searchTerm, searchField, activeFilters],
-  )
-
-  const sortParam = useMemo(() => {
-    if (sorting.length === 0) return undefined
-    return sorting.map((s) => (s.desc ? `-${s.id}` : s.id)).join(',')
-  }, [sorting])
 
   const handleSearchChange = (term: string) => {
     setSearchTerm(term)
@@ -444,7 +442,75 @@ export function CollectionListView() {
     setPage(1)
   }
 
-  const { data, isLoading, error } = useQuery({
+  return {
+    page,
+    setPage,
+    searchTerm,
+    activeFilters,
+    handleSearchChange,
+    handleAddFilter,
+    handleRemoveFilter,
+    handleClearAll,
+  }
+}
+
+function useListDeleteMutation(apiBase: string, slug?: string) {
+  const queryClient = useQueryClient()
+  const [deleteError, setDeleteError] = useState<string | null>(null)
+
+  const mutation = useMutation({
+    mutationFn: (id: number | string) =>
+      slug ? deleteDoc(apiBase, slug, id) : Promise.reject(new Error('Missing collection slug')),
+    onSuccess: () => {
+      setDeleteError(null)
+      void queryClient.invalidateQueries({ queryKey: [slug] })
+    },
+    onError: (err: Error) => {
+      setDeleteError(formatApiErrorMessage(err))
+    },
+  })
+
+  const handleDelete = (id: number | string) => {
+    const confirmed =
+      typeof window === 'undefined' ||
+      window.confirm('Are you sure you want to delete this document?')
+    if (confirmed) {
+      setDeleteError(null)
+      mutation.mutate(id)
+    }
+  }
+
+  return { deleteError, setDeleteError, handleDelete, isDeleting: mutation.isPending }
+}
+
+function ListAlerts({
+  queryError,
+  deleteError,
+}: {
+  queryError?: Error | null
+  deleteError?: string | null
+}) {
+  if (!queryError && !deleteError) return null
+  return (
+    <>
+      {queryError && <div className="lontar-alert lontar-alert-error">{queryError.message}</div>}
+      {deleteError && (
+        <div className="lontar-alert lontar-alert-error" data-testid="delete-error-alert">
+          {deleteError}
+        </div>
+      )}
+    </>
+  )
+}
+
+function useCollectionDocsQuery(
+  apiBase: string,
+  slug: string | undefined,
+  page: number,
+  sortParam: string | undefined,
+  where: Where | undefined,
+) {
+  return useQuery({
     queryKey: [slug, page, sortParam, where],
     queryFn: () =>
       slug
@@ -455,30 +521,50 @@ export function CollectionListView() {
             where,
           })
         : null,
-    enabled: !!slug,
+    enabled: Boolean(slug),
   })
+}
 
-  const deleteMutation = useMutation({
-    mutationFn: (id: number | string) =>
-      slug ? deleteDoc(apiBase, slug, id) : Promise.reject(new Error('Missing collection slug')),
-    onSuccess: () => {
-      void queryClient.invalidateQueries({ queryKey: [slug] })
-    },
-  })
+export function CollectionListView() {
+  const { apiBase } = useAdmin()
+  const { collection: slug } = useParams({ strict: false })
+  const collection = useCollection(slug)
+  const [sorting, setSorting] = useState<SortingState>([])
 
-  const handleDelete = (id: number | string) => {
-    const confirmed =
-      typeof window === 'undefined' ||
-      window.confirm('Are you sure you want to delete this document?')
-    if (confirmed) {
-      deleteMutation.mutate(id)
-    }
-  }
+  const {
+    page,
+    setPage,
+    searchTerm,
+    activeFilters,
+    handleSearchChange,
+    handleAddFilter,
+    handleRemoveFilter,
+    handleClearAll,
+  } = useListFilters()
+
+  const { deleteError, setDeleteError, handleDelete, isDeleting } = useListDeleteMutation(
+    apiBase,
+    slug,
+  )
+
+  useEffect(() => {
+    setDeleteError(null)
+  }, [slug, page, setDeleteError])
+
+  const searchField = collection?.admin.useAsTitle || 'title'
+
+  const where = useMemo(
+    () => buildWhereQuery(searchTerm, searchField, activeFilters),
+    [searchTerm, searchField, activeFilters],
+  )
+
+  const sortParam = useMemo(() => formatSortParam(sorting), [sorting])
+  const { data, isLoading, error } = useCollectionDocsQuery(apiBase, slug, page, sortParam, where)
 
   const columns = useMemo(() => {
     if (!collection) return []
-    return buildColumns(collection, handleDelete, deleteMutation.isPending)
-  }, [collection, deleteMutation.isPending])
+    return buildColumns(collection, handleDelete, isDeleting)
+  }, [collection, handleDelete, isDeleting])
 
   const docs = useMemo(() => data?.docs ?? [], [data?.docs])
 
@@ -528,10 +614,11 @@ export function CollectionListView() {
         onClearAll={handleClearAll}
       />
 
-      {error && <div className="lontar-alert lontar-alert-error">{error.message}</div>}
+      <ListAlerts queryError={error} deleteError={deleteError} />
 
       <ListContent
         isLoading={isLoading}
+        isError={Boolean(error)}
         docsCount={docs.length}
         hasActiveFilters={hasActiveFilters}
         collection={collection}
