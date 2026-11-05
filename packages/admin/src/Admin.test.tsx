@@ -654,6 +654,190 @@ describe('Admin SPA', () => {
       })
     })
 
+    it('clears cached document data on sign out so next user does not see it', async () => {
+      let loggedIn = true
+      let postsFetchCount = 0
+
+      vi.stubGlobal(
+        'fetch',
+        vi.fn().mockImplementation((url: string, init?: RequestInit) => {
+          if (url.includes('/_lontar/config')) {
+            return mockJsonResponse(mockConfig)
+          }
+          if (url.includes('/auth/get-session')) {
+            return mockJsonResponse(
+              loggedIn ? { user: mockAuthUser, session: mockAuthSession } : null,
+            )
+          }
+          if (url.includes('/auth/sign-out') && init?.method === 'POST') {
+            loggedIn = false
+            return mockJsonResponse({ success: true })
+          }
+          if (url.includes('/api/posts')) {
+            postsFetchCount++
+            return mockJsonResponse({
+              docs: [
+                {
+                  id: 1,
+                  title: 'Secret Doc',
+                  views: 1,
+                  createdAt: '2026-11-01T00:00:00.000Z',
+                },
+              ],
+              totalDocs: 1,
+              limit: 10,
+              page: 1,
+              totalPages: 1,
+              hasNextPage: false,
+              hasPrevPage: false,
+            })
+          }
+          return Promise.reject(new Error(`Unhandled URL: ${url}`))
+        }),
+      )
+
+      const history = createMemoryHistory({ initialEntries: ['/admin/posts'] })
+      render(<Admin apiBase="/api" basePath="/admin" history={history} />)
+
+      await waitFor(() => {
+        expect(screen.getByText('Secret Doc')).toBeTruthy()
+      })
+      expect(postsFetchCount).toBe(1)
+
+      const signOutBtn = screen.getByRole('button', { name: /sign out/i })
+      fireEvent.click(signOutBtn)
+
+      await waitFor(() => {
+        expect(screen.getByRole('heading', { name: /sign in to admin/i })).toBeTruthy()
+      })
+    })
+
+    it('redirects to target route specified in redirect search parameter upon login', async () => {
+      let loggedIn = false
+
+      vi.stubGlobal(
+        'fetch',
+        vi.fn().mockImplementation((url: string, init?: RequestInit) => {
+          if (url.includes('/_lontar/config')) {
+            return mockJsonResponse(mockConfig)
+          }
+          if (url.includes('/auth/get-session')) {
+            return mockJsonResponse(
+              loggedIn ? { user: mockAuthUser, session: mockAuthSession } : null,
+            )
+          }
+          if (url.includes('/auth/sign-in/email') && init?.method === 'POST') {
+            loggedIn = true
+            return mockJsonResponse({ user: mockAuthUser, session: mockAuthSession })
+          }
+          if (url.includes('/api/posts')) {
+            return mockJsonResponse({
+              docs: [
+                {
+                  id: 1,
+                  title: 'Redirected Post',
+                  views: 5,
+                  createdAt: '2026-11-01T00:00:00.000Z',
+                },
+              ],
+              totalDocs: 1,
+              limit: 10,
+              page: 1,
+              totalPages: 1,
+              hasNextPage: false,
+              hasPrevPage: false,
+            })
+          }
+          return Promise.reject(new Error(`Unhandled URL: ${url}`))
+        }),
+      )
+
+      const history = createMemoryHistory({ initialEntries: ['/admin/login?redirect=/posts'] })
+      render(<Admin apiBase="/api" basePath="/admin" history={history} />)
+
+      await waitFor(() => {
+        expect(screen.getByRole('heading', { name: /sign in to admin/i })).toBeTruthy()
+      })
+
+      fireEvent.change(screen.getByLabelText(/email/i), {
+        target: { value: 'admin@example.com' },
+      })
+      fireEvent.change(screen.getByLabelText(/password/i), {
+        target: { value: 'correctpassword' },
+      })
+      fireEvent.click(screen.getByRole('button', { name: /sign in/i }))
+
+      await waitFor(() => {
+        expect(screen.getByText('Redirected Post')).toBeTruthy()
+      })
+    })
+
+    it('redirects to /admin/login when an API call returns 401 unauthorized', async () => {
+      let sessionValid = true
+
+      vi.stubGlobal(
+        'fetch',
+        vi.fn().mockImplementation((url: string) => {
+          if (url.includes('/_lontar/config')) {
+            return mockJsonResponse(mockConfig)
+          }
+          if (url.includes('/auth/get-session')) {
+            return mockJsonResponse(
+              sessionValid ? { user: mockAuthUser, session: mockAuthSession } : null,
+            )
+          }
+          if (url.includes('/api/posts')) {
+            sessionValid = false
+            return mockJsonResponse({ message: 'Session expired' }, 401, 'Unauthorized')
+          }
+          return Promise.reject(new Error(`Unhandled URL: ${url}`))
+        }),
+      )
+
+      const history = createMemoryHistory({ initialEntries: ['/admin/posts'] })
+      render(<Admin apiBase="/api" basePath="/admin" history={history} />)
+
+      await waitFor(() => {
+        expect(screen.getByRole('heading', { name: /sign in to admin/i })).toBeTruthy()
+      })
+    })
+
+    it('does not log user out if sign-out API call fails', async () => {
+      vi.stubGlobal(
+        'fetch',
+        vi.fn().mockImplementation((url: string, init?: RequestInit) => {
+          if (url.includes('/_lontar/config')) {
+            return mockJsonResponse(mockConfig)
+          }
+          if (url.includes('/auth/get-session')) {
+            return mockJsonResponse({ user: mockAuthUser, session: mockAuthSession })
+          }
+          if (url.includes('/auth/sign-out') && init?.method === 'POST') {
+            return mockJsonResponse({ error: 'Server error' }, 500, 'Internal Server Error')
+          }
+          if (url.includes('/api/posts')) {
+            return mockJsonResponse({ docs: [], totalDocs: 0, limit: 10, page: 1, totalPages: 1 })
+          }
+          return Promise.reject(new Error(`Unhandled URL: ${url}`))
+        }),
+      )
+
+      const history = createMemoryHistory({ initialEntries: ['/admin'] })
+      render(<Admin apiBase="/api" basePath="/admin" history={history} />)
+
+      await waitFor(() => {
+        expect(screen.getByText('Admin User')).toBeTruthy()
+      })
+
+      const signOutBtn = screen.getByRole('button', { name: /sign out/i })
+      fireEvent.click(signOutBtn)
+
+      await waitFor(() => {
+        expect(screen.getByText('Admin User')).toBeTruthy()
+        expect(signOutBtn.getAttribute('disabled')).toBeNull()
+      })
+    })
+
     it('renders globals navigation and handles global form updates', async () => {
       let savedData: Record<string, unknown> = {
         id: 1,
