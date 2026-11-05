@@ -124,9 +124,9 @@ prettier on staged files only). CI (`.github/workflows/ci.yml`) runs
     - [x] Data integrity: #49 (done), #50 (done), #51 (done), #52 (done), #53 (done), #54 (done), #56 (done), #57 (done)
     - [x] Needed for #29: #59 (done), #68 (done)
     - [x] Tooling: #55 (done)
-- [ ] **v0.1.x: Post-release fixes** (after v0.1; checklist in #69)
+- [x] **v0.1.x: Post-release fixes** (after v0.1; checklist in #69)
   - [x] Admin UX: #60 (done), #61 (done), #62 (done), #63 (done), #64 (done)
-  - [ ] Other: #58 (done), #65 (done), #66 (done), #67
+  - [x] Other: #58 (done), #65 (done), #66 (done), #67 (done)
 
 Update this section when a milestone or issue is done.
 
