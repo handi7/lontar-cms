@@ -1,4 +1,4 @@
-import sharp, { type Metadata } from 'sharp'
+import type sharp from 'sharp'
 
 export type ImageFit = 'cover' | 'contain' | 'fill' | 'inside' | 'outside'
 export type ImageFormat = 'jpeg' | 'png' | 'webp' | 'avif'
@@ -119,7 +119,32 @@ function resolveMimeType(originalMime: string, format?: string): string {
   return originalMime
 }
 
+type SharpModule = typeof sharp
+
+let cachedSharp: SharpModule | null = null
+
+export async function getSharp(): Promise<SharpModule> {
+  if (cachedSharp) {
+    return cachedSharp
+  }
+  try {
+    const mod = await import('sharp')
+    cachedSharp = mod.default ?? mod
+    return cachedSharp
+  } catch (cause) {
+    throw new Error(
+      'The "sharp" image processing library is required to process images, but failed to load.',
+      { cause },
+    )
+  }
+}
+
+export function setSharp(impl: SharpModule | null): void {
+  cachedSharp = impl
+}
+
 async function resizeVariant(
+  sharp: SharpModule,
   buffer: Buffer,
   name: string,
   config: ImageSizeConfig,
@@ -183,7 +208,9 @@ export async function processImage(args: {
     }
   }
 
-  let meta: Metadata
+  const sharp = await getSharp()
+
+  let meta: { width?: number; height?: number; orientation?: number; pageHeight?: number }
   try {
     meta = await sharp(buffer, { animated: isAnimatedMimeType(mimeType) }).metadata()
   } catch {
@@ -207,7 +234,7 @@ export async function processImage(args: {
 
   const processedSizes: Record<string, ProcessedImageSize> = {}
   for (const [name, config] of Object.entries(sizes)) {
-    processedSizes[name] = await resizeVariant(buffer, name, config, filename, mimeType)
+    processedSizes[name] = await resizeVariant(sharp, buffer, name, config, filename, mimeType)
   }
 
   return {

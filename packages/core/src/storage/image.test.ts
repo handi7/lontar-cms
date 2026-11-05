@@ -1,11 +1,14 @@
+import { readFileSync } from 'node:fs'
 import sharp from 'sharp'
 import { describe, expect, it } from 'vitest'
 import {
   formatVariantFilename,
   getOrientedDimensions,
+  getSharp,
   isAnimatedMimeType,
   isResizableImage,
   processImage,
+  setSharp,
 } from './image'
 
 describe('formatVariantFilename', () => {
@@ -101,6 +104,34 @@ describe('getOrientedDimensions', () => {
   })
 })
 
+describe('getSharp and setSharp', () => {
+  it('loads sharp dynamically and caches the instance', async () => {
+    setSharp(null)
+    const instance = await getSharp()
+    expect(instance).toBeDefined()
+    expect(typeof instance).toBe('function')
+
+    const cached = await getSharp()
+    expect(cached).toBe(instance)
+  })
+
+  it('allows injecting or clearing sharp instance via setSharp', async () => {
+    const fakeSharp = (() => {}) as unknown as typeof sharp
+    setSharp(fakeSharp)
+    expect(await getSharp()).toBe(fakeSharp)
+
+    // Reset back to real sharp
+    setSharp(null)
+    const realSharp = await getSharp()
+    expect(realSharp).not.toBe(fakeSharp)
+  })
+
+  it('does not have eager top-level runtime sharp import in storage/image.ts', () => {
+    const source = readFileSync(new URL('./image.ts', import.meta.url), 'utf8')
+    expect(source).not.toMatch(/^\s*import\s+sharp\s+from\s+['"]sharp['"]/m)
+  })
+})
+
 describe('processImage', () => {
   async function createTestImage(width = 800, height = 600): Promise<Buffer> {
     return sharp({
@@ -145,6 +176,21 @@ describe('processImage', () => {
     expect(result.original.filename).toBe('document.pdf')
     expect(result.original.filesize).toBe(buffer.length)
     expect(result.sizes).toEqual({})
+  })
+
+  it('bypasses getSharp for non-resizable files even if sharp is unavailable', async () => {
+    setSharp((() => {
+      throw new Error('Sharp should not be called')
+    }) as unknown as typeof sharp)
+
+    const buffer = Buffer.from('PDF content')
+    const result = await processImage({
+      filename: 'doc.pdf',
+      buffer,
+      mimeType: 'application/pdf',
+    })
+    expect(result.original.filename).toBe('doc.pdf')
+    setSharp(null)
   })
 
   it('resizes images according to configured size presets', async () => {
