@@ -126,7 +126,7 @@ prettier on staged files only). CI (`.github/workflows/ci.yml`) runs
     - [x] Tooling: #55 (done)
 - [ ] **v0.1.x: Post-release fixes** (after v0.1; checklist in #69)
   - [x] Admin UX: #60 (done), #61 (done), #62 (done), #63 (done), #64 (done)
-  - [ ] Other: #58 (done), #65 (done), #66, #67
+  - [ ] Other: #58 (done), #65 (done), #66 (done), #67
 
 Update this section when a milestone or issue is done.
 
