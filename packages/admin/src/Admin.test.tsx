@@ -713,5 +713,181 @@ describe('Admin SPA', () => {
         expect(screen.getByText(/changes saved successfully/i)).toBeTruthy()
       })
     })
+
+    it('resets list view state (search term, filters, page) when navigating between collections', async () => {
+      const multiCollectionConfig: ClientConfig = {
+        version: 1,
+        collections: [
+          {
+            slug: 'posts',
+            labels: { singular: 'Post', plural: 'Posts' },
+            admin: { useAsTitle: 'title', defaultColumns: ['id', 'title'] },
+            fields: [{ name: 'title', label: 'Title', type: 'text', required: true }],
+          },
+          {
+            slug: 'pages',
+            labels: { singular: 'Page', plural: 'Pages' },
+            admin: { useAsTitle: 'name', defaultColumns: ['id', 'name'] },
+            fields: [{ name: 'name', label: 'Name', type: 'text', required: true }],
+          },
+        ],
+        globals: [],
+      }
+
+      const fetchedUrls: string[] = []
+      vi.stubGlobal(
+        'fetch',
+        vi.fn().mockImplementation((url: string) => {
+          fetchedUrls.push(url)
+          if (url.includes('/_lontar/config')) {
+            return mockJsonResponse(multiCollectionConfig)
+          }
+          if (url.includes('/auth/get-session')) {
+            return mockJsonResponse({ user: mockAuthUser, session: mockAuthSession })
+          }
+          if (url.includes('/api/posts')) {
+            return mockJsonResponse({
+              docs: [{ id: 1, title: 'First Post' }],
+              totalDocs: 1,
+              limit: 10,
+              page: 1,
+              totalPages: 1,
+            })
+          }
+          if (url.includes('/api/pages')) {
+            return mockJsonResponse({
+              docs: [{ id: 1, name: 'About Page' }],
+              totalDocs: 1,
+              limit: 10,
+              page: 1,
+              totalPages: 1,
+            })
+          }
+          return Promise.reject(new Error(`Unhandled URL: ${url}`))
+        }),
+      )
+
+      const history = createMemoryHistory({ initialEntries: ['/admin/posts'] })
+      render(<Admin apiBase="/api" basePath="/admin" history={history} />)
+
+      await waitFor(() => {
+        expect(screen.getByText('First Post')).toBeTruthy()
+      })
+
+      const searchInput = screen.getByRole<HTMLInputElement>('searchbox', {
+        name: /search posts/i,
+      })
+      fireEvent.change(searchInput, { target: { value: 'First' } })
+
+      await waitFor(() => {
+        expect(searchInput.value).toBe('First')
+        expect(
+          fetchedUrls.some(
+            (u) =>
+              u.includes('/api/posts') &&
+              (u.includes('First') || u.includes('where%5Btitle%5D%5Bcontains%5D=First')),
+          ),
+        ).toBe(true)
+      })
+
+      const pagesNavLink = screen.getByRole('link', { name: 'Pages' })
+      fireEvent.click(pagesNavLink)
+
+      await waitFor(() => {
+        expect(screen.getByText('About Page')).toBeTruthy()
+      })
+
+      const pagesSearchInput = screen.getByRole<HTMLInputElement>('searchbox', {
+        name: /search pages/i,
+      })
+      expect(pagesSearchInput.value).toBe('')
+
+      const pagesUrls = fetchedUrls.filter((u) => u.includes('/api/pages'))
+      expect(pagesUrls.length).toBeGreaterThan(0)
+      for (const u of pagesUrls) {
+        expect(u).not.toContain('First')
+        expect(u).not.toContain('where')
+      }
+    })
+
+    it('resets global view state (success banner and form fields) when navigating between globals', async () => {
+      const multiGlobalConfig: ClientConfig = {
+        version: 1,
+        collections: [],
+        globals: [
+          {
+            slug: 'header',
+            label: 'Site Header',
+            fields: [{ name: 'siteTitle', label: 'Site Title', type: 'text', required: true }],
+          },
+          {
+            slug: 'footer',
+            label: 'Site Footer',
+            fields: [{ name: 'copyright', label: 'Copyright', type: 'text', required: true }],
+          },
+        ],
+      }
+
+      let savedHeader = { siteTitle: 'Header Title' }
+      const savedFooter = { copyright: 'Footer Copyright' }
+
+      vi.stubGlobal(
+        'fetch',
+        vi.fn().mockImplementation((url: string, init?: RequestInit) => {
+          if (url.includes('/_lontar/config')) {
+            return mockJsonResponse(multiGlobalConfig)
+          }
+          if (url.includes('/auth/get-session')) {
+            return mockJsonResponse({ user: mockAuthUser, session: mockAuthSession })
+          }
+          if (
+            url.includes('/api/globals/header') &&
+            init?.method === 'POST' &&
+            typeof init.body === 'string'
+          ) {
+            savedHeader = JSON.parse(init.body) as { siteTitle: string }
+            return mockJsonResponse(savedHeader)
+          }
+          if (url.includes('/api/globals/header')) {
+            return mockJsonResponse(savedHeader)
+          }
+          if (url.includes('/api/globals/footer')) {
+            return mockJsonResponse(savedFooter)
+          }
+          return Promise.reject(new Error(`Unhandled URL: ${url}`))
+        }),
+      )
+
+      const history = createMemoryHistory({ initialEntries: ['/admin/globals/header'] })
+      render(<Admin apiBase="/api" basePath="/admin" history={history} />)
+
+      await waitFor(() => {
+        expect(screen.getAllByText('Site Header').length).toBeGreaterThan(0)
+      })
+
+      const headerInput = await screen.findByLabelText<HTMLInputElement>(/site title/i)
+      await waitFor(() => {
+        expect(headerInput.value).toBe('Header Title')
+      })
+
+      const saveBtn = screen.getByRole('button', { name: /save changes/i })
+      fireEvent.click(saveBtn)
+
+      await waitFor(() => {
+        expect(screen.getByText(/changes saved successfully/i)).toBeTruthy()
+      })
+
+      const footerNavLink = screen.getByRole('link', { name: 'Site Footer' })
+      fireEvent.click(footerNavLink)
+
+      await waitFor(() => {
+        expect(screen.getAllByText('Site Footer').length).toBeGreaterThan(0)
+      })
+
+      expect(screen.queryByText(/changes saved successfully/i)).toBeNull()
+
+      const footerInput = await screen.findByLabelText<HTMLInputElement>(/copyright/i)
+      expect(footerInput.value).toBe('Footer Copyright')
+    })
   })
 })

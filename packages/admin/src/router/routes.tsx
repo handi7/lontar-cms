@@ -49,30 +49,35 @@ export function createAdminRouter(options: { basePath?: string; history?: Router
     getParentRoute: () => authenticatedRoute,
     path: 'globals/$slug',
     component: GlobalFormView,
+    remountDeps: ({ params }) => params,
   })
 
   const collectionRoute = createRoute({
     getParentRoute: () => authenticatedRoute,
     path: '$collection',
     component: Outlet,
+    remountDeps: ({ params }) => params,
   })
 
   const listRoute = createRoute({
     getParentRoute: () => collectionRoute,
     path: '/',
     component: CollectionListView,
+    remountDeps: ({ params }) => params,
   })
 
   const createRoutePath = createRoute({
     getParentRoute: () => collectionRoute,
     path: 'create',
     component: CreateForm,
+    remountDeps: ({ params }) => params,
   })
 
   const editRoute = createRoute({
     getParentRoute: () => collectionRoute,
     path: '$id',
     component: EditForm,
+    remountDeps: ({ params }) => params,
   })
 
   const routeTree = rootRoute.addChildren([
