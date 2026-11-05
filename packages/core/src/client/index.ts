@@ -29,4 +29,4 @@ export type {
   UploadSystemFields,
 } from './system-fields'
 export type { FieldFilter, FilterOperator, SortItem, Where, WhereClause, WhereField } from './query'
-export { clientFieldToZod, clientFieldsToZod } from './zod'
+export { clientFieldToZod, clientFieldsToZod, isRichTextEmpty } from './zod'

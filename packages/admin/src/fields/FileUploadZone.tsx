@@ -223,6 +223,7 @@ export function FileUploadZone({
     if (selected) {
       validateAndSelectFile(selected)
     }
+    e.target.value = ''
   }
 
   const displayError = error ?? sizeError
@@ -238,12 +239,19 @@ export function FileUploadZone({
         <SelectedFilePreview
           file={value}
           onClear={() => {
+            if (inputRef.current) inputRef.current.value = ''
             setSizeError(null)
             onChange(null)
           }}
         />
       ) : currentFile?.url ? (
-        <CurrentFilePreview file={currentFile} onReplace={() => inputRef.current?.click()} />
+        <CurrentFilePreview
+          file={currentFile}
+          onReplace={() => {
+            if (inputRef.current) inputRef.current.value = ''
+            inputRef.current?.click()
+          }}
+        />
       ) : (
         <DropzoneArea
           isDragging={isDragging}
@@ -253,7 +261,10 @@ export function FileUploadZone({
           onDragOver={handleDragOver}
           onDragLeave={handleDragLeave}
           onDrop={handleDrop}
-          onClick={() => inputRef.current?.click()}
+          onClick={() => {
+            if (inputRef.current) inputRef.current.value = ''
+            inputRef.current?.click()
+          }}
         />
       )}
 

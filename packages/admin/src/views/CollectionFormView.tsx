@@ -261,11 +261,16 @@ function useDocumentQuery(mode: 'create' | 'edit', apiBase: string, slug?: strin
     queryKey: [slug, id],
     queryFn: () => (slug && id ? fetchDoc(apiBase, slug, id) : null),
     enabled: isEdit,
+    refetchOnWindowFocus: false,
   })
 }
 
 function appendFieldValue(formData: FormData, key: string, val: unknown): void {
-  if (val === undefined || val === null) return
+  if (val === undefined) return
+  if (val === null) {
+    formData.append(key, '')
+    return
+  }
   if (typeof val === 'object') {
     formData.append(key, JSON.stringify(val))
   } else if (typeof val === 'string' || typeof val === 'number' || typeof val === 'boolean') {
@@ -309,19 +314,19 @@ export function CollectionFormView({ mode }: { mode: 'create' | 'edit' }) {
     setValue,
     watch,
     setError,
-    formState: { errors, isSubmitting },
+    formState: { errors, isSubmitting, isDirty },
   } = useForm<Record<string, unknown>>({
     resolver: schema ? zodResolver(schema) : undefined,
     defaultValues,
   })
 
   useEffect(() => {
-    if (docQuery.data) {
+    if (docQuery.data && !isDirty) {
       reset(collection ? formatDocForForm(collection.fields, docQuery.data) : docQuery.data)
       setSelectedFile(null)
       setFileError(null)
     }
-  }, [docQuery.data, collection, reset])
+  }, [docQuery.data, collection, reset, isDirty])
 
   const { saveMutation, deleteMutation } = useDocMutations({
     apiBase,

@@ -165,6 +165,9 @@ describe('clientFieldToZod', () => {
       expect(schema.safeParse('ab').success).toBe(false)
       expect(schema.safeParse('abc').success).toBe(true)
       expect(schema.safeParse('abcdef').success).toBe(false)
+      expect(schema.safeParse('').success).toBe(true)
+      expect(schema.safeParse(null).success).toBe(true)
+      expect(schema.safeParse(undefined).success).toBe(true)
     })
 
     it('defaults maxLength to 255 when not specified', () => {
@@ -224,6 +227,9 @@ describe('clientFieldToZod', () => {
       expect(schema.safeParse('abcd').success).toBe(false)
       expect(schema.safeParse('abcde').success).toBe(true)
       expect(schema.safeParse('abcdefghijk').success).toBe(false)
+      expect(schema.safeParse('').success).toBe(true)
+      expect(schema.safeParse(null).success).toBe(true)
+      expect(schema.safeParse(undefined).success).toBe(true)
     })
   })
 
@@ -366,7 +372,27 @@ describe('clientFieldToZod', () => {
   describe('richText', () => {
     it('requires a non-empty object when required', () => {
       const schema = richText({ required: true })
-      expect(schema.safeParse({ type: 'doc', content: [] }).success).toBe(true)
+      expect(
+        schema.safeParse({
+          type: 'doc',
+          content: [
+            {
+              type: 'paragraph',
+              content: [{ type: 'text', text: 'Hello' }],
+            },
+          ],
+        }).success,
+      ).toBe(true)
+      expect(schema.safeParse({ type: 'doc', content: [] }).success).toBe(false)
+      expect(schema.safeParse({ type: 'doc', content: [{ type: 'paragraph' }] }).success).toBe(
+        false,
+      )
+      expect(
+        schema.safeParse({
+          type: 'doc',
+          content: [{ type: 'paragraph', content: [{ type: 'text', text: '   ' }] }],
+        }).success,
+      ).toBe(false)
       expect(schema.safeParse({}).success).toBe(false)
       expect(schema.safeParse(null).success).toBe(false)
       expect(schema.safeParse(undefined).success).toBe(false)

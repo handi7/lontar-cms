@@ -151,6 +151,7 @@ export function GlobalFormView() {
     queryKey: ['globals', slug],
     queryFn: () => (slug ? fetchGlobal(apiBase, slug) : null),
     enabled: Boolean(slug && global),
+    refetchOnWindowFocus: false,
   })
 
   const schema = useMemo(() => {
@@ -168,17 +169,17 @@ export function GlobalFormView() {
     setValue,
     watch,
     setError,
-    formState: { errors, isSubmitting },
+    formState: { errors, isSubmitting, isDirty },
   } = useForm<Record<string, unknown>>({
     resolver: schema ? zodResolver(schema) : undefined,
     defaultValues,
   })
 
   useEffect(() => {
-    if (globalQuery.data && global) {
+    if (globalQuery.data && global && !isDirty) {
       reset(formatDocForForm(global.fields, globalQuery.data))
     }
-  }, [globalQuery.data, global, reset])
+  }, [globalQuery.data, global, reset, isDirty])
 
   const saveMutation = useGlobalSaveMutation({
     apiBase,

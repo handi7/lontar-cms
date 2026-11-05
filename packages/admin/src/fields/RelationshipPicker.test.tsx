@@ -37,9 +37,11 @@ function mockJsonResponse(data: unknown, status = 200): Promise<Response> {
 function TestWrapper({
   children,
   defaultValues = {},
+  onSubmit,
 }: {
   children: (methods: ReturnType<typeof useForm<Record<string, unknown>>>) => React.ReactNode
   defaultValues?: Record<string, unknown>
+  onSubmit?: React.FormEventHandler<HTMLFormElement>
 }) {
   const queryClient = new QueryClient({
     defaultOptions: {
@@ -60,7 +62,7 @@ function TestWrapper({
           basePath: '/admin',
         }}
       >
-        <form>{children(methods)}</form>
+        <form onSubmit={onSubmit}>{children(methods)}</form>
       </AdminContext.Provider>
     </QueryClientProvider>
   )
@@ -214,6 +216,29 @@ describe('Single RelationshipPicker', () => {
     // Click Remove
     fireEvent.click(screen.getByTestId('relationship-clear'))
   })
+
+  it('prevents form submission when Enter key is pressed in search input', () => {
+    const onSubmit = vi.fn((e: React.FormEvent) => {
+      e.preventDefault()
+    })
+
+    render(
+      <TestWrapper defaultValues={{}} onSubmit={onSubmit}>
+        {({ register, setValue, watch }) => (
+          <RelationshipPicker
+            field={authorField}
+            register={register}
+            setValue={setValue}
+            watch={watch}
+          />
+        )}
+      </TestWrapper>,
+    )
+
+    const searchInput = screen.getByTestId('relationship-search')
+    fireEvent.keyDown(searchInput, { key: 'Enter', code: 'Enter' })
+    expect(onSubmit).not.toHaveBeenCalled()
+  })
 })
 
 describe('Many RelationshipPicker (hasMany: true)', () => {
@@ -356,5 +381,30 @@ describe('Many RelationshipPicker (hasMany: true)', () => {
 
     // Click option 30 (React)
     fireEvent.click(screen.getByTestId('relationship-option-30'))
+  })
+
+  it('prevents form submission when Enter key is pressed in search input', () => {
+    const onSubmit = vi.fn((e: React.FormEvent) => {
+      e.preventDefault()
+    })
+
+    render(
+      <TestWrapper defaultValues={{}} onSubmit={onSubmit}>
+        {({ register, setValue, watch }) => (
+          <RelationshipPicker
+            field={categoriesField}
+            register={register}
+            setValue={setValue}
+            watch={watch}
+          />
+        )}
+      </TestWrapper>,
+    )
+
+    fireEvent.click(screen.getByTestId('relationship-add-btn'))
+    const searchInput = screen.getByTestId('relationship-search')
+
+    fireEvent.keyDown(searchInput, { key: 'Enter', code: 'Enter' })
+    expect(onSubmit).not.toHaveBeenCalled()
   })
 })

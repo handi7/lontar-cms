@@ -17,6 +17,22 @@ import type {
 const MAX_INT_32 = 2147483647
 const DEFAULT_STRING_MAX_LENGTH = 255
 
+export function isRichTextEmpty(val: unknown): boolean {
+  if (!val || typeof val !== 'object') return true
+  const doc = val as { type?: string; text?: string; content?: unknown[] }
+  if (typeof doc.text === 'string') {
+    return doc.text.trim().length === 0
+  }
+  if (Array.isArray(doc.content)) {
+    if (doc.content.length === 0) return true
+    return doc.content.every((child) => isRichTextEmpty(child))
+  }
+  if (doc.type && doc.type !== 'doc' && doc.type !== 'paragraph') {
+    return false
+  }
+  return true
+}
+
 /*
  * The one place field rules become validation (docs/adr/0003-client-config-format.md).
  * The server runs its fields through toClientConfig() and then these same
@@ -24,12 +40,15 @@ const DEFAULT_STRING_MAX_LENGTH = 255
  */
 const zodByType = {
   text: (field: ClientTextField) => {
-    // A required text field must not be blank, whatever its minLength.
-    const minLength = Math.max(field.minLength ?? 0, field.required ? 1 : 0)
     const maxLength = field.maxLength ?? DEFAULT_STRING_MAX_LENGTH
-    let schema = z.string()
-    if (minLength > 0) schema = schema.min(minLength)
-    schema = schema.max(maxLength)
+    if (field.required) {
+      const minLength = Math.max(field.minLength ?? 1, 1)
+      return z.string().min(minLength).max(maxLength)
+    }
+    const schema = z.string().max(maxLength)
+    if (field.minLength !== undefined && field.minLength > 0) {
+      return schema.min(field.minLength).or(z.literal(''))
+    }
     return schema
   },
   number: (field: ClientNumberField) => {
@@ -40,10 +59,17 @@ const zodByType = {
     return schema
   },
   textarea: (field: ClientTextareaField) => {
-    const minLength = Math.max(field.minLength ?? 0, field.required ? 1 : 0)
+    if (field.required) {
+      const minLength = Math.max(field.minLength ?? 1, 1)
+      let schema = z.string().min(minLength)
+      if (field.maxLength !== undefined) schema = schema.max(field.maxLength)
+      return schema
+    }
     let schema = z.string()
-    if (minLength > 0) schema = schema.min(minLength)
     if (field.maxLength !== undefined) schema = schema.max(field.maxLength)
+    if (field.minLength !== undefined && field.minLength > 0) {
+      return schema.min(field.minLength).or(z.literal(''))
+    }
     return schema
   },
   email: (field: ClientEmailField) => {
@@ -98,7 +124,7 @@ const zodByType = {
   richText: (field: ClientRichTextField) => {
     const base = z.record(z.string(), z.unknown())
     if (field.required) {
-      return base.refine((val) => val && Object.keys(val).length > 0, {
+      return base.refine((val) => !isRichTextEmpty(val), {
         message: 'Rich text content is required',
       })
     }
