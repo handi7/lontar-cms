@@ -1,5 +1,12 @@
 import { SYSTEM_FIELDS, UPLOAD_SYSTEM_FIELDS } from '../client/system-fields'
-import type { Field, TextareaField, TextField } from '../fields/types'
+import type {
+  Field,
+  RelationshipField,
+  SlugField,
+  TextareaField,
+  TextField,
+  UploadField,
+} from '../fields/types'
 import type { CollectionConfig, Config, GlobalConfig, PaginationConfig } from './types'
 
 const SLUG = /^[a-z][a-z0-9-]*$/
@@ -8,6 +15,7 @@ const FIELD_NAME = /^[A-Za-z_][A-Za-z0-9_]*$/
 const RESERVED_SLUGS = new Set(['globals', 'auth', 'user', 'session', 'account', 'verification'])
 const SYSTEM_FIELD_NAMES = new Set<string>(SYSTEM_FIELDS)
 const UPLOAD_SYSTEM_FIELD_NAMES = new Set<string>(UPLOAD_SYSTEM_FIELDS)
+const TEXT_LIKE_FIELD_TYPES = new Set(['text', 'textarea', 'email', 'select'])
 export const MAX_VARCHAR_LENGTH = 16383
 
 export class LontarConfigError extends Error {
@@ -33,9 +41,9 @@ export function defineConfig<C extends Config>(config: C): C {
 function validateConfig(config: Config): string[] {
   const issues = validateSecret(config.secret)
   issues.push(...validatePagination('Config', config.pagination))
-  const collectionsResult = validateCollections(config.collections)
-  issues.push(...collectionsResult.issues)
-  issues.push(...validateGlobals(config.globals, collectionsResult.slugs))
+  const { issues: collectionIssues, collectionMap } = validateCollections(config.collections)
+  issues.push(...collectionIssues)
+  issues.push(...validateGlobals(config.globals, collectionMap))
   issues.push(...validateStorage(config))
   return issues
 }
@@ -59,7 +67,7 @@ function validateSecret(secret: unknown): string[] {
 
 function validateCollections(collections: readonly CollectionConfig[]): {
   issues: string[]
-  slugs: Set<string>
+  collectionMap: Map<string, CollectionConfig>
 } {
   const issues: string[] = []
   const slugs = new Set<string>()
@@ -73,14 +81,16 @@ function validateCollections(collections: readonly CollectionConfig[]): {
     issues.push(...validateCollection(collection))
   }
   for (const collection of collections) {
-    issues.push(...validateUploadTargets(collection, collectionMap))
+    issues.push(
+      ...validateFieldTargets(`Collection "${collection.slug}"`, collection.fields, collectionMap),
+    )
   }
-  return { issues, slugs }
+  return { issues, collectionMap }
 }
 
 function validateGlobals(
   globals: readonly GlobalConfig[] | undefined,
-  collectionSlugs: Set<string>,
+  collectionMap: Map<string, CollectionConfig>,
 ): string[] {
   if (!globals) return []
   const issues: string[] = []
@@ -89,34 +99,62 @@ function validateGlobals(
     if (seen.has(global.slug)) {
       issues.push(`Global slug "${global.slug}" is used twice.`)
     }
-    if (collectionSlugs.has(global.slug)) {
+    if (collectionMap.has(global.slug)) {
       issues.push(`Global slug "${global.slug}" collides with a collection slug.`)
     }
     seen.add(global.slug)
     issues.push(...validateGlobal(global))
+    issues.push(...validateFieldTargets(`Global "${global.slug}"`, global.fields, collectionMap))
   }
   return issues
 }
 
-function validateUploadTargets(
-  collection: CollectionConfig,
+function validateFieldTargets(
+  where: string,
+  fields: Record<string, Field>,
   collectionMap: Map<string, CollectionConfig>,
 ): string[] {
   const issues: string[] = []
-  for (const [name, field] of Object.entries(collection.fields)) {
-    if (field.type !== 'upload') continue
-    const target = collectionMap.get(field.relationTo)
-    if (!target) {
-      issues.push(
-        `Collection "${collection.slug}": upload field "${name}" refers to unknown collection "${field.relationTo}".`,
-      )
-    } else if (!target.upload) {
-      issues.push(
-        `Collection "${collection.slug}": upload field "${name}" refers to collection "${field.relationTo}" which does not have upload enabled.`,
-      )
+  for (const [name, field] of Object.entries(fields)) {
+    if (field.type === 'upload') {
+      issues.push(...validateUploadTarget(where, name, field, collectionMap))
+    } else if (field.type === 'relationship') {
+      issues.push(...validateRelationshipTarget(where, name, field, collectionMap))
     }
   }
   return issues
+}
+
+function validateUploadTarget(
+  where: string,
+  name: string,
+  field: UploadField,
+  collectionMap: Map<string, CollectionConfig>,
+): string[] {
+  const target = collectionMap.get(field.relationTo)
+  if (!target) {
+    return [`${where}: upload field "${name}" refers to unknown collection "${field.relationTo}".`]
+  }
+  if (!target.upload) {
+    return [
+      `${where}: upload field "${name}" refers to collection "${field.relationTo}" which does not have upload enabled.`,
+    ]
+  }
+  return []
+}
+
+function validateRelationshipTarget(
+  where: string,
+  name: string,
+  field: RelationshipField,
+  collectionMap: Map<string, CollectionConfig>,
+): string[] {
+  if (!collectionMap.has(field.relationTo)) {
+    return [
+      `${where}: relationship field "${name}" refers to unknown collection "${field.relationTo}".`,
+    ]
+  }
+  return []
 }
 
 function validateCollection(collection: CollectionConfig): string[] {
@@ -126,7 +164,7 @@ function validateCollection(collection: CollectionConfig): string[] {
     ...validateSlug(collection.slug, 'Collection'),
     ...Object.keys(collection.fields).flatMap((name) => validateFieldName(where, name, isUpload)),
     ...Object.entries(collection.fields).flatMap(([name, field]) =>
-      validateField(where, name, field),
+      validateField(where, name, field, collection.fields),
     ),
     ...validatePagination(where, collection.pagination),
     ...validateAdmin(where, collection),
@@ -166,17 +204,49 @@ function validateGlobal(global: GlobalConfig): string[] {
   return [
     ...validateSlug(global.slug, 'Global'),
     ...Object.keys(global.fields).flatMap((name) => validateFieldName(where, name)),
-    ...Object.entries(global.fields).flatMap(([name, field]) => validateField(where, name, field)),
+    ...Object.entries(global.fields).flatMap(([name, field]) =>
+      validateField(where, name, field, global.fields),
+    ),
     ...validateGlobalAccess(where, global),
   ]
 }
 
-function validateField(where: string, name: string, field: Field): string[] {
+function validateField(
+  where: string,
+  name: string,
+  field: Field,
+  fields: Record<string, Field>,
+): string[] {
   if (field.type === 'text') {
     return validateTextField(where, name, field)
   }
   if (field.type === 'textarea') {
     return validateTextareaField(where, name, field)
+  }
+  if (field.type === 'slug') {
+    return validateSlugField(where, name, field, fields)
+  }
+  return []
+}
+
+function validateSlugField(
+  where: string,
+  name: string,
+  field: SlugField,
+  fields: Record<string, Field>,
+): string[] {
+  if (field.from === undefined) return []
+  if (field.from === name) {
+    return [`${where}: slug field "${name}" cannot refer to itself in \`from\`.`]
+  }
+  const sourceField = fields[field.from]
+  if (!sourceField) {
+    return [`${where}: slug field "${name}" \`from\` refers to unknown field "${field.from}".`]
+  }
+  if (!TEXT_LIKE_FIELD_TYPES.has(sourceField.type)) {
+    return [
+      `${where}: slug field "${name}" \`from\` must refer to a text-like field, but "${field.from}" is of type "${sourceField.type}".`,
+    ]
   }
   return []
 }

@@ -406,4 +406,272 @@ describe('defineConfig', () => {
     }
     expect(defineConfig(config)).toBe(config)
   })
+
+  it('rejects relationship field targeting unknown collection', () => {
+    expect(() =>
+      defineConfig({
+        secret: SECRET,
+        db: fakeAdapter,
+        collections: [
+          notes({
+            fields: {
+              author: f.relationship({ relationTo: 'users' }),
+            },
+          }),
+        ],
+      }),
+    ).toThrow('relationship field "author" refers to unknown collection "users"')
+  })
+
+  it('accepts relationship field targeting existing collection', () => {
+    const authors = notes({ slug: 'authors', fields: { name: f.text() } })
+    const posts = notes({
+      slug: 'posts',
+      fields: {
+        author: f.relationship({ relationTo: 'authors' }),
+        coauthors: f.relationship({ relationTo: 'authors', hasMany: true }),
+      },
+    })
+    const config = {
+      secret: SECRET,
+      db: fakeAdapter,
+      collections: [authors, posts],
+    }
+    expect(defineConfig(config)).toBe(config)
+  })
+
+  it('accepts self-referential relationship field', () => {
+    const categories = notes({
+      slug: 'categories',
+      fields: {
+        parent: f.relationship({ relationTo: 'categories' }),
+      },
+    })
+    const config = {
+      secret: SECRET,
+      db: fakeAdapter,
+      collections: [categories],
+    }
+    expect(defineConfig(config)).toBe(config)
+  })
+
+  it('rejects global relationship field targeting unknown collection', () => {
+    expect(() =>
+      defineConfig({
+        secret: SECRET,
+        db: fakeAdapter,
+        collections: [notes()],
+        globals: [
+          {
+            slug: 'site-settings',
+            fields: {
+              featuredAuthor: f.relationship({ relationTo: 'authors' }),
+            },
+          },
+        ],
+      }),
+    ).toThrow(
+      'Global "site-settings": relationship field "featuredAuthor" refers to unknown collection "authors"',
+    )
+  })
+
+  it('accepts global relationship field targeting existing collection', () => {
+    const authors = notes({ slug: 'authors', fields: { name: f.text() } })
+    const config = {
+      secret: SECRET,
+      db: fakeAdapter,
+      collections: [authors],
+      globals: [
+        {
+          slug: 'site-settings',
+          fields: {
+            featuredAuthor: f.relationship({ relationTo: 'authors' }),
+          },
+        },
+      ],
+    }
+    expect(defineConfig(config)).toBe(config)
+  })
+
+  it('validates global upload fields', () => {
+    const mockStorage = {
+      name: 'test-storage',
+      upload: () => Promise.resolve({ filename: 'f', url: 'u' }),
+      delete: () => Promise.resolve(),
+      getUrl: () => 'u',
+    }
+
+    expect(() =>
+      defineConfig({
+        secret: SECRET,
+        db: fakeAdapter,
+        collections: [notes()],
+        globals: [
+          {
+            slug: 'site-settings',
+            fields: {
+              logo: f.upload({ relationTo: 'media' }),
+            },
+          },
+        ],
+      }),
+    ).toThrow('Global "site-settings": upload field "logo" refers to unknown collection "media"')
+
+    expect(() =>
+      defineConfig({
+        secret: SECRET,
+        db: fakeAdapter,
+        collections: [notes({ slug: 'other' })],
+        globals: [
+          {
+            slug: 'site-settings',
+            fields: {
+              logo: f.upload({ relationTo: 'other' }),
+            },
+          },
+        ],
+      }),
+    ).toThrow(
+      'Global "site-settings": upload field "logo" refers to collection "other" which does not have upload enabled',
+    )
+
+    const validConfig = {
+      secret: SECRET,
+      db: fakeAdapter,
+      storage: mockStorage,
+      collections: [notes({ slug: 'media', upload: true })],
+      globals: [
+        {
+          slug: 'site-settings',
+          fields: {
+            logo: f.upload({ relationTo: 'media' }),
+          },
+        },
+      ],
+    }
+    expect(defineConfig(validConfig)).toBe(validConfig)
+  })
+
+  it('accepts slug field without from option (manual slug)', () => {
+    const config = {
+      secret: SECRET,
+      db: fakeAdapter,
+      collections: [
+        notes({
+          fields: {
+            slug: f.slug(),
+          },
+        }),
+      ],
+    }
+    expect(defineConfig(config)).toBe(config)
+  })
+
+  it('accepts slug field with valid from option pointing to text-like fields', () => {
+    const config = {
+      secret: SECRET,
+      db: fakeAdapter,
+      collections: [
+        notes({
+          fields: {
+            title: f.text(),
+            slugFromText: f.slug({ from: 'title' }),
+            summary: f.textarea(),
+            slugFromTextarea: f.slug({ from: 'summary' }),
+            contactEmail: f.email(),
+            slugFromEmail: f.slug({ from: 'contactEmail' }),
+            category: f.select({ options: ['tech', 'life'] }),
+            slugFromSelect: f.slug({ from: 'category' }),
+          },
+        }),
+      ],
+    }
+    expect(defineConfig(config)).toBe(config)
+  })
+
+  it('rejects slug field when from refers to unknown field', () => {
+    expect(
+      issuesOf([
+        notes({
+          fields: {
+            title: f.text(),
+            slug: f.slug({ from: 'nonexistent' }),
+          },
+        }),
+      ]),
+    ).toEqual([
+      'Collection "notes": slug field "slug" `from` refers to unknown field "nonexistent".',
+    ])
+  })
+
+  it('rejects slug field when from refers to itself', () => {
+    expect(
+      issuesOf([
+        notes({
+          fields: {
+            slug: f.slug({ from: 'slug' }),
+          },
+        }),
+      ]),
+    ).toEqual(['Collection "notes": slug field "slug" cannot refer to itself in `from`.'])
+  })
+
+  it('rejects slug field when from refers to a non-text field', () => {
+    expect(
+      issuesOf([
+        notes({
+          fields: {
+            views: f.number(),
+            slug: f.slug({ from: 'views' }),
+          },
+        }),
+      ]),
+    ).toEqual([
+      'Collection "notes": slug field "slug" `from` must refer to a text-like field, but "views" is of type "number".',
+    ])
+
+    expect(
+      issuesOf([
+        notes({
+          fields: {
+            isPublished: f.checkbox(),
+            slug: f.slug({ from: 'isPublished' }),
+          },
+        }),
+      ]),
+    ).toEqual([
+      'Collection "notes": slug field "slug" `from` must refer to a text-like field, but "isPublished" is of type "checkbox".',
+    ])
+
+    expect(
+      issuesOf([
+        notes({
+          fields: {
+            originalSlug: f.slug(),
+            slug: f.slug({ from: 'originalSlug' }),
+          },
+        }),
+      ]),
+    ).toEqual([
+      'Collection "notes": slug field "slug" `from` must refer to a text-like field, but "originalSlug" is of type "slug".',
+    ])
+  })
+
+  it('validates slug fields in globals', () => {
+    expect(() =>
+      defineConfig({
+        secret: SECRET,
+        db: fakeAdapter,
+        collections: [notes()],
+        globals: [
+          {
+            slug: 'site-settings',
+            fields: {
+              slug: f.slug({ from: 'missing' }),
+            },
+          },
+        ],
+      }),
+    ).toThrow('Global "site-settings": slug field "slug" `from` refers to unknown field "missing"')
+  })
 })

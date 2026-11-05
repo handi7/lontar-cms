@@ -6,8 +6,12 @@ import { defineConfig } from './define-config'
 import { toClientConfig } from './to-client-config'
 import type { CollectionConfig } from './types'
 
-function clientCollection(collection: CollectionConfig) {
-  const config = defineConfig({ secret: SECRET, db: fakeAdapter, collections: [collection] })
+function clientCollection(collection: CollectionConfig, extraCollections: CollectionConfig[] = []) {
+  const config = defineConfig({
+    secret: SECRET,
+    db: fakeAdapter,
+    collections: [collection, ...extraCollections],
+  })
   return toClientConfig(config).collections[0]
 }
 
@@ -67,78 +71,84 @@ describe('toClientConfig', () => {
 
   // AGENTS.md: extend this test whenever a field type gains an option.
   it('serializes every option of every field type', () => {
-    const collection = clientCollection({
-      slug: 'everything',
-      fields: {
-        text: f.text({
-          label: 'Text',
-          required: true,
-          minLength: 2,
-          maxLength: 10,
-          defaultValue: 'hi',
-        }),
-        number: f.number({
-          label: 'Number',
-          required: true,
-          min: 1,
-          max: 9,
-          integer: true,
-          defaultValue: 5,
-        }),
-        textarea: f.textarea({
-          label: 'Textarea',
-          required: true,
-          minLength: 10,
-          maxLength: 500,
-          rows: 6,
-          defaultValue: 'default text',
-        }),
-        email: f.email({
-          label: 'Email',
-          required: true,
-          unique: true,
-          defaultValue: 'hello@example.com',
-        }),
-        slug: f.slug({
-          label: 'Slug',
-          required: true,
-          unique: true,
-          from: 'text',
-          defaultValue: 'my-slug',
-        }),
-        checkbox: f.checkbox({
-          label: 'Active',
-          required: true,
-          defaultValue: true,
-        }),
-        select: f.select({
-          label: 'Status',
-          required: true,
-          options: ['draft', { label: 'Published', value: 'published' }],
-          defaultValue: 'draft',
-        }),
-        date: f.date({
-          label: 'Published At',
-          required: true,
-          defaultValue: '2026-11-01T00:00:00.000Z',
-        }),
-        richText: f.richText({
-          label: 'Body',
-          required: true,
-          defaultValue: { type: 'doc', content: [] },
-        }),
-        author: f.relationship({
-          label: 'Author',
-          required: true,
-          relationTo: 'users',
-        }),
-        categories: f.relationship({
-          label: 'Categories',
-          relationTo: 'categories',
-          hasMany: true,
-        }),
+    const collection = clientCollection(
+      {
+        slug: 'everything',
+        fields: {
+          text: f.text({
+            label: 'Text',
+            required: true,
+            minLength: 2,
+            maxLength: 10,
+            defaultValue: 'hi',
+          }),
+          number: f.number({
+            label: 'Number',
+            required: true,
+            min: 1,
+            max: 9,
+            integer: true,
+            defaultValue: 5,
+          }),
+          textarea: f.textarea({
+            label: 'Textarea',
+            required: true,
+            minLength: 10,
+            maxLength: 500,
+            rows: 6,
+            defaultValue: 'default text',
+          }),
+          email: f.email({
+            label: 'Email',
+            required: true,
+            unique: true,
+            defaultValue: 'hello@example.com',
+          }),
+          slug: f.slug({
+            label: 'Slug',
+            required: true,
+            unique: true,
+            from: 'text',
+            defaultValue: 'my-slug',
+          }),
+          checkbox: f.checkbox({
+            label: 'Active',
+            required: true,
+            defaultValue: true,
+          }),
+          select: f.select({
+            label: 'Status',
+            required: true,
+            options: ['draft', { label: 'Published', value: 'published' }],
+            defaultValue: 'draft',
+          }),
+          date: f.date({
+            label: 'Published At',
+            required: true,
+            defaultValue: '2026-11-01T00:00:00.000Z',
+          }),
+          richText: f.richText({
+            label: 'Body',
+            required: true,
+            defaultValue: { type: 'doc', content: [] },
+          }),
+          author: f.relationship({
+            label: 'Author',
+            required: true,
+            relationTo: 'users',
+          }),
+          categories: f.relationship({
+            label: 'Categories',
+            relationTo: 'categories',
+            hasMany: true,
+          }),
+        },
       },
-    })
+      [
+        { slug: 'users', fields: {} },
+        { slug: 'categories', fields: {} },
+      ],
+    )
 
     expect(collection?.fields).toStrictEqual([
       {
