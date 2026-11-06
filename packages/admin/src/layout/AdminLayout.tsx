@@ -1,5 +1,6 @@
 import { Navigate, Outlet, useRouter } from '@tanstack/react-router'
 import { useAuth } from '../context/AuthContext'
+import { FullPageLoading } from './FullPageState'
 import { Sidebar } from './Sidebar'
 
 export function AdminLayout() {
@@ -7,12 +8,7 @@ export function AdminLayout() {
   const router = useRouter()
 
   if (isLoading) {
-    return (
-      <div className="lontar-init-loading">
-        <div className="lontar-spinner" />
-        <p>Checking authentication...</p>
-      </div>
-    )
+    return <FullPageLoading>Checking authentication...</FullPageLoading>
   }
 
   if (!user) {
@@ -29,10 +25,13 @@ export function AdminLayout() {
   }
 
   return (
-    <div className="lontar-layout">
+    <div className="lt:flex lt:min-h-screen">
       <Sidebar />
-      <main className="lontar-main">
-        <div className="lontar-main-inner">
+      {/* min-w-0 is load-bearing: a flex item defaults to min-width: auto, so
+          without it a wide list table pushes the whole row past the viewport
+          instead of scrolling inside its own container. */}
+      <main className="lt:min-w-0 lt:flex-1 lt:overflow-y-auto lt:bg-background">
+        <div className="lt:mx-auto lt:max-w-[1100px] lt:px-10 lt:py-8">
           <Outlet />
         </div>
       </main>

@@ -4,6 +4,7 @@ import type { RouterHistory } from '@tanstack/history'
 import { RouterProvider } from '@tanstack/react-router'
 import { AdminContext } from './context/AdminContext'
 import { AuthProvider } from './context/AuthContext'
+import { FullPageError, FullPageLoading } from './layout/FullPageState'
 import { PortalContainerProvider } from './context/PortalContainer'
 import { fetchClientConfig } from './api/client'
 import { createAdminBrowserHistory } from './router/history'
@@ -51,10 +52,7 @@ function AdminInner({
   if (!mounted || isLoading || !router) {
     return (
       <div className="lontar-admin">
-        <div className="lontar-init-loading">
-          <div className="lontar-spinner" />
-          <p>Loading Lontar CMS configuration...</p>
-        </div>
+        <FullPageLoading>Loading Lontar CMS configuration...</FullPageLoading>
       </div>
     )
   }
@@ -62,10 +60,9 @@ function AdminInner({
   if (error || !config) {
     return (
       <div className="lontar-admin">
-        <div className="lontar-init-error">
-          <h2>Failed to load admin configuration</h2>
-          <p>{error ? error.message : 'No configuration received from API'}</p>
-        </div>
+        <FullPageError title="Failed to load admin configuration">
+          {error ? error.message : 'No configuration received from API'}
+        </FullPageError>
       </div>
     )
   }

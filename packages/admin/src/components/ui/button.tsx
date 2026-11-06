@@ -4,6 +4,15 @@
 //   - shadow scale uses the Tailwind v4 names (`shadow` -> `shadow-sm`)
 //   - hover states use --lontar-primary-hover / --lontar-danger-hover, the
 //     admin's existing tokens, instead of an opacity modifier
+//   - the base classes restate what preflight would have given every button and
+//     link: no UA border or background (each variant sets its own), a pointer
+//     cursor, and no underline when rendered as a link through `asChild`. The
+//     transparent 1px border keeps every variant the same size as `outline`.
+//     `text-foreground` is there for the same reason: `outline` and `ghost` set
+//     no colour of their own, so a Link rendered through them took the UA's
+//     link colour, purple once visited.
+//   - `outline` sits on the card surface rather than `background`, which maps
+//     to the page background (--lontar-bg) and would read as grey on a card
 import * as React from 'react'
 import { Slot } from '@radix-ui/react-slot'
 import { cva, type VariantProps } from 'class-variance-authority'
@@ -11,7 +20,7 @@ import { cva, type VariantProps } from 'class-variance-authority'
 import { cn } from '../../lib/utils'
 
 const buttonVariants = cva(
-  'lt:inline-flex lt:items-center lt:justify-center lt:gap-2 lt:whitespace-nowrap lt:rounded-md lt:text-sm lt:font-medium lt:transition-colors lt:focus-visible:outline-none lt:focus-visible:ring-1 lt:focus-visible:ring-ring lt:disabled:pointer-events-none lt:disabled:opacity-50 lt:[&_svg]:pointer-events-none lt:[&_svg]:size-4 lt:[&_svg]:shrink-0',
+  'lt:inline-flex lt:cursor-pointer lt:items-center lt:justify-center lt:gap-2 lt:whitespace-nowrap lt:rounded-md lt:border lt:border-transparent lt:bg-transparent lt:text-sm lt:text-foreground lt:no-underline lt:font-medium lt:transition-colors lt:focus-visible:outline-none lt:focus-visible:ring-1 lt:focus-visible:ring-ring lt:disabled:pointer-events-none lt:disabled:opacity-50 lt:[&_svg]:pointer-events-none lt:[&_svg]:size-4 lt:[&_svg]:shrink-0',
   {
     variants: {
       variant: {
@@ -19,7 +28,7 @@ const buttonVariants = cva(
         destructive:
           'lt:bg-destructive lt:text-destructive-foreground lt:shadow-xs lt:hover:bg-destructive-hover',
         outline:
-          'lt:border lt:border-input lt:bg-background lt:shadow-xs lt:hover:bg-accent lt:hover:text-accent-foreground',
+          'lt:border lt:border-input lt:bg-card lt:shadow-xs lt:hover:bg-accent lt:hover:text-accent-foreground',
         secondary:
           'lt:bg-secondary lt:text-secondary-foreground lt:shadow-xs lt:hover:bg-secondary/80',
         ghost: 'lt:hover:bg-accent lt:hover:text-accent-foreground',

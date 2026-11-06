@@ -140,7 +140,7 @@ approval on the `npm` environment. Don't run `pnpm publish` by hand; see `docs/r
   - [x] #113 Styling ADR (done)
   - [x] #114 Scoped Tailwind build and token mapping (done)
   - [x] #115 Primitives and scoped portal container (done)
-  - [ ] #116 Non-portal components (part 1, field primitives + `Controller` binding, done in #133; part 2, views and layout, not started)
+  - [x] #116 Non-portal components (done; part 1 in #133)
   - [ ] #117 Portal components
   - [ ] #118 Date and checkbox fields
   - [x] #119 Radix unit test setup (done)

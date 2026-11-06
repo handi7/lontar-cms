@@ -156,6 +156,34 @@ describe('Admin SPA', () => {
     })
   })
 
+  // The sidebar styles its active item from `data-status="active"`, which
+  // TanStack Router sets on a matching Link (see layout/Sidebar.tsx). If that
+  // attribute stops appearing, the active item loses its styling with no error.
+  it('marks only the current section as active in the sidebar', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockImplementation((url: string) => {
+        if (url.includes('/_lontar/config')) {
+          return mockJsonResponse(mockConfig)
+        }
+        if (url.includes('/auth/get-session')) {
+          return mockJsonResponse({ user: mockAuthUser, session: mockAuthSession })
+        }
+        if (url.includes('/api/posts')) {
+          return mockJsonResponse({ docs: [], totalDocs: 0, limit: 10, page: 1, totalPages: 1 })
+        }
+        return Promise.reject(new Error(`Unhandled URL: ${url}`))
+      }),
+    )
+
+    const history = createMemoryHistory({ initialEntries: ['/admin/posts'] })
+    render(<Admin apiBase="/api" basePath="/admin" history={history} />)
+
+    const postsLink = await screen.findByRole('link', { name: 'Posts' })
+    expect(postsLink.getAttribute('data-status')).toBe('active')
+    expect(screen.getByRole('link', { name: 'Dashboard' }).getAttribute('data-status')).toBeNull()
+  })
+
   it('formats checkbox, select, and date columns in collection list view', async () => {
     const configWithAllFields: ClientConfig = {
       version: 1,
