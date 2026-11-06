@@ -1,7 +1,70 @@
 /*
  * Every rule must stay inside .lontar-admin so the admin cannot restyle the
- * host application (AGENTS.md architecture rule 7).
+ * host application (AGENTS.md architecture rule 7). The one exception is a
+ * prefixed Tailwind utility (lt:flex), which cannot be nested under a parent
+ * selector; the prefix is what keeps it from colliding with the host app.
+ * Both are enforced at build time by src/build/scoped-css.ts.
+ *
+ * Preflight is deliberately not imported: it targets *, html and bare element
+ * selectors, so it would reset the host page. See docs/adr/0019.
  */
+@layer theme, base, components, utilities;
+@import 'tailwindcss/theme.css' layer(theme) prefix(lt);
+@import 'tailwindcss/utilities.css' layer(utilities) prefix(lt);
+@source './**/*.{ts,tsx}';
+
+/*
+ * shadcn's token names mapped onto the --lontar-* custom properties, which stay
+ * the public theming surface documented in README.md. `inline` is required, not
+ * cosmetic: without it a utility emits var(--color-primary), which resolves
+ * where that variable is declared (:root) rather than on the element, and
+ * --lontar-primary is declared further down the tree on .lontar-admin.
+ */
+@theme inline {
+  --color-background: var(--lontar-bg);
+  --color-foreground: var(--lontar-text);
+
+  --color-card: var(--lontar-surface);
+  --color-card-foreground: var(--lontar-text);
+  --color-popover: var(--lontar-surface);
+  --color-popover-foreground: var(--lontar-text);
+
+  --color-primary: var(--lontar-primary);
+  --color-primary-hover: var(--lontar-primary-hover);
+  --color-primary-foreground: var(--lontar-primary-text);
+
+  --color-secondary: var(--lontar-surface-hover);
+  --color-secondary-foreground: var(--lontar-text);
+  --color-muted: var(--lontar-surface-hover);
+  --color-muted-foreground: var(--lontar-text-muted);
+  --color-accent: var(--lontar-surface-hover);
+  --color-accent-foreground: var(--lontar-text);
+
+  --color-destructive: var(--lontar-danger);
+  --color-destructive-hover: var(--lontar-danger-hover);
+  --color-destructive-foreground: var(--lontar-primary-text);
+
+  --color-border: var(--lontar-border);
+  --color-input: var(--lontar-border);
+  --color-ring: var(--lontar-primary);
+
+  --color-success-bg: var(--lontar-success-bg);
+  --color-success-border: var(--lontar-success-border);
+  --color-success-text: var(--lontar-success-text);
+  --color-error-bg: var(--lontar-error-bg);
+  --color-error-border: var(--lontar-error-border);
+  --color-error-text: var(--lontar-error-text);
+
+  --radius-sm: calc(var(--lontar-radius) - 2px);
+  --radius-md: var(--lontar-radius);
+  --radius-lg: calc(var(--lontar-radius) + 2px);
+  --radius-xl: calc(var(--lontar-radius) + 6px);
+
+  --font-sans:
+    ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto,
+    'Helvetica Neue', Arial, sans-serif;
+}
+
 .lontar-admin {
   --lontar-bg: #f8fafc;
   --lontar-surface: #ffffff;
@@ -22,6 +85,12 @@
   --lontar-error-text: #991b1b;
   --lontar-radius: 6px;
 
+  /* Internal, not part of the public theming surface in README.md. Both were
+   * already referenced below but never defined, so the dropzone background and
+   * the upload-option border silently resolved to nothing. */
+  --lontar-surface-subtle: var(--lontar-surface-hover);
+  --lontar-border-subtle: var(--lontar-border);
+
   font-family:
     ui-sans-serif,
     system-ui,
@@ -39,8 +108,77 @@
   min-height: 100vh;
 }
 
-.lontar-admin * {
+/*
+ * Base reset. Stands in for Tailwind's preflight, which is not imported because
+ * it targets the host page. These rules declare, inside the wrapper, the browser
+ * defaults the admin relies on, so they stop being implicit — they are not meant
+ * to flatten them the way preflight would.
+ */
+.lontar-admin,
+.lontar-admin *,
+.lontar-admin *::before,
+.lontar-admin *::after {
   box-sizing: border-box;
+}
+
+/* Form controls do not inherit typography from their ancestors. Without this a
+ * textarea renders in the UA's monospace and buttons in the UA's ~13.33px. */
+.lontar-admin button,
+.lontar-admin input,
+.lontar-admin optgroup,
+.lontar-admin select,
+.lontar-admin textarea {
+  font: inherit;
+  color: inherit;
+}
+
+/* UA heading and paragraph metrics, stated explicitly. Components that need
+ * something else override these from their own, more specific rules. */
+.lontar-admin h1 {
+  font-size: 2em;
+  font-weight: bold;
+  margin: 0.67em 0;
+}
+
+.lontar-admin h2 {
+  font-size: 1.5em;
+  font-weight: bold;
+  margin: 0.83em 0;
+}
+
+.lontar-admin h3 {
+  font-size: 1.17em;
+  font-weight: bold;
+  margin: 1em 0;
+}
+
+.lontar-admin h4 {
+  font-size: 1em;
+  font-weight: bold;
+  margin: 1.33em 0;
+}
+
+.lontar-admin h5 {
+  font-size: 0.83em;
+  font-weight: bold;
+  margin: 1.67em 0;
+}
+
+.lontar-admin h6 {
+  font-size: 0.67em;
+  font-weight: bold;
+  margin: 2.33em 0;
+}
+
+.lontar-admin p {
+  margin: 1em 0;
+}
+
+/* Rich text content is authored in Tiptap and depends on the UA's list markers,
+ * including the circle/square UA picks for nested lists. */
+.lontar-admin ul,
+.lontar-admin ol {
+  list-style: revert;
 }
 
 /* Layout */

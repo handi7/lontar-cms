@@ -1,8 +1,26 @@
 import { writeFileSync } from 'node:fs'
 import { resolve } from 'node:path'
+import tailwindcss from '@tailwindcss/vite'
 import react from '@vitejs/plugin-react'
 import { defineConfig, type Plugin } from 'vite'
 import dts from 'vite-plugin-dts'
+import { scopeEmittedCss } from './src/build/scoped-css.ts'
+
+// Rewrites the `:root` block Tailwind emits its theme variables on to the admin
+// wrapper, then fails the build if any selector could still match an element in
+// the host app (AGENTS.md architecture rule 7, docs/adr/0019).
+function scopedCss(): Plugin {
+  return {
+    name: 'scoped-css',
+    enforce: 'post',
+    generateBundle(_options, bundle) {
+      for (const asset of Object.values(bundle)) {
+        if (asset.type !== 'asset' || !asset.fileName.endsWith('.css')) continue
+        asset.source = scopeEmittedCss(asset.source.toString(), asset.fileName)
+      }
+    },
+  }
+}
 
 function cssDts(): Plugin {
   return {
@@ -24,8 +42,16 @@ function cssDts(): Plugin {
 export default defineConfig({
   plugins: [
     react(),
-    dts({ entryRoot: 'src', include: ['src'], exclude: ['**/*.test.*'], pathsToAliases: false }),
+    tailwindcss(),
+    dts({
+      entryRoot: 'src',
+      include: ['src'],
+      // `src/build` is build tooling, not part of the published surface.
+      exclude: ['**/*.test.*', 'src/build/**'],
+      pathsToAliases: false,
+    }),
     cssDts(),
+    scopedCss(),
   ],
   resolve: {
     alias: [

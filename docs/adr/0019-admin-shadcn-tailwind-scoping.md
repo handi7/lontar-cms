@@ -1,6 +1,6 @@
 # 0019: Admin styling with Tailwind v4 and shadcn/ui, scoped to the admin
 
-- **Status:** Proposed
+- **Status:** Accepted
 - **Date:** 2026-11-05
 
 ## Context
@@ -41,6 +41,18 @@ Classes are written `lt:flex`, `lt:p-4`. The prefix is an implementation detail,
 **5. Components are copied in, not installed by the CLI.** There is no `components.json` and no `@/` alias, and the shadcn CLI assumes an application rather than a Vite library build — it also installs into `dependencies`, which is wrong here. Radix, `class-variance-authority`, `clsx` and `tailwind-merge` are bundled, so they belong in `devDependencies`, matching the existing pattern and the comment in `vite.config.ts`.
 
 To keep rule 1 and rule 2 honest, the build gains a check that the emitted `dist/styles.css` contains no selector outside `.lontar-admin`.
+
+**Amendment (2026-11-06, while implementing #114).** That sentence is stricter than anything a build can enforce, so the check implements its intent instead. Two facts came out of the implementation:
+
+Tailwind emits theme variables as `@layer theme { :root { … } }`, and there is no supported option to put them on another selector — `@theme` is also required to be top-level, so it cannot be nested under the wrapper. Rule 4 therefore holds by rewriting `:root` and `:host` to `.lontar-admin` in the emitted stylesheet, not by configuring Tailwind. And a prefixed utility is a top-level class selector by construction: `.lt\:flex` cannot be nested under a parent, which is exactly what the prefix in rule 1 is the mitigation for.
+
+So the check rewrites `:root`/`:host`, then rejects every selector that is not one of three shapes:
+
+1. a selector containing `.lontar-admin`,
+2. a prefixed Tailwind utility (`.lt\:…`),
+3. a rule inside `@keyframes` whose name starts with `lontar-`.
+
+It also rejects an `@font-face`, and a `@property` registering a custom property that is not `--lt-`/`--lontar-` prefixed, since both register globally rather than matching a selector. The check lives in `packages/admin/src/build/scoped-css.ts`, runs as a Vite plugin in `generateBundle`, and fails the build.
 
 ## Alternatives considered
 
