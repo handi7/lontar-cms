@@ -4,6 +4,7 @@ import type { RouterHistory } from '@tanstack/history'
 import { RouterProvider } from '@tanstack/react-router'
 import { AdminContext } from './context/AdminContext'
 import { AuthProvider } from './context/AuthContext'
+import { PortalContainerProvider } from './context/PortalContainer'
 import { fetchClientConfig } from './api/client'
 import { createAdminBrowserHistory } from './router/history'
 import { createAdminRouter } from './router/routes'
@@ -73,7 +74,9 @@ function AdminInner({
     <AdminContext.Provider value={{ config, apiBase, basePath }}>
       <AuthProvider apiBase={apiBase}>
         <div className="lontar-admin">
-          <RouterProvider router={router} />
+          <PortalContainerProvider>
+            <RouterProvider router={router} />
+          </PortalContainerProvider>
         </div>
       </AuthProvider>
     </AdminContext.Provider>

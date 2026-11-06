@@ -8,12 +8,20 @@
 // construction and cannot be nested under the wrapper — the `lt` prefix is what
 // keeps them from colliding with the host app. See docs/adr/0019.
 import postcss from 'postcss'
-import type { AtRule, Root, Rule } from 'postcss'
+import type { AtRule, Container, Document, Root, Rule } from 'postcss'
 
 const SCOPE_CLASS = '.lontar-admin'
 const UTILITY_PREFIX = '.lt\\:'
 const KEYFRAMES_PREFIX = 'lontar-'
-const PROPERTY_PREFIXES = ['--lt-', '--lontar-']
+// Tailwind names its internal custom properties `--tw-*` whatever prefix is
+// configured, and registers them with @property at the top level. They are
+// namespaced and inherit: false, so they change nothing on their own.
+const PROPERTY_PREFIXES = ['--lt-', '--lontar-', '--tw-']
+// Tailwind puts a Safari fallback for those same properties in `@layer
+// properties`, declared on `*, :before, :after, ::backdrop`. It cannot be
+// turned off, so it is scoped instead. A universal selector anywhere else is
+// still an error — that is how an accidental preflight import gets caught.
+const PROPERTIES_LAYER = 'properties'
 
 const ROOT_SELECTOR = /^:(?:root|host)(?=$|[\s>+~])/
 
@@ -30,6 +38,36 @@ function rewriteRootSelector(selector: string): string {
 
 function isScoped(selector: string): boolean {
   return selector.includes(SCOPE_CLASS) || selector.includes(UTILITY_PREFIX)
+}
+
+function isInPropertiesLayer(rule: Rule): boolean {
+  let node: Container | Document | undefined = rule.parent
+  while (node) {
+    const atRule = node as AtRule
+    if (
+      node.type === 'atrule' &&
+      atRule.name === 'layer' &&
+      atRule.params.trim() === PROPERTIES_LAYER
+    ) {
+      return true
+    }
+    node = node.parent
+  }
+  return false
+}
+
+/** `*, :before` -> the same, confined to the wrapper and its descendants. */
+function scopeUniversalSelector(selector: string): string {
+  return selector
+    .split(',')
+    .map((part) => part.trim())
+    .flatMap((part) => {
+      if (part.includes(SCOPE_CLASS)) return [part]
+      if (part === '*') return [SCOPE_CLASS, `${SCOPE_CLASS} *`]
+      if (part.startsWith(':')) return [`${SCOPE_CLASS}${part}`, `${SCOPE_CLASS} ${part}`]
+      return [part]
+    })
+    .join(',')
 }
 
 function isInsideKeyframes(rule: Rule): boolean {
@@ -95,7 +133,8 @@ export function scopeEmittedCss(css: string, from = 'styles.css'): string {
   const root = postcss.parse(css, { from })
 
   root.walkRules((rule) => {
-    rule.selector = rewriteRootSelector(rule.selector)
+    const rewritten = rewriteRootSelector(rule.selector)
+    rule.selector = isInPropertiesLayer(rule) ? scopeUniversalSelector(rewritten) : rewritten
   })
 
   const violations = collectViolations(root)

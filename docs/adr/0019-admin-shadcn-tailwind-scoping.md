@@ -54,6 +54,19 @@ So the check rewrites `:root`/`:host`, then rejects every selector that is not o
 
 It also rejects an `@font-face`, and a `@property` registering a custom property that is not `--lt-`/`--lontar-` prefixed, since both register globally rather than matching a selector. The check lives in `packages/admin/src/build/scoped-css.ts`, runs as a Vite plugin in `generateBundle`, and fails the build.
 
+**Amendment (2026-11-06, while implementing #115).** Two corrections, both from the first build that put real shadcn components through the check.
+
+Rule 5 says there is no `@/` alias. That was a description of the repository at the time, written to explain why the shadcn CLI could not be used; it is not a constraint. #115 adds `@/` → `src/` in `vite.config.ts`, `tsconfig.json` and `vitest.config.ts`, so copied sources resolve `@/lib/utils` without being rewritten by hand. The rest of rule 5 stands: no `components.json`, no CLI, and the libraries go in `devDependencies`. Note that `paths` in a `tsconfig.json` replaces the base config's rather than merging with it, so the one entry the admin uses from there is repeated alongside `@/*`.
+
+The check as described above fails on Tailwind's own output, and the two shapes it rejected are both unavoidable:
+
+- Tailwind registers its internal custom properties with `@property --tw-*` at the top level. The configured prefix does not rename them. They are namespaced and `inherits: false`, so they change nothing on their own, and `--tw-` is now a third accepted prefix.
+- Tailwind emits a Safari fallback for those same properties in `@layer properties`, declared on `*, :before, :after, ::backdrop`. That cannot be turned off, so the check scopes those selectors to the wrapper and its descendants rather than rejecting them. A universal selector anywhere outside that layer is still an error — that is what would catch an accidental preflight import.
+
+The amended list of what may ship unscoped is therefore: a prefixed utility, a `lontar-`-prefixed `@keyframes`, a `--lt-`/`--lontar-`/`--tw-` `@property`, and the `@layer properties` fallback after scoping.
+
+Rule 3's mechanical enforcement is a wrapper component **and** a lint rule, not one or the other. The wrappers in `packages/admin/src/components/ui` bind the container; `no-restricted-imports` in `eslint.config.js` stops the rest of the package importing `@radix-ui/*` directly and going around them.
+
 ## Alternatives considered
 
 - **Keep the hand-written CSS.** Rejected, but it was close. It works today and leaks nothing. It also means every primitive — combobox, dialog, date picker — is ours to build and to keep accessible, which is the reinvention the stack was chosen to avoid. The deciding factor is that the admin keeps growing: every field type added since M1 brought another primitive to hand-roll, and the accessibility bugs in them are ours to find.

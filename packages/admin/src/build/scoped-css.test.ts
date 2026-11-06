@@ -34,6 +34,36 @@ describe('scopeEmittedCss', () => {
     })
   })
 
+  describe("scopes Tailwind's universal property fallback", () => {
+    const fallback = (selector: string) =>
+      `@layer properties{@supports (-webkit-hyphens:none){${selector}{--tw-border-style:solid}}}`
+
+    it('confines the universal selector to the wrapper', () => {
+      expect(scopeEmittedCss(fallback('*'))).toBe(fallback('.lontar-admin,.lontar-admin *'))
+    })
+
+    it('confines the pseudo-element selectors too', () => {
+      expect(scopeEmittedCss(fallback('*,:before,:after,::backdrop'))).toBe(
+        fallback(
+          '.lontar-admin,.lontar-admin *,.lontar-admin:before,.lontar-admin :before,' +
+            '.lontar-admin:after,.lontar-admin :after,' +
+            '.lontar-admin::backdrop,.lontar-admin ::backdrop',
+        ),
+      )
+    })
+
+    it('leaves an already-scoped selector alone', () => {
+      const css = fallback('.lontar-admin *')
+      expect(scopeEmittedCss(css)).toBe(css)
+    })
+
+    it('still rejects a universal selector outside that layer', () => {
+      expect(() => scopeEmittedCss('@layer utilities{*{box-sizing:border-box}}')).toThrow(
+        UnscopedCssError,
+      )
+    })
+  })
+
   describe('allows what legitimately ships', () => {
     it('allows rules scoped under the wrapper', () => {
       const css = '.lontar-admin .lontar-btn{padding:0.5rem}'
@@ -62,6 +92,11 @@ describe('scopeEmittedCss', () => {
 
     it('allows @property registering a prefixed custom property', () => {
       const css = '@property --lt-rotate-x{syntax:"*";inherits:false}'
+      expect(scopeEmittedCss(css)).toBe(css)
+    })
+
+    it("allows Tailwind's own --tw- internals, which the prefix does not rename", () => {
+      const css = '@property --tw-border-style{syntax:"*";inherits:false;initial-value:solid}'
       expect(scopeEmittedCss(css)).toBe(css)
     })
   })
