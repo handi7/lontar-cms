@@ -46,8 +46,9 @@ export default defineConfig({
     dts({
       entryRoot: 'src',
       include: ['src'],
-      // `src/build` is build tooling, not part of the published surface.
-      exclude: ['**/*.test.*', 'src/build/**'],
+      // `src/build` is build tooling and `src/test` holds test helpers; neither
+      // is part of the published surface.
+      exclude: ['**/*.test.*', 'src/build/**', 'src/test/**'],
       pathsToAliases: false,
     }),
     cssDts(),

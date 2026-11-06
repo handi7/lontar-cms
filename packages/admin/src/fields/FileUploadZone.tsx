@@ -156,6 +156,10 @@ function DropzoneArea({
       onDrop={onDrop}
       onClick={onClick}
       data-testid="upload-dropzone"
+      // State as data attributes, so tests and styles can key on it without
+      // depending on class names that the shadcn restyle will replace.
+      data-dragging={isDragging || undefined}
+      data-invalid={displayError ? true : undefined}
       role="button"
       tabIndex={0}
       onKeyDown={handleKeyDown}

@@ -45,13 +45,14 @@ describe('FileUploadZone', () => {
     const file = new File(['content'], 'dropped.png', { type: 'image/png' })
 
     fireEvent.dragOver(dropzone)
-    expect(dropzone.className).toContain('lontar-dropzone-active')
+    expect(dropzone.getAttribute('data-dragging')).toBe('true')
 
     fireEvent.drop(dropzone, {
       dataTransfer: { files: [file] },
     })
 
     expect(onChange).toHaveBeenCalledWith(file)
+    expect(dropzone.hasAttribute('data-dragging')).toBe(false)
   })
 
   it('renders selected file preview and allows clearing', () => {
@@ -95,7 +96,7 @@ describe('FileUploadZone', () => {
     render(<FileUploadZone onChange={onChange} error="File too large" />)
 
     expect(screen.getByText('File too large')).toBeTruthy()
-    expect(screen.getByTestId('upload-dropzone').className).toContain('lontar-dropzone-error')
+    expect(screen.getByTestId('upload-dropzone').getAttribute('data-invalid')).toBe('true')
   })
 
   it('rejects file larger than maxFileSize and displays error', () => {

@@ -388,16 +388,14 @@ describe('Admin SPA', () => {
     )
 
     const history = createMemoryHistory({ initialEntries: ['/admin/posts/create'] })
-    const { container } = render(<Admin apiBase="/api" basePath="/admin" history={history} />)
+    render(<Admin apiBase="/api" basePath="/admin" history={history} />)
 
     await waitFor(() => {
       expect(screen.getByRole('heading', { name: 'Create Post' })).toBeTruthy()
     })
 
-    const titleInput = container.querySelector('input#title') as HTMLInputElement
-    const viewsInput = container.querySelector('input#views') as HTMLInputElement
-    expect(titleInput).toBeTruthy()
-    expect(viewsInput).toBeTruthy()
+    const titleInput = screen.getByRole<HTMLInputElement>('textbox', { name: /^title/i })
+    const viewsInput = screen.getByRole<HTMLInputElement>('spinbutton', { name: /^views/i })
 
     fireEvent.change(titleInput, { target: { value: 'Brand New Post' } })
     fireEvent.change(viewsInput, { target: { value: '10' } })
@@ -450,14 +448,13 @@ describe('Admin SPA', () => {
     )
 
     const history = createMemoryHistory({ initialEntries: ['/admin/posts/42'] })
-    const { container } = render(<Admin apiBase="/api" basePath="/admin" history={history} />)
+    render(<Admin apiBase="/api" basePath="/admin" history={history} />)
 
     await waitFor(() => {
       expect(screen.getByText('Edit Post #42')).toBeTruthy()
     })
 
-    const titleInput = container.querySelector('input#title') as HTMLInputElement
-    expect(titleInput).toBeTruthy()
+    const titleInput = screen.getByRole<HTMLInputElement>('textbox', { name: /^title/i })
 
     await waitFor(() => {
       expect(titleInput.value).toBe('Existing Post')
