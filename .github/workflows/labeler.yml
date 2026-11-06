@@ -1,0 +1,21 @@
+name: Labeler
+
+# pull_request_target, not pull_request: on a PR from a fork the pull_request
+# token is read-only, so labeling would fail on exactly the PRs nobody can
+# label by hand. Nothing from the PR branch is checked out or run here — the
+# action only reads .github/labeler.yml from the base branch.
+#
+# "opened" only, so a label corrected by hand is never re-applied on the next push.
+on:
+  pull_request_target:
+    types: [opened]
+
+permissions:
+  contents: read
+  pull-requests: write
+
+jobs:
+  label:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/labeler@v7
