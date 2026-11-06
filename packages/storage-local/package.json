@@ -1,6 +1,6 @@
 {
   "name": "@lontar/storage-local",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "description": "Local disk storage adapter for Lontar uploads.",
   "keywords": [
     "lontar",
