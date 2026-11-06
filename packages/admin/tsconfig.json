@@ -9,10 +9,8 @@
     "allowImportingTsExtensions": true,
     "types": ["node", "vite/client"],
     // `paths` replaces the base config's rather than merging with it, so the
-    // one entry this package uses from there is repeated. Mirrored in
-    // vite.config.ts; `@/` is what the copied shadcn sources import.
+    // one entry this package uses from there is repeated here.
     "paths": {
-      "@/*": ["./src/*"],
       "@lontar/core/client": ["../core/src/client/index.ts"]
     }
   },

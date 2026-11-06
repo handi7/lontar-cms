@@ -56,7 +56,7 @@ It also rejects an `@font-face`, and a `@property` registering a custom property
 
 **Amendment (2026-11-06, while implementing #115).** Two corrections, both from the first build that put real shadcn components through the check.
 
-Rule 5 says there is no `@/` alias. That was a description of the repository at the time, written to explain why the shadcn CLI could not be used; it is not a constraint. #115 adds `@/` → `src/` in `vite.config.ts`, `tsconfig.json` and `vitest.config.ts`, so copied sources resolve `@/lib/utils` without being rewritten by hand. The rest of rule 5 stands: no `components.json`, no CLI, and the libraries go in `devDependencies`. Note that `paths` in a `tsconfig.json` replaces the base config's rather than merging with it, so the one entry the admin uses from there is repeated alongside `@/*`.
+Rule 5 says there is no `@/` alias. That was read as a description of the repository at the time rather than a constraint, and #115 added `@/` → `src/` in `vite.config.ts`, `tsconfig.json` and `vitest.config.ts` so copied sources could resolve `@/lib/utils` unedited. **That was reverted in #116 and rule 5 stands as written** — see the amendment below. The rest of rule 5 was never in doubt: no `components.json`, no CLI, and the libraries go in `devDependencies`.
 
 The check as described above fails on Tailwind's own output, and the two shapes it rejected are both unavoidable:
 
@@ -66,6 +66,14 @@ The check as described above fails on Tailwind's own output, and the two shapes 
 The amended list of what may ship unscoped is therefore: a prefixed utility, a `lontar-`-prefixed `@keyframes`, a `--lt-`/`--lontar-`/`--tw-` `@property`, and the `@layer properties` fallback after scoping.
 
 Rule 3's mechanical enforcement is a wrapper component **and** a lint rule, not one or the other. The wrappers in `packages/admin/src/components/ui` bind the container; `no-restricted-imports` in `eslint.config.js` stops the rest of the package importing `@radix-ui/*` directly and going around them.
+
+**Amendment (2026-11-06, while implementing #116).** The `@/` alias is reverted; rule 5 was right as written, for a reason the previous amendment missed.
+
+`examples/next-blog` maps `@/*` to its own root in `examples/next-blog/tsconfig.json` and uses it throughout, _and_ maps `@lontar/admin` to the admin's source rather than its build output. So the example typechecks admin source under the example's own `@/`, and the two meanings collide: `pnpm typecheck` fails on every `@/…` import inside `packages/admin`. The collision is not fixable from the admin's side, because `@/` is the conventional alias for an application's own root and the example claimed it first.
+
+Admin source therefore uses relative imports, and copied shadcn sources have their `cn` import rewritten by hand. That costs one line per file, against the twenty-odd class strings each file already needs prefixed — the alias was never buying much.
+
+The general shape of the trap is worth keeping in mind for the rest of M6: a path alias inside a library is invisible to anything that compiles that library from source, and in this monorepo the example does exactly that.
 
 ## Alternatives considered
 

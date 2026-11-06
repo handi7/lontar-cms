@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react'
-import type { UseFormRegister, UseFormSetValue, UseFormWatch } from 'react-hook-form'
+import { Controller } from 'react-hook-form'
+import type { Control, UseFormRegister, UseFormSetValue, UseFormWatch } from 'react-hook-form'
 import type {
   ClientCheckboxField,
   ClientDateField,
@@ -12,17 +13,39 @@ import type {
   ClientTextareaField,
   ClientTextField,
 } from '@lontar/core/client'
+import { Field, FieldError, FieldLabel } from '../components/ui/field'
+import { Input } from '../components/ui/input'
+import { Textarea } from '../components/ui/textarea'
 import { RichTextEditor } from './RichTextEditor'
 import { RelationshipPicker } from './RelationshipPicker'
 import { UploadPicker } from './UploadPicker'
 
 export interface FieldRendererProps {
   field: ClientField
+  control: Control<Record<string, unknown>>
   register: UseFormRegister<Record<string, unknown>>
   error?: { message?: string }
   setValue?: UseFormSetValue<Record<string, unknown>>
   watch?: UseFormWatch<Record<string, unknown>>
   mode?: 'create' | 'edit'
+}
+
+/**
+ * The attributes that tie a control to its label and error text. Passed down
+ * rather than derived per input so every field type is wired the same way.
+ */
+interface FieldA11y {
+  describedBy?: string
+  invalid: boolean
+  required: boolean
+}
+
+function a11yProps({ describedBy, invalid, required }: FieldA11y) {
+  return {
+    'aria-describedby': describedBy,
+    'aria-invalid': invalid || undefined,
+    'aria-required': required || undefined,
+  }
 }
 
 export function slugify(text: string): string {
@@ -42,78 +65,105 @@ function parseNumberValue(value: unknown): number | null {
   return Number.isNaN(num) ? null : num
 }
 
-function TextFieldInput({
-  field,
-  register,
-}: {
-  field: ClientTextField
-  register: UseFormRegister<Record<string, unknown>>
-}) {
+/**
+ * `computeDefaultValues` omits keys for fields with no default, so a controlled
+ * input would receive `undefined` and React would log the uncontrolled-to-
+ * controlled warning on the first keystroke.
+ */
+function asInputValue(value: unknown): string | number {
+  if (typeof value === 'number') return value
+  if (typeof value === 'string') return value
+  // Anything else (null, undefined, or a shape that does not belong in a text
+  // input) renders empty rather than as '[object Object]'.
+  return ''
+}
+
+interface ControlledProps<T extends ClientField> {
+  field: T
+  control: Control<Record<string, unknown>>
+  a11y: FieldA11y
+}
+
+function TextFieldInput({ field, control, a11y }: ControlledProps<ClientTextField>) {
   return (
-    <input
-      id={field.name}
-      type="text"
-      className="lontar-input"
-      minLength={field.minLength}
-      maxLength={field.maxLength}
-      {...register(field.name)}
+    <Controller
+      control={control}
+      name={field.name}
+      render={({ field: controlled }) => (
+        <Input
+          id={field.name}
+          type="text"
+          minLength={field.minLength}
+          maxLength={field.maxLength}
+          {...a11yProps(a11y)}
+          {...controlled}
+          value={asInputValue(controlled.value)}
+        />
+      )}
     />
   )
 }
 
-function NumberFieldInput({
-  field,
-  register,
-}: {
-  field: ClientNumberField
-  register: UseFormRegister<Record<string, unknown>>
-}) {
+function NumberFieldInput({ field, control, a11y }: ControlledProps<ClientNumberField>) {
   return (
-    <input
-      id={field.name}
-      type="number"
-      className="lontar-input"
-      step={field.integer ? '1' : 'any'}
-      min={field.min}
-      max={field.max}
-      {...register(field.name, { setValueAs: parseNumberValue })}
+    <Controller
+      control={control}
+      name={field.name}
+      render={({ field: controlled }) => (
+        <Input
+          id={field.name}
+          type="number"
+          step={field.integer ? '1' : 'any'}
+          min={field.min}
+          max={field.max}
+          {...a11yProps(a11y)}
+          {...controlled}
+          value={asInputValue(controlled.value)}
+          // `setValueAs` has no Controller equivalent, so the only numeric
+          // coercion in the package lives here now. It must keep producing
+          // null rather than '' or NaN: nothing downstream re-coerces numbers.
+          onChange={(event) => controlled.onChange(parseNumberValue(event.target.value))}
+        />
+      )}
     />
   )
 }
 
-function TextareaFieldInput({
-  field,
-  register,
-}: {
-  field: ClientTextareaField
-  register: UseFormRegister<Record<string, unknown>>
-}) {
+function TextareaFieldInput({ field, control, a11y }: ControlledProps<ClientTextareaField>) {
   return (
-    <textarea
-      id={field.name}
-      className="lontar-input"
-      rows={field.rows ?? 4}
-      minLength={field.minLength}
-      maxLength={field.maxLength}
-      {...register(field.name)}
+    <Controller
+      control={control}
+      name={field.name}
+      render={({ field: controlled }) => (
+        <Textarea
+          id={field.name}
+          rows={field.rows ?? 4}
+          minLength={field.minLength}
+          maxLength={field.maxLength}
+          {...a11yProps(a11y)}
+          {...controlled}
+          value={asInputValue(controlled.value)}
+        />
+      )}
     />
   )
 }
 
-function EmailFieldInput({
-  field,
-  register,
-}: {
-  field: ClientEmailField
-  register: UseFormRegister<Record<string, unknown>>
-}) {
+function EmailFieldInput({ field, control, a11y }: ControlledProps<ClientEmailField>) {
   return (
-    <input
-      id={field.name}
-      type="email"
-      className="lontar-input"
-      maxLength={field.maxLength}
-      {...register(field.name)}
+    <Controller
+      control={control}
+      name={field.name}
+      render={({ field: controlled }) => (
+        <Input
+          id={field.name}
+          type="email"
+          maxLength={field.maxLength}
+          {...a11yProps(a11y)}
+          {...controlled}
+          value={asInputValue(controlled.value)}
+        />
+      )}
     />
   )
 }
@@ -121,16 +171,23 @@ function EmailFieldInput({
 function CheckboxFieldInput({
   field,
   register,
+  a11y,
 }: {
   field: ClientCheckboxField
   register: UseFormRegister<Record<string, unknown>>
+  a11y: FieldA11y
 }) {
+  // Still on `register`: react-hook-form's boolean handling for
+  // type="checkbox" comes from the registered ref, and Controller does not
+  // reproduce it for free. Converted in #118, with the test that pins
+  // submitted values.
   return (
     <div className="lontar-checkbox-wrapper">
       <input
         id={field.name}
         type="checkbox"
         className="lontar-checkbox"
+        {...a11yProps(a11y)}
         {...register(field.name)}
       />
       <label htmlFor={field.name} className="lontar-checkbox-label">
@@ -144,12 +201,16 @@ function CheckboxFieldInput({
 function SelectFieldInput({
   field,
   register,
+  a11y,
 }: {
   field: ClientSelectField
   register: UseFormRegister<Record<string, unknown>>
+  a11y: FieldA11y
 }) {
+  // Becomes a Radix Select in #117; converting the binding twice would be
+  // worse than once.
   return (
-    <select id={field.name} className="lontar-input" {...register(field.name)}>
+    <select id={field.name} className="lontar-input" {...a11yProps(a11y)} {...register(field.name)}>
       {!field.required && <option value="">-- Select --</option>}
       {field.options.map((opt) => (
         <option key={opt.value} value={opt.value}>
@@ -163,16 +224,21 @@ function SelectFieldInput({
 function DateFieldInput({
   field,
   register,
+  a11y,
 }: {
   field: ClientDateField
   register: UseFormRegister<Record<string, unknown>>
+  a11y: FieldA11y
 }) {
+  // Becomes a date picker in #118. The datetime-local string format is a
+  // contract with formatDateForInput/formatDateForSubmit in utils/form-utils.
   return (
     <input
       id={field.name}
       type="datetime-local"
       step="1"
       className="lontar-input"
+      {...a11yProps(a11y)}
       {...register(field.name)}
     />
   )
@@ -180,13 +246,12 @@ function DateFieldInput({
 
 function SlugFieldInput({
   field,
-  register,
+  control,
   setValue,
   watch,
   mode,
-}: {
-  field: ClientSlugField
-  register: UseFormRegister<Record<string, unknown>>
+  a11y,
+}: ControlledProps<ClientSlugField> & {
   setValue?: UseFormSetValue<Record<string, unknown>>
   watch?: UseFormWatch<Record<string, unknown>>
   mode?: 'create' | 'edit'
@@ -213,20 +278,25 @@ function SlugFieldInput({
     }
   }
 
-  const { onChange, ...restRegister } = register(field.name)
-
   return (
     <div className="lontar-slug-wrapper">
-      <input
-        id={field.name}
-        type="text"
-        className="lontar-input"
-        maxLength={field.maxLength}
-        {...restRegister}
-        onChange={(e) => {
-          setIsCustomized(true)
-          void onChange(e)
-        }}
+      <Controller
+        control={control}
+        name={field.name}
+        render={({ field: controlled }) => (
+          <Input
+            id={field.name}
+            type="text"
+            maxLength={field.maxLength}
+            {...a11yProps(a11y)}
+            {...controlled}
+            value={asInputValue(controlled.value)}
+            onChange={(event) => {
+              setIsCustomized(true)
+              controlled.onChange(event)
+            }}
+          />
+        )}
       />
       {field.from && (
         <button
@@ -272,26 +342,30 @@ function RichTextFieldInput({
 
 function StandardFieldInput({
   field,
+  control,
   register,
+  a11y,
 }: {
   field: ClientField
+  control: Control<Record<string, unknown>>
   register: UseFormRegister<Record<string, unknown>>
+  a11y: FieldA11y
 }) {
   switch (field.type) {
     case 'text':
-      return <TextFieldInput field={field} register={register} />
+      return <TextFieldInput field={field} control={control} a11y={a11y} />
     case 'number':
-      return <NumberFieldInput field={field} register={register} />
+      return <NumberFieldInput field={field} control={control} a11y={a11y} />
     case 'textarea':
-      return <TextareaFieldInput field={field} register={register} />
+      return <TextareaFieldInput field={field} control={control} a11y={a11y} />
     case 'email':
-      return <EmailFieldInput field={field} register={register} />
+      return <EmailFieldInput field={field} control={control} a11y={a11y} />
     case 'checkbox':
-      return <CheckboxFieldInput field={field} register={register} />
+      return <CheckboxFieldInput field={field} register={register} a11y={a11y} />
     case 'select':
-      return <SelectFieldInput field={field} register={register} />
+      return <SelectFieldInput field={field} register={register} a11y={a11y} />
     case 'date':
-      return <DateFieldInput field={field} register={register} />
+      return <DateFieldInput field={field} register={register} a11y={a11y} />
     default:
       return null
   }
@@ -299,25 +373,30 @@ function StandardFieldInput({
 
 function FieldInput({
   field,
+  control,
   register,
   setValue,
   watch,
   mode,
+  a11y,
 }: {
   field: ClientField
+  control: Control<Record<string, unknown>>
   register: UseFormRegister<Record<string, unknown>>
   setValue?: UseFormSetValue<Record<string, unknown>>
   watch?: UseFormWatch<Record<string, unknown>>
   mode?: 'create' | 'edit'
+  a11y: FieldA11y
 }) {
   if (field.type === 'slug') {
     return (
       <SlugFieldInput
         field={field}
-        register={register}
+        control={control}
         setValue={setValue}
         watch={watch}
         mode={mode}
+        a11y={a11y}
       />
     )
   }
@@ -334,27 +413,48 @@ function FieldInput({
   if (field.type === 'upload') {
     return <UploadPicker field={field} register={register} setValue={setValue} watch={watch} />
   }
-  return <StandardFieldInput field={field} register={register} />
+  return <StandardFieldInput field={field} control={control} register={register} a11y={a11y} />
 }
 
 export function FieldRenderer({
   field,
+  control,
   register,
   error,
   setValue,
   watch,
   mode,
 }: FieldRendererProps) {
+  const errorId = `${field.name}-error`
+  const hasError = Boolean(error?.message)
+  const a11y: FieldA11y = {
+    describedBy: hasError ? errorId : undefined,
+    invalid: hasError,
+    required: field.required,
+  }
+
   return (
-    <div className="lontar-field-group">
+    <Field className="lontar-field-group" data-invalid={hasError || undefined}>
       {field.type !== 'checkbox' && (
-        <label htmlFor={field.name} className="lontar-label">
+        <FieldLabel htmlFor={field.name} className="lontar-label">
           <span>{field.label}</span>
           {field.required && <span className="lontar-required">*</span>}
-        </label>
+        </FieldLabel>
       )}
-      <FieldInput field={field} register={register} setValue={setValue} watch={watch} mode={mode} />
-      {error?.message && <span className="lontar-field-error">{error.message}</span>}
-    </div>
+      <FieldInput
+        field={field}
+        control={control}
+        register={register}
+        setValue={setValue}
+        watch={watch}
+        mode={mode}
+        a11y={a11y}
+      />
+      <FieldError
+        id={errorId}
+        className="lontar-field-error"
+        errors={error ? [error] : undefined}
+      />
+    </Field>
   )
 }
