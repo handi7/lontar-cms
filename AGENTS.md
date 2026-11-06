@@ -136,17 +136,17 @@ approval on the `npm` environment. Don't run `pnpm publish` by hand; see `docs/r
   - [x] Admin UX: #60 (done), #61 (done), #62 (done), #63 (done), #64 (done)
   - [x] Other: #58 (done), #65 (done), #66 (done), #67 (done)
 
-- [ ] **M6: Admin styling with shadcn/ui + scoped Tailwind v4** (planned; tracking in #123)
-  - [ ] #113 Styling ADR
-  - [ ] #114 Scoped Tailwind build and token mapping
-  - [ ] #115 Primitives and scoped portal container
-  - [ ] #116 Non-portal components
+- [ ] **M6: Admin styling with shadcn/ui + scoped Tailwind v4** (in progress; tracking in #123)
+  - [x] #113 Styling ADR (done)
+  - [x] #114 Scoped Tailwind build and token mapping (done)
+  - [x] #115 Primitives and scoped portal container (done)
+  - [ ] #116 Non-portal components (part 1, field primitives + `Controller` binding, done in #133; part 2, views and layout, not started)
   - [ ] #117 Portal components
   - [ ] #118 Date and checkbox fields
-  - [ ] #119 Radix unit test setup
+  - [x] #119 Radix unit test setup (done)
   - [ ] #120 Admin e2e updates
   - [ ] #121 Dark mode (optional)
-  - [ ] #122 Theming token documentation and Stack correction
+  - [x] #122 Theming token documentation and Stack correction (done)
 
 Update this section when a milestone or issue is done.
 

@@ -87,7 +87,7 @@ describe('FieldRenderer', () => {
       maxLength: 255,
     }
 
-    const { container } = render(
+    render(
       <FormWrapper>
         {({ control, register }) => (
           <FieldRenderer field={field} control={control} register={register} />
@@ -95,8 +95,7 @@ describe('FieldRenderer', () => {
       </FormWrapper>,
     )
 
-    const input = container.querySelector('input#email') as HTMLInputElement
-    expect(input).toBeTruthy()
+    const input = screen.getByRole<HTMLInputElement>('textbox', { name: 'Email Address' })
     expect(input.type).toBe('email')
     expect(input.getAttribute('maxlength')).toBe('255')
     expect(screen.getByText('Email Address')).toBeTruthy()
@@ -118,7 +117,7 @@ describe('FieldRenderer', () => {
       from: 'title',
     }
 
-    const { container } = render(
+    render(
       <FormWrapper defaultValues={{ title: '', slug: '' }}>
         {({ control, register, setValue, watch }) => (
           <>
@@ -136,13 +135,9 @@ describe('FieldRenderer', () => {
       </FormWrapper>,
     )
 
-    const titleInput = container.querySelector('input#title') as HTMLInputElement
-    const slugInput = container.querySelector('input#slug') as HTMLInputElement
+    const titleInput = screen.getByRole<HTMLInputElement>('textbox', { name: /^title/i })
+    const slugInput = screen.getByRole<HTMLInputElement>('textbox', { name: /^slug/i })
     const syncBtn = screen.getByRole('button', { name: /sync/i })
-
-    expect(titleInput).toBeTruthy()
-    expect(slugInput).toBeTruthy()
-    expect(syncBtn).toBeTruthy()
 
     fireEvent.change(titleInput, { target: { value: 'My Awesome Post' } })
 
@@ -179,7 +174,7 @@ describe('FieldRenderer', () => {
       from: 'title',
     }
 
-    const { container } = render(
+    render(
       <FormWrapper defaultValues={{ title: 'Existing Title', slug: 'existing-title' }}>
         {({ control, register, setValue, watch }) => (
           <>
@@ -197,8 +192,8 @@ describe('FieldRenderer', () => {
       </FormWrapper>,
     )
 
-    const titleInput = container.querySelector('input#title') as HTMLInputElement
-    const slugInput = container.querySelector('input#slug') as HTMLInputElement
+    const titleInput = screen.getByRole<HTMLInputElement>('textbox', { name: /^title/i })
+    const slugInput = screen.getByRole<HTMLInputElement>('textbox', { name: /^slug/i })
 
     fireEvent.change(titleInput, { target: { value: 'Completely Changed Title' } })
 
@@ -246,7 +241,7 @@ describe('FieldRenderer', () => {
       required: false,
     }
 
-    const { container } = render(
+    render(
       <FormWrapper defaultValues={{ isPublished: false }}>
         {({ control, register }) => (
           <FieldRenderer field={field} control={control} register={register} />
@@ -254,9 +249,7 @@ describe('FieldRenderer', () => {
       </FormWrapper>,
     )
 
-    const checkbox = container.querySelector('input#isPublished') as HTMLInputElement
-    expect(checkbox).toBeTruthy()
-    expect(checkbox.type).toBe('checkbox')
+    const checkbox = screen.getByRole<HTMLInputElement>('checkbox', { name: 'Published' })
     expect(checkbox.checked).toBe(false)
     expect(screen.getByText('Published')).toBeTruthy()
 
@@ -276,7 +269,7 @@ describe('FieldRenderer', () => {
       ],
     }
 
-    const { container } = render(
+    render(
       <FormWrapper defaultValues={{ status: 'draft' }}>
         {({ control, register }) => (
           <FieldRenderer field={field} control={control} register={register} />
@@ -284,8 +277,7 @@ describe('FieldRenderer', () => {
       </FormWrapper>,
     )
 
-    const select = container.querySelector('select#status') as HTMLSelectElement
-    expect(select).toBeTruthy()
+    const select = screen.getByRole<HTMLSelectElement>('combobox', { name: /^status/i })
     expect(select.value).toBe('draft')
     expect(screen.getByText('Draft')).toBeTruthy()
     expect(screen.getByText('Published')).toBeTruthy()
@@ -302,7 +294,7 @@ describe('FieldRenderer', () => {
       required: true,
     }
 
-    const { container } = render(
+    render(
       <FormWrapper defaultValues={{ publishedAt: '2026-11-01T10:00' }}>
         {({ control, register }) => (
           <FieldRenderer field={field} control={control} register={register} />
@@ -310,8 +302,7 @@ describe('FieldRenderer', () => {
       </FormWrapper>,
     )
 
-    const dateInput = container.querySelector('input#publishedAt') as HTMLInputElement
-    expect(dateInput).toBeTruthy()
+    const dateInput = screen.getByLabelText<HTMLInputElement>(/^publish date/i)
     expect(dateInput.type).toBe('datetime-local')
     expect(dateInput.value).toBe('2026-11-01T10:00')
     expect(screen.getByText('Publish Date')).toBeTruthy()
