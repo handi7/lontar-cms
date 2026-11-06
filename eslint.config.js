@@ -39,6 +39,33 @@ export default tseslint.config(
     },
   },
   {
+    // A Radix *.Portal used without an explicit container renders into
+    // document.body, outside the .lontar-admin wrapper the admin's CSS is
+    // scoped to. The wrappers in components/ui bind that container; this keeps
+    // the rest of the package from going around them.
+    // See docs/adr/0019-admin-shadcn-tailwind-scoping.md, rule 3.
+    files: ['packages/admin/src/**/*.{ts,tsx}'],
+    rules: {
+      'no-restricted-imports': [
+        'error',
+        {
+          patterns: [
+            {
+              group: ['@radix-ui/*'],
+              message:
+                'Import the wrapper from @/components/ui instead, so the Radix portal keeps its PortalContainer (docs/adr/0019 rule 3).',
+            },
+          ],
+        },
+      ],
+    },
+  },
+  {
+    // The wrappers themselves are the one place Radix is imported directly.
+    files: ['packages/admin/src/components/ui/**/*.{ts,tsx}'],
+    rules: { 'no-restricted-imports': 'off' },
+  },
+  {
     // Config files are plain JS and are not covered by a tsconfig project.
     files: ['**/*.js', '**/*.mjs'],
     extends: [tseslint.configs.disableTypeChecked],

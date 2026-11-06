@@ -59,6 +59,9 @@ export default defineConfig({
         find: /^use-sync-external-store(\/.*)?$/,
         replacement: resolve(import.meta.dirname, 'src/shims/use-sync-external-store.ts'),
       },
+      // Mirrors `paths` in tsconfig.json so the copied shadcn sources resolve
+      // `@/lib/utils` and friends without being rewritten by hand.
+      { find: /^@\//, replacement: `${resolve(import.meta.dirname, 'src')}/` },
     ],
   },
   build: {
