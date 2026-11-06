@@ -1,0 +1,15 @@
+# Config for .github/workflows/labeler.yml (actions/labeler).
+# Only the type labels that a branch name or a path can actually prove are set
+# here. Everything else stays a manual call.
+
+bug:
+  - head-branch: ['^fix/']
+
+enhancement:
+  - head-branch: ['^feat/', '^perf/', '^refactor/', '^ci/', '^chore/', '^release/']
+
+documentation:
+  - any:
+      - head-branch: ['^docs/']
+      - changed-files:
+          - any-glob-to-any-file: ['**/*.md', 'docs/**']

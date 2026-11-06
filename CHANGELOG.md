@@ -14,7 +14,7 @@ Post-release fixes for 0.1.1: CLI, admin, uploads, and config validation. This i
 - `lontar` CLI commands load `.env` and `.env.local` before reading the config, and accept `--env-file <path>`. Variables already set in the environment take precedence (#58).
 - Packages are now published by a release workflow with npm trusted publishing, so every tarball carries a provenance attestation. CI also installs the packed tarballs outside the monorepo and checks every export, bin and type declaration before release (#92).
 - README documents the `baseURL` option of `createRouteHandlers` and `createLontar` (`LONTAR_URL` in `.env.example`), which silences Better Auth's "Base URL is not set" warning (#99).
-- README documents the admin's CSS theme tokens and how to override them (#124).
+- README documents the admin's CSS theme tokens and how to override them (#124, thanks @Doomguy-BFG9000 for the first outside contribution).
 
 ### Changed
 
