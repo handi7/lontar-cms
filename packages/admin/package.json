@@ -50,6 +50,7 @@
   "devDependencies": {
     "@hookform/resolvers": "^6.0.2",
     "@lontar/core": "workspace:*",
+    "@radix-ui/react-label": "^2.1.17",
     "@radix-ui/react-select": "^2.4.1",
     "@radix-ui/react-slot": "^1.5.0",
     "@tailwindcss/vite": "^4.3.4",

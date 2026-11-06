@@ -1,4 +1,4 @@
-import { describe, expect, it, afterEach } from 'vitest'
+import { describe, expect, it, afterEach, vi } from 'vitest'
 import { render, screen, fireEvent, waitFor, cleanup } from '@testing-library/react'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { useForm } from 'react-hook-form'
@@ -6,6 +6,7 @@ import type {
   ClientCheckboxField,
   ClientDateField,
   ClientEmailField,
+  ClientNumberField,
   ClientRelationshipField,
   ClientRichTextField,
   ClientSelectField,
@@ -62,7 +63,9 @@ describe('FieldRenderer', () => {
 
     render(
       <FormWrapper>
-        {({ register }) => <FieldRenderer field={field} register={register} />}
+        {({ control, register }) => (
+          <FieldRenderer field={field} control={control} register={register} />
+        )}
       </FormWrapper>,
     )
 
@@ -86,7 +89,9 @@ describe('FieldRenderer', () => {
 
     const { container } = render(
       <FormWrapper>
-        {({ register }) => <FieldRenderer field={field} register={register} />}
+        {({ control, register }) => (
+          <FieldRenderer field={field} control={control} register={register} />
+        )}
       </FormWrapper>,
     )
 
@@ -115,11 +120,12 @@ describe('FieldRenderer', () => {
 
     const { container } = render(
       <FormWrapper defaultValues={{ title: '', slug: '' }}>
-        {({ register, setValue, watch }) => (
+        {({ control, register, setValue, watch }) => (
           <>
-            <FieldRenderer field={titleField} register={register} />
+            <FieldRenderer field={titleField} control={control} register={register} />
             <FieldRenderer
               field={slugField}
+              control={control}
               register={register}
               setValue={setValue}
               watch={watch}
@@ -175,11 +181,12 @@ describe('FieldRenderer', () => {
 
     const { container } = render(
       <FormWrapper defaultValues={{ title: 'Existing Title', slug: 'existing-title' }}>
-        {({ register, setValue, watch }) => (
+        {({ control, register, setValue, watch }) => (
           <>
-            <FieldRenderer field={titleField} register={register} />
+            <FieldRenderer field={titleField} control={control} register={register} />
             <FieldRenderer
               field={slugField}
+              control={control}
               register={register}
               setValue={setValue}
               watch={watch}
@@ -217,9 +224,10 @@ describe('FieldRenderer', () => {
 
     render(
       <FormWrapper>
-        {({ register }) => (
+        {({ control, register }) => (
           <FieldRenderer
             field={field}
+            control={control}
             register={register}
             error={{ message: 'Title is required' }}
           />
@@ -240,7 +248,9 @@ describe('FieldRenderer', () => {
 
     const { container } = render(
       <FormWrapper defaultValues={{ isPublished: false }}>
-        {({ register }) => <FieldRenderer field={field} register={register} />}
+        {({ control, register }) => (
+          <FieldRenderer field={field} control={control} register={register} />
+        )}
       </FormWrapper>,
     )
 
@@ -268,7 +278,9 @@ describe('FieldRenderer', () => {
 
     const { container } = render(
       <FormWrapper defaultValues={{ status: 'draft' }}>
-        {({ register }) => <FieldRenderer field={field} register={register} />}
+        {({ control, register }) => (
+          <FieldRenderer field={field} control={control} register={register} />
+        )}
       </FormWrapper>,
     )
 
@@ -292,7 +304,9 @@ describe('FieldRenderer', () => {
 
     const { container } = render(
       <FormWrapper defaultValues={{ publishedAt: '2026-11-01T10:00' }}>
-        {({ register }) => <FieldRenderer field={field} register={register} />}
+        {({ control, register }) => (
+          <FieldRenderer field={field} control={control} register={register} />
+        )}
       </FormWrapper>,
     )
 
@@ -320,8 +334,14 @@ describe('FieldRenderer', () => {
           },
         }}
       >
-        {({ register, setValue, watch }) => (
-          <FieldRenderer field={field} register={register} setValue={setValue} watch={watch} />
+        {({ control, register, setValue, watch }) => (
+          <FieldRenderer
+            field={field}
+            control={control}
+            register={register}
+            setValue={setValue}
+            watch={watch}
+          />
         )}
       </FormWrapper>,
     )
@@ -346,8 +366,14 @@ describe('FieldRenderer', () => {
 
     render(
       <FormWrapper defaultValues={{ author: 42 }}>
-        {({ register, setValue, watch }) => (
-          <FieldRenderer field={field} register={register} setValue={setValue} watch={watch} />
+        {({ control, register, setValue, watch }) => (
+          <FieldRenderer
+            field={field}
+            control={control}
+            register={register}
+            setValue={setValue}
+            watch={watch}
+          />
         )}
       </FormWrapper>,
     )
@@ -368,8 +394,14 @@ describe('FieldRenderer', () => {
 
     render(
       <FormWrapper defaultValues={{ categories: [1, 2, 3] }}>
-        {({ register, setValue, watch }) => (
-          <FieldRenderer field={field} register={register} setValue={setValue} watch={watch} />
+        {({ control, register, setValue, watch }) => (
+          <FieldRenderer
+            field={field}
+            control={control}
+            register={register}
+            setValue={setValue}
+            watch={watch}
+          />
         )}
       </FormWrapper>,
     )
@@ -392,13 +424,146 @@ describe('FieldRenderer', () => {
 
     render(
       <FormWrapper>
-        {({ register, setValue, watch }) => (
-          <FieldRenderer field={field} register={register} setValue={setValue} watch={watch} />
+        {({ control, register, setValue, watch }) => (
+          <FieldRenderer
+            field={field}
+            control={control}
+            register={register}
+            setValue={setValue}
+            watch={watch}
+          />
         )}
       </FormWrapper>,
     )
 
     expect(screen.getByText('Cover Image')).toBeTruthy()
     expect(screen.getByTestId('upload-picker-browse-btn')).toBeTruthy()
+  })
+})
+
+describe('FieldRenderer accessibility and binding', () => {
+  afterEach(() => {
+    cleanup()
+  })
+
+  const titleField: ClientTextField = {
+    name: 'title',
+    type: 'text',
+    label: 'Title',
+    required: true,
+  }
+
+  it('associates the error message with its control', () => {
+    render(
+      <FormWrapper>
+        {({ control, register }) => (
+          <FieldRenderer
+            field={titleField}
+            control={control}
+            register={register}
+            error={{ message: 'Title is required' }}
+          />
+        )}
+      </FormWrapper>,
+    )
+
+    const input = screen.getByRole('textbox')
+    const error = screen.getByRole('alert')
+
+    expect(error.textContent).toBe('Title is required')
+    expect(error.id).toBe('title-error')
+    expect(input.getAttribute('aria-describedby')).toBe('title-error')
+    expect(input.getAttribute('aria-invalid')).toBe('true')
+    expect(input.getAttribute('aria-required')).toBe('true')
+  })
+
+  it('leaves a control without an error unmarked', () => {
+    render(
+      <FormWrapper>
+        {({ control, register }) => (
+          <FieldRenderer field={titleField} control={control} register={register} />
+        )}
+      </FormWrapper>,
+    )
+
+    const input = screen.getByRole('textbox')
+    expect(input.getAttribute('aria-invalid')).toBeNull()
+    expect(input.getAttribute('aria-describedby')).toBeNull()
+    expect(screen.queryByRole('alert')).toBeNull()
+  })
+
+  it('keeps the id and name the test and e2e suites select by', () => {
+    render(
+      <FormWrapper>
+        {({ control, register }) => (
+          <FieldRenderer field={titleField} control={control} register={register} />
+        )}
+      </FormWrapper>,
+    )
+
+    const input = screen.getByRole('textbox')
+    expect(input.getAttribute('name')).toBe('title')
+    expect(input.id).toBe('title')
+  })
+
+  it('submits a cleared number field as null rather than an empty string', async () => {
+    const viewsField: ClientNumberField = {
+      name: 'views',
+      type: 'number',
+      label: 'Views',
+      required: false,
+    }
+    let submitted: Record<string, unknown> | undefined
+
+    render(
+      <FormWrapper>
+        {({ control, register, handleSubmit }) => (
+          <>
+            <FieldRenderer field={viewsField} control={control} register={register} />
+            <button
+              type="button"
+              onClick={() => {
+                void handleSubmit((values) => {
+                  submitted = values
+                })()
+              }}
+            >
+              submit
+            </button>
+          </>
+        )}
+      </FormWrapper>,
+    )
+
+    const input = screen.getByRole('spinbutton')
+
+    fireEvent.change(input, { target: { value: '42' } })
+    fireEvent.click(screen.getByText('submit'))
+    await waitFor(() => {
+      expect(submitted?.views).toBe(42)
+    })
+
+    fireEvent.change(input, { target: { value: '' } })
+    fireEvent.click(screen.getByText('submit'))
+    await waitFor(() => {
+      expect(submitted?.views).toBeNull()
+    })
+  })
+
+  it('does not warn about an input switching from uncontrolled to controlled', () => {
+    const consoleError = vi.spyOn(console, 'error').mockImplementation(() => undefined)
+
+    render(
+      <FormWrapper>
+        {({ control, register }) => (
+          <FieldRenderer field={titleField} control={control} register={register} />
+        )}
+      </FormWrapper>,
+    )
+    fireEvent.change(screen.getByRole('textbox'), { target: { value: 'Hello' } })
+
+    const logged = consoleError.mock.calls.flat().join(' ')
+    expect(logged).not.toContain('uncontrolled')
+    consoleError.mockRestore()
   })
 })

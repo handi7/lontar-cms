@@ -3,6 +3,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { useParams } from '@tanstack/react-router'
 import {
   useForm,
+  type Control,
   type UseFormRegister,
   type UseFormSetValue,
   type UseFormWatch,
@@ -37,6 +38,7 @@ function GlobalMeta({ doc }: { doc?: Record<string, unknown> | null }) {
 
 function GlobalFormBody({
   fields,
+  control,
   register,
   setValue,
   watch,
@@ -45,6 +47,7 @@ function GlobalFormBody({
   onSubmit,
 }: {
   fields: ClientField[]
+  control: Control<Record<string, unknown>>
   register: UseFormRegister<Record<string, unknown>>
   setValue: UseFormSetValue<Record<string, unknown>>
   watch: UseFormWatch<Record<string, unknown>>
@@ -59,6 +62,7 @@ function GlobalFormBody({
           <FieldRenderer
             key={field.name}
             field={field}
+            control={control}
             register={register}
             setValue={setValue}
             watch={watch}
@@ -163,6 +167,7 @@ export function GlobalFormView() {
   }, [global])
 
   const {
+    control,
     register,
     handleSubmit,
     reset,
@@ -209,6 +214,7 @@ export function GlobalFormView() {
 
       <GlobalFormBody
         fields={global.fields}
+        control={control}
         register={register}
         setValue={setValue}
         watch={watch}

@@ -3,6 +3,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { Link, useNavigate, useParams } from '@tanstack/react-router'
 import {
   useForm,
+  type Control,
   type UseFormRegister,
   type UseFormSetValue,
   type UseFormWatch,
@@ -92,6 +93,7 @@ function getFormTitle(mode: 'create' | 'edit', singular: string, id?: string): s
 function FormBody({
   collection,
   mode,
+  control,
   register,
   setValue,
   watch,
@@ -105,6 +107,7 @@ function FormBody({
 }: {
   collection: ClientCollection
   mode: 'create' | 'edit'
+  control: Control<Record<string, unknown>>
   register: UseFormRegister<Record<string, unknown>>
   setValue: UseFormSetValue<Record<string, unknown>>
   watch: UseFormWatch<Record<string, unknown>>
@@ -155,6 +158,7 @@ function FormBody({
           <FieldRenderer
             key={field.name}
             field={field}
+            control={control}
             register={register}
             setValue={setValue}
             watch={watch}
@@ -308,6 +312,7 @@ export function CollectionFormView({ mode }: { mode: 'create' | 'edit' }) {
   const defaultValues = useMemo(() => computeDefaultValues(collection?.fields ?? []), [collection])
 
   const {
+    control,
     register,
     handleSubmit,
     reset,
@@ -393,6 +398,7 @@ export function CollectionFormView({ mode }: { mode: 'create' | 'edit' }) {
       <FormBody
         collection={collection}
         mode={mode}
+        control={control}
         register={register}
         setValue={setValue}
         watch={watch}
