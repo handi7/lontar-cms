@@ -5,6 +5,49 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.1.2] - 2026-11-06
+
+Post-release fixes for 0.1.1: CLI, admin, uploads, and config validation. This is the first version published from GitHub Actions, with npm provenance.
+
+### Added
+
+- `lontar` CLI commands load `.env` and `.env.local` before reading the config, and accept `--env-file <path>`. Variables already set in the environment take precedence (#58).
+- Packages are now published by a release workflow with npm trusted publishing, so every tarball carries a provenance attestation. CI also installs the packed tarballs outside the monorepo and checks every export, bin and type declaration before release (#92).
+- README documents the `baseURL` option of `createRouteHandlers` and `createLontar` (`LONTAR_URL` in `.env.example`), which silences Better Auth's "Base URL is not set" warning (#99).
+- README documents the admin's CSS theme tokens and how to override them (#124).
+
+### Changed
+
+- `defineConfig` now rejects `relationship` fields whose `relationTo` is not a collection slug, global `upload` fields that point at a collection without uploads, and `slug` fields whose `from` is not a text-like field in the same collection or global. Configs with these mistakes used to fail later, at request time (#65).
+- A collection without `admin.useAsTitle` now uses its first `text`, `email` or `slug` field as the title (then `filename` for upload collections, then `id`). The admin list, search and relationship pickers use that title instead of the id (#61).
+- `@lontar/db-mysql` no longer depends on `drizzle-kit`. It was never imported at runtime, and its `esbuild` build script made pnpm 11 fail with `ERR_PNPM_IGNORED_BUILDS` (#97).
+- `@lontar/core` loads `sharp` only when an image is resized, so importing core no longer requires sharp's native binary (#67).
+
+### Fixed
+
+- `lontar create-user` never exited, because the database pool stayed open. The CLI now closes it after `create-user` and `migrate`, including when they fail (#98).
+- The `lontar` CLI did nothing on Windows (#58).
+- `lontar migrate:create` could not resolve `drizzle-orm` under pnpm unless the project installed it directly (#96).
+- Admin: pagination, search, filters, sorting, form state and alerts carried over when switching between collections or globals (#60).
+- Admin session handling (#62):
+  - documents cached for the previous user are cleared on logout or user change
+  - a 401 response redirects to the login page
+  - a failed sign-out keeps you signed in instead of pretending to succeed
+  - after login you land on the page in `?redirect=`, and the back button no longer loops between redirects
+- Admin form edge cases (#63):
+  - optional upload fields can be cleared
+  - blank optional text fields with `minLength` are accepted
+  - an empty rich text field fails `required`, and the editor no longer marks the form dirty on mount
+  - Enter in a picker search no longer submits the form
+  - the same file can be picked again after removing it
+  - a background refetch no longer overwrites unsaved edits
+- Admin error feedback (#64):
+  - failed deletes in the list view show an error
+  - failed quick uploads in the upload picker show an error, and its file input only accepts the collection's allowed MIME types
+  - a failed list request no longer also shows the "create the first document" empty state
+- Image uploads respect EXIF orientation when storing width and height, and animated GIF and WebP images keep all their frames when resized (#66).
+- Admin: React logged "useInsertionEffect must not schedule updates" on every navigation in Next.js apps, and Tiptap warned about `immediatelyRender` (#100).
+
 ## [0.1.1] - 2026-11-03
 
 First release published to npm. v0.1.0 was tagged but never published, so this is the first installable version of the `@lontar/*` packages.
