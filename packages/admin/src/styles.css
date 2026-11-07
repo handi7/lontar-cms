@@ -168,11 +168,19 @@
 }
 
 /*
- * The base reset sits in the `base` layer so that utilities, which are in the
- * later `utilities` layer, override it. Unlayered, `.lontar-admin h1` (0,1,1)
- * would beat `lt:m-0` (0,1,0) and every heading margin would stick.
- * The hand-written component rules below stay unlayered, so they still win
- * over both until each one is converted.
+ * The base reset is written in the `base` layer so that utilities, in the later
+ * `utilities` layer, override it while the admin runs on its own (vite dev).
+ *
+ * The published stylesheet ships both layers unlayered (src/build/scoped-css.ts,
+ * #143): a host page's unlayered CSS beats every layered rule, so layered, a
+ * host's `h1 { font-size: inherit }` or `ul { list-style: none }` would win over
+ * this reset. Unlayered, the order holds by specificity instead: the reset is
+ * (0,1,1) at most, every utility is nested to `.lontar-admin .lt\:x`, (0,2,0) or
+ * more. Keep reset selectors to the wrapper plus element selectors, or that
+ * order breaks.
+ *
+ * The hand-written component rules below are unlayered in both cases, and come
+ * after the utilities, so they still win over both until each one is converted.
  */
 @layer base {
   /*
@@ -249,6 +257,12 @@
   .lontar-admin ul,
   .lontar-admin ol {
     list-style: revert;
+  }
+
+  /* Host resets commonly add space under labels (Bootstrap's reboot does), and
+   * the admin's fields space their labels with gap utilities instead. */
+  .lontar-admin label {
+    margin: 0;
   }
 }
 

@@ -63,7 +63,7 @@ The check as described above fails on Tailwind's own output, and the two shapes 
 - Tailwind registers its internal custom properties with `@property --tw-*` at the top level. The configured prefix does not rename them. They are namespaced and `inherits: false`, so they change nothing on their own, and `--tw-` is now a third accepted prefix.
 - Tailwind emits a Safari fallback for those same properties in `@layer properties`, declared on `*, :before, :after, ::backdrop`. That cannot be turned off, so the check scopes those selectors to the wrapper and its descendants rather than rejecting them. A universal selector anywhere outside that layer is still an error — that is what would catch an accidental preflight import.
 
-The amended list of what may ship unscoped is therefore: a prefixed utility, a `lontar-`-prefixed `@keyframes`, a `--lt-`/`--lontar-`/`--tw-` `@property`, and the `@layer properties` fallback after scoping.
+The amended list of what may ship unscoped is therefore: a prefixed utility (since #143, nested under the wrapper as well), a `lontar-`-prefixed `@keyframes`, a `--lt-`/`--lontar-`/`--tw-` `@property`, and the `@layer properties` fallback after scoping.
 
 Rule 3's mechanical enforcement is a wrapper component **and** a lint rule, not one or the other. The wrappers in `packages/admin/src/components/ui` bind the container; `no-restricted-imports` in `eslint.config.js` stops the rest of the package importing `@radix-ui/*` directly and going around them.
 
@@ -94,6 +94,30 @@ One consequence of the container's position was not written down. `.lontar-porta
 - Pressing Enter in an input inside a popover cannot trigger the form's implicit submission. The pickers' search inputs relied on `preventDefault` for that; it is now redundant but kept.
 - A native control placed in portalled content is not associated with the form and would not appear in its `FormData`. Nothing in the admin does this, because every field reaches the form through react-hook-form rather than through native submission. A future field that needs native form association must render it outside the portal, or pass an explicit `form` attribute.
 
+**Amendment (2026-11-07, #143).** The published stylesheet ships the reset and the utilities **unlayered**, and nests every utility under the wrapper. This reverses the shipping half of the #116 part 2 amendment, which put the reset in `@layer base`, and drops the cascade layer idea under "To revisit".
+
+Layers order rules only against other layered rules. Against a host page, the cascade compares the admin's layered rules with the host's CSS, and the host's CSS is usually unlayered: Tailwind v3's preflight, Bootstrap's reboot, normalize.css, a hand-written reset. An unlayered rule beats every layered rule whatever its specificity. So `button { background-color: transparent }` beat `lt:bg-primary`, and `* { border-width: 0 }` beat `lt:border`. Primary buttons lost their background and inputs lost their borders. v0.1.2 had no layers and did not have this problem. CI missed it because `examples/next-blog` gives the admin a root layout with no global CSS.
+
+`scopeEmittedCss` (`src/build/scoped-css.ts`) now does two more things to the build output:
+
+- It removes the `@layer base { … }` and `@layer utilities { … }` wrappers and keeps their rules in place. `@layer theme` and `@layer properties` stay layered, because they only declare custom properties on the wrapper and no host rule competes with them.
+- It rewrites every utility selector from `.lt\:x` to `.lontar-admin .lt\:x`. That is safe because everything carrying an `lt:` class renders inside the wrapper, portalled content included (rule 3).
+
+The order between the reset and the utilities, which the `base` layer used to guarantee, now holds by specificity:
+
+| Rules                                                          | Specificity            | Wins over                                                    |
+| -------------------------------------------------------------- | ---------------------- | ------------------------------------------------------------ |
+| Host resets: element, attribute and universal selectors        | mostly (0,1,0) or less | nothing in the admin                                         |
+| The admin's reset, e.g. `.lontar-admin h1`                     | (0,1,1) at most        | host resets                                                  |
+| Utilities, e.g. `.lontar-admin .lt\:m-0`                       | (0,2,0) or more        | the admin's reset and host resets                            |
+| Hand-written component rules, e.g. `.lontar-admin .lontar-btn` | (0,2,0) or more        | utilities they tie with, because they come later in the file |
+
+The source keeps both layers, so the admin's own dev server, which skips the build step, still orders the reset below the utilities. The reset must stay written as the wrapper plus element selectors: a class or attribute in a reset selector would reach (0,2,0) and tie with the utilities.
+
+The e2e suite now loads an unlayered host reset (`examples/next-blog/e2e/fixtures/host-reset.css`) over the admin and checks that the admin renders the same, so a layer that comes back fails CI.
+
+This does not make the admin immune to host CSS. A host rule with class-level specificity that matches admin markup can still win, for example Bootstrap's `button:focus:not(:focus-visible) { outline: 0 }` at (0,2,1). The prefix keeps those from matching anything in the admin except by accident. Shadow DOM remains the only complete boundary.
+
 ## Alternatives considered
 
 - **Keep the hand-written CSS.** Rejected, but it was close. It works today and leaks nothing. It also means every primitive — combobox, dialog, date picker — is ours to build and to keep accessible, which is the reinvention the stack was chosen to avoid. The deciding factor is that the admin keeps growing: every field type added since M1 brought another primitive to hand-roll, and the accessibility bugs in them are ours to find.
@@ -112,4 +136,4 @@ The unit suite leans on `data-testid` 94 times across 8 files, so preserving tho
 
 One risk sits outside any single step: a migration abandoned halfway leaves two styling systems alive at once, which is worse than never starting. The sequence tracked in #123 is ordered so that each step ends somewhere safe.
 
-**To revisit.** If the `container` prop keeps being forgotten despite the enforcement, the boundary is in the wrong place and Shadow DOM deserves a second look. If host apps start reporting collisions despite the prefix, the next step is shipping the admin's CSS under a cascade layer rather than widening the prefix.
+**To revisit.** If the `container` prop keeps being forgotten despite the enforcement, the boundary is in the wrong place and Shadow DOM deserves a second look. If host apps start reporting collisions despite the prefix and the nesting, the next step is raising the utilities' specificity further rather than widening the prefix. A cascade layer is not an option: it would lose to every unlayered host rule (see the #143 amendment).

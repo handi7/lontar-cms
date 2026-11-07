@@ -5,8 +5,19 @@
 // Tailwind emits theme variables as `@layer theme { :root { ... } }` and there is
 // no supported option to change that selector, so `:root`/`:host` are rewritten
 // here instead. Prefixed utilities (`.lt\:flex`) are top-level class selectors by
-// construction and cannot be nested under the wrapper — the `lt` prefix is what
-// keeps them from colliding with the host app. See docs/adr/0019.
+// construction; the `lt` prefix keeps them from colliding with the host app, and
+// this step nests them under the wrapper as well. See docs/adr/0019.
+//
+// It also moves the reset and the utilities out of their cascade layers. The
+// stylesheet is loaded into a page whose own CSS is usually unlayered (Tailwind
+// v3's preflight, Bootstrap's reboot, a hand-written reset), and an unlayered
+// rule beats every layered one whatever its specificity: `button {
+// background-color: transparent }` would beat `lt:bg-primary` (#143). Unlayered,
+// the admin's rules compete on specificity instead, which they win:
+//   - utilities become `.lontar-admin .lt\:x`, (0,2,0) or more, so they beat
+//     host element, attribute and universal selectors;
+//   - the reset stays at (0,1,1) at most (`.lontar-admin h1`), so every utility
+//     still overrides it, which is what the `base` layer was there for.
 import postcss from 'postcss'
 import type { AtRule, Container, Document, Root, Rule } from 'postcss'
 
@@ -22,6 +33,9 @@ const PROPERTY_PREFIXES = ['--lt-', '--lontar-', '--tw-']
 // turned off, so it is scoped instead. A universal selector anywhere else is
 // still an error — that is how an accidental preflight import gets caught.
 const PROPERTIES_LAYER = 'properties'
+// Layers whose rules ship unlayered. `theme` and `properties` only declare
+// custom properties on the wrapper, which no host rule competes with.
+const UNLAYERED = new Set(['base', 'utilities'])
 
 const ROOT_SELECTOR = /^:(?:root|host)(?=$|[\s>+~])/
 
@@ -36,8 +50,26 @@ function rewriteRootSelector(selector: string): string {
   return [...new Set(rewritten)].join(',')
 }
 
+/** `.lt\:flex` -> `.lontar-admin .lt\:flex`. Every utility is used inside the wrapper. */
+function scopeUtilitySelector(selector: string): string {
+  if (selector.includes(SCOPE_CLASS) || !selector.includes(UTILITY_PREFIX)) return selector
+  return `${SCOPE_CLASS} ${selector}`
+}
+
+/** `@layer utilities { a{} b{} }` -> `a{} b{}`, in place, so source order is kept. */
+function unwrapLayers(root: Root): void {
+  root.walkAtRules('layer', (atRule) => {
+    if (!atRule.nodes || !UNLAYERED.has(atRule.params.trim())) return
+    const children = [...atRule.nodes]
+    const spacing = children.map((child) => child.raws.before)
+    atRule.replaceWith(...children)
+    // Moving a node makes postcss guess its leading whitespace; keep what it had.
+    children.forEach((child, i) => (child.raws.before = spacing[i]))
+  })
+}
+
 function isScoped(selector: string): boolean {
-  return selector.includes(SCOPE_CLASS) || selector.includes(UTILITY_PREFIX)
+  return selector.includes(SCOPE_CLASS)
 }
 
 function isInPropertiesLayer(rule: Rule): boolean {
@@ -126,8 +158,9 @@ export class UnscopedCssError extends Error {
 }
 
 /**
- * Rewrites `:root`/`:host` to the admin wrapper, then throws if any selector
- * left in the stylesheet could match an element outside it.
+ * Rewrites `:root`/`:host` to the admin wrapper, nests utilities under it, moves
+ * the reset and utilities out of their cascade layers, then throws if any
+ * selector left in the stylesheet could match an element outside the wrapper.
  */
 export function scopeEmittedCss(css: string, from = 'styles.css'): string {
   const root = postcss.parse(css, { from })
@@ -135,7 +168,11 @@ export function scopeEmittedCss(css: string, from = 'styles.css'): string {
   root.walkRules((rule) => {
     const rewritten = rewriteRootSelector(rule.selector)
     rule.selector = isInPropertiesLayer(rule) ? scopeUniversalSelector(rewritten) : rewritten
+    if (!isInsideKeyframes(rule) && rule.selector.includes(UTILITY_PREFIX)) {
+      rule.selectors = rule.selectors.map(scopeUtilitySelector)
+    }
   })
+  unwrapLayers(root)
 
   const violations = collectViolations(root)
   if (violations.length > 0) throw new UnscopedCssError(violations)

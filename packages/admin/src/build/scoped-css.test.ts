@@ -75,14 +75,32 @@ describe('scopeEmittedCss', () => {
       expect(scopeEmittedCss(css)).toBe(css)
     })
 
-    it('allows prefixed Tailwind utilities', () => {
-      const css = '.lt\\:flex{display:flex}'
-      expect(scopeEmittedCss(css)).toBe(css)
+    it('nests prefixed Tailwind utilities under the wrapper', () => {
+      expect(scopeEmittedCss('.lt\\:flex{display:flex}')).toBe(
+        '.lontar-admin .lt\\:flex{display:flex}',
+      )
     })
 
-    it('allows prefixed utilities carrying variants', () => {
-      const css = '.lt\\:hover\\:bg-primary:hover{background:var(--lontar-primary)}'
-      expect(scopeEmittedCss(css)).toBe(css)
+    it('nests prefixed utilities carrying variants', () => {
+      expect(
+        scopeEmittedCss('.lt\\:hover\\:bg-primary:hover{background:var(--lontar-primary)}'),
+      ).toBe('.lontar-admin .lt\\:hover\\:bg-primary:hover{background:var(--lontar-primary)}')
+    })
+
+    it('nests a utility whose selector starts with a pseudo-class', () => {
+      expect(
+        scopeEmittedCss(
+          ':is(:where(.lt\\:peer):disabled~.lt\\:peer-disabled\\:opacity-50){opacity:.5}',
+        ),
+      ).toBe(
+        '.lontar-admin :is(:where(.lt\\:peer):disabled~.lt\\:peer-disabled\\:opacity-50){opacity:.5}',
+      )
+    })
+
+    it('nests each selector of a list once, keeping commas inside :is() intact', () => {
+      expect(scopeEmittedCss('.lt\\:a:is(.x,.y),.lt\\:b{color:red}')).toBe(
+        '.lontar-admin .lt\\:a:is(.x,.y),.lontar-admin .lt\\:b{color:red}',
+      )
     })
 
     it('allows keyframes with a lontar- name, including their percent steps', () => {
@@ -97,6 +115,44 @@ describe('scopeEmittedCss', () => {
 
     it("allows Tailwind's own --tw- internals, which the prefix does not rename", () => {
       const css = '@property --tw-border-style{syntax:"*";inherits:false;initial-value:solid}'
+      expect(scopeEmittedCss(css)).toBe(css)
+    })
+  })
+
+  // #143: host CSS is usually unlayered, and an unlayered rule beats every
+  // layered one whatever its specificity.
+  describe('moves the reset and the utilities out of their cascade layers', () => {
+    it('unwraps the utilities layer', () => {
+      expect(
+        scopeEmittedCss('@layer utilities{.lt\\:flex{display:flex}.lt\\:p-2{padding:.5rem}}'),
+      ).toBe('.lontar-admin .lt\\:flex{display:flex}.lontar-admin .lt\\:p-2{padding:.5rem}')
+    })
+
+    it('unwraps the base layer', () => {
+      expect(scopeEmittedCss('@layer base{.lontar-admin h1{margin:.67em 0}}')).toBe(
+        '.lontar-admin h1{margin:.67em 0}',
+      )
+    })
+
+    it('keeps a media query inside the unwrapped layer', () => {
+      expect(
+        scopeEmittedCss('@layer utilities{@media (hover:hover){.lt\\:hover\\:x:hover{color:red}}}'),
+      ).toBe('@media (hover:hover){.lontar-admin .lt\\:hover\\:x:hover{color:red}}')
+    })
+
+    it('keeps the source order of the unwrapped rules', () => {
+      expect(
+        scopeEmittedCss(
+          '@layer base{.lontar-admin p{margin:1em 0}}@layer utilities{.lt\\:m-0{margin:0}}.lontar-admin .lontar-btn{margin:0}',
+        ),
+      ).toBe(
+        '.lontar-admin p{margin:1em 0}.lontar-admin .lt\\:m-0{margin:0}.lontar-admin .lontar-btn{margin:0}',
+      )
+    })
+
+    it('leaves the theme and properties layers and the layer order statement alone', () => {
+      const css =
+        '@layer theme,base,components,utilities;@layer theme{.lontar-admin{--lt-spacing:.25rem}}'
       expect(scopeEmittedCss(css)).toBe(css)
     })
   })
