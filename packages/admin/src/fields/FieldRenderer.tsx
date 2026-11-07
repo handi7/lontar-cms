@@ -14,7 +14,9 @@ import type {
   ClientTextField,
 } from '@lontar/core/client'
 import { Field, FieldError, FieldLabel } from '../components/ui/field'
+import { Checkbox } from '../components/ui/checkbox'
 import { Input } from '../components/ui/input'
+import { Label } from '../components/ui/label'
 import {
   Select,
   SelectContent,
@@ -23,6 +25,7 @@ import {
   SelectValue,
 } from '../components/ui/select'
 import { Textarea } from '../components/ui/textarea'
+import { DateTimePicker } from './DateTimePicker'
 import { RichTextEditor } from './RichTextEditor'
 import { RelationshipPicker } from './RelationshipPicker'
 import { UploadPicker } from './UploadPicker'
@@ -177,31 +180,40 @@ function EmailFieldInput({ field, control, a11y }: ControlledProps<ClientEmailFi
 
 function CheckboxFieldInput({
   field,
-  register,
+  control,
   a11y,
 }: {
   field: ClientCheckboxField
-  register: UseFormRegister<Record<string, unknown>>
+  control: Control<Record<string, unknown>>
   a11y: FieldA11y
 }) {
-  // Still on `register`: react-hook-form's boolean handling for
-  // type="checkbox" comes from the registered ref, and Controller does not
-  // reproduce it for free. Converted in #118, with the test that pins
-  // submitted values.
+  // `defaultValue={false}` matches what react-hook-form read from the native
+  // checkbox this replaced when the form had no default. A stored null is left
+  // as null until the box is clicked, as the native one did, and renders
+  // unchecked: Radix's 'indeterminate' is never shown or submitted.
   return (
-    <div className="lontar-checkbox-wrapper">
-      <input
-        id={field.name}
-        type="checkbox"
-        className="lontar-checkbox"
-        {...a11yProps(a11y)}
-        {...register(field.name)}
-      />
-      <label htmlFor={field.name} className="lontar-checkbox-label">
-        <span>{field.label}</span>
-        {field.required && <span className="lontar-required">*</span>}
-      </label>
-    </div>
+    <Controller
+      control={control}
+      name={field.name}
+      defaultValue={false}
+      render={({ field: controlled }) => (
+        <div className="lt:flex lt:items-center lt:gap-2 lt:py-1">
+          <Checkbox
+            id={field.name}
+            ref={controlled.ref}
+            checked={controlled.value === true}
+            onCheckedChange={(checked) => controlled.onChange(checked === true)}
+            onBlur={controlled.onBlur}
+            disabled={controlled.disabled}
+            {...a11yProps(a11y)}
+          />
+          <Label htmlFor={field.name} className="lt:cursor-pointer lt:select-none">
+            <span>{field.label}</span>
+            {field.required && <span className="lontar-required">*</span>}
+          </Label>
+        </div>
+      )}
+    />
   )
 }
 
@@ -266,23 +278,34 @@ function SelectFieldInput({
 
 function DateFieldInput({
   field,
-  register,
+  control,
   a11y,
 }: {
   field: ClientDateField
-  register: UseFormRegister<Record<string, unknown>>
+  control: Control<Record<string, unknown>>
   a11y: FieldA11y
 }) {
-  // Becomes a date picker in #118. The datetime-local string format is a
-  // contract with formatDateForInput/formatDateForSubmit in utils/form-utils.
+  // The form holds the same local datetime string the native
+  // <input type="datetime-local"> did (formatDateForInput in, formatDateForSubmit
+  // out; ADR 0010). `defaultValue=''` matches what react-hook-form read from
+  // that empty input when the form had no default.
   return (
-    <input
-      id={field.name}
-      type="datetime-local"
-      step="1"
-      className="lontar-input"
-      {...a11yProps(a11y)}
-      {...register(field.name)}
+    <Controller
+      control={control}
+      name={field.name}
+      defaultValue=""
+      render={({ field: controlled }) => (
+        <DateTimePicker
+          id={field.name}
+          ref={controlled.ref}
+          value={typeof controlled.value === 'string' ? controlled.value : ''}
+          onChange={controlled.onChange}
+          onBlur={controlled.onBlur}
+          disabled={controlled.disabled}
+          clearable={!field.required}
+          {...a11yProps(a11y)}
+        />
+      )}
     />
   )
 }
@@ -383,15 +406,16 @@ function RichTextFieldInput({
   )
 }
 
+// Every standard field type is bound through Controller now; `register` is
+// only still used by the fields that enroll a value without spreading it onto
+// an element (richText, relationship, upload).
 function StandardFieldInput({
   field,
   control,
-  register,
   a11y,
 }: {
   field: ClientField
   control: Control<Record<string, unknown>>
-  register: UseFormRegister<Record<string, unknown>>
   a11y: FieldA11y
 }) {
   switch (field.type) {
@@ -404,11 +428,11 @@ function StandardFieldInput({
     case 'email':
       return <EmailFieldInput field={field} control={control} a11y={a11y} />
     case 'checkbox':
-      return <CheckboxFieldInput field={field} register={register} a11y={a11y} />
+      return <CheckboxFieldInput field={field} control={control} a11y={a11y} />
     case 'select':
       return <SelectFieldInput field={field} control={control} a11y={a11y} />
     case 'date':
-      return <DateFieldInput field={field} register={register} a11y={a11y} />
+      return <DateFieldInput field={field} control={control} a11y={a11y} />
     default:
       return null
   }
@@ -456,7 +480,7 @@ function FieldInput({
   if (field.type === 'upload') {
     return <UploadPicker field={field} register={register} setValue={setValue} watch={watch} />
   }
-  return <StandardFieldInput field={field} control={control} register={register} a11y={a11y} />
+  return <StandardFieldInput field={field} control={control} a11y={a11y} />
 }
 
 export function FieldRenderer({
