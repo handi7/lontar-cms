@@ -6,6 +6,7 @@ import { Button } from '../components/ui/button'
 import { useAdmin } from '../context/AdminContext'
 import { useAuth } from '../context/AuthContext'
 import { BrandMark } from './BrandMark'
+import { ThemeToggle } from './ThemeToggle'
 
 // The active state keys on the `data-status="active"` attribute TanStack Router
 // sets on a matching Link, not on `activeProps`. The router concatenates
@@ -53,6 +54,7 @@ function SidebarUserProfile({
 
   return (
     <div className="lt:flex lt:flex-col lt:gap-3 lt:border-t lt:bg-card lt:p-4">
+      <ThemeToggle />
       <div className="lt:flex lt:items-center lt:gap-3">
         <div className="lt:flex lt:size-[34px] lt:shrink-0 lt:items-center lt:justify-center lt:rounded-full lt:bg-primary lt:text-sm lt:font-semibold lt:text-primary-foreground">
           {initial}

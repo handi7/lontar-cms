@@ -141,26 +141,55 @@ The CSS custom properties below are the supported theming surface. Override them
 
 The defaults are defined in [`packages/admin/src/styles.css`](packages/admin/src/styles.css).
 
-| Token                     | Default   | Purpose                                |
-| ------------------------- | --------- | -------------------------------------- |
-| `--lontar-bg`             | `#f8fafc` | Admin background                       |
-| `--lontar-surface`        | `#ffffff` | Panels, cards, and input backgrounds   |
-| `--lontar-surface-hover`  | `#f1f5f9` | Hovered surfaces and muted backgrounds |
-| `--lontar-border`         | `#e2e8f0` | Borders and separators                 |
-| `--lontar-text`           | `#0f172a` | Main text                              |
-| `--lontar-text-muted`     | `#64748b` | Secondary text                         |
-| `--lontar-primary`        | `#0f172a` | Primary actions and accents            |
-| `--lontar-primary-hover`  | `#1e293b` | Hovered primary actions                |
-| `--lontar-primary-text`   | `#ffffff` | Text on primary actions                |
-| `--lontar-danger`         | `#ef4444` | Destructive actions and invalid fields |
-| `--lontar-danger-hover`   | `#dc2626` | Hovered destructive actions            |
-| `--lontar-success-bg`     | `#ecfdf5` | Success message background             |
-| `--lontar-success-border` | `#a7f3d0` | Success message border                 |
-| `--lontar-success-text`   | `#065f46` | Success message text                   |
-| `--lontar-error-bg`       | `#fef2f2` | Error message background               |
-| `--lontar-error-border`   | `#fecaca` | Error message border                   |
-| `--lontar-error-text`     | `#991b1b` | Error message text                     |
-| `--lontar-radius`         | `6px`     | Base corner radius                     |
+| Token                     | Light     | Dark      | Purpose                                |
+| ------------------------- | --------- | --------- | -------------------------------------- |
+| `--lontar-bg`             | `#f8fafc` | `#020617` | Admin background                       |
+| `--lontar-surface`        | `#ffffff` | `#0f172a` | Panels, cards, and input backgrounds   |
+| `--lontar-surface-hover`  | `#f1f5f9` | `#1e293b` | Hovered surfaces and muted backgrounds |
+| `--lontar-border`         | `#e2e8f0` | `#1e293b` | Borders and separators                 |
+| `--lontar-text`           | `#0f172a` | `#f8fafc` | Main text                              |
+| `--lontar-text-muted`     | `#64748b` | `#94a3b8` | Secondary text                         |
+| `--lontar-primary`        | `#0f172a` | `#f8fafc` | Primary actions and accents            |
+| `--lontar-primary-hover`  | `#1e293b` | `#e2e8f0` | Hovered primary actions                |
+| `--lontar-primary-text`   | `#ffffff` | `#0f172a` | Text on primary actions                |
+| `--lontar-danger`         | `#ef4444` | `#f87171` | Destructive actions and invalid fields |
+| `--lontar-danger-hover`   | `#dc2626` | `#ef4444` | Hovered destructive actions            |
+| `--lontar-success-bg`     | `#ecfdf5` | `#052e16` | Success message background             |
+| `--lontar-success-border` | `#a7f3d0` | `#166534` | Success message border                 |
+| `--lontar-success-text`   | `#065f46` | `#86efac` | Success message text                   |
+| `--lontar-error-bg`       | `#fef2f2` | `#450a0a` | Error message background               |
+| `--lontar-error-border`   | `#fecaca` | `#7f1d1d` | Error message border                   |
+| `--lontar-error-text`     | `#991b1b` | `#fca5a5` | Error message text                     |
+| `--lontar-radius`         | `6px`     | same      | Base corner radius                     |
+
+#### Dark mode
+
+The admin follows the operating system's light or dark preference by default. Editors
+can override it with the Light / Dark / System switch at the bottom of the sidebar. The
+choice is stored in the browser's `localStorage` under `lontar-admin-theme`, and an
+explicit choice sets `data-theme="light"` or `data-theme="dark"` on the `.lontar-admin`
+wrapper. See [ADR 0020](docs/adr/0020-admin-dark-mode.md).
+
+Colour overrides on `.lontar-admin` apply to the light theme only. The dark theme's selectors
+are more specific, so a light colour never ends up on a dark background. `--lontar-radius`
+has no dark value, so overriding it changes both themes. To change the dark colours too,
+override the same tokens on both dark selectors:
+
+```css
+.lontar-admin[data-theme='dark'] {
+  --lontar-primary: #60a5fa;
+  --lontar-primary-hover: #93c5fd;
+  --lontar-primary-text: #020617;
+}
+
+@media (prefers-color-scheme: dark) {
+  .lontar-admin:not([data-theme='light']) {
+    --lontar-primary: #60a5fa;
+    --lontar-primary-hover: #93c5fd;
+    --lontar-primary-text: #020617;
+  }
+}
+```
 
 Internal class names and any utility prefix are implementation details, not supported
 theming APIs. Use the tokens rather than targeting individual admin components.

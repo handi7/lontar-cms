@@ -1439,3 +1439,108 @@ describe('Admin SPA', () => {
     })
   })
 })
+
+// docs/adr/0020: system by default, an explicit choice sets data-theme on the
+// wrapper and persists under a prefixed localStorage key.
+describe('Admin theme', () => {
+  const KEY = 'lontar-admin-theme'
+
+  function stubAuthenticatedFetch() {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockImplementation((url: string) => {
+        if (url.includes('/_lontar/config')) {
+          return mockJsonResponse(mockConfig)
+        }
+        if (url.includes('/auth/get-session')) {
+          return mockJsonResponse({ user: mockAuthUser, session: mockAuthSession })
+        }
+        return mockJsonResponse({ docs: [], totalDocs: 0, limit: 10, page: 1, totalPages: 1 })
+      }),
+    )
+  }
+
+  function renderDashboard() {
+    const history = createMemoryHistory({ initialEntries: ['/admin'] })
+    return render(<Admin apiBase="/api" basePath="/admin" history={history} />)
+  }
+
+  function wrapper(container: HTMLElement): HTMLElement {
+    const el = container.querySelector<HTMLElement>('.lontar-admin')
+    if (!el) throw new Error('.lontar-admin wrapper not rendered')
+    return el
+  }
+
+  beforeEach(() => {
+    vi.restoreAllMocks()
+    window.localStorage.clear()
+  })
+
+  afterEach(() => {
+    cleanup()
+    vi.unstubAllGlobals()
+    window.localStorage.clear()
+  })
+
+  it('follows the system by default: no data-theme and System pressed', async () => {
+    stubAuthenticatedFetch()
+    const { container } = renderDashboard()
+
+    const system = await screen.findByRole('button', { name: 'System' })
+    expect(system.getAttribute('aria-pressed')).toBe('true')
+    expect(wrapper(container).hasAttribute('data-theme')).toBe(false)
+  })
+
+  it('applies and stores an explicit choice, and clears it for System', async () => {
+    stubAuthenticatedFetch()
+    const { container } = renderDashboard()
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Dark' }))
+    expect(wrapper(container).getAttribute('data-theme')).toBe('dark')
+    expect(window.localStorage.getItem(KEY)).toBe('dark')
+    expect(screen.getByRole('button', { name: 'Dark' }).getAttribute('aria-pressed')).toBe('true')
+
+    fireEvent.click(screen.getByRole('button', { name: 'Light' }))
+    expect(wrapper(container).getAttribute('data-theme')).toBe('light')
+    expect(window.localStorage.getItem(KEY)).toBe('light')
+
+    fireEvent.click(screen.getByRole('button', { name: 'System' }))
+    expect(wrapper(container).hasAttribute('data-theme')).toBe(false)
+    expect(window.localStorage.getItem(KEY)).toBeNull()
+  })
+
+  it('restores a stored choice on load, and writes no other storage keys', async () => {
+    window.localStorage.setItem(KEY, 'dark')
+    stubAuthenticatedFetch()
+    const { container } = renderDashboard()
+
+    await screen.findByRole('button', { name: 'Dark' })
+    expect(wrapper(container).getAttribute('data-theme')).toBe('dark')
+    expect(screen.getByRole('button', { name: 'Dark' }).getAttribute('aria-pressed')).toBe('true')
+    expect(Object.keys(window.localStorage)).toEqual([KEY])
+  })
+
+  it('ignores a stored value it does not recognise', async () => {
+    window.localStorage.setItem(KEY, 'sepia')
+    stubAuthenticatedFetch()
+    const { container } = renderDashboard()
+
+    const system = await screen.findByRole('button', { name: 'System' })
+    expect(system.getAttribute('aria-pressed')).toBe('true')
+    expect(wrapper(container).hasAttribute('data-theme')).toBe(false)
+  })
+
+  it('still switches theme when localStorage is unavailable', async () => {
+    vi.spyOn(Storage.prototype, 'getItem').mockImplementation(() => {
+      throw new Error('SecurityError')
+    })
+    vi.spyOn(Storage.prototype, 'setItem').mockImplementation(() => {
+      throw new Error('SecurityError')
+    })
+    stubAuthenticatedFetch()
+    const { container } = renderDashboard()
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Dark' }))
+    expect(wrapper(container).getAttribute('data-theme')).toBe('dark')
+  })
+})
