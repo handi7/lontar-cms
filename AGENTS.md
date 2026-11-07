@@ -26,8 +26,8 @@ Detailed docs:
 - API: Hono (REST)
 - Auth: Better Auth, httpOnly session cookie
 - Uploads: Sharp for resizing, local storage + S3-compatible adapter
-- Admin: Vite, React, TanStack Router, TanStack Query, TanStack Table, React Hook Form, Tiptap, scoped hand-written CSS
-- Planned admin styling: shadcn/ui + scoped Tailwind v4 (M6, tracked in #123)
+- Admin: Vite, React, TanStack Router, TanStack Query, TanStack Table, React Hook Form, Tiptap
+- Admin styling: shadcn/ui components copied into `packages/admin/src/components/ui`, on Tailwind v4 with every utility prefixed `lt:` and no preflight, scoped to `.lontar-admin` (ADR 0019); light and dark themes on `--lontar-*` tokens (ADR 0020)
 - Build: tsdown/tsup for packages
 - Tests: Vitest (unit/integration), Playwright (admin e2e)
 
@@ -136,7 +136,7 @@ approval on the `npm` environment. Don't run `pnpm publish` by hand; see `docs/r
   - [x] Admin UX: #60 (done), #61 (done), #62 (done), #63 (done), #64 (done)
   - [x] Other: #58 (done), #65 (done), #66 (done), #67 (done)
 
-- [ ] **M6: Admin styling with shadcn/ui + scoped Tailwind v4** (in progress; tracking in #123)
+- [x] **M6: Admin styling with shadcn/ui + scoped Tailwind v4** (Done; tracking in #123)
   - [x] #113 Styling ADR (done)
   - [x] #114 Scoped Tailwind build and token mapping (done)
   - [x] #115 Primitives and scoped portal container (done)
@@ -145,7 +145,7 @@ approval on the `npm` environment. Don't run `pnpm publish` by hand; see `docs/r
   - [x] #118 Date and checkbox fields (done)
   - [x] #119 Radix unit test setup (done)
   - [x] #120 Admin e2e updates (done, with #117)
-  - [ ] #121 Dark mode (optional)
+  - [x] #121 Dark mode (done; system default with an in-admin toggle, ADR 0020)
   - [x] #122 Theming token documentation and Stack correction (done)
   - [x] #136 Dialog, Popover and Tooltip where they replace existing behaviour (done)
 

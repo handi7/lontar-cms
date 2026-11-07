@@ -65,7 +65,13 @@
     'Helvetica Neue', Arial, sans-serif;
 }
 
+/*
+ * Light theme: the default, and what a host overrides on `.lontar-admin`.
+ * `color-scheme` makes native controls inside the admin (scrollbars, the date
+ * picker's time input) match the theme.
+ */
 .lontar-admin {
+  color-scheme: light;
   --lontar-bg: #f8fafc;
   --lontar-surface: #ffffff;
   --lontar-surface-hover: #f1f5f9;
@@ -106,6 +112,59 @@
   color: var(--lontar-text);
   background-color: var(--lontar-bg);
   min-height: 100vh;
+}
+
+/*
+ * Dark theme (docs/adr/0020). Declared twice because a media query cannot be
+ * combined with an attribute selector in one rule: once for the system
+ * preference, unless the editor chose Light, and once for an explicit Dark.
+ * dark-theme.test.ts asserts the two blocks stay identical.
+ *
+ * Both are more specific than `.lontar-admin`, so a host's light overrides do
+ * not reach the dark theme; a host themes dark through these same selectors.
+ */
+@media (prefers-color-scheme: dark) {
+  .lontar-admin:not([data-theme='light']) {
+    color-scheme: dark;
+    --lontar-bg: #020617;
+    --lontar-surface: #0f172a;
+    --lontar-surface-hover: #1e293b;
+    --lontar-border: #1e293b;
+    --lontar-text: #f8fafc;
+    --lontar-text-muted: #94a3b8;
+    --lontar-primary: #f8fafc;
+    --lontar-primary-hover: #e2e8f0;
+    --lontar-primary-text: #0f172a;
+    --lontar-danger: #f87171;
+    --lontar-danger-hover: #ef4444;
+    --lontar-success-bg: #052e16;
+    --lontar-success-border: #166534;
+    --lontar-success-text: #86efac;
+    --lontar-error-bg: #450a0a;
+    --lontar-error-border: #7f1d1d;
+    --lontar-error-text: #fca5a5;
+  }
+}
+
+.lontar-admin[data-theme='dark'] {
+  color-scheme: dark;
+  --lontar-bg: #020617;
+  --lontar-surface: #0f172a;
+  --lontar-surface-hover: #1e293b;
+  --lontar-border: #1e293b;
+  --lontar-text: #f8fafc;
+  --lontar-text-muted: #94a3b8;
+  --lontar-primary: #f8fafc;
+  --lontar-primary-hover: #e2e8f0;
+  --lontar-primary-text: #0f172a;
+  --lontar-danger: #f87171;
+  --lontar-danger-hover: #ef4444;
+  --lontar-success-bg: #052e16;
+  --lontar-success-border: #166534;
+  --lontar-success-text: #86efac;
+  --lontar-error-bg: #450a0a;
+  --lontar-error-border: #7f1d1d;
+  --lontar-error-text: #fca5a5;
 }
 
 /*
@@ -231,7 +290,7 @@
 }
 
 .lontar-admin .lontar-btn-danger:hover:not(:disabled) {
-  background-color: #fef2f2;
+  background-color: var(--lontar-error-bg);
   border-color: var(--lontar-danger);
 }
 
@@ -286,8 +345,8 @@
 }
 
 .lontar-admin .lontar-richtext-editor:focus-within {
-  border-color: #0f172a;
-  box-shadow: 0 0 0 1px #0f172a;
+  border-color: var(--lontar-primary);
+  box-shadow: 0 0 0 1px var(--lontar-primary);
 }
 
 .lontar-admin .lontar-richtext-toolbar {
@@ -329,12 +388,12 @@
 }
 
 .lontar-admin .lontar-richtext-btn:hover:not(:disabled) {
-  background-color: rgba(0, 0, 0, 0.05);
+  background-color: var(--lontar-surface-hover);
 }
 
 .lontar-admin .lontar-richtext-btn.lontar-active {
-  background-color: #0f172a;
-  color: #ffffff;
+  background-color: var(--lontar-primary);
+  color: var(--lontar-primary-text);
 }
 
 .lontar-admin .lontar-richtext-btn:disabled {
@@ -455,7 +514,7 @@
 
 .lontar-admin .lontar-dropzone-active {
   border-color: var(--lontar-primary);
-  background-color: #eff6ff;
+  background-color: var(--lontar-surface-hover);
 }
 
 .lontar-admin .lontar-dropzone-error {

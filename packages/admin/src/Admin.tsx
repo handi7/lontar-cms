@@ -6,6 +6,7 @@ import { AdminContext } from './context/AdminContext'
 import { AuthProvider } from './context/AuthContext'
 import { FullPageError, FullPageLoading } from './layout/FullPageState'
 import { PortalContainerProvider } from './context/PortalContainer'
+import { ThemeContext, useThemePreference } from './context/ThemeContext'
 import { fetchClientConfig } from './api/client'
 import { createAdminBrowserHistory } from './router/history'
 import { createAdminRouter } from './router/routes'
@@ -34,6 +35,8 @@ function AdminInner({
     setMounted(true)
   }, [])
 
+  const { theme, setTheme, dataTheme } = useThemePreference(mounted)
+
   const {
     data: config,
     isLoading,
@@ -51,7 +54,7 @@ function AdminInner({
 
   if (!mounted || isLoading || !router) {
     return (
-      <div className="lontar-admin">
+      <div className="lontar-admin" data-theme={dataTheme}>
         <FullPageLoading>Loading Lontar CMS configuration...</FullPageLoading>
       </div>
     )
@@ -59,7 +62,7 @@ function AdminInner({
 
   if (error || !config) {
     return (
-      <div className="lontar-admin">
+      <div className="lontar-admin" data-theme={dataTheme}>
         <FullPageError title="Failed to load admin configuration">
           {error ? error.message : 'No configuration received from API'}
         </FullPageError>
@@ -68,15 +71,17 @@ function AdminInner({
   }
 
   return (
-    <AdminContext.Provider value={{ config, apiBase, basePath }}>
-      <AuthProvider apiBase={apiBase}>
-        <div className="lontar-admin">
-          <PortalContainerProvider>
-            <RouterProvider router={router} />
-          </PortalContainerProvider>
-        </div>
-      </AuthProvider>
-    </AdminContext.Provider>
+    <ThemeContext.Provider value={{ theme, setTheme }}>
+      <AdminContext.Provider value={{ config, apiBase, basePath }}>
+        <AuthProvider apiBase={apiBase}>
+          <div className="lontar-admin" data-theme={dataTheme}>
+            <PortalContainerProvider>
+              <RouterProvider router={router} />
+            </PortalContainerProvider>
+          </div>
+        </AuthProvider>
+      </AdminContext.Provider>
+    </ThemeContext.Provider>
   )
 }
 
