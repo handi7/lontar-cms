@@ -75,6 +75,18 @@ Admin source therefore uses relative imports, and copied shadcn sources have the
 
 The general shape of the trap is worth keeping in mind for the rest of M6: a path alias inside a library is invisible to anything that compiles that library from source, and in this monorepo the example does exactly that.
 
+**Amendment (2026-11-07, while implementing #116 part 2).** Two consequences of rule 2 that only showed once real views were built from shadcn components.
+
+The hand-written base reset has to live in `@layer base`. It was unlayered, and unlayered rules beat every layered one regardless of specificity, so `.lontar-admin h1 { margin: 0.67em 0 }` silently overrode `lt:m-0` on every heading. In `@layer base` it sits below `utilities` and the utility wins. The remaining hand-written component rules stay unlayered on purpose: until each is converted they should keep winning over both.
+
+Without preflight, shadcn components inherit browser defaults they were written assuming away. Three of them mattered:
+
+- A bare `lt:border` draws in `currentColor`. The base layer now declares `border-color: var(--lontar-border)` on the wrapper and its descendants, as preflight and shadcn's own base styles do.
+- A `<button>` keeps the UA border and background, and a link rendered through `Button asChild` keeps its underline and the UA link colour (purple once visited). `button.tsx` restates the missing defaults in its base classes rather than adding a global `button`/`a` reset, which would reach every hand-written control still in `fields/`.
+- A `<table>` defaults to `border-collapse: separate`, so `table.tsx` sets `lt:border-collapse` itself.
+
+The general rule for the rest of M6: when copying a shadcn component in, check what it gets from preflight, and restate it on the component unless it is a default the whole wrapper should have.
+
 ## Alternatives considered
 
 - **Keep the hand-written CSS.** Rejected, but it was close. It works today and leaks nothing. It also means every primitive — combobox, dialog, date picker — is ours to build and to keep accessible, which is the reinvention the stack was chosen to avoid. The deciding factor is that the admin keeps growing: every field type added since M1 brought another primitive to hand-roll, and the accessibility bugs in them are ours to find.

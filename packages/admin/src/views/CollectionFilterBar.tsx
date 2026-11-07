@@ -1,5 +1,9 @@
 import { useState } from 'react'
 import type { ClientCollection } from '@lontar/core/client'
+import { Badge } from '../components/ui/badge'
+import { Button } from '../components/ui/button'
+import { Input } from '../components/ui/input'
+import { cn } from '../lib/utils'
 
 export interface ActiveFilter {
   id: string
@@ -61,29 +65,34 @@ export function CollectionFilterBar({
   ]
 
   return (
-    <div className="lontar-filter-container">
-      <div className="lontar-toolbar">
-        <div className="lontar-search-wrapper">
-          <input
-            type="search"
-            className="lontar-search-input"
-            placeholder={`Search ${collection.labels.plural.toLowerCase()}...`}
-            value={searchTerm}
-            onChange={(e) => onSearchChange(e.target.value)}
-            aria-label={`Search ${collection.labels.plural}`}
-          />
-        </div>
-        <button
+    <div className="lt:mb-5 lt:flex lt:flex-col lt:gap-3">
+      <div className="lt:flex lt:items-center lt:gap-3">
+        <Input
+          type="search"
+          className="lt:max-w-[400px] lt:flex-1 lt:bg-card"
+          placeholder={`Search ${collection.labels.plural.toLowerCase()}...`}
+          value={searchTerm}
+          onChange={(e) => onSearchChange(e.target.value)}
+          aria-label={`Search ${collection.labels.plural}`}
+        />
+        <Button
           type="button"
-          className={`lontar-btn lontar-btn-secondary ${isOpen ? 'lontar-btn-active' : ''}`}
+          variant="outline"
+          aria-expanded={isOpen}
+          className={cn(isOpen && 'lt:border-primary lt:bg-accent')}
           onClick={() => setIsOpen((prev) => !prev)}
         >
           {activeFilters.length > 0 ? `Filters (${activeFilters.length})` : 'Add Filter'}
-        </button>
+        </Button>
       </div>
 
       {isOpen && (
-        <form className="lontar-filter-form" onSubmit={handleApply}>
+        <form
+          className="lt:flex lt:flex-wrap lt:items-center lt:gap-2.5 lt:rounded-md lt:border lt:bg-card lt:p-3.5"
+          onSubmit={handleApply}
+        >
+          {/* Still native <select>s, styled by .lontar-select in styles.css.
+              They become Radix Selects in #117, which deletes that rule. */}
           <select
             className="lontar-select"
             value={selectedField}
@@ -110,61 +119,73 @@ export function CollectionFilterBar({
             ))}
           </select>
 
-          <input
+          <Input
             type="text"
-            className="lontar-input"
+            className="lt:h-8 lt:w-auto lt:md:text-[0.8125rem]"
             placeholder="Value..."
             value={filterValue}
             onChange={(e) => setFilterValue(e.target.value)}
             aria-label="Filter value"
           />
 
-          <button type="submit" className="lontar-btn lontar-btn-primary">
-            Apply
-          </button>
-          <button
-            type="button"
-            className="lontar-btn lontar-btn-secondary"
-            onClick={() => setIsOpen(false)}
-          >
+          <Button type="submit">Apply</Button>
+          <Button type="button" variant="outline" onClick={() => setIsOpen(false)}>
             Cancel
-          </button>
+          </Button>
         </form>
       )}
 
       {(activeFilters.length > 0 || searchTerm) && (
-        <div className="lontar-filter-pills">
+        <div className="lt:flex lt:flex-wrap lt:items-center lt:gap-2">
           {searchTerm && (
-            <span className="lontar-pill">
+            <FilterPill label="Remove search filter" onRemove={() => onSearchChange('')}>
               Search: "{searchTerm}"
-              <button
-                type="button"
-                className="lontar-pill-remove"
-                onClick={() => onSearchChange('')}
-                aria-label="Remove search filter"
-              >
-                ×
-              </button>
-            </span>
+            </FilterPill>
           )}
           {activeFilters.map((f) => (
-            <span key={f.id} className="lontar-pill">
+            <FilterPill
+              key={f.id}
+              label={`Remove ${f.field} filter`}
+              onRemove={() => onRemoveFilter(f.id)}
+            >
               {f.field} {f.operator} "{f.value}"
-              <button
-                type="button"
-                className="lontar-pill-remove"
-                onClick={() => onRemoveFilter(f.id)}
-                aria-label={`Remove ${f.field} filter`}
-              >
-                ×
-              </button>
-            </span>
+            </FilterPill>
           ))}
-          <button type="button" className="lontar-btn-link" onClick={onClearAll}>
+          <Button
+            type="button"
+            variant="ghost"
+            size="sm"
+            className="lt:h-7 lt:px-2 lt:text-[0.8125rem] lt:text-muted-foreground"
+            onClick={onClearAll}
+          >
             Clear all
-          </button>
+          </Button>
         </div>
       )}
     </div>
+  )
+}
+
+function FilterPill({
+  label,
+  onRemove,
+  children,
+}: {
+  label: string
+  onRemove: () => void
+  children: React.ReactNode
+}) {
+  return (
+    <Badge variant="secondary" className="lt:gap-1.5 lt:px-2.5 lt:py-1">
+      {children}
+      <button
+        type="button"
+        className="lt:flex lt:cursor-pointer lt:items-center lt:border-0 lt:bg-transparent lt:p-0 lt:text-sm lt:leading-none lt:text-muted-foreground lt:hover:text-destructive"
+        onClick={onRemove}
+        aria-label={label}
+      >
+        ×
+      </button>
+    </Badge>
   )
 }

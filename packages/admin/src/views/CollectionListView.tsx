@@ -11,14 +11,35 @@ import {
 } from '@tanstack/react-table'
 import type { ClientCollection, ClientField, ClientSelectField, Where } from '@lontar/core/client'
 import { useAdmin, useCollection } from '../context/AdminContext'
+import { cn } from '../lib/utils'
 import {
   fetchCollectionDocs,
   deleteDoc,
   formatApiErrorMessage,
   type PaginatedDocs,
 } from '../api/client'
+import { Alert } from '../components/ui/alert'
+import { Badge } from '../components/ui/badge'
+import { Button } from '../components/ui/button'
+import {
+  Table as UITable,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from '../components/ui/table'
 import { CollectionFilterBar, type ActiveFilter } from './CollectionFilterBar'
+import { EmptyCard } from './EmptyCard'
 import { NotFoundView } from './NotFoundView'
+import { ViewHeader } from './ViewHeader'
+
+const mediaCellClass = 'lt:flex lt:items-center lt:gap-2.5'
+const thumbnailClass = 'lt:size-9 lt:shrink-0 lt:rounded-sm lt:border lt:object-cover'
+const emptyTextClass = 'lt:mt-0 lt:mb-5 lt:text-muted-foreground'
+const rowActionClass = 'lt:h-7 lt:px-2 lt:text-[0.8125rem] lt:text-muted-foreground'
+const headClass =
+  'lt:h-auto lt:px-4 lt:py-3 lt:text-xs lt:font-semibold lt:tracking-wider lt:text-muted-foreground lt:uppercase'
 
 function getColumnLabel(key: string, collection: ClientCollection): string {
   if (key === 'id') return 'ID'
@@ -29,17 +50,13 @@ function getColumnLabel(key: string, collection: ClientCollection): string {
 }
 
 function renderBooleanCell(val: unknown): React.ReactNode {
-  return val ? (
-    <span className="lontar-tag lontar-tag-success">true</span>
-  ) : (
-    <span className="lontar-tag lontar-tag-muted">false</span>
-  )
+  return val ? <Badge variant="success">true</Badge> : <Badge variant="muted">false</Badge>
 }
 
 function renderSelectCell(val: unknown, field: ClientSelectField): React.ReactNode {
   const str = typeof val === 'string' ? val : typeof val === 'number' ? String(val) : ''
   const opt = field.options.find((o) => o.value === str)
-  return <span className="lontar-tag lontar-tag-neutral">{opt?.label ?? str}</span>
+  return <Badge variant="secondary">{opt?.label ?? str}</Badge>
 }
 
 function renderDateCell(val: unknown): string {
@@ -70,8 +87,8 @@ function renderUploadCell(val: unknown): React.ReactNode {
     const isImage = isDocImage(doc.mimeType, url)
     const title = getDocTitle(doc)
     return (
-      <div className="lontar-table-media-cell">
-        {isImage && thumbUrl && <img src={thumbUrl} alt="" className="lontar-table-thumbnail" />}
+      <div className={mediaCellClass}>
+        {isImage && thumbUrl && <img src={thumbUrl} alt="" className={thumbnailClass} />}
         <span>{title}</span>
       </div>
     )
@@ -110,7 +127,7 @@ function renderCellContent(
   key: string,
 ): React.ReactNode {
   if (val === null || val === undefined || val === '') {
-    return <span className="lontar-cell-empty">—</span>
+    return <span className="lt:text-muted-foreground">—</span>
   }
   if (field) {
     const rendered = renderFieldCell(val, field)
@@ -166,8 +183,8 @@ function renderMediaThumbnailCell(
   const isImage = isDocImage(rowDoc.mimeType, thumbUrl)
   if (isImage && thumbUrl) {
     return (
-      <div className="lontar-table-media-cell">
-        <img src={thumbUrl} alt="" className="lontar-table-thumbnail" />
+      <div className={mediaCellClass}>
+        <img src={thumbUrl} alt="" className={thumbnailClass} />
         <span>{content}</span>
       </div>
     )
@@ -193,7 +210,7 @@ function DataCellRenderer({
       <Link
         to="/$collection/$id"
         params={{ collection: collectionSlug, id: String(rowDoc.id) }}
-        className="lontar-table-link"
+        className="lt:font-semibold lt:text-foreground lt:underline lt:underline-offset-2"
       >
         {content}
       </Link>
@@ -242,24 +259,27 @@ function buildColumns(
     cell: ({ row }) => {
       const id = String(row.original.id)
       return (
-        <div className="lontar-table-actions">
-          <Link
-            to="/$collection/$id"
-            params={{ collection: collection.slug, id }}
-            className="lontar-btn-link"
-          >
-            Edit
-          </Link>
-          <button
+        <div className="lt:flex lt:items-center lt:gap-2">
+          <Button asChild variant="ghost" size="sm" className={rowActionClass}>
+            <Link to="/$collection/$id" params={{ collection: collection.slug, id }}>
+              Edit
+            </Link>
+          </Button>
+          <Button
             type="button"
-            className="lontar-btn-link lontar-btn-danger"
+            variant="ghost"
+            size="sm"
+            className={cn(
+              rowActionClass,
+              'lt:text-destructive lt:hover:bg-error-bg lt:hover:text-destructive',
+            )}
             disabled={isDeleting}
             onClick={() => {
               onDelete(id)
             }}
           >
             Delete
-          </button>
+          </Button>
         </div>
       )
     },
@@ -278,72 +298,80 @@ function CollectionTable({
   onPageChange: (newPage: number) => void
 }) {
   return (
-    <div className="lontar-table-wrapper">
-      <table className="lontar-table">
-        <thead>
+    <div className="lt:overflow-hidden lt:rounded-md lt:border lt:bg-card">
+      <UITable>
+        <TableHeader>
           {table.getHeaderGroups().map((headerGroup) => (
-            <tr key={headerGroup.id}>
+            <TableRow key={headerGroup.id} className="lt:bg-background lt:hover:bg-background">
               {headerGroup.headers.map((header) => {
                 const canSort = header.column.getCanSort()
                 const isSorted = header.column.getIsSorted()
                 return (
-                  <th
+                  <TableHead
                     key={header.id}
-                    className={canSort ? 'lontar-th-sortable' : undefined}
+                    className={cn(
+                      headClass,
+                      canSort && 'lt:cursor-pointer lt:select-none lt:hover:bg-muted',
+                    )}
                     onClick={header.column.getToggleSortingHandler()}
                     aria-sort={
                       isSorted === 'asc' ? 'ascending' : isSorted === 'desc' ? 'descending' : 'none'
                     }
                   >
-                    <div className="lontar-th-content">
+                    <div className="lt:inline-flex lt:items-center lt:gap-1.5">
                       {flexRender(header.column.columnDef.header, header.getContext())}
                       {canSort && (
-                        <span className="lontar-sort-indicator" aria-hidden="true">
+                        <span
+                          className="lt:text-[0.6875rem] lt:text-muted-foreground"
+                          aria-hidden="true"
+                        >
                           {isSorted === 'asc' ? ' ↑' : isSorted === 'desc' ? ' ↓' : ' ⇅'}
                         </span>
                       )}
                     </div>
-                  </th>
+                  </TableHead>
                 )
               })}
-            </tr>
+            </TableRow>
           ))}
-        </thead>
-        <tbody>
+        </TableHeader>
+        <TableBody>
           {table.getRowModel().rows.map((row) => (
-            <tr key={row.id}>
+            <TableRow key={row.id}>
               {row.getVisibleCells().map((cell) => (
-                <td key={cell.id}>{flexRender(cell.column.columnDef.cell, cell.getContext())}</td>
+                <TableCell key={cell.id} className="lt:px-4 lt:py-3.5">
+                  {flexRender(cell.column.columnDef.cell, cell.getContext())}
+                </TableCell>
               ))}
-            </tr>
+            </TableRow>
           ))}
-        </tbody>
-      </table>
+        </TableBody>
+      </UITable>
 
-      <div className="lontar-pagination">
-        <button
+      <div className="lt:flex lt:items-center lt:justify-between lt:border-t lt:bg-background lt:px-5 lt:py-3.5">
+        <Button
           type="button"
-          className="lontar-btn lontar-btn-secondary"
+          variant="outline"
           onClick={() => {
             onPageChange(Math.max(1, (data?.page ?? 1) - 1))
           }}
           disabled={!data?.hasPrevPage}
         >
           Previous
-        </button>
-        <span className="lontar-pagination-info">
+        </Button>
+        <span className="lt:text-[0.8125rem] lt:text-muted-foreground">
           Page {data?.page ?? 1} of {data?.totalPages ?? 1}
         </span>
-        <button
+        <Button
           type="button"
-          className="lontar-btn lontar-btn-secondary"
+          variant="outline"
           onClick={() => {
             onPageChange((data?.page ?? 1) + 1)
           }}
           disabled={!data?.hasNextPage}
         >
           Next
-        </button>
+        </Button>
       </div>
     </div>
   )
@@ -351,16 +379,14 @@ function CollectionTable({
 
 function EmptyState({ collection }: { collection: ClientCollection }) {
   return (
-    <div className="lontar-empty-state">
-      <p>No {collection.labels.plural.toLowerCase()} found.</p>
-      <Link
-        to="/$collection/create"
-        params={{ collection: collection.slug }}
-        className="lontar-btn lontar-btn-secondary"
-      >
-        Create the first {collection.labels.singular.toLowerCase()}
-      </Link>
-    </div>
+    <EmptyCard>
+      <p className={emptyTextClass}>No {collection.labels.plural.toLowerCase()} found.</p>
+      <Button asChild variant="outline">
+        <Link to="/$collection/create" params={{ collection: collection.slug }}>
+          Create the first {collection.labels.singular.toLowerCase()}
+        </Link>
+      </Button>
+    </EmptyCard>
   )
 }
 
@@ -386,7 +412,7 @@ function ListContent({
   onPageChange: (newPage: number) => void
 }) {
   if (isLoading) {
-    return <div className="lontar-loading">Loading documents...</div>
+    return <EmptyCard>Loading documents...</EmptyCard>
   }
   if (isError) {
     return null
@@ -394,16 +420,12 @@ function ListContent({
   if (docsCount === 0) {
     if (hasActiveFilters) {
       return (
-        <div className="lontar-empty-state">
-          <p>No documents found matching the filter criteria.</p>
-          <button
-            type="button"
-            className="lontar-btn lontar-btn-secondary"
-            onClick={onClearFilters}
-          >
+        <EmptyCard>
+          <p className={emptyTextClass}>No documents found matching the filter criteria.</p>
+          <Button type="button" variant="outline" onClick={onClearFilters}>
             Clear filters
-          </button>
-        </div>
+          </Button>
+        </EmptyCard>
       )
     }
     return <EmptyState collection={collection} />
@@ -493,11 +515,15 @@ function ListAlerts({
   if (!queryError && !deleteError) return null
   return (
     <>
-      {queryError && <div className="lontar-alert lontar-alert-error">{queryError.message}</div>}
+      {queryError && (
+        <Alert variant="destructive" className="lt:mb-5">
+          {queryError.message}
+        </Alert>
+      )}
       {deleteError && (
-        <div className="lontar-alert lontar-alert-error" data-testid="delete-error-alert">
+        <Alert variant="destructive" className="lt:mb-5" data-testid="delete-error-alert">
           {deleteError}
-        </div>
+        </Alert>
       )}
     </>
   )
@@ -589,20 +615,21 @@ export function CollectionListView() {
   const hasActiveFilters = Boolean(searchTerm.trim() || activeFilters.length > 0)
 
   return (
-    <div className="lontar-collection-list">
-      <header className="lontar-view-header">
-        <div>
-          <h1>{collection.labels.plural}</h1>
-          <span className="lontar-badge">{data?.totalDocs ?? 0} items</span>
-        </div>
-        <Link
-          to="/$collection/create"
-          params={{ collection: collection.slug }}
-          className="lontar-btn lontar-btn-primary"
-        >
-          Create {collection.labels.singular}
-        </Link>
-      </header>
+    <div>
+      <ViewHeader
+        title={collection.labels.plural}
+        actions={
+          <Button asChild>
+            <Link to="/$collection/create" params={{ collection: collection.slug }}>
+              Create {collection.labels.singular}
+            </Link>
+          </Button>
+        }
+      >
+        <Badge variant="secondary" className="lt:mt-1.5">
+          {data?.totalDocs ?? 0} items
+        </Badge>
+      </ViewHeader>
 
       <CollectionFilterBar
         collection={collection}

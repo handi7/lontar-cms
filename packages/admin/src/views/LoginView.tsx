@@ -1,6 +1,13 @@
 import { useState, type FormEvent } from 'react'
 import { Navigate, useRouter } from '@tanstack/react-router'
+import { Alert } from '../components/ui/alert'
+import { Button } from '../components/ui/button'
+import { Card } from '../components/ui/card'
+import { Input } from '../components/ui/input'
+import { Label } from '../components/ui/label'
 import { useAuth } from '../context/AuthContext'
+import { BrandMark } from '../layout/BrandMark'
+import { FullPageLoading } from '../layout/FullPageState'
 
 export function LoginView() {
   const { user, signIn, isLoading: isAuthLoading } = useAuth()
@@ -11,12 +18,7 @@ export function LoginView() {
   const [isSubmitting, setIsSubmitting] = useState(false)
 
   if (isAuthLoading) {
-    return (
-      <div className="lontar-init-loading">
-        <div className="lontar-spinner" />
-        <p>Checking authentication...</p>
-      </div>
-    )
+    return <FullPageLoading>Checking authentication...</FullPageLoading>
   }
 
   if (user) {
@@ -40,70 +42,63 @@ export function LoginView() {
   }
 
   return (
-    <div className="lontar-login-container">
-      <div className="lontar-login-card">
-        <div className="lontar-login-header">
-          <div className="lontar-login-brand">
-            <span className="lontar-brand-icon">L</span>
-            <span className="lontar-brand-name">Lontar CMS</span>
+    <div className="lt:flex lt:min-h-screen lt:items-center lt:justify-center lt:bg-background lt:p-6">
+      <Card className="lt:w-full lt:max-w-[400px] lt:gap-0 lt:rounded-[calc(var(--lontar-radius)*1.5)] lt:p-9 lt:shadow-md">
+        <div className="lt:mb-7 lt:text-center">
+          <div className="lt:mb-4 lt:inline-flex lt:items-center lt:gap-2.5 lt:font-bold">
+            <BrandMark />
           </div>
-          <h1 className="lontar-login-title">Sign in to Admin</h1>
-          <p className="lontar-login-subtitle">Enter your credentials to access the admin panel</p>
+          <h1 className="lt:mt-0 lt:mb-1.5 lt:text-[1.375rem] lt:font-bold lt:text-foreground">
+            Sign in to Admin
+          </h1>
+          <p className="lt:m-0 lt:text-sm lt:text-muted-foreground">
+            Enter your credentials to access the admin panel
+          </p>
         </div>
 
         {error && (
-          <div className="lontar-alert lontar-alert-error" role="alert">
+          <Alert variant="destructive" className="lt:mb-5">
             {error}
-          </div>
+          </Alert>
         )}
 
         <form
           onSubmit={(e) => {
             void handleSubmit(e)
           }}
-          className="lontar-login-form"
+          className="lt:flex lt:flex-col lt:gap-5"
         >
-          <div className="lontar-field">
-            <label htmlFor="lontar-login-email" className="lontar-label">
-              Email
-            </label>
-            <input
+          <div className="lt:flex lt:flex-col lt:gap-2">
+            <Label htmlFor="lontar-login-email">Email</Label>
+            <Input
               id="lontar-login-email"
               type="email"
               required
               value={email}
               onChange={(e) => setEmail(e.target.value)}
               placeholder="admin@example.com"
-              className="lontar-input"
               autoComplete="email"
             />
           </div>
 
-          <div className="lontar-field">
-            <label htmlFor="lontar-login-password" className="lontar-label">
-              Password
-            </label>
-            <input
+          <div className="lt:flex lt:flex-col lt:gap-2">
+            <Label htmlFor="lontar-login-password">Password</Label>
+            <Input
               id="lontar-login-password"
               type="password"
               required
               value={password}
               onChange={(e) => setPassword(e.target.value)}
               placeholder="••••••••"
-              className="lontar-input"
               autoComplete="current-password"
             />
           </div>
 
-          <button
-            type="submit"
-            disabled={isSubmitting}
-            className="lontar-btn lontar-btn-primary lontar-login-submit"
-          >
+          <Button type="submit" disabled={isSubmitting} className="lt:mt-2 lt:h-10 lt:w-full">
             {isSubmitting ? 'Signing in...' : 'Sign In'}
-          </button>
+          </Button>
         </form>
-      </div>
+      </Card>
     </div>
   )
 }

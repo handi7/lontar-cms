@@ -18,11 +18,16 @@ import { FieldRenderer } from '../fields/FieldRenderer'
 import { FileUploadZone, formatFilesize } from '../fields/FileUploadZone'
 import { computeDefaultValues, formatDocForForm, formatDocForSubmit } from '../utils/form-utils'
 import { NotFoundView } from './NotFoundView'
+import { Alert } from '../components/ui/alert'
+import { Button } from '../components/ui/button'
+import { Card } from '../components/ui/card'
+import { EmptyCard } from './EmptyCard'
+import { ViewHeader } from './ViewHeader'
 
 function DocumentMeta({ doc }: { doc?: Record<string, unknown> | null }) {
   if (!doc) return null
   return (
-    <div className="lontar-doc-meta">
+    <div className="lt:mt-1.5 lt:flex lt:gap-4 lt:text-[0.8125rem] lt:text-muted-foreground">
       <span>
         <strong>ID:</strong> {String(doc.id)}
       </span>
@@ -56,31 +61,31 @@ function FormHeader({
   onDelete: () => void
 }) {
   return (
-    <header className="lontar-view-header">
-      <div>
-        <h1>{title}</h1>
-        {mode === 'edit' && <DocumentMeta doc={doc} />}
-      </div>
-      <div className="lontar-header-actions">
-        {mode === 'edit' && (
-          <button
-            type="button"
-            className="lontar-btn lontar-btn-danger"
-            disabled={isDeleting}
-            onClick={onDelete}
-          >
-            Delete
-          </button>
-        )}
-        <Link
-          to="/$collection"
-          params={{ collection: collection.slug }}
-          className="lontar-btn lontar-btn-secondary"
-        >
-          Cancel
-        </Link>
-      </div>
-    </header>
+    <ViewHeader
+      title={title}
+      actions={
+        <>
+          {mode === 'edit' && (
+            <Button
+              type="button"
+              variant="outline"
+              className="lt:text-destructive lt:hover:border-destructive lt:hover:bg-error-bg lt:hover:text-destructive"
+              disabled={isDeleting}
+              onClick={onDelete}
+            >
+              Delete
+            </Button>
+          )}
+          <Button asChild variant="outline">
+            <Link to="/$collection" params={{ collection: collection.slug }}>
+              Cancel
+            </Link>
+          </Button>
+        </>
+      }
+    >
+      {mode === 'edit' && <DocumentMeta doc={doc} />}
+    </ViewHeader>
   )
 }
 
@@ -129,51 +134,53 @@ function FormBody({
   const accept = uploadConfig?.mimeTypes?.join(',')
 
   return (
-    <form onSubmit={onSubmit} className="lontar-form">
-      {Boolean(collection.upload) && (
-        <FileUploadZone
-          value={selectedFile}
-          onChange={onFileChange}
-          currentFile={
-            doc
-              ? {
-                  filename: doc.filename as string | undefined,
-                  url: doc.url as string | undefined,
-                  mimeType: doc.mimeType as string | undefined,
-                  filesize: doc.filesize as number | undefined,
-                  width: doc.width as number | undefined,
-                  height: doc.height as number | undefined,
-                }
-              : null
-          }
-          accept={accept}
-          maxFileSize={uploadConfig?.maxFileSize}
-          required={mode === 'create'}
-          error={fileError ?? undefined}
-        />
-      )}
-
-      <div className="lontar-form-fields">
-        {collection.fields.map((field) => (
-          <FieldRenderer
-            key={field.name}
-            field={field}
-            control={control}
-            register={register}
-            setValue={setValue}
-            watch={watch}
-            mode={mode}
-            error={errors[field.name]}
+    <Card className="lt:block lt:p-8 lt:shadow-none">
+      <form onSubmit={onSubmit}>
+        {Boolean(collection.upload) && (
+          <FileUploadZone
+            value={selectedFile}
+            onChange={onFileChange}
+            currentFile={
+              doc
+                ? {
+                    filename: doc.filename as string | undefined,
+                    url: doc.url as string | undefined,
+                    mimeType: doc.mimeType as string | undefined,
+                    filesize: doc.filesize as number | undefined,
+                    width: doc.width as number | undefined,
+                    height: doc.height as number | undefined,
+                  }
+                : null
+            }
+            accept={accept}
+            maxFileSize={uploadConfig?.maxFileSize}
+            required={mode === 'create'}
+            error={fileError ?? undefined}
           />
-        ))}
-      </div>
+        )}
 
-      <div className="lontar-form-footer">
-        <button type="submit" className="lontar-btn lontar-btn-primary" disabled={isPending}>
-          {submitLabel}
-        </button>
-      </div>
-    </form>
+        <div className="lt:flex lt:flex-col lt:gap-6">
+          {collection.fields.map((field) => (
+            <FieldRenderer
+              key={field.name}
+              field={field}
+              control={control}
+              register={register}
+              setValue={setValue}
+              watch={watch}
+              mode={mode}
+              error={errors[field.name]}
+            />
+          ))}
+        </div>
+
+        <div className="lt:mt-8 lt:flex lt:gap-3 lt:border-t lt:pt-6">
+          <Button type="submit" disabled={isPending}>
+            {submitLabel}
+          </Button>
+        </div>
+      </form>
+    </Card>
   )
 }
 
@@ -354,10 +361,9 @@ export function CollectionFormView({ mode }: { mode: 'create' | 'edit' }) {
   }
 
   if (!collection) return <NotFoundView />
-  if (mode === 'edit' && docQuery.isLoading)
-    return <div className="lontar-loading">Loading document...</div>
+  if (mode === 'edit' && docQuery.isLoading) return <EmptyCard>Loading document...</EmptyCard>
   if (mode === 'edit' && docQuery.error)
-    return <div className="lontar-alert lontar-alert-error">{docQuery.error.message}</div>
+    return <Alert variant="destructive">{docQuery.error.message}</Alert>
 
   const title = getFormTitle(mode, collection.labels.singular, id)
 
@@ -382,7 +388,7 @@ export function CollectionFormView({ mode }: { mode: 'create' | 'edit' }) {
   }
 
   return (
-    <div className="lontar-collection-form">
+    <div>
       <FormHeader
         title={title}
         mode={mode}
@@ -392,8 +398,16 @@ export function CollectionFormView({ mode }: { mode: 'create' | 'edit' }) {
         onDelete={handleDelete}
       />
 
-      {apiError && <div className="lontar-alert lontar-alert-error">{apiError}</div>}
-      {successMsg && <div className="lontar-alert lontar-alert-success">{successMsg}</div>}
+      {apiError && (
+        <Alert variant="destructive" className="lt:mb-5">
+          {apiError}
+        </Alert>
+      )}
+      {successMsg && (
+        <Alert variant="success" role="status" className="lt:mb-5">
+          {successMsg}
+        </Alert>
+      )}
 
       <FormBody
         collection={collection}

@@ -17,11 +17,16 @@ import { fetchGlobal, saveGlobal, ApiClientError } from '../api/client'
 import { FieldRenderer } from '../fields/FieldRenderer'
 import { computeDefaultValues, formatDocForForm, formatDocForSubmit } from '../utils/form-utils'
 import { NotFoundView } from './NotFoundView'
+import { Alert } from '../components/ui/alert'
+import { Button } from '../components/ui/button'
+import { Card } from '../components/ui/card'
+import { EmptyCard } from './EmptyCard'
+import { ViewHeader } from './ViewHeader'
 
 function GlobalMeta({ doc }: { doc?: Record<string, unknown> | null }) {
   if (!doc || (!doc.createdAt && !doc.updatedAt)) return null
   return (
-    <div className="lontar-doc-meta">
+    <div className="lt:mt-1.5 lt:flex lt:gap-4 lt:text-[0.8125rem] lt:text-muted-foreground">
       {typeof doc.createdAt === 'string' && (
         <span>
           <strong>Created:</strong> {new Date(doc.createdAt).toLocaleString()}
@@ -56,28 +61,30 @@ function GlobalFormBody({
   onSubmit: (e: React.FormEvent) => void
 }) {
   return (
-    <form onSubmit={onSubmit} className="lontar-form">
-      <div className="lontar-form-fields">
-        {fields.map((field) => (
-          <FieldRenderer
-            key={field.name}
-            field={field}
-            control={control}
-            register={register}
-            setValue={setValue}
-            watch={watch}
-            mode="edit"
-            error={errors[field.name]}
-          />
-        ))}
-      </div>
+    <Card className="lt:block lt:p-8 lt:shadow-none">
+      <form onSubmit={onSubmit}>
+        <div className="lt:flex lt:flex-col lt:gap-6">
+          {fields.map((field) => (
+            <FieldRenderer
+              key={field.name}
+              field={field}
+              control={control}
+              register={register}
+              setValue={setValue}
+              watch={watch}
+              mode="edit"
+              error={errors[field.name]}
+            />
+          ))}
+        </div>
 
-      <div className="lontar-form-footer">
-        <button type="submit" className="lontar-btn lontar-btn-primary" disabled={isPending}>
-          {isPending ? 'Saving...' : 'Save Changes'}
-        </button>
-      </div>
-    </form>
+        <div className="lt:mt-8 lt:flex lt:gap-3 lt:border-t lt:pt-6">
+          <Button type="submit" disabled={isPending}>
+            {isPending ? 'Saving...' : 'Save Changes'}
+          </Button>
+        </div>
+      </form>
+    </Card>
   )
 }
 
@@ -132,14 +139,26 @@ function GlobalStatusAlerts({
   apiError: string | null
   successMsg: string | null
 }) {
-  if (apiError) return <div className="lontar-alert lontar-alert-error">{apiError}</div>
-  if (successMsg) return <div className="lontar-alert lontar-alert-success">{successMsg}</div>
+  if (apiError) {
+    return (
+      <Alert variant="destructive" className="lt:mb-5">
+        {apiError}
+      </Alert>
+    )
+  }
+  if (successMsg) {
+    return (
+      <Alert variant="success" role="status" className="lt:mb-5">
+        {successMsg}
+      </Alert>
+    )
+  }
   return null
 }
 
 function GlobalQueryState({ isLoading, error }: { isLoading: boolean; error: Error | null }) {
-  if (isLoading) return <div className="lontar-loading">Loading global...</div>
-  if (error) return <div className="lontar-alert lontar-alert-error">{error.message}</div>
+  if (isLoading) return <EmptyCard>Loading global...</EmptyCard>
+  if (error) return <Alert variant="destructive">{error.message}</Alert>
   return null
 }
 
@@ -202,13 +221,10 @@ export function GlobalFormView() {
   }
 
   return (
-    <div className="lontar-collection-form">
-      <header className="lontar-view-header">
-        <div>
-          <h1>{global.label}</h1>
-          <GlobalMeta doc={globalQuery.data} />
-        </div>
-      </header>
+    <div>
+      <ViewHeader title={global.label}>
+        <GlobalMeta doc={globalQuery.data} />
+      </ViewHeader>
 
       <GlobalStatusAlerts apiError={apiError} successMsg={successMsg} />
 
