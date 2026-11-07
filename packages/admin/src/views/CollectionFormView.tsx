@@ -17,6 +17,7 @@ import { fetchDoc, createDoc, updateDoc, deleteDoc, ApiClientError } from '../ap
 import { FieldRenderer } from '../fields/FieldRenderer'
 import { FileUploadZone, formatFilesize } from '../fields/FileUploadZone'
 import { computeDefaultValues, formatDocForForm, formatDocForSubmit } from '../utils/form-utils'
+import { ConfirmDeleteDialog } from './ConfirmDeleteDialog'
 import { NotFoundView } from './NotFoundView'
 import { Alert } from '../components/ui/alert'
 import { Button } from '../components/ui/button'
@@ -259,13 +260,6 @@ function useDocMutations({
   return { saveMutation, deleteMutation }
 }
 
-function checkConfirmed(): boolean {
-  return (
-    typeof window === 'undefined' ||
-    window.confirm('Are you sure you want to delete this document?')
-  )
-}
-
 function useDocumentQuery(mode: 'create' | 'edit', apiBase: string, slug?: string, id?: string) {
   const isEdit = mode === 'edit' && Boolean(slug) && Boolean(id)
   return useQuery({
@@ -356,9 +350,8 @@ export function CollectionFormView({ mode }: { mode: 'create' | 'edit' }) {
     },
   })
 
-  const handleDelete = () => {
-    if (checkConfirmed()) deleteMutation.mutate()
-  }
+  // Delete only asks; the dialog's confirm does the delete.
+  const [confirmOpen, setConfirmOpen] = useState(false)
 
   if (!collection) return <NotFoundView />
   if (mode === 'edit' && docQuery.isLoading) return <EmptyCard>Loading document...</EmptyCard>
@@ -395,7 +388,16 @@ export function CollectionFormView({ mode }: { mode: 'create' | 'edit' }) {
         collection={collection}
         doc={docQuery.data}
         isDeleting={deleteMutation.isPending}
-        onDelete={handleDelete}
+        onDelete={() => setConfirmOpen(true)}
+      />
+
+      <ConfirmDeleteDialog
+        open={confirmOpen}
+        onOpenChange={setConfirmOpen}
+        onConfirm={() => {
+          setConfirmOpen(false)
+          deleteMutation.mutate()
+        }}
       />
 
       {apiError && (

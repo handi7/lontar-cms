@@ -4,6 +4,7 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { useForm } from 'react-hook-form'
 import type { ClientConfig, ClientRelationshipField } from '@lontar/core/client'
 import { AdminContext } from '../context/AdminContext'
+import { PortalContainerProvider } from '../context/PortalContainer'
 import { RelationshipPicker, getDocTitle, getDocEditUrl } from './RelationshipPicker'
 
 const mockConfig: ClientConfig = {
@@ -55,15 +56,17 @@ function TestWrapper({
 
   return (
     <QueryClientProvider client={queryClient}>
-      <AdminContext.Provider
-        value={{
-          config: mockConfig,
-          apiBase: '/api',
-          basePath: '/admin',
-        }}
-      >
-        <form onSubmit={onSubmit}>{children(methods)}</form>
-      </AdminContext.Provider>
+      <PortalContainerProvider>
+        <AdminContext.Provider
+          value={{
+            config: mockConfig,
+            apiBase: '/api',
+            basePath: '/admin',
+          }}
+        >
+          <form onSubmit={onSubmit}>{children(methods)}</form>
+        </AdminContext.Provider>
+      </PortalContainerProvider>
     </QueryClientProvider>
   )
 }
@@ -137,6 +140,11 @@ describe('Single RelationshipPicker', () => {
       </TestWrapper>,
     )
 
+    // Nothing is searched or listed until the picker is opened (#136).
+    expect(screen.queryByTestId('relationship-search')).toBeNull()
+    expect(screen.getByTestId('relationship-open-search').textContent).toBe('Select User…')
+
+    fireEvent.click(screen.getByTestId('relationship-open-search'))
     expect(screen.getByTestId('relationship-search')).toBeTruthy()
     expect(screen.getByPlaceholderText('Search Users...')).toBeTruthy()
 
@@ -235,6 +243,7 @@ describe('Single RelationshipPicker', () => {
       </TestWrapper>,
     )
 
+    fireEvent.click(screen.getByTestId('relationship-open-search'))
     const searchInput = screen.getByTestId('relationship-search')
     fireEvent.keyDown(searchInput, { key: 'Enter', code: 'Enter' })
     expect(onSubmit).not.toHaveBeenCalled()
@@ -309,6 +318,32 @@ describe('Many RelationshipPicker (hasMany: true)', () => {
     expect(screen.getByTestId('relationship-add-btn')).toBeTruthy()
   })
 
+  it('opens the search in a popover and closes it on Escape', () => {
+    render(
+      <TestWrapper defaultValues={{ categories: [] }}>
+        {({ register, setValue, watch }) => (
+          <RelationshipPicker
+            field={categoriesField}
+            register={register}
+            setValue={setValue}
+            watch={watch}
+          />
+        )}
+      </TestWrapper>,
+    )
+
+    const addBtn = screen.getByTestId('relationship-add-btn')
+    fireEvent.click(addBtn)
+    const searchInput = screen.getByTestId('relationship-search')
+    expect(addBtn.getAttribute('aria-expanded')).toBe('true')
+    // Portalled into the admin's container, not rendered inline under the field.
+    expect(searchInput.closest('.lontar-portal-root')).not.toBeNull()
+
+    fireEvent.keyDown(searchInput, { key: 'Escape' })
+    expect(screen.queryByTestId('relationship-search')).toBeNull()
+    expect(addBtn.getAttribute('aria-expanded')).toBe('false')
+  })
+
   it('renders selected items in order with direct edit links and reordering/removal buttons', async () => {
     render(
       <TestWrapper defaultValues={{ categories: [10, 20] }}>
@@ -343,6 +378,16 @@ describe('Many RelationshipPicker (hasMany: true)', () => {
 
     const moveDown20 = screen.getByTestId<HTMLButtonElement>('relationship-move-down-20')
     expect(moveDown20.disabled).toBe(true) // Last item cannot move down
+
+    // The glyph buttons are named by aria-label, and focusing one shows the
+    // same text in a Radix Tooltip portalled into the admin's container.
+    expect(moveDown10.getAttribute('aria-label')).toBe('Move Down')
+    expect(moveDown10.hasAttribute('title')).toBe(false)
+    fireEvent.focus(moveDown10)
+    const tooltip = await screen.findByRole('tooltip')
+    expect(tooltip.textContent).toBe('Move Down')
+    expect(screen.getAllByText('Move Down')[0]?.closest('.lontar-portal-root')).not.toBeNull()
+    fireEvent.blur(moveDown10)
 
     // Click Move Down on item 10
     fireEvent.click(moveDown10)

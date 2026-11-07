@@ -121,7 +121,8 @@ test.describe('Next.js Blog Authoring and Viewing Experience', () => {
     await page.locator('input[name="title"]').fill(postTitle)
     await chooseOption(page, /^status/i, 'Published')
 
-    // Select Author (single relationship)
+    // Select Author (single relationship). The search opens in a popover (#136).
+    await page.locator('[data-testid="relationship-open-search"]').first().click()
     const authorSearchInput = page.locator('input[data-testid="relationship-search"]').first()
     await authorSearchInput.fill(authorName)
     const authorOption = page.getByRole('button', { name: new RegExp(authorName, 'i') }).first()

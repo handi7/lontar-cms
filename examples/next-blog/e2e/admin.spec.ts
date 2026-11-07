@@ -93,8 +93,11 @@ test.describe('Lontar CMS Admin in Next.js', () => {
     await expect(page.getByRole('link', { name: updatedTitle })).toBeVisible()
 
     // 12. Delete the post
-    page.on('dialog', (dialog) => dialog.accept())
+    // Deleting asks in an in-page dialog, not window.confirm (#136).
     await page.getByRole('button', { name: 'Delete' }).first().click()
+    const confirmDialog = page.getByRole('alertdialog')
+    await expect(confirmDialog).toContainText('Are you sure you want to delete this document?')
+    await confirmDialog.getByRole('button', { name: 'Delete' }).click()
 
     // 13. Verify post is no longer in list
     await expect(page.getByRole('link', { name: updatedTitle })).not.toBeVisible()

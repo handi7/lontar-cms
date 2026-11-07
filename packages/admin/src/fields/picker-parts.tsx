@@ -5,6 +5,7 @@
 import type { ComponentProps, ReactNode } from 'react'
 import { Button } from '../components/ui/button'
 import { Input } from '../components/ui/input'
+import { Popover, PopoverContent, PopoverTrigger } from '../components/ui/popover'
 import { cn } from '../lib/utils'
 
 /** Compact outline button used for every picker action. */
@@ -70,7 +71,8 @@ export function PickerResults({ className, ...props }: ComponentProps<'div'>) {
   return (
     <div
       className={cn(
-        'lt:flex lt:max-h-[220px] lt:flex-col lt:overflow-y-auto lt:rounded-md lt:border lt:bg-popover lt:shadow-md',
+        // Sits inside PickerPopover, which supplies the border and shadow.
+        'lt:mt-1 lt:flex lt:max-h-55 lt:flex-col lt:overflow-y-auto',
         className,
       )}
       {...props}
@@ -117,6 +119,52 @@ export function PickerCard({ className, ...props }: ComponentProps<'div'>) {
     <div
       className={cn(
         'lt:flex lt:items-center lt:justify-between lt:gap-3 lt:rounded-md lt:border lt:bg-card lt:px-3 lt:py-2',
+        className,
+      )}
+      {...props}
+    />
+  )
+}
+
+/**
+ * Floats a picker's search over the form instead of pushing the fields below
+ * it down (#136). `open` is the picker's own `isSearching` state, so when the
+ * search shows and hides is unchanged; Escape and an outside click now close it
+ * too. Radix moves focus to the first focusable element inside, the search
+ * input, when it opens.
+ */
+export function PickerPopover({
+  open,
+  onOpenChange,
+  trigger,
+  children,
+}: {
+  open: boolean
+  onOpenChange: (open: boolean) => void
+  trigger: ReactNode
+  children: ReactNode
+}) {
+  return (
+    <Popover open={open} onOpenChange={onOpenChange}>
+      <PopoverTrigger asChild>{trigger}</PopoverTrigger>
+      <PopoverContent
+        align="start"
+        className="lt:w-(--radix-popover-trigger-width) lt:min-w-80 lt:p-2"
+      >
+        {children}
+      </PopoverContent>
+    </Popover>
+  )
+}
+
+/** Full-width trigger shown in place of an empty single-value picker. */
+export function PickerEmptyTrigger({ className, ...props }: ComponentProps<typeof Button>) {
+  return (
+    <Button
+      type="button"
+      variant="outline"
+      className={cn(
+        'lt:w-full lt:justify-start lt:font-normal lt:text-muted-foreground lt:shadow-xs',
         className,
       )}
       {...props}
