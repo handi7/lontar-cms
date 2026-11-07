@@ -107,4 +107,32 @@ test.describe('Lontar CMS Admin in Next.js', () => {
     await page.getByRole('button', { name: 'Sign out' }).click()
     await expect(page.getByRole('heading', { name: 'Sign in to Admin' })).toBeVisible()
   })
+
+  // #140: the sidebar stays in view while the page scrolls, and its menu
+  // scrolls on its own. Needs a real layout engine, which unit tests lack, so
+  // it is checked here. At this height the dashboard is taller than the
+  // viewport and the sidebar's menu does not fit either.
+  test('keeps the sidebar in view with a scrollable menu on a short viewport', async ({ page }) => {
+    await page.setViewportSize({ width: 1280, height: 360 })
+    await page.goto('/admin')
+    await expect(page.getByRole('heading', { name: 'Sign in to Admin' })).toBeVisible({
+      timeout: 15000,
+    })
+    await page.locator('input[type="email"]').fill(adminEmail)
+    await page.locator('input[type="password"]').fill(adminPassword)
+    await page.getByRole('button', { name: 'Sign In' }).click()
+    await expect(page.getByRole('heading', { name: 'Dashboard', exact: true })).toBeVisible({
+      timeout: 15000,
+    })
+
+    const nav = page.locator('aside nav')
+    const scrollsOnItsOwn = await nav.evaluate((el) => el.scrollHeight > el.clientHeight)
+    expect(scrollsOnItsOwn).toBe(true)
+
+    // Scroll the page to the bottom: the sidebar must not scroll away with it.
+    await page.evaluate(() => window.scrollTo(0, document.documentElement.scrollHeight))
+    expect(await page.evaluate(() => window.scrollY)).toBeGreaterThan(0)
+    await expect(page.getByRole('link', { name: 'Lontar CMS' })).toBeInViewport()
+    await expect(page.getByRole('button', { name: 'Sign out' })).toBeInViewport()
+  })
 })
