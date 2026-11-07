@@ -142,7 +142,7 @@ approval on the `npm` environment. Don't run `pnpm publish` by hand; see `docs/r
   - [x] #115 Primitives and scoped portal container (done)
   - [x] #116 Non-portal components (done; part 1 in #133)
   - [x] #117 Portal components (done; Select only, the rest moved to #136)
-  - [ ] #118 Date and checkbox fields
+  - [x] #118 Date and checkbox fields (done)
   - [x] #119 Radix unit test setup (done)
   - [x] #120 Admin e2e updates (done, with #117)
   - [ ] #121 Dark mode (optional)

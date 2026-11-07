@@ -253,12 +253,16 @@ describe('FieldRenderer', () => {
       </FormWrapper>,
     )
 
-    const checkbox = screen.getByRole<HTMLInputElement>('checkbox', { name: 'Published' })
-    expect(checkbox.checked).toBe(false)
+    const checkbox = screen.getByRole('checkbox', { name: 'Published' })
+    expect(checkbox.getAttribute('aria-checked')).toBe('false')
     expect(screen.getByText('Published')).toBeTruthy()
 
     fireEvent.click(checkbox)
-    expect(checkbox.checked).toBe(true)
+    expect(checkbox.getAttribute('aria-checked')).toBe('true')
+
+    // The label toggles it too, as it did for the native checkbox.
+    fireEvent.click(screen.getByText('Published'))
+    expect(checkbox.getAttribute('aria-checked')).toBe('false')
   })
 
   it('renders select dropdown with options and handles selection', () => {
@@ -329,7 +333,7 @@ describe('FieldRenderer', () => {
     ])
   })
 
-  it('renders date input with type="datetime-local"', () => {
+  it('renders the date as a labelled picker showing the stored local time', () => {
     const field: ClientDateField = {
       name: 'publishedAt',
       type: 'date',
@@ -345,10 +349,46 @@ describe('FieldRenderer', () => {
       </FormWrapper>,
     )
 
-    const dateInput = screen.getByLabelText<HTMLInputElement>(/^publish date/i)
-    expect(dateInput.type).toBe('datetime-local')
-    expect(dateInput.value).toBe('2026-11-01T10:00')
-    expect(screen.getByText('Publish Date')).toBeTruthy()
+    const trigger = screen.getByLabelText(/^publish date/i)
+    expect(trigger.getAttribute('aria-required')).toBe('true')
+    expect(trigger.textContent).toBe(
+      new Date(2026, 10, 1, 10, 0).toLocaleString(undefined, {
+        dateStyle: 'medium',
+        timeStyle: 'short',
+      }),
+    )
+
+    fireEvent.click(trigger)
+    expect(
+      screen.getByRole('button', { name: /November 1(st)?, 2026/ }).closest('[data-selected]'),
+    ).not.toBeNull()
+    expect(screen.getByLabelText<HTMLInputElement>('Time').value).toBe('10:00')
+    // Required, so there is nothing to clear to.
+    expect(screen.queryByRole('button', { name: 'Clear' })).toBeNull()
+  })
+
+  it('offers Clear on an optional date, and shows a placeholder when empty', () => {
+    const field: ClientDateField = {
+      name: 'publishedAt',
+      type: 'date',
+      label: 'Publish Date',
+      required: false,
+    }
+
+    render(
+      <FormWrapper>
+        {({ control, register }) => (
+          <FieldRenderer field={field} control={control} register={register} />
+        )}
+      </FormWrapper>,
+    )
+
+    const trigger = screen.getByLabelText(/^publish date/i)
+    expect(trigger.textContent).toBe('Pick a date')
+
+    fireEvent.click(trigger)
+    expect(screen.getByRole<HTMLButtonElement>('button', { name: 'Clear' }).disabled).toBe(true)
+    expect(screen.getByLabelText<HTMLInputElement>('Time').disabled).toBe(true)
   })
 
   it('renders richText editor with toolbar buttons and content area', () => {

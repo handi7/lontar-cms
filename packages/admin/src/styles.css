@@ -255,30 +255,6 @@
   margin-left: 0.25rem;
 }
 
-.lontar-admin .lontar-input {
-  width: 100%;
-  padding: 0.625rem 0.875rem;
-  font-size: 0.875rem;
-  border: 1px solid var(--lontar-border);
-  border-radius: var(--lontar-radius);
-  background-color: var(--lontar-surface);
-  color: var(--lontar-text);
-  outline: none;
-  transition:
-    border-color 0.15s ease,
-    box-shadow 0.15s ease;
-}
-
-.lontar-admin .lontar-input:focus {
-  border-color: #0f172a;
-  box-shadow: 0 0 0 1px #0f172a;
-}
-
-.lontar-admin textarea.lontar-input {
-  resize: vertical;
-  min-height: 80px;
-}
-
 .lontar-admin .lontar-slug-wrapper {
   display: flex;
   gap: 0.5rem;
@@ -289,30 +265,6 @@
 .lontar-admin .lontar-slug-sync-btn {
   flex-shrink: 0;
   padding: 0.625rem 0.875rem;
-}
-
-.lontar-admin .lontar-checkbox-wrapper {
-  display: flex;
-  align-items: center;
-  gap: 0.5rem;
-  padding: 0.25rem 0;
-}
-
-.lontar-admin .lontar-checkbox {
-  width: 1rem;
-  height: 1rem;
-  cursor: pointer;
-  accent-color: var(--lontar-primary);
-}
-
-.lontar-admin .lontar-checkbox-label {
-  display: flex;
-  align-items: center;
-  font-size: 0.875rem;
-  font-weight: 500;
-  color: var(--lontar-text);
-  cursor: pointer;
-  user-select: none;
 }
 
 .lontar-admin .lontar-field-error {
