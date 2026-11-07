@@ -141,12 +141,13 @@ approval on the `npm` environment. Don't run `pnpm publish` by hand; see `docs/r
   - [x] #114 Scoped Tailwind build and token mapping (done)
   - [x] #115 Primitives and scoped portal container (done)
   - [x] #116 Non-portal components (done; part 1 in #133)
-  - [ ] #117 Portal components
+  - [x] #117 Portal components (done; Select only, the rest moved to #136)
   - [ ] #118 Date and checkbox fields
   - [x] #119 Radix unit test setup (done)
-  - [ ] #120 Admin e2e updates
+  - [x] #120 Admin e2e updates (done, with #117)
   - [ ] #121 Dark mode (optional)
   - [x] #122 Theming token documentation and Stack correction (done)
+  - [ ] #136 Dialog, Popover and Tooltip where they replace existing behaviour
 
 Update this section when a milestone or issue is done.
 

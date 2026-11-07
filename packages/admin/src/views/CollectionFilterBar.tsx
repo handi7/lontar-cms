@@ -3,6 +3,13 @@ import type { ClientCollection } from '@lontar/core/client'
 import { Badge } from '../components/ui/badge'
 import { Button } from '../components/ui/button'
 import { Input } from '../components/ui/input'
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '../components/ui/select'
 import { cn } from '../lib/utils'
 
 export interface ActiveFilter {
@@ -11,6 +18,9 @@ export interface ActiveFilter {
   operator: string
   value: string
 }
+
+// Shared by the two selects and the value input so the row lines up.
+const filterControlClass = 'lt:h-8 lt:w-auto lt:gap-2 lt:bg-card lt:md:text-[0.8125rem]'
 
 export const OPERATOR_OPTIONS = [
   { value: 'equals', label: 'Equals' },
@@ -91,37 +101,35 @@ export function CollectionFilterBar({
           className="lt:flex lt:flex-wrap lt:items-center lt:gap-2.5 lt:rounded-md lt:border lt:bg-card lt:p-3.5"
           onSubmit={handleApply}
         >
-          {/* Still native <select>s, styled by .lontar-select in styles.css.
-              They become Radix Selects in #117, which deletes that rule. */}
-          <select
-            className="lontar-select"
-            value={selectedField}
-            onChange={(e) => setSelectedField(e.target.value)}
-            aria-label="Filter column"
-          >
-            {filterFields.map((f) => (
-              <option key={f.name} value={f.name}>
-                {f.label}
-              </option>
-            ))}
-          </select>
+          <Select value={selectedField} onValueChange={setSelectedField}>
+            <SelectTrigger aria-label="Filter column" className={filterControlClass}>
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              {filterFields.map((f) => (
+                <SelectItem key={f.name} value={f.name}>
+                  {f.label}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
 
-          <select
-            className="lontar-select"
-            value={selectedOperator}
-            onChange={(e) => setSelectedOperator(e.target.value)}
-            aria-label="Filter operator"
-          >
-            {OPERATOR_OPTIONS.map((op) => (
-              <option key={op.value} value={op.value}>
-                {op.label}
-              </option>
-            ))}
-          </select>
+          <Select value={selectedOperator} onValueChange={setSelectedOperator}>
+            <SelectTrigger aria-label="Filter operator" className={filterControlClass}>
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              {OPERATOR_OPTIONS.map((op) => (
+                <SelectItem key={op.value} value={op.value}>
+                  {op.label}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
 
           <Input
             type="text"
-            className="lt:h-8 lt:w-auto lt:md:text-[0.8125rem]"
+            className={filterControlClass}
             placeholder="Value..."
             value={filterValue}
             onChange={(e) => setFilterValue(e.target.value)}

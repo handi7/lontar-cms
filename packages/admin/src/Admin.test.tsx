@@ -3,6 +3,7 @@ import { render, screen, waitFor, fireEvent, cleanup } from '@testing-library/re
 import { createMemoryHistory } from '@tanstack/react-router'
 import type { ClientConfig } from '@lontar/core/client'
 import { Admin } from './Admin'
+import { chooseSelectOption } from './test/radix'
 
 const mockConfig: ClientConfig = {
   version: 1,
@@ -326,6 +327,24 @@ describe('Admin SPA', () => {
           (u) =>
             u.includes('where%5Btitle%5D%5Bcontains%5D=10') ||
             u.includes('where[title][contains]=10'),
+        ),
+      ).toBe(true)
+    })
+
+    // A second filter, this time choosing the column and operator through the
+    // Radix Selects rather than accepting their defaults.
+    fireEvent.click(screen.getByRole('button', { name: /filters \(1\)/i }))
+    chooseSelectOption(screen.getByRole('combobox', { name: 'Filter column' }), 'Views')
+    chooseSelectOption(screen.getByRole('combobox', { name: 'Filter operator' }), 'Greater than')
+    fireEvent.change(screen.getByLabelText(/filter value/i), { target: { value: '5' } })
+    fireEvent.click(screen.getByRole('button', { name: /apply/i }))
+
+    await waitFor(() => {
+      expect(
+        fetchedUrls.some(
+          (u) =>
+            u.includes('where%5Bviews%5D%5Bgreater_than%5D=5') ||
+            u.includes('where[views][greater_than]=5'),
         ),
       ).toBe(true)
     })
