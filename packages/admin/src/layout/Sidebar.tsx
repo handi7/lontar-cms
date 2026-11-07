@@ -53,7 +53,7 @@ function SidebarUserProfile({
   const initial = (user.name?.[0] || user.email?.[0] || 'A').toUpperCase()
 
   return (
-    <div className="lt:flex lt:flex-col lt:gap-3 lt:border-t lt:bg-card lt:p-4">
+    <div className="lt:flex lt:shrink-0 lt:flex-col lt:gap-3 lt:border-t lt:bg-card lt:p-4">
       <ThemeToggle />
       <div className="lt:flex lt:items-center lt:gap-3">
         <div className="lt:flex lt:size-[34px] lt:shrink-0 lt:items-center lt:justify-center lt:rounded-full lt:bg-primary lt:text-sm lt:font-semibold lt:text-primary-foreground">
@@ -97,8 +97,13 @@ export function Sidebar() {
   }
 
   return (
-    <aside className="lt:flex lt:w-[250px] lt:shrink-0 lt:flex-col lt:border-r lt:bg-card">
-      <div className="lt:border-b lt:px-6 lt:py-5">
+    // Sticky to the top of whatever scrolls the page, at the viewport's height
+    // (dvh, so mobile browser chrome does not hide the footer). Only the nav
+    // scrolls; the brand and the footer stay in view (#140). Sticky rather than
+    // a full-height inner scroll container, because the admin renders inside a
+    // host page and the document is what scrolls there.
+    <aside className="lt:sticky lt:top-0 lt:flex lt:h-dvh lt:w-[250px] lt:shrink-0 lt:flex-col lt:border-r lt:bg-card">
+      <div className="lt:shrink-0 lt:border-b lt:px-6 lt:py-5">
         <Link
           to="/"
           className="lt:flex lt:items-center lt:gap-2.5 lt:text-lg lt:font-bold lt:text-foreground lt:no-underline"
@@ -107,7 +112,7 @@ export function Sidebar() {
         </Link>
       </div>
 
-      <nav className="lt:flex lt:flex-1 lt:flex-col lt:gap-5 lt:px-3 lt:py-4">
+      <nav className="lt:flex lt:min-h-0 lt:flex-1 lt:flex-col lt:gap-5 lt:overflow-y-auto lt:px-3 lt:py-4">
         <div className={navGroupClass}>
           <Link to="/" activeOptions={{ exact: true }} className={navLinkClass}>
             Dashboard
