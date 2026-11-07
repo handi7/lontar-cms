@@ -1,6 +1,7 @@
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { test, expect } from '@playwright/test'
+import { chooseOption } from './helpers'
 
 const __filename = fileURLToPath(import.meta.url)
 const __dirname = path.dirname(__filename)
@@ -118,7 +119,7 @@ test.describe('Next.js Blog Authoring and Viewing Experience', () => {
 
     await expect(page.getByRole('heading', { name: 'Create Post' })).toBeVisible()
     await page.locator('input[name="title"]').fill(postTitle)
-    await page.locator('select[name="status"]').selectOption('published')
+    await chooseOption(page, /^status/i, 'Published')
 
     // Select Author (single relationship)
     const authorSearchInput = page.locator('input[data-testid="relationship-search"]').first()

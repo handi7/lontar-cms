@@ -4,6 +4,18 @@ import type { UseFormRegister, UseFormSetValue, UseFormWatch } from 'react-hook-
 import type { ClientRelationshipField } from '@lontar/core/client'
 import { AdminContext } from '../context/AdminContext'
 import { fetchCollectionDocs, fetchDoc } from '../api/client'
+import { Badge } from '../components/ui/badge'
+import {
+  PickerButton,
+  PickerCard,
+  PickerOption,
+  PickerResults,
+  PickerSearchBar,
+  PickerStatus,
+  PickerViewLink,
+  pickerActionsClass,
+  pickerTitleClass,
+} from './picker-parts'
 
 export interface RelationshipPickerProps {
   field: ClientRelationshipField
@@ -97,7 +109,7 @@ function DropdownOptionsList({
     : docs
 
   if (filtered.length === 0) {
-    return <div className="lontar-relationship-empty">No matching documents found</div>
+    return <PickerStatus>No matching documents found</PickerStatus>
   }
 
   return (
@@ -105,16 +117,14 @@ function DropdownOptionsList({
       {filtered.map((doc) => {
         const id = Number(doc.id)
         return (
-          <button
+          <PickerOption
             key={id}
-            type="button"
-            className="lontar-relationship-option"
             onClick={() => onSelect(doc)}
             data-testid={`relationship-option-${id}`}
           >
-            <span className="lontar-relationship-option-title">{getDocTitle(doc, titleField)}</span>
-            <span className="lontar-text-muted">#{id}</span>
-          </button>
+            <span className={pickerTitleClass}>{getDocTitle(doc, titleField)}</span>
+            <span className="lt:text-muted-foreground">#{id}</span>
+          </PickerOption>
         )
       })}
     </>
@@ -143,42 +153,19 @@ function RelationshipSearchDropdown({
   })
 
   return (
-    <div className="lontar-relationship-search-container">
-      <div className="lontar-relationship-search-bar">
-        <input
-          type="text"
-          className="lontar-input"
-          placeholder={`Search ${pluralLabel}...`}
-          value={searchTerm}
-          onChange={(e) => setSearchTerm(e.target.value)}
-          onKeyDown={(e) => {
-            if (e.key === 'Enter') {
-              e.preventDefault()
-            }
-          }}
-          autoFocus={autoFocus}
-          data-testid="relationship-search"
-        />
-        {onCancel && (
-          <button
-            type="button"
-            className="lontar-btn lontar-btn-secondary lontar-btn-sm"
-            onClick={onCancel}
-            data-testid="relationship-cancel-search"
-          >
-            Cancel
-          </button>
-        )}
-      </div>
-      <div className="lontar-relationship-dropdown" data-testid="relationship-dropdown">
-        {query.isLoading && (
-          <div className="lontar-relationship-empty">Loading {pluralLabel}...</div>
-        )}
-        {query.isError && (
-          <div className="lontar-relationship-empty lontar-error-text">
-            Failed to load {pluralLabel}
-          </div>
-        )}
+    <div className="lt:flex lt:w-full lt:flex-col lt:gap-1">
+      <PickerSearchBar
+        placeholder={`Search ${pluralLabel}...`}
+        value={searchTerm}
+        onChange={(e) => setSearchTerm(e.target.value)}
+        autoFocus={autoFocus}
+        data-testid="relationship-search"
+        onCancel={onCancel}
+        cancelTestId="relationship-cancel-search"
+      />
+      <PickerResults data-testid="relationship-dropdown">
+        {query.isLoading && <PickerStatus>Loading {pluralLabel}...</PickerStatus>}
+        {query.isError && <PickerStatus error>Failed to load {pluralLabel}</PickerStatus>}
         {query.data && (
           <DropdownOptionsList
             docs={query.data.docs}
@@ -187,7 +174,7 @@ function RelationshipSearchDropdown({
             onSelect={onSelect}
           />
         )}
-      </div>
+      </PickerResults>
     </div>
   )
 }
@@ -209,39 +196,21 @@ function SingleSelectedView({
 }) {
   const editUrl = getDocEditUrl(basePath, relationTo, selectedId)
   return (
-    <div className="lontar-relationship-selected" data-testid="relationship-single-selected">
-      <div className="lontar-relationship-selected-info">
-        <span className="lontar-relationship-selected-title">{title}</span>
-        <span className="lontar-badge">#{selectedId}</span>
+    <PickerCard data-testid="relationship-single-selected">
+      <div className="lt:flex lt:min-w-0 lt:items-center lt:gap-2">
+        <span className={pickerTitleClass}>{title}</span>
+        <Badge variant="muted">#{selectedId}</Badge>
       </div>
-      <div className="lontar-relationship-actions">
-        <a
-          href={editUrl}
-          target="_blank"
-          rel="noopener noreferrer"
-          className="lontar-btn lontar-btn-secondary lontar-btn-sm"
-          data-testid="relationship-link"
-        >
-          View ↗
-        </a>
-        <button
-          type="button"
-          className="lontar-btn lontar-btn-secondary lontar-btn-sm"
-          onClick={onStartChange}
-          data-testid="relationship-change"
-        >
+      <div className={pickerActionsClass}>
+        <PickerViewLink href={editUrl} testId="relationship-link" />
+        <PickerButton onClick={onStartChange} data-testid="relationship-change">
           Change
-        </button>
-        <button
-          type="button"
-          className="lontar-btn lontar-btn-danger lontar-btn-sm"
-          onClick={onRemove}
-          data-testid="relationship-clear"
-        >
+        </PickerButton>
+        <PickerButton destructive onClick={onRemove} data-testid="relationship-clear">
           Remove
-        </button>
+        </PickerButton>
       </div>
-    </div>
+    </PickerCard>
   )
 }
 
@@ -296,6 +265,34 @@ function SingleRelationshipPicker({ field, register, setValue, watch }: Relation
   )
 }
 
+// `title` gives a hover hint and `aria-label` the accessible name; the glyph
+// alone (↑, ↓, ✕) would be announced literally.
+function PickerIconButton({
+  label,
+  testId,
+  children,
+  ...props
+}: {
+  label: string
+  testId: string
+  children: string
+  disabled?: boolean
+  destructive?: boolean
+  onClick: () => void
+}) {
+  return (
+    <PickerButton
+      title={label}
+      aria-label={label}
+      className="lt:size-[26px] lt:p-0 lt:disabled:opacity-40"
+      data-testid={testId}
+      {...props}
+    >
+      {children}
+    </PickerButton>
+  )
+}
+
 function ManyItemRow({
   id,
   index,
@@ -317,53 +314,42 @@ function ManyItemRow({
 }) {
   const editUrl = getDocEditUrl(basePath, relationTo, id)
   return (
-    <div className="lontar-relationship-item" data-testid={`relationship-item-${id}`}>
-      <div className="lontar-relationship-item-info">
-        <span className="lontar-relationship-item-index">{index + 1}.</span>
-        <span className="lontar-relationship-item-title">{title}</span>
-        <span className="lontar-badge">#{id}</span>
+    <PickerCard className="lt:gap-2 lt:px-2.5 lt:py-1.5" data-testid={`relationship-item-${id}`}>
+      <div className="lt:flex lt:min-w-0 lt:items-center lt:gap-2">
+        <span className="lt:min-w-5 lt:text-xs lt:font-semibold lt:text-muted-foreground">
+          {index + 1}.
+        </span>
+        <span className={pickerTitleClass}>{title}</span>
+        <Badge variant="muted">#{id}</Badge>
       </div>
-      <div className="lontar-relationship-actions">
-        <a
-          href={editUrl}
-          target="_blank"
-          rel="noopener noreferrer"
-          className="lontar-btn lontar-btn-secondary lontar-btn-sm"
-          data-testid={`relationship-link-${id}`}
-        >
-          View ↗
-        </a>
-        <button
-          type="button"
-          className="lontar-btn-icon"
-          title="Move Up"
+      <div className={pickerActionsClass}>
+        <PickerViewLink href={editUrl} testId={`relationship-link-${id}`} />
+        <PickerIconButton
+          label="Move Up"
           disabled={index === 0}
           onClick={() => onMove(index, index - 1)}
-          data-testid={`relationship-move-up-${id}`}
+          testId={`relationship-move-up-${id}`}
         >
           ↑
-        </button>
-        <button
-          type="button"
-          className="lontar-btn-icon"
-          title="Move Down"
+        </PickerIconButton>
+        <PickerIconButton
+          label="Move Down"
           disabled={index === total - 1}
           onClick={() => onMove(index, index + 1)}
-          data-testid={`relationship-move-down-${id}`}
+          testId={`relationship-move-down-${id}`}
         >
           ↓
-        </button>
-        <button
-          type="button"
-          className="lontar-btn-icon lontar-btn-danger"
-          title="Remove"
+        </PickerIconButton>
+        <PickerIconButton
+          label="Remove"
+          destructive
           onClick={() => onRemove(index)}
-          data-testid={`relationship-remove-${id}`}
+          testId={`relationship-remove-${id}`}
         >
           ✕
-        </button>
+        </PickerIconButton>
       </div>
-    </div>
+    </PickerCard>
   )
 }
 
@@ -414,7 +400,7 @@ function ManySelectedList({
   onRemove: (idx: number) => void
 }) {
   return (
-    <div className="lontar-relationship-list" data-testid="relationship-many-list">
+    <div className="lt:flex lt:flex-col lt:gap-1.5" data-testid="relationship-many-list">
       {ids.map((id, index) => {
         const doc = docsMap.get(id)
         const title = getDocTitle(doc, titleField) || `#${id}`
@@ -474,7 +460,7 @@ function ManyRelationshipPicker({ field, register, setValue, watch }: Relationsh
   }
 
   return (
-    <div className="lontar-relationship-many-container">
+    <div className="lt:flex lt:flex-col lt:gap-2">
       {selectedIds.length > 0 ? (
         <ManySelectedList
           ids={selectedIds}
@@ -486,7 +472,7 @@ function ManyRelationshipPicker({ field, register, setValue, watch }: Relationsh
           onRemove={handleRemove}
         />
       ) : (
-        <div className="lontar-text-muted" data-testid="relationship-empty-hint">
+        <div className="lt:text-muted-foreground" data-testid="relationship-empty-hint">
           No {pluralLabel} selected
         </div>
       )}
@@ -504,14 +490,13 @@ function ManyRelationshipPicker({ field, register, setValue, watch }: Relationsh
           onCancel={() => setIsSearching(false)}
         />
       ) : (
-        <button
-          type="button"
-          className="lontar-btn lontar-btn-secondary lontar-btn-sm"
+        <PickerButton
+          className="lt:w-fit"
           onClick={() => setIsSearching(true)}
           data-testid="relationship-add-btn"
         >
           + Add {singularLabel}
-        </button>
+        </PickerButton>
       )}
     </div>
   )
@@ -519,7 +504,7 @@ function ManyRelationshipPicker({ field, register, setValue, watch }: Relationsh
 
 export function RelationshipPicker(props: RelationshipPickerProps) {
   return (
-    <div className="lontar-relationship-picker">
+    <div className="lt:flex lt:w-full lt:flex-col lt:gap-2">
       {props.field.hasMany ? (
         <ManyRelationshipPicker {...props} />
       ) : (

@@ -4,8 +4,21 @@ import type { UseFormRegister, UseFormSetValue, UseFormWatch } from 'react-hook-
 import type { ClientConfig, ClientUploadField } from '@lontar/core/client'
 import { AdminContext } from '../context/AdminContext'
 import { fetchCollectionDocs, fetchDoc, createDoc, formatApiErrorMessage } from '../api/client'
+import { Alert } from '../components/ui/alert'
+import { cn } from '../lib/utils'
 import { formatFilesize } from './FileUploadZone'
-
+import {
+  PickerButton,
+  PickerCard,
+  PickerOption,
+  PickerResults,
+  PickerSearchBar,
+  PickerStatus,
+  PickerViewLink,
+  pickerActionsClass,
+  pickerThumbClass,
+  pickerTitleClass,
+} from './picker-parts'
 export interface UploadPickerProps {
   field: ClientUploadField
   register: UseFormRegister<Record<string, unknown>>
@@ -69,44 +82,28 @@ function SelectedMediaView({
   const dimStr = formatMediaDimensions(doc)
 
   return (
-    <div className="lontar-upload-selected" data-testid="upload-picker-selected">
-      {isImage && url && <img src={url} alt={title} className="lontar-upload-thumbnail" />}
-      <div className="lontar-upload-selected-info">
-        <span className="lontar-upload-selected-title">{title}</span>
-        <span className="lontar-upload-meta">
+    <PickerCard className="lt:justify-start" data-testid="upload-picker-selected">
+      {isImage && url && (
+        <img src={url} alt={title} className={cn(pickerThumbClass, 'lt:size-11')} />
+      )}
+      <div className="lt:flex lt:min-w-0 lt:flex-1 lt:flex-col lt:gap-0.5">
+        <span className={cn(pickerTitleClass, 'lt:text-sm')}>{title}</span>
+        <span className="lt:text-xs lt:text-muted-foreground">
           #{id}
           {filesizeStr}
           {dimStr}
         </span>
       </div>
-      <div className="lontar-upload-picker-actions">
-        <a
-          href={viewUrl}
-          target="_blank"
-          rel="noopener noreferrer"
-          className="lontar-btn lontar-btn-secondary lontar-btn-sm"
-          data-testid="upload-picker-link"
-        >
-          View ↗
-        </a>
-        <button
-          type="button"
-          className="lontar-btn lontar-btn-secondary lontar-btn-sm"
-          onClick={onChange}
-          data-testid="upload-picker-change"
-        >
+      <div className={pickerActionsClass}>
+        <PickerViewLink href={viewUrl} testId="upload-picker-link" />
+        <PickerButton onClick={onChange} data-testid="upload-picker-change">
           Change
-        </button>
-        <button
-          type="button"
-          className="lontar-btn lontar-btn-danger lontar-btn-sm"
-          onClick={onRemove}
-          data-testid="upload-picker-remove"
-        >
+        </PickerButton>
+        <PickerButton destructive onClick={onRemove} data-testid="upload-picker-remove">
           Remove
-        </button>
+        </PickerButton>
       </div>
-    </div>
+    </PickerCard>
   )
 }
 
@@ -125,17 +122,16 @@ function MediaOptionRow({
     url.match(/\.(png|jpe?g|gif|webp|svg)$/i)
 
   return (
-    <button
+    <PickerOption
       key={id}
-      type="button"
-      className="lontar-upload-option"
+      className="lt:justify-start"
       onClick={() => onSelect(doc)}
       data-testid={`upload-option-${id}`}
     >
-      {isImage && url && <img src={url} alt="" className="lontar-upload-option-thumb" />}
-      <span className="lontar-upload-option-title">{title}</span>
-      <span className="lontar-text-muted">#{id}</span>
-    </button>
+      {isImage && url && <img src={url} alt="" className={cn(pickerThumbClass, 'lt:size-8')} />}
+      <span className={cn(pickerTitleClass, 'lt:flex-1 lt:font-normal')}>{title}</span>
+      <span className="lt:text-muted-foreground">#{id}</span>
+    </PickerOption>
   )
 }
 
@@ -162,46 +158,26 @@ function MediaDropdown({
   })
 
   return (
-    <div className="lontar-upload-dropdown-container">
-      <div className="lontar-relationship-search-bar">
-        <input
-          type="text"
-          className="lontar-input"
-          placeholder="Search media by filename..."
-          value={searchTerm}
-          onChange={(e) => setSearchTerm(e.target.value)}
-          onKeyDown={(e) => {
-            if (e.key === 'Enter') {
-              e.preventDefault()
-            }
-          }}
-          autoFocus
-          data-testid="upload-picker-search"
-        />
-        {onCancel && (
-          <button
-            type="button"
-            className="lontar-btn lontar-btn-secondary lontar-btn-sm"
-            onClick={onCancel}
-            data-testid="upload-picker-cancel-search"
-          >
-            Cancel
-          </button>
-        )}
-      </div>
-
-      <div className="lontar-upload-dropdown" data-testid="upload-picker-dropdown">
-        {query.isLoading && <div className="lontar-relationship-empty">Loading media...</div>}
-        {query.isError && (
-          <div className="lontar-relationship-empty lontar-error-text">Failed to load media</div>
-        )}
+    <div className="lt:flex lt:w-full lt:flex-col lt:gap-2">
+      <PickerSearchBar
+        placeholder="Search media by filename..."
+        value={searchTerm}
+        onChange={(e) => setSearchTerm(e.target.value)}
+        autoFocus
+        data-testid="upload-picker-search"
+        onCancel={onCancel}
+        cancelTestId="upload-picker-cancel-search"
+      />
+      <PickerResults className="lt:max-h-[240px]" data-testid="upload-picker-dropdown">
+        {query.isLoading && <PickerStatus>Loading media...</PickerStatus>}
+        {query.isError && <PickerStatus error>Failed to load media</PickerStatus>}
         {query.data && query.data.docs.length === 0 && (
-          <div className="lontar-relationship-empty">No media files found</div>
+          <PickerStatus>No media files found</PickerStatus>
         )}
         {query.data?.docs.map((doc) => (
           <MediaOptionRow key={doc.id as number} doc={doc} onSelect={onSelect} />
         ))}
-      </div>
+      </PickerResults>
     </div>
   )
 }
@@ -224,33 +200,27 @@ function EmptyPickerActions({
   const fileInputRef = useRef<HTMLInputElement>(null)
 
   return (
-    <div className="lontar-upload-picker-empty">
-      <div className="lontar-upload-picker-buttons">
-        <button
-          type="button"
-          className="lontar-btn lontar-btn-secondary lontar-btn-sm"
-          onClick={onBrowse}
-          data-testid="upload-picker-browse-btn"
-        >
+    <div className="lt:flex lt:flex-col lt:items-start lt:gap-2">
+      <div className="lt:flex lt:items-center lt:gap-2">
+        <PickerButton onClick={onBrowse} data-testid="upload-picker-browse-btn">
           Select from Media
-        </button>
-        <button
-          type="button"
-          className="lontar-btn lontar-btn-secondary lontar-btn-sm"
+        </PickerButton>
+        <PickerButton
           onClick={() => fileInputRef.current?.click()}
           disabled={isPending}
           data-testid="upload-picker-upload-btn"
         >
           {isPending ? 'Uploading...' : 'Upload New File'}
-        </button>
+        </PickerButton>
       </div>
       {error && (
-        <div
-          className="lontar-alert lontar-alert-error lontar-upload-picker-error"
+        <Alert
+          variant="destructive"
+          className="lt:px-3 lt:py-2 lt:text-[0.8125rem]"
           data-testid="upload-picker-error"
         >
           {error}
-        </div>
+        </Alert>
       )}
       <input
         ref={fileInputRef}
@@ -366,7 +336,7 @@ export function UploadPicker({ field, register, setValue, watch }: UploadPickerP
   }
 
   return (
-    <div className="lontar-upload-picker">
+    <div className="lt:flex lt:w-full lt:flex-col lt:gap-2">
       {isSearching ? (
         <MediaDropdown
           relationTo={field.relationTo}

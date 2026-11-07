@@ -15,6 +15,13 @@ import type {
 } from '@lontar/core/client'
 import { Field, FieldError, FieldLabel } from '../components/ui/field'
 import { Input } from '../components/ui/input'
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '../components/ui/select'
 import { Textarea } from '../components/ui/textarea'
 import { RichTextEditor } from './RichTextEditor'
 import { RelationshipPicker } from './RelationshipPicker'
@@ -198,26 +205,62 @@ function CheckboxFieldInput({
   )
 }
 
+// Radix forbids an item whose value is '', which is exactly what an optional
+// select stores when nothing is chosen. The "-- Select --" item carries this
+// stand-in instead, and it is translated back to '' on the way into the form.
+const EMPTY_SELECT_VALUE = '__lontar_empty__'
+
 function SelectFieldInput({
   field,
-  register,
+  control,
   a11y,
 }: {
   field: ClientSelectField
-  register: UseFormRegister<Record<string, unknown>>
+  control: Control<Record<string, unknown>>
   a11y: FieldA11y
 }) {
-  // Becomes a Radix Select in #117; converting the binding twice would be
-  // worse than once.
+  // The native <select> this replaced was bound with `register`, so
+  // react-hook-form read its DOM value as the initial one: the first option for
+  // a required select, '' for an optional one (whose first option is the empty
+  // one). A Radix Select has no DOM value to read, so the same initial value is
+  // stated here. It only applies when the form has no default of its own.
+  const initialValue = field.required ? (field.options[0]?.value ?? '') : ''
+
   return (
-    <select id={field.name} className="lontar-input" {...a11yProps(a11y)} {...register(field.name)}>
-      {!field.required && <option value="">-- Select --</option>}
-      {field.options.map((opt) => (
-        <option key={opt.value} value={opt.value}>
-          {opt.label}
-        </option>
-      ))}
-    </select>
+    <Controller
+      control={control}
+      name={field.name}
+      defaultValue={initialValue}
+      render={({ field: controlled }) => {
+        const current = typeof controlled.value === 'string' ? controlled.value : ''
+        return (
+          <Select
+            value={current === '' && !field.required ? EMPTY_SELECT_VALUE : current}
+            onValueChange={(next) => {
+              controlled.onChange(next === EMPTY_SELECT_VALUE ? '' : next)
+            }}
+            disabled={controlled.disabled}
+          >
+            <SelectTrigger
+              id={field.name}
+              ref={controlled.ref}
+              onBlur={controlled.onBlur}
+              {...a11yProps(a11y)}
+            >
+              <SelectValue placeholder="-- Select --" />
+            </SelectTrigger>
+            <SelectContent>
+              {!field.required && <SelectItem value={EMPTY_SELECT_VALUE}>-- Select --</SelectItem>}
+              {field.options.map((opt) => (
+                <SelectItem key={opt.value} value={opt.value}>
+                  {opt.label}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        )
+      }}
+    />
   )
 }
 
@@ -363,7 +406,7 @@ function StandardFieldInput({
     case 'checkbox':
       return <CheckboxFieldInput field={field} register={register} a11y={a11y} />
     case 'select':
-      return <SelectFieldInput field={field} register={register} a11y={a11y} />
+      return <SelectFieldInput field={field} control={control} a11y={a11y} />
     case 'date':
       return <DateFieldInput field={field} register={register} a11y={a11y} />
     default:

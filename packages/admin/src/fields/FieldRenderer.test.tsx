@@ -15,6 +15,8 @@ import type {
   ClientTextField,
   ClientUploadField,
 } from '@lontar/core/client'
+import { PortalContainerProvider } from '../context/PortalContainer'
+import { chooseSelectOption } from '../test/radix'
 import { FieldRenderer, slugify } from './FieldRenderer'
 
 describe('slugify', () => {
@@ -40,7 +42,9 @@ function FormWrapper({
   const methods = useForm<Record<string, unknown>>({ defaultValues })
   return (
     <QueryClientProvider client={queryClient}>
-      <form>{children(methods)}</form>
+      <PortalContainerProvider>
+        <form>{children(methods)}</form>
+      </PortalContainerProvider>
     </QueryClientProvider>
   )
 }
@@ -277,13 +281,52 @@ describe('FieldRenderer', () => {
       </FormWrapper>,
     )
 
-    const select = screen.getByRole<HTMLSelectElement>('combobox', { name: /^status/i })
-    expect(select.value).toBe('draft')
-    expect(screen.getByText('Draft')).toBeTruthy()
-    expect(screen.getByText('Published')).toBeTruthy()
+    const trigger = screen.getByRole('combobox', { name: /^status/i })
+    expect(trigger.textContent).toBe('Draft')
+    expect(trigger.getAttribute('aria-required')).toBe('true')
 
-    fireEvent.change(select, { target: { value: 'published' } })
-    expect(select.value).toBe('published')
+    chooseSelectOption(trigger, 'Published')
+    expect(trigger.textContent).toBe('Published')
+  })
+
+  it('lists every option, and an empty choice only when the select is optional', () => {
+    const options = [
+      { label: 'Draft', value: 'draft' },
+      { label: 'Published', value: 'published' },
+    ]
+
+    const { unmount } = render(
+      <FormWrapper>
+        {({ control, register }) => (
+          <FieldRenderer
+            field={{ name: 'status', type: 'select', label: 'Status', required: true, options }}
+            control={control}
+            register={register}
+          />
+        )}
+      </FormWrapper>,
+    )
+    fireEvent.keyDown(screen.getByRole('combobox', { name: /^status/i }), { key: 'ArrowDown' })
+    expect(screen.getAllByRole('option').map((o) => o.textContent)).toEqual(['Draft', 'Published'])
+    unmount()
+
+    render(
+      <FormWrapper>
+        {({ control, register }) => (
+          <FieldRenderer
+            field={{ name: 'status', type: 'select', label: 'Status', required: false, options }}
+            control={control}
+            register={register}
+          />
+        )}
+      </FormWrapper>,
+    )
+    fireEvent.keyDown(screen.getByRole('combobox', { name: /^status/i }), { key: 'ArrowDown' })
+    expect(screen.getAllByRole('option').map((o) => o.textContent)).toEqual([
+      '-- Select --',
+      'Draft',
+      'Published',
+    ])
   })
 
   it('renders date input with type="datetime-local"', () => {
@@ -556,5 +599,120 @@ describe('FieldRenderer accessibility and binding', () => {
     const logged = consoleError.mock.calls.flat().join(' ')
     expect(logged).not.toContain('uncontrolled')
     consoleError.mockRestore()
+  })
+})
+
+// What a select field submits, pinned independently of how it is rendered. The
+// field started as a native <select> bound with `register`, where
+// react-hook-form reads the DOM's current value as the initial one: an untouched
+// required select submits its first option and an untouched optional one
+// submits ''. A Radix Select has no DOM value to read, so a naive swap would
+// submit undefined for both. These ran green against the native select before
+// it was replaced, and must stay green after.
+describe('select field payload', () => {
+  afterEach(() => {
+    cleanup()
+  })
+
+  const options = [
+    { label: 'Draft', value: 'draft' },
+    { label: 'Published', value: 'published' },
+  ]
+
+  function renderSelect(field: ClientSelectField, defaultValues: Record<string, unknown> = {}) {
+    const result: { submitted?: Record<string, unknown> } = {}
+    render(
+      <FormWrapper defaultValues={defaultValues}>
+        {({ control, register, handleSubmit }) => (
+          <>
+            <FieldRenderer field={field} control={control} register={register} />
+            <button
+              type="button"
+              onClick={() => {
+                void handleSubmit((values) => {
+                  result.submitted = values
+                })()
+              }}
+            >
+              submit
+            </button>
+          </>
+        )}
+      </FormWrapper>,
+    )
+    return result
+  }
+
+  // Works against either rendering: a native <select> takes a change event, a
+  // Radix trigger takes the pointer sequence in chooseSelectOption.
+  function pick(label: string) {
+    const control = screen.getByRole('combobox', { name: /^status/i })
+    if (control instanceof HTMLSelectElement) {
+      const option = Array.from(control.options).find((o) => o.text === label)
+      fireEvent.change(control, { target: { value: option?.value } })
+    } else {
+      chooseSelectOption(control, label)
+    }
+  }
+
+  async function submit(result: { submitted?: Record<string, unknown> }) {
+    result.submitted = undefined
+    fireEvent.click(screen.getByText('submit'))
+    return waitFor(() => {
+      const { submitted } = result
+      if (!submitted) throw new Error('form has not submitted yet')
+      return submitted
+    })
+  }
+
+  it('submits the first option for an untouched required select with no default', async () => {
+    const result = renderSelect({
+      name: 'status',
+      type: 'select',
+      label: 'Status',
+      required: true,
+      options,
+    })
+    expect((await submit(result)).status).toBe('draft')
+  })
+
+  // The one case that could not be run against the native <select> first.
+  // happy-dom leaves HTMLSelectElement.size and option.defaultSelected
+  // undefined (a browser has 0 and false), so react-hook-form's isSelectEdited
+  // concludes the select was edited and reads the DOM's first option instead of
+  // the default. In a browser the default wins, which is what this asserts.
+  it('submits the default for an untouched select that has one', async () => {
+    const result = renderSelect(
+      { name: 'status', type: 'select', label: 'Status', required: true, options },
+      { status: 'published' },
+    )
+    expect((await submit(result)).status).toBe('published')
+  })
+
+  it('submits an empty string for an untouched optional select', async () => {
+    const result = renderSelect({
+      name: 'status',
+      type: 'select',
+      label: 'Status',
+      required: false,
+      options,
+    })
+    expect((await submit(result)).status).toBe('')
+  })
+
+  it('submits the chosen option, and an empty string once cleared', async () => {
+    const result = renderSelect({
+      name: 'status',
+      type: 'select',
+      label: 'Status',
+      required: false,
+      options,
+    })
+
+    pick('Published')
+    expect((await submit(result)).status).toBe('published')
+
+    pick('-- Select --')
+    expect((await submit(result)).status).toBe('')
   })
 })
