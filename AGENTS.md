@@ -147,7 +147,7 @@ approval on the `npm` environment. Don't run `pnpm publish` by hand; see `docs/r
   - [x] #120 Admin e2e updates (done, with #117)
   - [ ] #121 Dark mode (optional)
   - [x] #122 Theming token documentation and Stack correction (done)
-  - [ ] #136 Dialog, Popover and Tooltip where they replace existing behaviour
+  - [x] #136 Dialog, Popover and Tooltip where they replace existing behaviour (done)
 
 Update this section when a milestone or issue is done.
 

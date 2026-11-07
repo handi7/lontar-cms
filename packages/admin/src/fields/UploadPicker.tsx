@@ -1,4 +1,4 @@
-import { useState, useEffect, useContext, useRef } from 'react'
+import { useState, useEffect, useContext, useRef, type ReactNode } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import type { UseFormRegister, UseFormSetValue, UseFormWatch } from 'react-hook-form'
 import type { ClientConfig, ClientUploadField } from '@lontar/core/client'
@@ -11,6 +11,7 @@ import {
   PickerButton,
   PickerCard,
   PickerOption,
+  PickerPopover,
   PickerResults,
   PickerSearchBar,
   PickerStatus,
@@ -63,14 +64,14 @@ function SelectedMediaView({
   id,
   basePath,
   relationTo,
-  onChange,
+  changeButton,
   onRemove,
 }: {
   doc: Record<string, unknown> | null | undefined
   id: number
   basePath: string
   relationTo: string
-  onChange: () => void
+  changeButton: ReactNode
   onRemove: () => void
 }) {
   const url = typeof doc?.url === 'string' ? doc.url : ''
@@ -96,9 +97,7 @@ function SelectedMediaView({
       </div>
       <div className={pickerActionsClass}>
         <PickerViewLink href={viewUrl} testId="upload-picker-link" />
-        <PickerButton onClick={onChange} data-testid="upload-picker-change">
-          Change
-        </PickerButton>
+        {changeButton}
         <PickerButton destructive onClick={onRemove} data-testid="upload-picker-remove">
           Remove
         </PickerButton>
@@ -163,12 +162,11 @@ function MediaDropdown({
         placeholder="Search media by filename..."
         value={searchTerm}
         onChange={(e) => setSearchTerm(e.target.value)}
-        autoFocus
         data-testid="upload-picker-search"
         onCancel={onCancel}
         cancelTestId="upload-picker-cancel-search"
       />
-      <PickerResults className="lt:max-h-[240px]" data-testid="upload-picker-dropdown">
+      <PickerResults className="lt:max-h-60" data-testid="upload-picker-dropdown">
         {query.isLoading && <PickerStatus>Loading media...</PickerStatus>}
         {query.isError && <PickerStatus error>Failed to load media</PickerStatus>}
         {query.data && query.data.docs.length === 0 && (
@@ -183,7 +181,7 @@ function MediaDropdown({
 }
 
 interface EmptyPickerActionsProps {
-  onBrowse: () => void
+  browseButton: ReactNode
   onUploadFile: (file: File) => void
   isPending: boolean
   accept?: string
@@ -191,7 +189,7 @@ interface EmptyPickerActionsProps {
 }
 
 function EmptyPickerActions({
-  onBrowse,
+  browseButton,
   onUploadFile,
   isPending,
   accept,
@@ -202,9 +200,7 @@ function EmptyPickerActions({
   return (
     <div className="lt:flex lt:flex-col lt:items-start lt:gap-2">
       <div className="lt:flex lt:items-center lt:gap-2">
-        <PickerButton onClick={onBrowse} data-testid="upload-picker-browse-btn">
-          Select from Media
-        </PickerButton>
+        {browseButton}
         <PickerButton
           onClick={() => fileInputRef.current?.click()}
           disabled={isPending}
@@ -322,14 +318,34 @@ export function UploadPicker({ field, register, setValue, watch }: UploadPickerP
     setValue?.(field.name, null, { shouldValidate: true, shouldDirty: true })
   }
 
-  if (selectedId && !isSearching) {
+  const searchPopover = (trigger: ReactNode) => (
+    <PickerPopover
+      open={isSearching}
+      onOpenChange={(open) => {
+        if (open) setUploadError(null)
+        setIsSearching(open)
+      }}
+      trigger={trigger}
+    >
+      <MediaDropdown
+        relationTo={field.relationTo}
+        apiBase={apiBase}
+        onSelect={(doc) => handleSelectDoc(Number(doc.id))}
+        onCancel={() => setIsSearching(false)}
+      />
+    </PickerPopover>
+  )
+
+  if (selectedId) {
     return (
       <SelectedMediaView
         doc={docQuery.data}
         id={selectedId}
         basePath={basePath}
         relationTo={field.relationTo}
-        onChange={() => setIsSearching(true)}
+        changeButton={searchPopover(
+          <PickerButton data-testid="upload-picker-change">Change</PickerButton>,
+        )}
         onRemove={handleRemove}
       />
     )
@@ -337,28 +353,18 @@ export function UploadPicker({ field, register, setValue, watch }: UploadPickerP
 
   return (
     <div className="lt:flex lt:w-full lt:flex-col lt:gap-2">
-      {isSearching ? (
-        <MediaDropdown
-          relationTo={field.relationTo}
-          apiBase={apiBase}
-          onSelect={(doc) => handleSelectDoc(Number(doc.id))}
-          onCancel={() => setIsSearching(false)}
-        />
-      ) : (
-        <EmptyPickerActions
-          onBrowse={() => {
-            setUploadError(null)
-            setIsSearching(true)
-          }}
-          onUploadFile={(file) => {
-            setUploadError(null)
-            uploadMutation.mutate(file)
-          }}
-          isPending={uploadMutation.isPending}
-          accept={accept}
-          error={uploadError}
-        />
-      )}
+      <EmptyPickerActions
+        browseButton={searchPopover(
+          <PickerButton data-testid="upload-picker-browse-btn">Select from Media</PickerButton>,
+        )}
+        onUploadFile={(file) => {
+          setUploadError(null)
+          uploadMutation.mutate(file)
+        }}
+        isPending={uploadMutation.isPending}
+        accept={accept}
+        error={uploadError}
+      />
     </div>
   )
 }

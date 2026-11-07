@@ -1,14 +1,17 @@
-import { useState, useEffect, useMemo, useContext } from 'react'
+import { useState, useEffect, useMemo, useContext, type ReactNode } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import type { UseFormRegister, UseFormSetValue, UseFormWatch } from 'react-hook-form'
 import type { ClientRelationshipField } from '@lontar/core/client'
 import { AdminContext } from '../context/AdminContext'
 import { fetchCollectionDocs, fetchDoc } from '../api/client'
 import { Badge } from '../components/ui/badge'
+import { Tooltip, TooltipContent, TooltipTrigger } from '../components/ui/tooltip'
 import {
   PickerButton,
   PickerCard,
+  PickerEmptyTrigger,
   PickerOption,
+  PickerPopover,
   PickerResults,
   PickerSearchBar,
   PickerStatus,
@@ -90,7 +93,6 @@ interface RelationshipSearchDropdownProps {
   excludeIds?: number[]
   onSelect: (doc: Record<string, unknown>) => void
   onCancel?: () => void
-  autoFocus?: boolean
 }
 
 function DropdownOptionsList({
@@ -139,7 +141,6 @@ function RelationshipSearchDropdown({
   excludeIds,
   onSelect,
   onCancel,
-  autoFocus,
 }: RelationshipSearchDropdownProps) {
   const [searchTerm, setSearchTerm] = useState('')
 
@@ -158,7 +159,6 @@ function RelationshipSearchDropdown({
         placeholder={`Search ${pluralLabel}...`}
         value={searchTerm}
         onChange={(e) => setSearchTerm(e.target.value)}
-        autoFocus={autoFocus}
         data-testid="relationship-search"
         onCancel={onCancel}
         cancelTestId="relationship-cancel-search"
@@ -184,14 +184,14 @@ function SingleSelectedView({
   title,
   basePath,
   relationTo,
-  onStartChange,
+  changeButton,
   onRemove,
 }: {
   selectedId: number
   title: string
   basePath: string
   relationTo: string
-  onStartChange: () => void
+  changeButton: ReactNode
   onRemove: () => void
 }) {
   const editUrl = getDocEditUrl(basePath, relationTo, selectedId)
@@ -203,9 +203,7 @@ function SingleSelectedView({
       </div>
       <div className={pickerActionsClass}>
         <PickerViewLink href={editUrl} testId="relationship-link" />
-        <PickerButton onClick={onStartChange} data-testid="relationship-change">
-          Change
-        </PickerButton>
+        {changeButton}
         <PickerButton destructive onClick={onRemove} data-testid="relationship-clear">
           Remove
         </PickerButton>
@@ -235,38 +233,61 @@ function SingleRelationshipPicker({ field, register, setValue, watch }: Relation
 
   const title = getDocTitle(docQuery.data, titleField) || `#${selectedId}`
 
-  if (selectedId && !isSearching) {
-    return (
-      <SingleSelectedView
-        selectedId={selectedId}
-        title={title}
-        basePath={basePath}
-        relationTo={field.relationTo}
-        onStartChange={() => setIsSearching(true)}
-        onRemove={() => setValue?.(field.name, null, { shouldValidate: true, shouldDirty: true })}
-      />
-    )
-  }
-
-  return (
+  const search = (
     <RelationshipSearchDropdown
       relationTo={field.relationTo}
       titleField={titleField}
       singularLabel={singularLabel}
       pluralLabel={pluralLabel}
       apiBase={apiBase}
-      autoFocus={isSearching}
       onSelect={(doc) => {
         setValue?.(field.name, Number(doc.id), { shouldValidate: true, shouldDirty: true })
         setIsSearching(false)
       }}
-      onCancel={selectedId ? () => setIsSearching(false) : undefined}
+      onCancel={() => setIsSearching(false)}
     />
+  )
+
+  if (selectedId) {
+    return (
+      <SingleSelectedView
+        selectedId={selectedId}
+        title={title}
+        basePath={basePath}
+        relationTo={field.relationTo}
+        changeButton={
+          <PickerPopover
+            open={isSearching}
+            onOpenChange={setIsSearching}
+            trigger={<PickerButton data-testid="relationship-change">Change</PickerButton>}
+          >
+            {search}
+          </PickerPopover>
+        }
+        onRemove={() => setValue?.(field.name, null, { shouldValidate: true, shouldDirty: true })}
+      />
+    )
+  }
+
+  return (
+    <PickerPopover
+      open={isSearching}
+      onOpenChange={setIsSearching}
+      trigger={
+        <PickerEmptyTrigger data-testid="relationship-open-search">
+          Select {singularLabel}…
+        </PickerEmptyTrigger>
+      }
+    >
+      {search}
+    </PickerPopover>
   )
 }
 
-// `title` gives a hover hint and `aria-label` the accessible name; the glyph
-// alone (↑, ↓, ✕) would be announced literally.
+// `aria-label` is the accessible name, since the glyph alone (↑, ↓, ✕) would
+// be announced literally; the Tooltip shows the same text on hover and focus.
+// A disabled button gets no pointer events, so the first item's ↑ and the
+// last item's ↓ show no tooltip, as they never did with `title` either.
 function PickerIconButton({
   label,
   testId,
@@ -281,15 +302,19 @@ function PickerIconButton({
   onClick: () => void
 }) {
   return (
-    <PickerButton
-      title={label}
-      aria-label={label}
-      className="lt:size-[26px] lt:p-0 lt:disabled:opacity-40"
-      data-testid={testId}
-      {...props}
-    >
-      {children}
-    </PickerButton>
+    <Tooltip>
+      <TooltipTrigger asChild>
+        <PickerButton
+          aria-label={label}
+          className="lt:size-6.5 lt:p-0 lt:disabled:opacity-40"
+          data-testid={testId}
+          {...props}
+        >
+          {children}
+        </PickerButton>
+      </TooltipTrigger>
+      <TooltipContent>{label}</TooltipContent>
+    </Tooltip>
   )
 }
 
@@ -477,7 +502,15 @@ function ManyRelationshipPicker({ field, register, setValue, watch }: Relationsh
         </div>
       )}
 
-      {isSearching ? (
+      <PickerPopover
+        open={isSearching}
+        onOpenChange={setIsSearching}
+        trigger={
+          <PickerButton className="lt:w-fit" data-testid="relationship-add-btn">
+            + Add {singularLabel}
+          </PickerButton>
+        }
+      >
         <RelationshipSearchDropdown
           relationTo={field.relationTo}
           titleField={titleField}
@@ -485,19 +518,10 @@ function ManyRelationshipPicker({ field, register, setValue, watch }: Relationsh
           pluralLabel={pluralLabel}
           apiBase={apiBase}
           excludeIds={selectedIds}
-          autoFocus
           onSelect={handleAdd}
           onCancel={() => setIsSearching(false)}
         />
-      ) : (
-        <PickerButton
-          className="lt:w-fit"
-          onClick={() => setIsSearching(true)}
-          data-testid="relationship-add-btn"
-        >
-          + Add {singularLabel}
-        </PickerButton>
-      )}
+      </PickerPopover>
     </div>
   )
 }

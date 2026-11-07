@@ -4,6 +4,7 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { useForm } from 'react-hook-form'
 import type { ClientConfig, ClientUploadField } from '@lontar/core/client'
 import { AdminContext } from '../context/AdminContext'
+import { PortalContainerProvider } from '../context/PortalContainer'
 import { UploadPicker } from './UploadPicker'
 
 const mockConfig: ClientConfig = {
@@ -52,15 +53,17 @@ function TestWrapper({
 
   return (
     <QueryClientProvider client={queryClient}>
-      <AdminContext.Provider
-        value={{
-          config: mockConfig,
-          apiBase: '/api',
-          basePath: '/admin',
-        }}
-      >
-        <form onSubmit={onSubmit}>{children(methods)}</form>
-      </AdminContext.Provider>
+      <PortalContainerProvider>
+        <AdminContext.Provider
+          value={{
+            config: mockConfig,
+            apiBase: '/api',
+            basePath: '/admin',
+          }}
+        >
+          <form onSubmit={onSubmit}>{children(methods)}</form>
+        </AdminContext.Provider>
+      </PortalContainerProvider>
     </QueryClientProvider>
   )
 }

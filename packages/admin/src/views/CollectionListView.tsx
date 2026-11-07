@@ -30,6 +30,7 @@ import {
   TableRow,
 } from '../components/ui/table'
 import { CollectionFilterBar, type ActiveFilter } from './CollectionFilterBar'
+import { ConfirmDeleteDialog } from './ConfirmDeleteDialog'
 import { EmptyCard } from './EmptyCard'
 import { NotFoundView } from './NotFoundView'
 import { ViewHeader } from './ViewHeader'
@@ -492,17 +493,29 @@ function useListDeleteMutation(apiBase: string, slug?: string) {
     },
   })
 
+  // The row's Delete button only asks; the dialog's confirm does the delete.
+  const [pendingId, setPendingId] = useState<number | string | null>(null)
+
   const handleDelete = (id: number | string) => {
-    const confirmed =
-      typeof window === 'undefined' ||
-      window.confirm('Are you sure you want to delete this document?')
-    if (confirmed) {
-      setDeleteError(null)
-      mutation.mutate(id)
-    }
+    setPendingId(id)
   }
 
-  return { deleteError, setDeleteError, handleDelete, isDeleting: mutation.isPending }
+  const confirmDelete = () => {
+    if (pendingId === null) return
+    setDeleteError(null)
+    mutation.mutate(pendingId)
+    setPendingId(null)
+  }
+
+  return {
+    deleteError,
+    setDeleteError,
+    handleDelete,
+    isDeleting: mutation.isPending,
+    confirmOpen: pendingId !== null,
+    closeConfirm: () => setPendingId(null),
+    confirmDelete,
+  }
 }
 
 function ListAlerts({
@@ -568,10 +581,15 @@ export function CollectionListView() {
     handleClearAll,
   } = useListFilters()
 
-  const { deleteError, setDeleteError, handleDelete, isDeleting } = useListDeleteMutation(
-    apiBase,
-    slug,
-  )
+  const {
+    deleteError,
+    setDeleteError,
+    handleDelete,
+    isDeleting,
+    confirmOpen,
+    closeConfirm,
+    confirmDelete,
+  } = useListDeleteMutation(apiBase, slug)
 
   useEffect(() => {
     setDeleteError(null)
@@ -642,6 +660,14 @@ export function CollectionListView() {
       />
 
       <ListAlerts queryError={error} deleteError={deleteError} />
+
+      <ConfirmDeleteDialog
+        open={confirmOpen}
+        onOpenChange={(open) => {
+          if (!open) closeConfirm()
+        }}
+        onConfirm={confirmDelete}
+      />
 
       <ListContent
         isLoading={isLoading}

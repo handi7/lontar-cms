@@ -87,6 +87,13 @@ Without preflight, shadcn components inherit browser defaults they were written 
 
 The general rule for the rest of M6: when copying a shadcn component in, check what it gets from preflight, and restate it on the component unless it is a default the whole wrapper should have.
 
+**Amendment (2026-11-07, while implementing #136).** With Select, Popover, AlertDialog and Tooltip all in use, rule 3 has held as designed. Every one goes through a wrapper in `components/ui` that reads the `PortalContainer`, `no-restricted-imports` stops anything else importing Radix directly, and no portalled content has needed a global rule.
+
+One consequence of the container's position was not written down. `.lontar-portal-root` is a sibling of the routed views, so anything portalled is **outside the document's `<form>` in the DOM**, though still inside it in the React tree. Two effects follow:
+
+- Pressing Enter in an input inside a popover cannot trigger the form's implicit submission. The pickers' search inputs relied on `preventDefault` for that; it is now redundant but kept.
+- A native control placed in portalled content is not associated with the form and would not appear in its `FormData`. Nothing in the admin does this, because every field reaches the form through react-hook-form rather than through native submission. A future field that needs native form association must render it outside the portal, or pass an explicit `form` attribute.
+
 ## Alternatives considered
 
 - **Keep the hand-written CSS.** Rejected, but it was close. It works today and leaks nothing. It also means every primitive — combobox, dialog, date picker — is ours to build and to keep accessible, which is the reinvention the stack was chosen to avoid. The deciding factor is that the admin keeps growing: every field type added since M1 brought another primitive to hand-roll, and the accessibility bugs in them are ours to find.

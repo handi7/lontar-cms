@@ -1,5 +1,5 @@
 import { describe, expect, it, vi, beforeEach, afterEach } from 'vitest'
-import { render, screen, waitFor, fireEvent, cleanup } from '@testing-library/react'
+import { within, render, screen, waitFor, fireEvent, cleanup } from '@testing-library/react'
 import { createMemoryHistory } from '@tanstack/react-router'
 import type { ClientConfig } from '@lontar/core/client'
 import { Admin } from './Admin'
@@ -1310,8 +1310,6 @@ describe('Admin SPA', () => {
     })
 
     it('renders delete error alert when deleting document in list view fails', async () => {
-      window.confirm = vi.fn().mockReturnValue(true)
-
       vi.stubGlobal(
         'fetch',
         vi.fn().mockImplementation((url: string, init?: RequestInit) => {
@@ -1348,13 +1346,63 @@ describe('Admin SPA', () => {
         expect(screen.getByText('Sample Post')).toBeTruthy()
       })
 
-      const deleteBtn = screen.getByRole('button', { name: /^delete$/i })
-      fireEvent.click(deleteBtn)
+      fireEvent.click(screen.getByRole('button', { name: /^delete$/i }))
+
+      const dialog = await screen.findByRole('alertdialog')
+      expect(dialog.textContent).toContain('Are you sure you want to delete this document?')
+      fireEvent.click(within(dialog).getByRole('button', { name: 'Delete' }))
 
       await waitFor(() => {
         const errorAlert = screen.getByTestId('delete-error-alert')
         expect(errorAlert.textContent).toContain('You do not have permission to delete this post')
       })
+      expect(screen.queryByRole('alertdialog')).toBeNull()
+    })
+
+    it('does not delete when the confirmation dialog is cancelled', async () => {
+      const deleteCalls: string[] = []
+      vi.stubGlobal(
+        'fetch',
+        vi.fn().mockImplementation((url: string, init?: RequestInit) => {
+          if (url.includes('/_lontar/config')) {
+            return mockJsonResponse(mockConfig)
+          }
+          if (url.includes('/auth/get-session')) {
+            return mockJsonResponse({ user: mockAuthUser, session: mockAuthSession })
+          }
+          if (init?.method === 'DELETE') {
+            deleteCalls.push(url)
+            return mockJsonResponse({ id: 1 })
+          }
+          if (url.includes('/api/posts')) {
+            return mockJsonResponse({
+              docs: [{ id: 1, title: 'Sample Post', views: 50 }],
+              totalDocs: 1,
+              limit: 10,
+              page: 1,
+              totalPages: 1,
+            })
+          }
+          return Promise.reject(new Error(`Unhandled URL: ${url}`))
+        }),
+      )
+
+      const history = createMemoryHistory({ initialEntries: ['/admin/posts'] })
+      render(<Admin apiBase="/api" basePath="/admin" history={history} />)
+
+      await waitFor(() => {
+        expect(screen.getByText('Sample Post')).toBeTruthy()
+      })
+
+      fireEvent.click(screen.getByRole('button', { name: /^delete$/i }))
+      const dialog = await screen.findByRole('alertdialog')
+      fireEvent.click(within(dialog).getByRole('button', { name: 'Cancel' }))
+
+      await waitFor(() => {
+        expect(screen.queryByRole('alertdialog')).toBeNull()
+      })
+      expect(deleteCalls).toEqual([])
+      expect(screen.getByText('Sample Post')).toBeTruthy()
     })
 
     it('does not render empty state when list query fails with an error', async () => {
