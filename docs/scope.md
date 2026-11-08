@@ -46,7 +46,7 @@ The MVP is done when one real website can be fully managed through Lontar: colle
 
 The following are intentionally left out of v0.1 so the MVP can ship in 2–3 months.
 
-- **Complex fields:** `array`, `blocks`, `group`, and conditional fields. Targeted for v0.2.
+- **Complex fields:** `array`, `blocks`, `group`, and conditional fields. Originally targeted for v0.2; now planned for M7 (#151).
 - **Versions, drafts, and live preview.**
 - **Localization** (multi-language content).
 - **GraphQL API.** REST only for now.

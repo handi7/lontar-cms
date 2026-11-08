@@ -90,6 +90,68 @@ export default defineConfig({
 
 By default, operations on collections and globals require an authenticated user (`({ user }) => Boolean(user)`). To allow public or anonymous access, define the access rule explicitly (for example, `read: () => true`).
 
+### Complex fields (group, array, blocks)
+
+Collections and globals support nested data structures for grouped metadata, repeating items, and modular block layouts:
+
+```ts
+import { collection, fields as f, block } from '@lontar/core'
+
+const Pages = collection({
+  slug: 'pages',
+  fields: {
+    title: f.text({ required: true }),
+    // Group: 1:1 nested fields, stored as flattened SQL columns (seo__meta_title, etc.)
+    seo: f.group({
+      label: 'SEO',
+      fields: {
+        metaTitle: f.text({ maxLength: 70 }),
+        metaDescription: f.textarea({ maxLength: 160 }),
+        ogImage: f.upload({ relationTo: 'media' }),
+      },
+    }),
+    // Array: 1:N ordered rows of identical fields, stored in a JSON column with stable row IDs
+    gallery: f.array({
+      label: 'Image Gallery',
+      minRows: 0,
+      maxRows: 20,
+      fields: {
+        image: f.upload({ relationTo: 'media', required: true }),
+        caption: f.text(),
+      },
+    }),
+    // Blocks: 1:N ordered polymorphic blocks, stored in a JSON column with stable row IDs
+    layout: f.blocks({
+      label: 'Page Layout',
+      minRows: 1,
+      maxRows: 50,
+      blocks: [
+        block({
+          slug: 'hero',
+          labels: { singular: 'Hero', plural: 'Heroes' },
+          fields: {
+            heading: f.text({ required: true }),
+            subheading: f.textarea(),
+            backgroundImage: f.upload({ relationTo: 'media' }),
+          },
+        }),
+        block({
+          slug: 'callToAction',
+          labels: { singular: 'Call to Action', plural: 'Calls to Action' },
+          fields: {
+            text: f.text({ required: true }),
+            buttonLabel: f.text({ required: true }),
+            buttonUrl: f.text({ required: true }),
+          },
+        }),
+      ],
+    }),
+  },
+})
+```
+
+Each item inside an `array` or `blocks` field automatically receives a stable string `id`, ensuring dependable React list keys and accurate version diffing. Nested `relationship` and `upload` fields are populated recursively up to the specified `depth`.
+
 ## Migrations and type generation
 
 ```bash
@@ -232,6 +294,7 @@ From the browser or other apps, use REST:
 
 ```http
 GET /api/posts?where[status][equals]=published&sort=-publishedAt&limit=10&depth=1
+GET /api/pages?where[seo.metaTitle][equals]=Home&depth=1
 GET /api/posts/:id
 POST /api/posts
 PATCH /api/posts/:id
