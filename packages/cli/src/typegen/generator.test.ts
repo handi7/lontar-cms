@@ -357,4 +357,70 @@ describe('generateTypes', () => {
     })
     expect(transpileResult.outputText).toBeDefined()
   })
+
+  it('generates block interfaces and discriminated union for blocks fields', () => {
+    const config: Config = {
+      secret: 'test-secret',
+      db: { name: 'mock' } as unknown as Config['db'],
+      collections: [
+        {
+          slug: 'pages',
+          fields: {
+            title: { type: 'text', required: true },
+            layout: {
+              type: 'blocks',
+              required: true,
+              blocks: [
+                {
+                  slug: 'hero',
+                  labels: { singular: 'Hero', plural: 'Heroes' },
+                  fields: {
+                    heading: { type: 'text', required: true },
+                    subheading: { type: 'text' },
+                  },
+                },
+                {
+                  slug: 'cta',
+                  labels: { singular: 'Call to Action', plural: 'Calls to Action' },
+                  fields: {
+                    text: { type: 'text', required: true },
+                    buttonUrl: { type: 'text', required: true },
+                  },
+                },
+              ],
+            },
+          },
+        },
+      ],
+    }
+
+    const output = generateTypes(config)
+    expect(output).toContain('export interface PageLayoutHeroBlock {')
+    expect(output).toContain('  id: string')
+    expect(output).toContain("  blockType: 'hero'")
+    expect(output).toContain('  heading: string')
+    expect(output).toContain('  subheading?: string | null')
+
+    expect(output).toContain('export interface PageLayoutCtaBlock {')
+    expect(output).toContain('  id: string')
+    expect(output).toContain("  blockType: 'cta'")
+    expect(output).toContain('  text: string')
+    expect(output).toContain('  buttonUrl: string')
+
+    expect(output).toContain(
+      'export type PageLayoutBlock = PageLayoutHeroBlock | PageLayoutCtaBlock',
+    )
+
+    expect(output).toContain('export interface Page {')
+    expect(output).toContain('  title: string')
+    expect(output).toContain('  layout: Array<PageLayoutBlock>')
+
+    const transpileResult = ts.transpileModule(output, {
+      compilerOptions: {
+        module: ts.ModuleKind.ESNext,
+        target: ts.ScriptTarget.ES2022,
+      },
+    })
+    expect(transpileResult.outputText).toBeDefined()
+  })
 })

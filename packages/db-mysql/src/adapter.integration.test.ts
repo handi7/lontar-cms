@@ -61,6 +61,27 @@ const pagesCollection: CollectionConfig = {
         year: { type: 'number', integer: true },
       },
     },
+    layout: {
+      type: 'blocks',
+      blocks: [
+        {
+          slug: 'hero',
+          labels: { singular: 'Hero', plural: 'Heroes' },
+          fields: {
+            heading: { type: 'text', required: true },
+            subheading: { type: 'text' },
+          },
+        },
+        {
+          slug: 'cta',
+          labels: { singular: 'Call to Action', plural: 'Calls to Action' },
+          fields: {
+            text: { type: 'text', required: true },
+            buttonUrl: { type: 'text', required: true },
+          },
+        },
+      ],
+    },
   },
 }
 
@@ -1128,5 +1149,95 @@ describe('mysqlAdapter (integration)', () => {
       id: created.id,
     })
     expect(afterRollback?.gallery).toEqual(originalRows)
+  })
+
+  it('handles blocks fields: insert, reorder, modify, and rollback', async () => {
+    // 1. Create with blocks without IDs
+    const created = await adapter.create({
+      collection: pagesCollection,
+      data: {
+        title: 'Landing Page',
+        layout: [
+          { blockType: 'hero', heading: 'Welcome to our platform' },
+          { blockType: 'cta', text: 'Get Started', buttonUrl: 'https://example.com' },
+        ],
+      },
+    })
+    expect(created.id).toBeDefined()
+    const blocks = created.layout as Array<{
+      id: string
+      blockType: string
+      heading?: string
+      text?: string
+      buttonUrl?: string
+    }>
+    expect(blocks).toHaveLength(2)
+    const [first, second] = blocks
+    expect(first).toBeDefined()
+    expect(second).toBeDefined()
+    expect(first!.id).toMatch(/^[0-9a-f]{16}$/)
+    expect(second!.id).toMatch(/^[0-9a-f]{16}$/)
+    expect(first!.blockType).toBe('hero')
+    expect(first!.heading).toBe('Welcome to our platform')
+    expect(second!.blockType).toBe('cta')
+    expect(second!.text).toBe('Get Started')
+
+    const heroId = first!.id
+    const ctaId = second!.id
+
+    // 2. Reorder blocks and add a new block
+    const updated = await adapter.update({
+      collection: pagesCollection,
+      id: created.id,
+      data: {
+        layout: [
+          {
+            id: ctaId,
+            blockType: 'cta',
+            text: 'Sign Up Now',
+            buttonUrl: 'https://example.com/signup',
+          },
+          { id: heroId, blockType: 'hero', heading: 'Welcome (Now Second)' },
+          { blockType: 'hero', heading: 'Another Hero' },
+        ],
+      },
+    })
+    const updatedBlocks = updated?.layout as Array<{
+      id: string
+      blockType: string
+      heading?: string
+      text?: string
+      buttonUrl?: string
+    }>
+    expect(updatedBlocks).toHaveLength(3)
+    const [b1, b2, b3] = updatedBlocks
+    expect(b1!.id).toBe(ctaId)
+    expect(b1!.blockType).toBe('cta')
+    expect(b1!.text).toBe('Sign Up Now')
+    expect(b2!.id).toBe(heroId)
+    expect(b2!.blockType).toBe('hero')
+    expect(b3!.id).toMatch(/^[0-9a-f]{16}$/)
+    expect(b3!.blockType).toBe('hero')
+    expect(b3!.heading).toBe('Another Hero')
+
+    // 3. Rollback on failure
+    await expect(
+      adapter.transaction!(async (tx) => {
+        await tx.update({
+          collection: pagesCollection,
+          id: created.id,
+          data: {
+            layout: [],
+          },
+        })
+        throw new Error('Forced rollback')
+      }),
+    ).rejects.toThrow('Database operation failed')
+
+    const afterRollback = await adapter.findByID({
+      collection: pagesCollection,
+      id: created.id,
+    })
+    expect(afterRollback?.layout).toEqual(updatedBlocks)
   })
 })

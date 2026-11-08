@@ -1,5 +1,5 @@
 import type { SystemFields, UploadSystemFields } from '../client/system-fields'
-import type { Field, Fields } from './types'
+import type { Block, Field, Fields } from './types'
 
 /** The value each field type stores. Every new field type needs an entry here. */
 interface FieldValueMap {
@@ -26,6 +26,18 @@ export type InferArrayRow<F extends Fields> = Simplify<
   }
 >
 
+export type InferBlockRow<B extends Block> =
+  B extends Block<infer Slug, infer SubFields>
+    ? Simplify<
+        {
+          id: string
+          blockType: Slug
+        } & {
+          -readonly [K in keyof SubFields]: FieldValue<SubFields[K]>
+        }
+      >
+    : never
+
 type FieldValue<F extends Field> = F extends {
   type: 'group'
   fields: infer SubFields extends Fields
@@ -40,13 +52,20 @@ type FieldValue<F extends Field> = F extends {
     ? F extends { required: true }
       ? InferArrayRow<SubFields>[]
       : InferArrayRow<SubFields>[] | null
-    : F extends { type: 'relationship'; hasMany: true }
-      ? number[]
-      : F['type'] extends keyof FieldValueMap
-        ? F extends { required: true }
-          ? FieldValueMap[F['type']]
-          : FieldValueMap[F['type']] | null
-        : unknown
+    : F extends {
+          type: 'blocks'
+          blocks: readonly (infer B extends Block)[]
+        }
+      ? F extends { required: true }
+        ? InferBlockRow<B>[]
+        : InferBlockRow<B>[] | null
+      : F extends { type: 'relationship'; hasMany: true }
+        ? number[]
+        : F['type'] extends keyof FieldValueMap
+          ? F extends { required: true }
+            ? FieldValueMap[F['type']]
+            : FieldValueMap[F['type']] | null
+          : unknown
 
 type Simplify<T> = { [K in keyof T]: T[K] }
 

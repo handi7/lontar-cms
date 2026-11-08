@@ -154,7 +154,7 @@ approval on the `npm` environment. Don't run `pnpm publish` by hand; see `docs/r
   - [x] #153 ADR: declarative conditional fields (done)
   - [x] #154 `group` field (done)
   - [x] #155 `array` field (done)
-  - [ ] #156 `blocks` field
+  - [x] #156 `blocks` field (done)
   - [ ] #157 Relationship and upload fields inside nested fields
   - [ ] #158 Filter and sort on nested field paths
   - [ ] #159 Conditional fields via `admin.condition`

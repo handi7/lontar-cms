@@ -3,7 +3,7 @@ export { global } from './config/global'
 export { defineConfig, LontarConfigError } from './config/define-config'
 export { toClientCollection, toClientConfig, toClientGlobal } from './config/to-client-config'
 export { CLIENT_CONFIG_VERSION } from './client/client-config'
-export { fields } from './fields'
+export { fields, block } from './fields'
 export { generateRowId } from './client/id'
 export { createLontar, type CreateLontarOptions, type LontarApp } from './server/create-lontar'
 export { getLontar } from './local'
@@ -96,7 +96,7 @@ export type {
   PaginatedDocs,
   StoredDoc,
 } from './database/adapter'
-export type { InferDoc } from './fields/infer'
+export type { InferArrayRow, InferBlockRow, InferDoc } from './fields/infer'
 export { SYSTEM_FIELDS, UPLOAD_SYSTEM_FIELDS } from './client/system-fields'
 export type {
   SystemFieldName,
@@ -108,6 +108,11 @@ export type {
   ArrayField,
   ArrayFieldAdminOptions,
   ArrayFieldOptions,
+  Block,
+  BlockConfig,
+  BlocksField,
+  BlocksFieldAdminOptions,
+  BlocksFieldOptions,
   CheckboxField,
   DateField,
   EmailField,

@@ -1,5 +1,8 @@
 import type {
   ArrayField,
+  Block,
+  BlockConfig,
+  BlocksField,
   CheckboxField,
   DateField,
   EmailField,
@@ -113,6 +116,50 @@ function array<const O extends Options<ArrayField>>(options: O): O & { type: 'ar
   return { ...options, type: 'array' }
 }
 
+export function block<const T extends BlockConfig>(config: T): T {
+  if (!config || typeof config !== 'object') {
+    throw new Error('Block requires a configuration object')
+  }
+  if (!config.slug || typeof config.slug !== 'string') {
+    throw new Error('Block requires a string slug')
+  }
+  if (!config.fields || typeof config.fields !== 'object') {
+    throw new Error(`Block "${config.slug}" requires a "fields" object`)
+  }
+  if ('id' in config.fields) {
+    throw new Error(`Block "${config.slug}" subfields cannot include reserved name "id"`)
+  }
+  if ('blockType' in config.fields) {
+    throw new Error(`Block "${config.slug}" subfields cannot include reserved name "blockType"`)
+  }
+  return config
+}
+
+function validateBlocksList(blocks: unknown): void {
+  if (!Array.isArray(blocks) || blocks.length === 0) {
+    throw new Error('Blocks field requires a non-empty "blocks" array')
+  }
+  const seenSlugs = new Set<string>()
+  for (const b of blocks as Block[]) {
+    if (!b || typeof b !== 'object' || !b.slug) {
+      throw new Error('Each block in blocks field must have a valid slug')
+    }
+    if (seenSlugs.has(b.slug)) {
+      throw new Error(`Duplicate block slug "${b.slug}" in blocks field`)
+    }
+    seenSlugs.add(b.slug)
+  }
+}
+
+function blocks<const O extends Options<BlocksField>>(options: O): O & { type: 'blocks' } {
+  if (!options || typeof options !== 'object') {
+    throw new Error('Blocks field requires an options object')
+  }
+  validateBlocksList(options.blocks)
+  validateArrayRows(options.minRows, options.maxRows)
+  return { ...options, type: 'blocks' }
+}
+
 export const fields = {
   text,
   number,
@@ -127,4 +174,5 @@ export const fields = {
   upload,
   group,
   array,
+  blocks,
 }

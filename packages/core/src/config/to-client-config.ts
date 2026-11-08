@@ -18,9 +18,11 @@ import {
   type ClientTextField,
   type ClientUploadField,
   type ClientArrayField,
+  type ClientBlocksField,
 } from '../client/client-config'
 import type {
   ArrayField,
+  BlocksField,
   CheckboxField,
   DateField,
   EmailField,
@@ -156,6 +158,23 @@ const toClientField = {
     fields: Object.entries(field.fields).map(([subName, subField]) =>
       clientField(subName, subField),
     ),
+  }),
+  blocks: (name: string, field: BlocksField): ClientBlocksField => ({
+    ...baseField(name, field),
+    ...defined({
+      minRows: field.minRows,
+      maxRows: field.maxRows,
+      labels: field.labels,
+      admin: field.admin ? { description: field.admin.description } : undefined,
+    }),
+    blocks: field.blocks.map((b) => ({
+      slug: b.slug,
+      labels: {
+        singular: b.labels?.singular ?? humanize(b.slug),
+        plural: b.labels?.plural ?? `${b.labels?.singular ?? humanize(b.slug)}s`,
+      },
+      fields: Object.entries(b.fields).map(([subName, subField]) => clientField(subName, subField)),
+    })),
   }),
 } satisfies {
   [K in FieldType]: (name: string, field: Extract<Field, { type: K }>) => ClientField

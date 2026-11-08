@@ -139,6 +139,25 @@ export interface ClientArrayField extends ClientFieldBase {
   admin?: ClientArrayFieldAdmin
 }
 
+export interface ClientBlock {
+  slug: string
+  labels: { singular: string; plural: string }
+  fields: ClientField[]
+}
+
+export interface ClientBlocksFieldAdmin {
+  description?: string
+}
+
+export interface ClientBlocksField extends ClientFieldBase {
+  type: 'blocks'
+  blocks: ClientBlock[]
+  minRows?: number
+  maxRows?: number
+  labels?: { singular: string; plural: string }
+  admin?: ClientBlocksFieldAdmin
+}
+
 export type ClientField =
   | ClientTextField
   | ClientNumberField
@@ -153,3 +172,4 @@ export type ClientField =
   | ClientUploadField
   | ClientGroupField
   | ClientArrayField
+  | ClientBlocksField

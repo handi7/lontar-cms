@@ -191,11 +191,20 @@ function sanitizeFieldValue(
   field: CollectionConfig['fields'][string] | undefined,
   value: unknown,
 ): unknown {
-  if (field?.type === 'date') return sanitizeDate(value)
-  if (field?.type === 'richText') return sanitizeRichText(value)
-  if (field?.type === 'relationship') return sanitizeRelationship(value)
-  if (field?.type === 'array') return sanitizeArray(value)
-  return value
+  if (!field) return value
+  switch (field.type) {
+    case 'date':
+      return sanitizeDate(value)
+    case 'richText':
+      return sanitizeRichText(value)
+    case 'relationship':
+      return sanitizeRelationship(value)
+    case 'array':
+    case 'blocks':
+      return sanitizeArray(value)
+    default:
+      return value
+  }
 }
 
 function flattenGroupValue(

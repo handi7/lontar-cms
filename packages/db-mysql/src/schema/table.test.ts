@@ -201,4 +201,30 @@ describe('collectionToTable', () => {
     expect(col(columns, 'gallery').columnType).toBe('MySqlJson')
     expect(col(columns, 'gallery').notNull).toBe(true)
   })
+
+  it('maps blocks field to MySqlJson column', () => {
+    const pages: CollectionConfig = {
+      slug: 'pages',
+      fields: {
+        layout: {
+          type: 'blocks',
+          required: true,
+          blocks: [
+            {
+              slug: 'hero',
+              fields: {
+                heading: { type: 'text', required: true },
+              },
+            },
+          ],
+        },
+      },
+    }
+
+    const table = collectionToTable(pages)
+    const columns = getTableColumns(table) as Record<string, AnyMySqlColumn>
+
+    expect(col(columns, 'layout').columnType).toBe('MySqlJson')
+    expect(col(columns, 'layout').notNull).toBe(true)
+  })
 })

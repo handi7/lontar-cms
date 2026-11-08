@@ -1,6 +1,8 @@
 import { SYSTEM_FIELDS, UPLOAD_SYSTEM_FIELDS } from '../client/system-fields'
 import type {
   ArrayField,
+  Block,
+  BlocksField,
   Field,
   RelationshipField,
   SlugField,
@@ -123,6 +125,10 @@ function validateFieldTargets(
       issues.push(...validateRelationshipTarget(where, name, field, collectionMap))
     } else if (field.type === 'group' || field.type === 'array') {
       issues.push(...validateFieldTargets(where, field.fields, collectionMap))
+    } else if (field.type === 'blocks') {
+      for (const block of field.blocks) {
+        issues.push(...validateFieldTargets(where, block.fields, collectionMap))
+      }
     }
   }
   return issues
@@ -281,6 +287,84 @@ function validateArrayField(
   return issues
 }
 
+function validateBlocksBounds(where: string, name: string, field: BlocksField): string[] {
+  const issues = [
+    ...validateMinRows(where, name, field.minRows),
+    ...validateMaxRows(where, name, field.maxRows),
+  ]
+  if (field.minRows !== undefined && field.maxRows !== undefined && field.minRows > field.maxRows) {
+    issues.push(
+      `${where}: blocks field "${name}" minRows (${field.minRows}) cannot be greater than maxRows (${field.maxRows}).`,
+    )
+  }
+  return issues
+}
+
+function validateBlockSlugs(where: string, name: string, blocks: readonly Block[]): string[] {
+  const issues: string[] = []
+  const seen = new Set<string>()
+  for (const block of blocks) {
+    if (!block.slug || typeof block.slug !== 'string') {
+      issues.push(`${where}: blocks field "${name}" contains a block with an invalid slug.`)
+      continue
+    }
+    if (seen.has(block.slug)) {
+      issues.push(`${where}: blocks field "${name}" has duplicate block slug "${block.slug}".`)
+    }
+    seen.add(block.slug)
+  }
+  return issues
+}
+
+function validateBlocksField(
+  where: string,
+  name: string,
+  field: BlocksField,
+  depth: number,
+): string[] {
+  const issues = validateBlocksBounds(where, name, field)
+  if (depth > 3) {
+    issues.push(`${where}: blocks field "${name}" exceeds maximum nesting depth of 3.`)
+  }
+  if (!field.blocks || field.blocks.length === 0) {
+    issues.push(`${where}: blocks field "${name}" must define at least one block.`)
+  } else {
+    issues.push(...validateBlockSlugs(where, name, field.blocks))
+  }
+  return issues
+}
+
+function validateBlocksContent(
+  where: string,
+  name: string,
+  field: BlocksField,
+  depth: number,
+): string[] {
+  const issues: string[] = []
+  if (!field.blocks) return issues
+  for (const block of field.blocks) {
+    if ('id' in block.fields) {
+      issues.push(
+        `${where} -> blocks "${name}" -> block "${block.slug}": field name "id" is reserved.`,
+      )
+    }
+    if ('blockType' in block.fields) {
+      issues.push(
+        `${where} -> blocks "${name}" -> block "${block.slug}": field name "blockType" is reserved.`,
+      )
+    }
+    issues.push(
+      ...validateFields(
+        `${where} -> blocks "${name}" -> block "${block.slug}"`,
+        block.fields,
+        false,
+        depth + 1,
+      ),
+    )
+  }
+  return issues
+}
+
 function validateField(
   where: string,
   name: string,
@@ -307,6 +391,12 @@ function validateField(
     return [
       ...validateArrayField(where, name, field, depth),
       ...validateFields(`${where} -> array "${name}"`, field.fields, false, depth + 1),
+    ]
+  }
+  if (field.type === 'blocks') {
+    return [
+      ...validateBlocksField(where, name, field, depth),
+      ...validateBlocksContent(where, name, field, depth),
     ]
   }
   return []

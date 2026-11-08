@@ -135,6 +135,47 @@ export interface ArrayField extends BaseField {
   admin?: ArrayFieldAdminOptions
 }
 
+export interface Block<
+  TSlug extends string = string,
+  TFields extends Record<string, Field> = Record<string, Field>,
+> {
+  slug: TSlug
+  labels?: { singular: string; plural?: string }
+  fields: TFields
+}
+
+export interface BlockConfig<
+  TSlug extends string = string,
+  TFields extends Record<string, Field> = Record<string, Field>,
+> {
+  slug: TSlug
+  labels?: { singular: string; plural?: string }
+  fields: TFields
+}
+
+export interface BlocksFieldAdminOptions {
+  description?: string
+}
+
+export interface BlocksFieldOptions {
+  label?: string
+  required?: boolean
+  blocks: readonly Block[]
+  minRows?: number
+  maxRows?: number
+  labels?: { singular: string; plural: string }
+  admin?: BlocksFieldAdminOptions
+}
+
+export interface BlocksField extends BaseField {
+  type: 'blocks'
+  blocks: readonly Block[]
+  minRows?: number
+  maxRows?: number
+  labels?: { singular: string; plural: string }
+  admin?: BlocksFieldAdminOptions
+}
+
 export type Field =
   | TextField
   | NumberField
@@ -149,5 +190,6 @@ export type Field =
   | UploadField
   | GroupField
   | ArrayField
+  | BlocksField
 export type FieldType = Field['type']
 export type Fields = Record<string, Field>

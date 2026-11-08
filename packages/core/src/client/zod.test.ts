@@ -601,6 +601,91 @@ describe('clientFieldToZod', () => {
       expect(schema.safeParse([{ title: 'One' }]).success).toBe(true)
     })
   })
+
+  describe('blocks fields', () => {
+    it('validates blocks as a discriminated union on blockType and assigns row id', () => {
+      const schema = clientFieldToZod({
+        name: 'layout',
+        type: 'blocks',
+        label: 'Layout',
+        required: false,
+        blocks: [
+          {
+            slug: 'hero',
+            labels: { singular: 'Hero', plural: 'Heroes' },
+            fields: [
+              { name: 'heading', type: 'text', label: 'Heading', required: true, maxLength: 80 },
+            ],
+          },
+          {
+            slug: 'cta',
+            labels: { singular: 'CTA', plural: 'CTAs' },
+            fields: [
+              { name: 'linkUrl', type: 'text', label: 'Link URL', required: true, maxLength: 200 },
+            ],
+          },
+        ],
+      })
+
+      expect(schema.safeParse(undefined).success).toBe(true)
+      expect(schema.safeParse(null).success).toBe(true)
+
+      const parsed = schema.parse([
+        { blockType: 'hero', heading: 'Welcome' },
+        { id: 'custom-cta-1234', blockType: 'cta', linkUrl: 'https://example.com' },
+      ]) as Array<{ id: string; blockType: string; heading?: string; linkUrl?: string }>
+
+      expect(parsed).toBeDefined()
+      expect(parsed[0]?.blockType).toBe('hero')
+      expect(parsed[0]?.heading).toBe('Welcome')
+      expect(parsed[0]?.id).toMatch(/^[0-9a-f]{16}$/)
+
+      expect(parsed[1]?.blockType).toBe('cta')
+      expect(parsed[1]?.linkUrl).toBe('https://example.com')
+      expect(parsed[1]?.id).toBe('custom-cta-1234')
+
+      // Invalid blockType
+      expect(schema.safeParse([{ blockType: 'unknown', heading: 'Test' }]).success).toBe(false)
+
+      // Missing required field for blockType
+      expect(schema.safeParse([{ blockType: 'hero' }]).success).toBe(false)
+      expect(schema.safeParse([{ blockType: 'cta' }]).success).toBe(false)
+    })
+
+    it('enforces minRows and maxRows on blocks fields', () => {
+      const schema = clientFieldToZod({
+        name: 'layout',
+        type: 'blocks',
+        label: 'Layout',
+        required: false,
+        minRows: 1,
+        maxRows: 2,
+        blocks: [
+          {
+            slug: 'item',
+            labels: { singular: 'Item', plural: 'Items' },
+            fields: [{ name: 'text', type: 'text', label: 'Text', required: true, maxLength: 50 }],
+          },
+        ],
+      })
+
+      expect(schema.safeParse([]).success).toBe(false)
+      expect(schema.safeParse([{ blockType: 'item', text: 'A' }]).success).toBe(true)
+      expect(
+        schema.safeParse([
+          { blockType: 'item', text: 'A' },
+          { blockType: 'item', text: 'B' },
+        ]).success,
+      ).toBe(true)
+      expect(
+        schema.safeParse([
+          { blockType: 'item', text: 'A' },
+          { blockType: 'item', text: 'B' },
+          { blockType: 'item', text: 'C' },
+        ]).success,
+      ).toBe(false)
+    })
+  })
 })
 
 describe('clientFieldsToZod', () => {
