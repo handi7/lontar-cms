@@ -152,6 +152,35 @@ const Pages = collection({
 
 Each item inside an `array` or `blocks` field automatically receives a stable string `id`, ensuring dependable React list keys and accurate version diffing. Nested `relationship` and `upload` fields are populated recursively up to the specified `depth`.
 
+### Conditional fields
+
+Fields can be shown or hidden based on other field values using `admin.condition`. Because `ClientConfig` is plain JSON, conditions are expressed declaratively using the query filter syntax:
+
+```ts
+const Posts = collection({
+  slug: 'posts',
+  fields: {
+    format: f.select({
+      options: ['standard', 'video', 'quote'],
+      defaultValue: 'standard',
+    }),
+    videoUrl: f.text({
+      required: true,
+      admin: {
+        condition: { format: { equals: 'video' } },
+      },
+    }),
+    quoteAuthor: f.text({
+      admin: {
+        condition: { format: { equals: 'quote' } },
+      },
+    }),
+  },
+})
+```
+
+Inside `array` or `blocks` rows, conditions resolve against sibling fields by default, or against top-level document fields using the `$root.` prefix (e.g. `{ '$root.status': { equals: 'published' } }`). Inactive fields are automatically omitted from required validation and cleared on save.
+
 ## Migrations and type generation
 
 ```bash
