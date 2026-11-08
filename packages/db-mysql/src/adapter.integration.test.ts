@@ -42,6 +42,21 @@ const tagsCollection: CollectionConfig = {
   },
 }
 
+const pagesCollection: CollectionConfig = {
+  slug: 'pages',
+  labels: { singular: 'Page', plural: 'Pages' },
+  fields: {
+    title: { type: 'text', required: true },
+    seo: {
+      type: 'group',
+      fields: {
+        metaTitle: { type: 'text', maxLength: 60 },
+        metaDescription: { type: 'textarea' },
+      },
+    },
+  },
+}
+
 const headerGlobal: GlobalConfig = {
   slug: 'header',
   fields: {
@@ -65,7 +80,7 @@ describe('mysqlAdapter (integration)', () => {
     const config: Config = {
       secret: 'test-secret',
       db: adapter,
-      collections: [postsCollection, categoriesCollection, tagsCollection],
+      collections: [postsCollection, categoriesCollection, tagsCollection, pagesCollection],
       globals: [headerGlobal],
     }
 
@@ -889,5 +904,132 @@ describe('mysqlAdapter (integration)', () => {
     expect(futureResults.docs).toHaveLength(1)
     expect(futureResults.docs[0]?.title).toBe('Far Future Post')
     expect(futureResults.docs[0]?.publishedAt).toBe('2100-12-31T23:59:59.000Z')
+  })
+
+  it('supports group fields: create, read, update, filter, and sort', async () => {
+    // 1. Create with group field
+    const page1 = await adapter.create({
+      collection: pagesCollection,
+      data: {
+        title: 'About Us',
+        seo: {
+          metaTitle: 'About Our Company',
+          metaDescription: 'We build awesome software',
+        },
+      },
+    })
+
+    expect(page1.id).toBeDefined()
+    expect(page1.title).toBe('About Us')
+    expect(page1.seo).toEqual({
+      metaTitle: 'About Our Company',
+      metaDescription: 'We build awesome software',
+    })
+    expect(page1).not.toHaveProperty('seo__metaTitle')
+    expect(page1).not.toHaveProperty('seo__metaDescription')
+
+    // 2. Find by ID
+    const fetched1 = await adapter.findByID({ collection: pagesCollection, id: page1.id })
+    expect(fetched1?.seo).toEqual({
+      metaTitle: 'About Our Company',
+      metaDescription: 'We build awesome software',
+    })
+
+    // 3. Create document without optional group field
+    const page2 = await adapter.create({
+      collection: pagesCollection,
+      data: {
+        title: 'Contact',
+      },
+    })
+    expect(page2.seo).toBeNull()
+
+    // 4. Create another document with group field
+    const page3 = await adapter.create({
+      collection: pagesCollection,
+      data: {
+        title: 'Blog',
+        seo: {
+          metaTitle: 'Blog Insights',
+          metaDescription: 'Articles and stories',
+        },
+      },
+    })
+    expect(page3.id).toBeDefined()
+
+    // 5. Query filtering with dot notation
+    const dotFilter = await adapter.find({
+      collection: pagesCollection,
+      page: 1,
+      limit: 10,
+      where: {
+        'seo.metaTitle': { equals: 'About Our Company' },
+      },
+    })
+    expect(dotFilter.docs).toHaveLength(1)
+    expect(dotFilter.docs[0]?.title).toBe('About Us')
+
+    // 6. Query filtering with nested object notation
+    const nestedFilter = await adapter.find({
+      collection: pagesCollection,
+      page: 1,
+      limit: 10,
+      where: {
+        seo: {
+          metaTitle: { equals: 'Blog Insights' },
+        },
+      },
+    })
+    expect(nestedFilter.docs).toHaveLength(1)
+    expect(nestedFilter.docs[0]?.title).toBe('Blog')
+
+    // 7. Sort by group field ascending and descending
+    const sortedAsc = await adapter.find({
+      collection: pagesCollection,
+      page: 1,
+      limit: 10,
+      sort: 'seo.metaTitle',
+    })
+    const titlesAsc = sortedAsc.docs.map((d) =>
+      d.seo ? (d.seo as { metaTitle?: string }).metaTitle : null,
+    )
+    expect(titlesAsc).toEqual([null, 'About Our Company', 'Blog Insights'])
+
+    const sortedDesc = await adapter.find({
+      collection: pagesCollection,
+      page: 1,
+      limit: 10,
+      sort: '-seo.metaTitle',
+    })
+    const titlesDesc = sortedDesc.docs.map((d) =>
+      d.seo ? (d.seo as { metaTitle?: string }).metaTitle : null,
+    )
+    expect(titlesDesc).toEqual(['Blog Insights', 'About Our Company', null])
+
+    // 8. Update group field
+    const updated = await adapter.update({
+      collection: pagesCollection,
+      id: page1.id,
+      data: {
+        seo: {
+          metaTitle: 'About Us - Rebranded',
+          metaDescription: 'Updated description',
+        },
+      },
+    })
+    expect(updated?.seo).toEqual({
+      metaTitle: 'About Us - Rebranded',
+      metaDescription: 'Updated description',
+    })
+
+    // 9. Clear group field with null
+    const cleared = await adapter.update({
+      collection: pagesCollection,
+      id: page1.id,
+      data: {
+        seo: null,
+      },
+    })
+    expect(cleared?.seo).toBeNull()
   })
 })

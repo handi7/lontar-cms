@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest'
-import { defineConfig, fields, type DatabaseAdapter } from '@lontar/core'
+import { CLIENT_CONFIG_VERSION, defineConfig, fields, type DatabaseAdapter } from '@lontar/core'
 import { createRouteHandlers } from './index'
 
 const mockFind = vi.fn().mockResolvedValue({
@@ -69,7 +69,7 @@ describe('createRouteHandlers', () => {
 
     expect(res.status).toBe(200)
     const json = (await res.json()) as { version: number; collections: Array<{ slug: string }> }
-    expect(json.version).toBe(1)
+    expect(json.version).toBe(CLIENT_CONFIG_VERSION)
     expect(json.collections[0]?.slug).toBe('posts')
   })
 

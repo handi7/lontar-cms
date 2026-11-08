@@ -16,7 +16,7 @@ import type {
   TextField,
   UploadField,
 } from '@lontar/core'
-import { getJunctionTableName } from './table'
+import { getJunctionTableName, flattenGroupFields } from './table'
 
 export function resolveDrizzleOrmMysqlCore(): string {
   try {
@@ -189,6 +189,12 @@ const FIELD_TYPE_IMPORTS: Record<string, string> = {
 }
 
 function collectFieldImports(field: Field, imports: Set<string>): void {
+  if (field.type === 'group') {
+    for (const subField of Object.values(field.fields)) {
+      collectFieldImports(subField, imports)
+    }
+    return
+  }
   const imp = FIELD_TYPE_IMPORTS[field.type]
   if (imp) {
     imports.add(imp)
@@ -250,7 +256,8 @@ function renderTableDefinition(
     lines.push("  sizes: json('sizes'),")
   }
 
-  for (const [name, field] of Object.entries(fields)) {
+  const flatFields = flattenGroupFields(fields)
+  for (const { name, field } of flatFields) {
     if (field.type === 'relationship' && field.hasMany) {
       continue
     }
@@ -356,7 +363,7 @@ function renderJunctionTable(tableName: string): string {
 function findJunctionTableNames(collections: readonly CollectionConfig[]): string[] {
   const names: string[] = []
   for (const col of collections) {
-    for (const [name, field] of Object.entries(col.fields)) {
+    for (const { name, field } of flattenGroupFields(col.fields)) {
       if (field.type === 'relationship' && field.hasMany) {
         names.push(getJunctionTableName(col.slug, name))
       }

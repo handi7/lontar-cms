@@ -152,7 +152,7 @@ approval on the `npm` environment. Don't run `pnpm publish` by hand; see `docs/r
 - [ ] **M7: Complex fields** (tracking in #151)
   - [x] #152 ADR: nested field storage and querying (done)
   - [x] #153 ADR: declarative conditional fields (done)
-  - [ ] #154 `group` field
+  - [x] #154 `group` field (done)
   - [ ] #155 `array` field
   - [ ] #156 `blocks` field
   - [ ] #157 Relationship and upload fields inside nested fields

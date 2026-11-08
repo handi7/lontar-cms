@@ -68,6 +68,25 @@ describe('fields', () => {
       relationTo: 'media',
       required: true,
     })
+    expect(
+      f.group({
+        fields: {
+          metaTitle: f.text({ required: true }),
+          metaDescription: f.textarea(),
+        },
+      }),
+    ).toStrictEqual({
+      type: 'group',
+      fields: {
+        metaTitle: { type: 'text', required: true },
+        metaDescription: { type: 'textarea' },
+      },
+    })
+  })
+
+  it('throws when group field has no fields object', () => {
+    // @ts-expect-error missing fields
+    expect(() => f.group({})).toThrow('fields')
   })
 
   it('throws when relationship field has no relationTo', () => {
@@ -204,6 +223,41 @@ describe('InferDoc', () => {
       updatedAt: string
       featuredImage: number
       thumbnail: number | null
+    }>()
+  })
+
+  it('infers nested group fields correctly', () => {
+    const pages = collection({
+      slug: 'pages',
+      fields: {
+        title: f.text({ required: true }),
+        seo: f.group({
+          fields: {
+            metaTitle: f.text({ required: true }),
+            metaDescription: f.textarea(),
+          },
+        }),
+        header: f.group({
+          required: true,
+          fields: {
+            bannerText: f.text({ required: true }),
+          },
+        }),
+      },
+    })
+
+    docOf(pages).toEqualTypeOf<{
+      id: number
+      createdAt: string
+      updatedAt: string
+      title: string
+      seo: {
+        metaTitle: string
+        metaDescription: string | null
+      } | null
+      header: {
+        bannerText: string
+      }
     }>()
   })
 })

@@ -1,12 +1,12 @@
 import { describe, expect, it, vi, afterEach } from 'vitest'
 import { act, render, screen, cleanup } from '@testing-library/react'
 import { useInsertionEffect, useState } from 'react'
-import type { ClientConfig } from '@lontar/core/client'
+import { CLIENT_CONFIG_VERSION, type ClientConfig } from '@lontar/core/client'
 import { Admin } from '../Admin'
 import { createAdminBrowserHistory } from './history'
 
 const mockConfig: ClientConfig = {
-  version: 1,
+  version: CLIENT_CONFIG_VERSION,
   collections: [
     {
       slug: 'posts',

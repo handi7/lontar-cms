@@ -100,6 +100,17 @@ export interface UploadField extends BaseField {
   relationTo: string
 }
 
+export interface GroupFieldOptions {
+  label?: string
+  required?: boolean
+  fields: Record<string, Field>
+}
+
+export interface GroupField extends BaseField {
+  type: 'group'
+  fields: Record<string, Field>
+}
+
 export type Field =
   | TextField
   | NumberField
@@ -112,5 +123,6 @@ export type Field =
   | RichTextField
   | RelationshipField
   | UploadField
+  | GroupField
 export type FieldType = Field['type']
 export type Fields = Record<string, Field>

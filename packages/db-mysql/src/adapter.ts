@@ -25,10 +25,12 @@ import {
   type Config,
   type DatabaseAdapter,
   type DocumentData,
+  type Field,
   type Fields,
   type FilterOperator,
   type FindArgs,
   type GlobalConfig,
+  type GroupField,
   type PaginatedDocs,
   type SortItem,
   type StoredDoc,
@@ -38,6 +40,7 @@ import { authTables } from './schema/auth'
 import { generateSchemaFile } from './schema/generator'
 import {
   collectionToTable,
+  flattenGroupFields,
   getCollectionJunctionTables,
   globalToTable,
   type DynamicTable,
@@ -57,7 +60,58 @@ export type MysqlAdapter = DatabaseAdapter & {
 type InsertValues = Parameters<ReturnType<ReturnType<typeof drizzle>['insert']>['values']>[0]
 type UpdateSetValues = Parameters<ReturnType<ReturnType<typeof drizzle>['update']>['set']>[0]
 
-function toStoredDoc(row: Record<string, unknown>): StoredDoc {
+function unflattenSubField(
+  row: Record<string, unknown>,
+  colName: string,
+  subField: Field,
+): { value: unknown; hasValue: boolean } {
+  if (subField.type === 'group') {
+    const nested = unflattenGroupField(row, colName, subField)
+    return { value: nested, hasValue: nested !== null }
+  }
+  const val = row[colName]
+  const value = val instanceof Date ? val.toISOString() : (val ?? null)
+  return { value, hasValue: val !== null && val !== undefined }
+}
+
+function unflattenGroupField(
+  row: Record<string, unknown>,
+  prefix: string,
+  groupField: GroupField,
+): Record<string, unknown> | null {
+  const result: Record<string, unknown> = {}
+  let hasAnyNonNull = false
+  for (const [subName, subField] of Object.entries(groupField.fields)) {
+    const colName = `${prefix}__${subName}`
+    const { value, hasValue } = unflattenSubField(row, colName, subField)
+    result[subName] = value
+    if (hasValue) {
+      hasAnyNonNull = true
+    }
+  }
+  if (!hasAnyNonNull && !groupField.required) {
+    return null
+  }
+  return result
+}
+
+function unflattenDoc(doc: Record<string, unknown>, fields?: Fields): Record<string, unknown> {
+  if (!fields) return doc
+  const result: Record<string, unknown> = { ...doc }
+  for (const [fieldName, field] of Object.entries(fields)) {
+    if (field.type === 'group') {
+      result[fieldName] = unflattenGroupField(doc, fieldName, field)
+    }
+  }
+  for (const key of Object.keys(result)) {
+    if (key.includes('__')) {
+      delete result[key]
+    }
+  }
+  return result
+}
+
+function toStoredDoc(row: Record<string, unknown>, fields?: Fields): StoredDoc {
   const converted: Record<string, unknown> = {}
   for (const [key, value] of Object.entries(row)) {
     if (value instanceof Date) {
@@ -66,12 +120,13 @@ function toStoredDoc(row: Record<string, unknown>): StoredDoc {
       converted[key] = value
     }
   }
-  return {
+  const baseDoc = {
     ...converted,
     id: Number(row.id),
     createdAt: row.createdAt instanceof Date ? row.createdAt.toISOString() : String(row.createdAt),
     updatedAt: row.updatedAt instanceof Date ? row.updatedAt.toISOString() : String(row.updatedAt),
   }
+  return unflattenDoc(baseDoc, fields) as StoredDoc
 }
 
 function normalizeDateString(str: string): string {
@@ -118,18 +173,58 @@ function sanitizeFieldValue(
   return value
 }
 
+function flattenGroupValue(
+  groupField: GroupField,
+  val: unknown,
+  colName: string,
+): Record<string, unknown> {
+  const result: Record<string, unknown> = {}
+  if (val === null) {
+    const flatGroup = flattenGroupFields(groupField.fields, colName)
+    for (const flatCol of flatGroup) {
+      result[flatCol.name] = null
+    }
+  } else if (val && typeof val === 'object') {
+    Object.assign(result, flattenData(groupField.fields, val as Record<string, unknown>, colName))
+  }
+  return result
+}
+
+function flattenFieldEntry(
+  result: Record<string, unknown>,
+  field: Field,
+  val: unknown,
+  colName: string,
+): void {
+  if (field.type === 'group') {
+    Object.assign(result, flattenGroupValue(field, val, colName))
+  } else if (!(field.type === 'relationship' && field.hasMany)) {
+    result[colName] = sanitizeFieldValue(field, val)
+  }
+}
+
+function flattenData(
+  fields: Fields,
+  data: Record<string, unknown>,
+  prefix = '',
+): Record<string, unknown> {
+  const result: Record<string, unknown> = {}
+  for (const [name, field] of Object.entries(fields)) {
+    if (!Object.hasOwn(data, name)) continue
+    const colName = prefix ? `${prefix}__${name}` : name
+    flattenFieldEntry(result, field, data[name], colName)
+  }
+  return result
+}
+
 function sanitizeData(schema: { fields: Fields }, data: DocumentData): DocumentData {
-  const clean: DocumentData = {}
+  const filteredData: Record<string, unknown> = {}
   for (const [key, value] of Object.entries(data)) {
     if (key !== 'id' && key !== 'createdAt' && key !== 'updatedAt') {
-      const field = schema.fields[key]
-      if (field?.type === 'relationship' && field.hasMany) {
-        continue
-      }
-      clean[key] = sanitizeFieldValue(field, value)
+      filteredData[key] = value
     }
   }
-  return clean
+  return flattenData(schema.fields, filteredData)
 }
 
 function castSystemField(fieldName: string, value: unknown): unknown {
@@ -167,11 +262,33 @@ function castConfigField(
   return value
 }
 
+function resolveField(fields: Fields, fieldPath: string): Field | undefined {
+  const parts = fieldPath.includes('.') ? fieldPath.split('.') : fieldPath.split('__')
+  let currentFields: Fields = fields
+
+  for (let i = 0; i < parts.length; i++) {
+    const part = parts[i]
+    if (!part) return undefined
+    const f: Field | undefined = currentFields[part]
+    if (!f) return undefined
+    if (i === parts.length - 1) {
+      return f
+    }
+    if (f.type === 'group') {
+      currentFields = f.fields
+    } else {
+      return undefined
+    }
+  }
+  return undefined
+}
+
 function castFieldValue(collection: CollectionConfig, fieldName: string, value: unknown): unknown {
   if (value === null || value === undefined) return value
   const sysVal = castSystemField(fieldName, value)
   if (sysVal !== undefined) return sysVal
-  return castConfigField(collection.fields[fieldName], value)
+  const field = resolveField(collection.fields, fieldName)
+  return castConfigField(field, value)
 }
 
 function buildBasicCondition(
@@ -293,6 +410,35 @@ function parseObjectFilterConditions(
   return conditions
 }
 
+function isGroupFilterObject(
+  field: Field | undefined,
+  filter: unknown,
+): filter is Record<string, unknown> {
+  return (
+    field?.type === 'group' &&
+    filter !== null &&
+    typeof filter === 'object' &&
+    !Array.isArray(filter) &&
+    !(filter instanceof Date)
+  )
+}
+
+function parseGroupConditions(
+  collection: CollectionConfig,
+  table: DynamicTable,
+  junctionTables: Record<string, JunctionTable>,
+  fieldName: string,
+  filter: Record<string, unknown>,
+): SQL[] {
+  const conditions: SQL[] = []
+  for (const [subName, subVal] of Object.entries(filter)) {
+    if (subVal === undefined) continue
+    const nestedPath = `${fieldName}.${subName}`
+    conditions.push(...parseFieldConditions(collection, table, junctionTables, nestedPath, subVal))
+  }
+  return conditions
+}
+
 function parseFieldConditions(
   collection: CollectionConfig,
   table: DynamicTable,
@@ -300,13 +446,19 @@ function parseFieldConditions(
   fieldName: string,
   filter: unknown,
 ): SQL[] {
-  const field = collection.fields[fieldName]
-  if (field?.type === 'relationship' && field.hasMany) {
-    return parseHasManyConditions(table, junctionTables[fieldName], filter)
+  const field = resolveField(collection.fields, fieldName)
+  if (isGroupFilterObject(field, filter)) {
+    return parseGroupConditions(collection, table, junctionTables, fieldName, filter)
   }
 
-  if (!Object.hasOwn(table, fieldName)) return []
-  const column = table[fieldName]
+  const colName = fieldName.replace(/\./g, '__')
+  if (field?.type === 'relationship' && field.hasMany) {
+    const jTable = junctionTables[colName] || junctionTables[fieldName]
+    return parseHasManyConditions(table, jTable, filter)
+  }
+
+  if (!Object.hasOwn(table, colName)) return []
+  const column = table[colName]
   if (!column) return []
 
   if (filter === null || typeof filter !== 'object') {
@@ -387,8 +539,9 @@ function resolveOrderBy(table: DynamicTable, sort?: string | SortItem[]): SQL[] 
 
   const orderByList: SQL[] = []
   for (const item of sortItems) {
-    if (!Object.hasOwn(table, item.field)) continue
-    const column = table[item.field]
+    const colName = item.field.replace(/\./g, '__')
+    if (!Object.hasOwn(table, colName)) continue
+    const column = table[colName]
     if (column) {
       orderByList.push(item.direction === 'desc' ? desc(column) : asc(column))
     }
@@ -527,7 +680,7 @@ async function findDocByID(
       Record<string, unknown> | undefined,
     ]
     if (!row) return null
-    const doc = toStoredDoc(row)
+    const doc = toStoredDoc(row, collection.fields)
     await populateHasManyRelations(executor, caches, collection, [doc])
     return doc
   } catch (err) {
@@ -669,7 +822,7 @@ async function findDocs(
 
     const query = buildFindDocsQuery(executor, table, whereSql, sort, safeLimit, offset)
     const rows = (await query) as Record<string, unknown>[]
-    const docs = rows.map(toStoredDoc)
+    const docs = rows.map((r) => toStoredDoc(r, collection.fields))
     await populateHasManyRelations(executor, caches, collection, docs)
     return {
       docs,
@@ -693,7 +846,7 @@ async function findGlobalDoc(
     const [row] = (await executor.select().from(table).limit(1)) as [
       Record<string, unknown> | undefined,
     ]
-    return row ? toStoredDoc(row) : null
+    return row ? toStoredDoc(row, global.fields) : null
   } catch (err) {
     handleDatabaseError(err, toErrorContext(global))
   }

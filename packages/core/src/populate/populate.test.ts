@@ -9,7 +9,7 @@ function createMockAdapter(docsByCollection: Record<string, StoredDoc[]>): Datab
     find({ collection, where }): Promise<PaginatedDocs> {
       let items = (docsByCollection[collection.slug] ?? []).map((d) => ({ ...d }))
       if (where?.id && typeof where.id === 'object' && 'in' in where.id) {
-        const inIds = Array.isArray(where.id.in) ? where.id.in : []
+        const inIds = Array.isArray(where.id.in) ? (where.id.in as unknown[]) : []
         items = items.filter((item) => inIds.includes(item.id))
       }
       return Promise.resolve({

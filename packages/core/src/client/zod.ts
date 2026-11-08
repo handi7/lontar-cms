@@ -4,6 +4,7 @@ import type {
   ClientDateField,
   ClientEmailField,
   ClientField,
+  ClientGroupField,
   ClientNumberField,
   ClientRelationshipField,
   ClientRichTextField,
@@ -140,6 +141,9 @@ const zodByType = {
   },
   upload: (_field: ClientUploadField) => {
     return z.number().int().positive().max(MAX_INT_32)
+  },
+  group: (field: ClientGroupField) => {
+    return clientFieldsToZod(field.fields)
   },
 } satisfies { [K in ClientField['type']]: (field: Extract<ClientField, { type: K }>) => z.ZodType }
 

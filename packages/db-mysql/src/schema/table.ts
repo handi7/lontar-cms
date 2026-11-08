@@ -155,11 +155,35 @@ export function createJunctionTable(tableName: string): JunctionTable {
   ])
 }
 
+export interface FlattenedColumnField {
+  name: string
+  path: string[]
+  field: Field
+}
+
+export function flattenGroupFields(
+  fields: Fields,
+  prefix = '',
+  pathPrefix: string[] = [],
+): FlattenedColumnField[] {
+  const result: FlattenedColumnField[] = []
+  for (const [name, field] of Object.entries(fields)) {
+    const colName = prefix ? `${prefix}__${name}` : name
+    const currentPath = [...pathPrefix, name]
+    if (field.type === 'group') {
+      result.push(...flattenGroupFields(field.fields, colName, currentPath))
+    } else {
+      result.push({ name: colName, path: currentPath, field })
+    }
+  }
+  return result
+}
+
 export function getCollectionJunctionTables(
   collection: CollectionConfig,
 ): Record<string, JunctionTable> {
   const tables: Record<string, JunctionTable> = {}
-  for (const [name, field] of Object.entries(collection.fields)) {
+  for (const { name, field } of flattenGroupFields(collection.fields)) {
     if (field.type === 'relationship' && field.hasMany) {
       const tableName = getJunctionTableName(collection.slug, name)
       tables[name] = createJunctionTable(tableName)
@@ -187,7 +211,8 @@ function createTable(slug: string, fields: Fields, isUpload = false): DynamicTab
     addUploadColumns(columns)
   }
 
-  for (const [name, field] of Object.entries(fields)) {
+  const flatFields = flattenGroupFields(fields)
+  for (const { name, field } of flatFields) {
     if (field.type === 'relationship' && field.hasMany) {
       continue
     }

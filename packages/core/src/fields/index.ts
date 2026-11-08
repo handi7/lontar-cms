@@ -2,6 +2,7 @@ import type {
   CheckboxField,
   DateField,
   EmailField,
+  GroupField,
   NumberField,
   RelationshipField,
   RichTextField,
@@ -70,6 +71,13 @@ function upload<const O extends Options<UploadField>>(options: O): O & { type: '
   return { ...options, type: 'upload' }
 }
 
+function group<const O extends Options<GroupField>>(options: O): O & { type: 'group' } {
+  if (!options || typeof options.fields !== 'object' || options.fields === null) {
+    throw new Error('Group field requires a "fields" object')
+  }
+  return { ...options, type: 'group' }
+}
+
 export const fields = {
   text,
   number,
@@ -82,4 +90,5 @@ export const fields = {
   richText,
   relationship,
   upload,
+  group,
 }

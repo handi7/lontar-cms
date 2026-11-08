@@ -67,6 +67,10 @@ export function formatFieldForForm(f: ClientField, val: unknown): unknown {
   if (f.type === 'relationship') {
     return normalizeRelationshipValue(val, f.hasMany)
   }
+  if (f.type === 'group') {
+    if (!val || typeof val !== 'object') return val
+    return formatDocForForm(f.fields, val as Record<string, unknown>)
+  }
   return val
 }
 
@@ -89,14 +93,25 @@ export function formatDocForSubmit(
 ): Record<string, unknown> {
   const formatted = { ...data }
   for (const f of fields) {
-    if (f.name in formatted && f.type === 'date') {
-      formatted[f.name] = formatDateForSubmit(formatted[f.name])
+    if (f.name in formatted) {
+      if (f.type === 'date') {
+        formatted[f.name] = formatDateForSubmit(formatted[f.name])
+      } else if (f.type === 'group' && formatted[f.name] && typeof formatted[f.name] === 'object') {
+        formatted[f.name] = formatDocForSubmit(
+          f.fields,
+          formatted[f.name] as Record<string, unknown>,
+        )
+      }
     }
   }
   return formatted
 }
 
 export function getFieldDefault(f: ClientField): unknown {
+  if (f.type === 'group') {
+    const subDefaults = computeDefaultValues(f.fields)
+    return Object.keys(subDefaults).length > 0 ? subDefaults : undefined
+  }
   if ('defaultValue' in f && f.defaultValue !== undefined) {
     if (f.type === 'date') {
       return formatDateForInput(f.defaultValue)

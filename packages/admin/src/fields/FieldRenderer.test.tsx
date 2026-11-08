@@ -756,3 +756,124 @@ describe('select field payload', () => {
     expect((await submit(result)).status).toBe('')
   })
 })
+
+describe('group field rendering and binding', () => {
+  afterEach(() => {
+    cleanup()
+  })
+
+  it('renders a fieldset with legend and child fields', () => {
+    render(
+      <FormWrapper>
+        {({ control, register }) => (
+          <FieldRenderer
+            field={{
+              name: 'seo',
+              type: 'group',
+              label: 'SEO Settings',
+              required: true,
+              fields: [
+                { name: 'metaTitle', type: 'text', label: 'Meta Title', required: true },
+                {
+                  name: 'metaDescription',
+                  type: 'textarea',
+                  label: 'Meta Description',
+                  required: false,
+                },
+              ],
+            }}
+            control={control}
+            register={register}
+          />
+        )}
+      </FormWrapper>,
+    )
+
+    expect(screen.getByText('SEO Settings')).toBeTruthy()
+    expect(screen.getByLabelText(/Meta Title/)).toBeTruthy()
+    expect(screen.getByLabelText(/Meta Description/)).toBeTruthy()
+  })
+
+  it('submits nested object with dot-notated registered inputs', async () => {
+    let submittedData: Record<string, unknown> | undefined
+
+    render(
+      <FormWrapper
+        defaultValues={{ seo: { metaTitle: 'Initial Title', metaDescription: 'Initial Desc' } }}
+      >
+        {({ control, register, handleSubmit }) => (
+          <>
+            <FieldRenderer
+              field={{
+                name: 'seo',
+                type: 'group',
+                label: 'SEO',
+                required: false,
+                fields: [
+                  { name: 'metaTitle', type: 'text', label: 'Meta Title', required: true },
+                  {
+                    name: 'metaDescription',
+                    type: 'textarea',
+                    label: 'Meta Description',
+                    required: false,
+                  },
+                ],
+              }}
+              control={control}
+              register={register}
+            />
+            <button
+              type="button"
+              onClick={() => {
+                void handleSubmit((data) => {
+                  submittedData = data
+                })()
+              }}
+            >
+              Save
+            </button>
+          </>
+        )}
+      </FormWrapper>,
+    )
+
+    const titleInput = screen.getByLabelText(/Meta Title/)
+    fireEvent.change(titleInput, { target: { value: 'Updated Title' } })
+
+    fireEvent.click(screen.getByText('Save'))
+
+    await waitFor(() => {
+      expect(submittedData).toEqual({
+        seo: {
+          metaTitle: 'Updated Title',
+          metaDescription: 'Initial Desc',
+        },
+      })
+    })
+  })
+
+  it('displays nested validation error on subfield', () => {
+    render(
+      <FormWrapper>
+        {({ control, register }) => (
+          <FieldRenderer
+            field={{
+              name: 'seo',
+              type: 'group',
+              label: 'SEO',
+              required: false,
+              fields: [{ name: 'metaTitle', type: 'text', label: 'Meta Title', required: true }],
+            }}
+            control={control}
+            register={register}
+            error={{
+              metaTitle: { message: 'Meta title is required' },
+            }}
+          />
+        )}
+      </FormWrapper>,
+    )
+
+    expect(screen.getByText('Meta title is required')).toBeTruthy()
+  })
+})

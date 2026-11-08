@@ -489,6 +489,44 @@ describe('clientFieldToZod', () => {
       expect(schema.safeParse(2147483648).success).toBe(false)
     })
   })
+
+  describe('group', () => {
+    it('validates an optional group: passes when omitted, null, or valid object', () => {
+      const schema = clientFieldToZod({
+        name: 'seo',
+        type: 'group',
+        label: 'SEO',
+        required: false,
+        fields: [
+          { name: 'title', type: 'text', label: 'Title', required: true, maxLength: 60 },
+          { name: 'desc', type: 'text', label: 'Desc', required: false, maxLength: 160 },
+        ],
+      })
+
+      expect(schema.safeParse(undefined).success).toBe(true)
+      expect(schema.safeParse(null).success).toBe(true)
+      expect(schema.safeParse({ title: 'My Title' }).success).toBe(true)
+      expect(schema.safeParse({ title: 'My Title', desc: 'My Desc' }).success).toBe(true)
+      // When group is provided as object, required subfield 'title' must be present
+      expect(schema.safeParse({}).success).toBe(false)
+      expect(schema.safeParse({ desc: 'No title' }).success).toBe(false)
+    })
+
+    it('validates a required group: rejects null and undefined', () => {
+      const schema = clientFieldToZod({
+        name: 'seo',
+        type: 'group',
+        label: 'SEO',
+        required: true,
+        fields: [{ name: 'title', type: 'text', label: 'Title', required: true, maxLength: 60 }],
+      })
+
+      expect(schema.safeParse(undefined).success).toBe(false)
+      expect(schema.safeParse(null).success).toBe(false)
+      expect(schema.safeParse({ title: 'Valid' }).success).toBe(true)
+      expect(schema.safeParse({}).success).toBe(false)
+    })
+  })
 })
 
 describe('clientFieldsToZod', () => {

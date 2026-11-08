@@ -6,6 +6,7 @@ import type {
   ClientDateField,
   ClientEmailField,
   ClientField,
+  ClientGroupField,
   ClientNumberField,
   ClientRichTextField,
   ClientSelectField,
@@ -34,10 +35,11 @@ export interface FieldRendererProps {
   field: ClientField
   control: Control<Record<string, unknown>>
   register: UseFormRegister<Record<string, unknown>>
-  error?: { message?: string }
+  error?: { message?: string } | Record<string, unknown>
   setValue?: UseFormSetValue<Record<string, unknown>>
   watch?: UseFormWatch<Record<string, unknown>>
   mode?: 'create' | 'edit'
+  pathPrefix?: string
 }
 
 /**
@@ -483,17 +485,98 @@ function FieldInput({
   return <StandardFieldInput field={field} control={control} a11y={a11y} />
 }
 
-export function FieldRenderer({
+interface GroupFieldRendererProps {
+  field: ClientGroupField
+  fullName: string
+  control: Control<Record<string, unknown>>
+  register: UseFormRegister<Record<string, unknown>>
+  error?: { message?: string } | Record<string, unknown>
+  setValue?: UseFormSetValue<Record<string, unknown>>
+  watch?: UseFormWatch<Record<string, unknown>>
+  mode?: 'create' | 'edit'
+}
+
+function GroupFieldRenderer({
   field,
+  fullName,
   control,
   register,
   error,
   setValue,
   watch,
   mode,
-}: FieldRendererProps) {
-  const errorId = `${field.name}-error`
-  const hasError = Boolean(error?.message)
+}: GroupFieldRendererProps) {
+  return (
+    <fieldset
+      className="lontar-field-group lt:rounded-lg lt:border lt:border-[var(--lontar-border)] lt:p-4 lt:flex lt:flex-col lt:gap-4"
+      data-group={fullName}
+    >
+      <legend className="lt:text-sm lt:font-semibold lt:text-[var(--lontar-text)] lt:px-1">
+        <span>{field.label}</span>
+        {field.required && (
+          <span className="lontar-required lt:ml-1 lt:text-[var(--lontar-destructive)]">*</span>
+        )}
+      </legend>
+      {field.fields.map((subField) => {
+        const subError =
+          error && typeof error === 'object' && Object.hasOwn(error, subField.name)
+            ? (error as Record<string, unknown>)[subField.name]
+            : undefined
+        return (
+          <FieldRenderer
+            key={subField.name}
+            field={subField}
+            control={control}
+            register={register}
+            setValue={setValue}
+            watch={watch}
+            mode={mode}
+            pathPrefix={fullName}
+            error={subError as { message?: string } | undefined}
+          />
+        )
+      })}
+    </fieldset>
+  )
+}
+
+function getErrorMessage(
+  error?: { message?: string } | Record<string, unknown>,
+): string | undefined {
+  if (
+    error &&
+    typeof error === 'object' &&
+    'message' in error &&
+    typeof error.message === 'string'
+  ) {
+    return error.message
+  }
+  return undefined
+}
+
+interface StandardFieldRendererProps {
+  field: ClientField
+  fullName: string
+  control: Control<Record<string, unknown>>
+  register: UseFormRegister<Record<string, unknown>>
+  errorMessage?: string
+  setValue?: UseFormSetValue<Record<string, unknown>>
+  watch?: UseFormWatch<Record<string, unknown>>
+  mode?: 'create' | 'edit'
+}
+
+function StandardFieldRenderer({
+  field,
+  fullName,
+  control,
+  register,
+  errorMessage,
+  setValue,
+  watch,
+  mode,
+}: StandardFieldRendererProps) {
+  const errorId = `${fullName}-error`
+  const hasError = Boolean(errorMessage)
   const a11y: FieldA11y = {
     describedBy: hasError ? errorId : undefined,
     invalid: hasError,
@@ -503,7 +586,7 @@ export function FieldRenderer({
   return (
     <Field className="lontar-field-group" data-invalid={hasError || undefined}>
       {field.type !== 'checkbox' && (
-        <FieldLabel htmlFor={field.name} className="lontar-label">
+        <FieldLabel htmlFor={fullName} className="lontar-label">
           <span>{field.label}</span>
           {field.required && <span className="lontar-required">*</span>}
         </FieldLabel>
@@ -520,8 +603,52 @@ export function FieldRenderer({
       <FieldError
         id={errorId}
         className="lontar-field-error"
-        errors={error ? [error] : undefined}
+        errors={errorMessage ? [{ message: errorMessage }] : undefined}
       />
     </Field>
+  )
+}
+
+export function FieldRenderer({
+  field,
+  control,
+  register,
+  error,
+  setValue,
+  watch,
+  mode,
+  pathPrefix,
+}: FieldRendererProps) {
+  const fullName = pathPrefix ? `${pathPrefix}.${field.name}` : field.name
+
+  if (field.type === 'group') {
+    return (
+      <GroupFieldRenderer
+        field={field}
+        fullName={fullName}
+        control={control}
+        register={register}
+        error={error}
+        setValue={setValue}
+        watch={watch}
+        mode={mode}
+      />
+    )
+  }
+
+  const boundField = pathPrefix ? { ...field, name: fullName } : field
+  const errorMessage = getErrorMessage(error)
+
+  return (
+    <StandardFieldRenderer
+      field={boundField}
+      fullName={fullName}
+      control={control}
+      register={register}
+      errorMessage={errorMessage}
+      setValue={setValue}
+      watch={watch}
+      mode={mode}
+    />
   )
 }

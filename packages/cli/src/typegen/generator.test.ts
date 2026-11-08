@@ -261,4 +261,52 @@ describe('generateTypes', () => {
     expect(output).toContain('export interface PostDoc {')
     expect(output).toContain('export interface PostGlobal {')
   })
+
+  it('generates nested types for group fields and nested group fields', () => {
+    const config: Config = {
+      secret: 'test-secret',
+      db: { name: 'mock' } as unknown as Config['db'],
+      collections: [
+        {
+          slug: 'pages',
+          fields: {
+            title: { type: 'text', required: true },
+            seo: {
+              type: 'group',
+              required: true,
+              fields: {
+                metaTitle: { type: 'text', required: true },
+                metaDescription: { type: 'textarea' },
+                og: {
+                  type: 'group',
+                  fields: {
+                    imageAlt: { type: 'text' },
+                  },
+                },
+              },
+            },
+          },
+        },
+      ],
+    }
+
+    const output = generateTypes(config)
+    expect(output).toContain('export interface Page {')
+    expect(output).toContain('  title: string')
+    expect(output).toContain('  seo: {')
+    expect(output).toContain('    metaTitle: string')
+    expect(output).toContain('    metaDescription?: string | null')
+    expect(output).toContain('    og?: {')
+    expect(output).toContain('      imageAlt?: string | null')
+    expect(output).toContain('    } | null')
+    expect(output).toContain('  }')
+
+    const transpileResult = ts.transpileModule(output, {
+      compilerOptions: {
+        module: ts.ModuleKind.ESNext,
+        target: ts.ScriptTarget.ES2022,
+      },
+    })
+    expect(transpileResult.outputText).toBeDefined()
+  })
 })
