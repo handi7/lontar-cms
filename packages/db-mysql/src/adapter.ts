@@ -184,47 +184,45 @@ function flattenGroupValue(
     for (const flatCol of flatGroup) {
       result[flatCol.name] = null
     }
-  } else if (val && typeof val === 'object') {
-    Object.assign(result, flattenData(groupField.fields, val as Record<string, unknown>, colName))
+    return result
+  }
+  if (!val || typeof val !== 'object') return result
+
+  for (const [subKey, subVal] of Object.entries(val as Record<string, unknown>)) {
+    const subField = groupField.fields[subKey]
+    if (!subField) continue
+    const fullCol = `${colName}__${subKey}`
+    if (subField.type === 'group') {
+      Object.assign(result, flattenGroupValue(subField, subVal, fullCol))
+    } else if (!(subField.type === 'relationship' && subField.hasMany)) {
+      result[fullCol] = sanitizeFieldValue(subField, subVal)
+    }
   }
   return result
 }
 
-function flattenFieldEntry(
-  result: Record<string, unknown>,
-  field: Field,
-  val: unknown,
-  colName: string,
-): void {
-  if (field.type === 'group') {
-    Object.assign(result, flattenGroupValue(field, val, colName))
-  } else if (!(field.type === 'relationship' && field.hasMany)) {
-    result[colName] = sanitizeFieldValue(field, val)
-  }
-}
-
-function flattenData(
+function sanitizeEntry(
+  clean: Record<string, unknown>,
   fields: Fields,
-  data: Record<string, unknown>,
-  prefix = '',
-): Record<string, unknown> {
-  const result: Record<string, unknown> = {}
-  for (const [name, field] of Object.entries(fields)) {
-    if (!Object.hasOwn(data, name)) continue
-    const colName = prefix ? `${prefix}__${name}` : name
-    flattenFieldEntry(result, field, data[name], colName)
+  key: string,
+  value: unknown,
+): void {
+  const field = fields[key]
+  if (field?.type === 'group') {
+    Object.assign(clean, flattenGroupValue(field, value, key))
+  } else if (!(field?.type === 'relationship' && field.hasMany)) {
+    clean[key] = sanitizeFieldValue(field, value)
   }
-  return result
 }
 
 function sanitizeData(schema: { fields: Fields }, data: DocumentData): DocumentData {
-  const filteredData: Record<string, unknown> = {}
+  const clean: DocumentData = {}
   for (const [key, value] of Object.entries(data)) {
     if (key !== 'id' && key !== 'createdAt' && key !== 'updatedAt') {
-      filteredData[key] = value
+      sanitizeEntry(clean, schema.fields, key, value)
     }
   }
-  return flattenData(schema.fields, filteredData)
+  return clean
 }
 
 function castSystemField(fieldName: string, value: unknown): unknown {
