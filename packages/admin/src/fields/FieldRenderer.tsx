@@ -4,6 +4,8 @@ import type { Control, UseFormRegister, UseFormSetValue, UseFormWatch } from 're
 import {
   generateRowId,
   type ClientArrayField,
+  type ClientBlock,
+  type ClientBlocksField,
   type ClientCheckboxField,
   type ClientDateField,
   type ClientEmailField,
@@ -23,6 +25,7 @@ import { Field, FieldError, FieldLabel } from '../components/ui/field'
 import { Checkbox } from '../components/ui/checkbox'
 import { Input } from '../components/ui/input'
 import { Label } from '../components/ui/label'
+import { Popover, PopoverContent, PopoverTrigger } from '../components/ui/popover'
 import {
   Select,
   SelectContent,
@@ -906,6 +909,338 @@ function ArrayFieldRenderer({
   )
 }
 
+interface BlockRowRendererProps {
+  block: ClientBlock
+  index: number
+  totalRows: number
+  minRows: number
+  maxRows: number
+  rowPath: string
+  control: Control<Record<string, unknown>>
+  register: UseFormRegister<Record<string, unknown>>
+  rowError?: Record<string, unknown>
+  setValue?: UseFormSetValue<Record<string, unknown>>
+  watch?: UseFormWatch<Record<string, unknown>>
+  mode?: 'create' | 'edit'
+  onMoveUp: () => void
+  onMoveDown: () => void
+  onRemove: () => void
+  onDuplicate: () => void
+}
+
+function getBlockRowLabel(
+  block: ClientBlock,
+  index: number,
+  rowPath: string,
+  watch?: UseFormWatch<Record<string, unknown>>,
+): string {
+  const blockTitle = block.labels?.singular || block.slug
+  if (watch) {
+    const firstTextField = block.fields.find(
+      (f) => f.type === 'text' || f.type === 'slug' || f.type === 'email',
+    )
+    if (firstTextField) {
+      const val: unknown = watch(`${rowPath}.${firstTextField.name}` as never)
+      if (typeof val === 'string' && val.trim().length > 0) {
+        return `${blockTitle} - ${val.trim()}`
+      }
+    }
+  }
+  return `${blockTitle} #${index + 1}`
+}
+
+function BlockRowRenderer({
+  block,
+  index,
+  totalRows,
+  minRows,
+  maxRows,
+  rowPath,
+  control,
+  register,
+  rowError,
+  setValue,
+  watch,
+  mode,
+  onMoveUp,
+  onMoveDown,
+  onRemove,
+  onDuplicate,
+}: BlockRowRendererProps) {
+  const [collapsed, setCollapsed] = useState(false)
+  const label = getBlockRowLabel(block, index, rowPath, watch)
+
+  useEffect(() => {
+    register(`${rowPath}.blockType` as never)
+  }, [register, rowPath])
+
+  return (
+    <div
+      className="lontar-block-row lt:rounded-md lt:border lt:border-[var(--lontar-border)] lt:bg-[var(--lontar-card)] lt:overflow-hidden"
+      data-block-row={index}
+      data-block-type={block.slug}
+    >
+      <div className="lt:flex lt:items-center lt:justify-between lt:gap-2 lt:px-3 lt:py-2 lt:bg-[var(--lontar-muted)]/50 lt:border-b lt:border-[var(--lontar-border)]">
+        <button
+          type="button"
+          onClick={() => setCollapsed(!collapsed)}
+          className="lt:flex lt:items-center lt:gap-2 lt:text-sm lt:font-medium lt:text-[var(--lontar-text)] lt:hover:text-[var(--lontar-text-primary)] lt:focus-visible:outline-none lt:cursor-pointer"
+          aria-expanded={!collapsed}
+          aria-label={`${collapsed ? 'Expand' : 'Collapse'} ${label}`}
+        >
+          {collapsed ? (
+            <ChevronRight className="lt:size-4 lt:text-[var(--lontar-muted-foreground)]" />
+          ) : (
+            <ChevronDown className="lt:size-4 lt:text-[var(--lontar-muted-foreground)]" />
+          )}
+          <span>{label}</span>
+        </button>
+
+        <div className="lt:flex lt:items-center lt:gap-1">
+          <Button
+            type="button"
+            variant="ghost"
+            size="icon"
+            className="lt:size-7"
+            disabled={index === 0}
+            onClick={(e) => {
+              e.stopPropagation()
+              onMoveUp()
+            }}
+            aria-label="Move block up"
+            title="Move block up"
+          >
+            <ArrowUp className="lt:size-3.5" />
+          </Button>
+          <Button
+            type="button"
+            variant="ghost"
+            size="icon"
+            className="lt:size-7"
+            disabled={index === totalRows - 1}
+            onClick={(e) => {
+              e.stopPropagation()
+              onMoveDown()
+            }}
+            aria-label="Move block down"
+            title="Move block down"
+          >
+            <ArrowDown className="lt:size-3.5" />
+          </Button>
+          <Button
+            type="button"
+            variant="ghost"
+            size="icon"
+            className="lt:size-7"
+            disabled={totalRows >= maxRows}
+            onClick={(e) => {
+              e.stopPropagation()
+              onDuplicate()
+            }}
+            aria-label="Duplicate block"
+            title="Duplicate block"
+          >
+            <Copy className="lt:size-3.5" />
+          </Button>
+          <Button
+            type="button"
+            variant="ghost"
+            size="icon"
+            className="lt:size-7 lt:text-[var(--lontar-destructive)] lt:hover:bg-[var(--lontar-destructive)]/10"
+            disabled={totalRows <= minRows}
+            onClick={(e) => {
+              e.stopPropagation()
+              onRemove()
+            }}
+            aria-label="Remove block"
+            title="Remove block"
+          >
+            <Trash2 className="lt:size-3.5" />
+          </Button>
+        </div>
+      </div>
+
+      {!collapsed && (
+        <div className="lt:p-4 lt:flex lt:flex-col lt:gap-4">
+          <input type="hidden" value={block.slug} {...register(`${rowPath}.blockType` as never)} />
+          {block.fields.map((subField) => {
+            const subError =
+              rowError && typeof rowError === 'object' && Object.hasOwn(rowError, subField.name)
+                ? rowError[subField.name]
+                : undefined
+            return (
+              <FieldRenderer
+                key={subField.name}
+                field={subField}
+                control={control}
+                register={register}
+                setValue={setValue}
+                watch={watch}
+                mode={mode}
+                pathPrefix={rowPath}
+                error={subError as { message?: string } | undefined}
+              />
+            )
+          })}
+        </div>
+      )}
+    </div>
+  )
+}
+
+function AddBlockPicker({
+  blocks,
+  disabled,
+  onSelectBlock,
+}: {
+  blocks: readonly ClientBlock[]
+  disabled: boolean
+  onSelectBlock: (block: ClientBlock) => void
+}) {
+  const [open, setOpen] = useState(false)
+
+  return (
+    <Popover open={open} onOpenChange={setOpen}>
+      <PopoverTrigger asChild>
+        <Button
+          type="button"
+          variant="outline"
+          size="sm"
+          disabled={disabled}
+          className="lt:flex lt:items-center lt:gap-1.5"
+          aria-label="Add block"
+        >
+          <Plus className="lt:size-4" />
+          <span>Add Block</span>
+        </Button>
+      </PopoverTrigger>
+      <PopoverContent className="lt:w-56 lt:p-1 lt:flex lt:flex-col lt:gap-0.5" align="start">
+        {blocks.map((block) => (
+          <button
+            key={block.slug}
+            type="button"
+            className="lt:w-full lt:flex lt:items-center lt:justify-between lt:px-3 lt:py-2 lt:text-sm lt:rounded-sm lt:hover:bg-[var(--lontar-accent)] lt:text-left lt:cursor-pointer lt:text-[var(--lontar-text)]"
+            onClick={() => {
+              onSelectBlock(block)
+              setOpen(false)
+            }}
+          >
+            <span>{block.labels?.singular || block.slug}</span>
+          </button>
+        ))}
+      </PopoverContent>
+    </Popover>
+  )
+}
+
+interface BlocksFieldRendererProps {
+  field: ClientBlocksField
+  fullName: string
+  control: Control<Record<string, unknown>>
+  register: UseFormRegister<Record<string, unknown>>
+  error?: { message?: string } | Record<string, unknown>
+  setValue?: UseFormSetValue<Record<string, unknown>>
+  watch?: UseFormWatch<Record<string, unknown>>
+  mode?: 'create' | 'edit'
+}
+
+function BlocksFieldRenderer({
+  field,
+  fullName,
+  control,
+  register,
+  error,
+  setValue,
+  watch,
+  mode,
+}: BlocksFieldRendererProps) {
+  const { fields, append, remove, move, insert } = useFieldArray({
+    control,
+    name: fullName as never,
+  })
+
+  const minRows = field.minRows ?? (field.required ? 1 : 0)
+  const maxRows = field.maxRows ?? 100
+  const rootErrorMessage = getErrorMessage(error)
+  const hasBounds = field.minRows !== undefined || field.maxRows !== undefined
+
+  return (
+    <fieldset
+      className="lontar-field-blocks lt:rounded-lg lt:border lt:border-[var(--lontar-border)] lt:p-4 lt:flex lt:flex-col lt:gap-4"
+      data-blocks={fullName}
+    >
+      <ArrayHeader
+        label={field.label}
+        required={field.required}
+        description={field.admin?.description}
+        rowCount={fields.length}
+        maxRows={maxRows}
+        hasBounds={hasBounds}
+      />
+
+      {rootErrorMessage && (
+        <FieldError className="lontar-field-error" errors={[{ message: rootErrorMessage }]} />
+      )}
+
+      <div className="lt:flex lt:flex-col lt:gap-3">
+        {fields.map((item, index) => {
+          const rowPath = `${fullName}.${index}`
+          const rowError = getRowError(error, index)
+          const watchedType = watch
+            ? (watch(`${rowPath}.blockType` as never) as unknown as string | undefined)
+            : undefined
+          const itemType = (item as { blockType?: string }).blockType
+          const blockType = watchedType || itemType
+          const blockDef = field.blocks.find((b) => b.slug === blockType) || field.blocks[0]
+
+          if (!blockDef) return null
+
+          return (
+            <BlockRowRenderer
+              key={item.id}
+              block={blockDef}
+              index={index}
+              totalRows={fields.length}
+              minRows={minRows}
+              maxRows={maxRows}
+              rowPath={rowPath}
+              control={control}
+              register={register}
+              rowError={rowError}
+              setValue={setValue}
+              watch={watch}
+              mode={mode}
+              onMoveUp={() => move(index, index - 1)}
+              onMoveDown={() => move(index, index + 1)}
+              onRemove={() => remove(index)}
+              onDuplicate={() => {
+                const currentData: unknown = watch ? watch(rowPath as never) : undefined
+                const cloned: Record<string, unknown> =
+                  currentData && typeof currentData === 'object'
+                    ? { ...(currentData as Record<string, unknown>) }
+                    : { ...computeDefaultValues(blockDef.fields), blockType: blockDef.slug }
+                cloned.id = generateRowId()
+                insert(index + 1, cloned)
+              }}
+            />
+          )
+        })}
+      </div>
+
+      <div>
+        <AddBlockPicker
+          blocks={field.blocks}
+          disabled={fields.length >= maxRows}
+          onSelectBlock={(block) => {
+            const defaults = computeDefaultValues(block.fields)
+            append({ ...defaults, id: generateRowId(), blockType: block.slug })
+          }}
+        />
+      </div>
+    </fieldset>
+  )
+}
+
 interface StandardFieldRendererProps {
   field: ClientField
   fullName: string
@@ -991,6 +1326,21 @@ export function FieldRenderer({
   if (field.type === 'array') {
     return (
       <ArrayFieldRenderer
+        field={field}
+        fullName={fullName}
+        control={control}
+        register={register}
+        error={error}
+        setValue={setValue}
+        watch={watch}
+        mode={mode}
+      />
+    )
+  }
+
+  if (field.type === 'blocks') {
+    return (
+      <BlocksFieldRenderer
         field={field}
         fullName={fullName}
         control={control}

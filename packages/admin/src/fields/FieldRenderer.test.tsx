@@ -4,6 +4,7 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { useForm } from 'react-hook-form'
 import type {
   ClientArrayField,
+  ClientBlocksField,
   ClientCheckboxField,
   ClientDateField,
   ClientEmailField,
@@ -1044,6 +1045,271 @@ describe('group field rendering and binding', () => {
 
       expect(screen.getByText('Must have at least 2 items')).toBeTruthy()
       expect(screen.getByText('Caption is required')).toBeTruthy()
+    })
+  })
+
+  describe('BlocksFieldRenderer', () => {
+    const blocksField: ClientBlocksField = {
+      name: 'layout',
+      type: 'blocks',
+      label: 'Page Layout',
+      required: false,
+      blocks: [
+        {
+          slug: 'hero',
+          labels: { singular: 'Hero', plural: 'Heroes' },
+          fields: [
+            { name: 'heading', type: 'text', label: 'Heading', required: true },
+            { name: 'subheading', type: 'text', label: 'Subheading', required: false },
+          ],
+        },
+        {
+          slug: 'cta',
+          labels: { singular: 'Call to Action', plural: 'Calls to Action' },
+          fields: [
+            { name: 'buttonText', type: 'text', label: 'Button Text', required: true },
+            { name: 'buttonUrl', type: 'text', label: 'Button URL', required: true },
+          ],
+        },
+      ],
+    }
+
+    it('renders empty blocks list with Add Block button', () => {
+      render(
+        <FormWrapper defaultValues={{ layout: [] }}>
+          {({ control, register, watch }) => (
+            <FieldRenderer
+              field={blocksField}
+              control={control}
+              register={register}
+              watch={watch}
+            />
+          )}
+        </FormWrapper>,
+      )
+
+      expect(screen.getByText('Page Layout')).toBeTruthy()
+      expect(screen.getByRole('button', { name: 'Add block' })).toBeTruthy()
+    })
+
+    it('adds blocks from the popover picker and updates form state', async () => {
+      let submittedData: Record<string, unknown> | null = null
+
+      render(
+        <FormWrapper defaultValues={{ layout: [] }}>
+          {({ control, register, watch, handleSubmit }) => (
+            <div>
+              <FieldRenderer
+                field={blocksField}
+                control={control}
+                register={register}
+                watch={watch}
+              />
+              <button
+                type="button"
+                onClick={() => {
+                  void handleSubmit((data) => {
+                    submittedData = data
+                  })()
+                }}
+              >
+                Save
+              </button>
+            </div>
+          )}
+        </FormWrapper>,
+      )
+
+      // Open popover by clicking Add block
+      const addBtn = screen.getByRole('button', { name: 'Add block' })
+      fireEvent.click(addBtn)
+
+      // Both block options should be in the popover
+      const heroChoice = screen.getByText('Hero')
+      expect(heroChoice).toBeTruthy()
+      expect(screen.getByText('Call to Action')).toBeTruthy()
+
+      // Choose Hero block
+      fireEvent.click(heroChoice)
+
+      // Heading input should appear
+      await waitFor(() => {
+        expect(screen.getByLabelText(/Heading/)).toBeTruthy()
+      })
+
+      fireEvent.change(screen.getByLabelText(/Heading/), {
+        target: { value: 'Welcome to our site' },
+      })
+
+      // Add a CTA block
+      fireEvent.click(screen.getByRole('button', { name: 'Add block' }))
+      const ctaChoice = screen.getByText('Call to Action')
+      fireEvent.click(ctaChoice)
+
+      await waitFor(() => {
+        expect(screen.getByLabelText(/Button Text/)).toBeTruthy()
+      })
+
+      fireEvent.change(screen.getByLabelText(/Button Text/), {
+        target: { value: 'Click Here' },
+      })
+      fireEvent.change(screen.getByLabelText(/Button URL/), {
+        target: { value: 'https://example.com' },
+      })
+
+      // Submit and verify blockType and field values
+      fireEvent.click(screen.getByText('Save'))
+
+      await waitFor(() => {
+        expect(submittedData).toMatchObject({
+          layout: [
+            {
+              blockType: 'hero',
+              heading: 'Welcome to our site',
+            },
+            {
+              blockType: 'cta',
+              buttonText: 'Click Here',
+              buttonUrl: 'https://example.com',
+            },
+          ],
+        })
+      })
+    })
+
+    it('supports reordering, duplicating, and removing blocks', async () => {
+      let submittedData: Record<string, unknown> | null = null
+
+      render(
+        <FormWrapper
+          defaultValues={{
+            layout: [
+              { id: '1', blockType: 'hero', heading: 'First Hero' },
+              { id: '2', blockType: 'cta', buttonText: 'First CTA', buttonUrl: '/cta' },
+            ],
+          }}
+        >
+          {({ control, register, watch, handleSubmit }) => (
+            <div>
+              <FieldRenderer
+                field={blocksField}
+                control={control}
+                register={register}
+                watch={watch}
+              />
+              <button
+                type="button"
+                onClick={() => {
+                  void handleSubmit((data) => {
+                    submittedData = data
+                  })()
+                }}
+              >
+                Save
+              </button>
+            </div>
+          )}
+        </FormWrapper>,
+      )
+
+      expect(screen.getByText('Hero - First Hero')).toBeTruthy()
+      expect(screen.getByText('Call to Action - First CTA')).toBeTruthy()
+
+      // Move CTA up
+      const moveUpButtons = screen.getAllByRole('button', { name: 'Move block up' })
+      expect((moveUpButtons[0] as HTMLButtonElement).disabled).toBe(true)
+      expect((moveUpButtons[1] as HTMLButtonElement).disabled).toBe(false)
+
+      fireEvent.click(moveUpButtons[1]!)
+
+      // Save and verify order swapped
+      fireEvent.click(screen.getByText('Save'))
+      await waitFor(() => {
+        expect(submittedData).toMatchObject({
+          layout: [
+            { blockType: 'cta', buttonText: 'First CTA' },
+            { blockType: 'hero', heading: 'First Hero' },
+          ],
+        })
+      })
+
+      // Duplicate the first block
+      const duplicateButtons = screen.getAllByRole('button', { name: 'Duplicate block' })
+      fireEvent.click(duplicateButtons[0]!)
+
+      await waitFor(() => {
+        const removeButtons = screen.getAllByRole('button', { name: 'Remove block' })
+        expect(removeButtons).toHaveLength(3)
+      })
+
+      // Remove the last block
+      const removeButtons = screen.getAllByRole('button', { name: 'Remove block' })
+      fireEvent.click(removeButtons[2]!)
+
+      await waitFor(() => {
+        const currentRemoveButtons = screen.getAllByRole('button', { name: 'Remove block' })
+        expect(currentRemoveButtons).toHaveLength(2)
+      })
+    })
+
+    it('toggles collapse on block row header click', () => {
+      render(
+        <FormWrapper
+          defaultValues={{
+            layout: [{ id: '1', blockType: 'hero', heading: 'Hero Content' }],
+          }}
+        >
+          {({ control, register, watch }) => (
+            <FieldRenderer
+              field={blocksField}
+              control={control}
+              register={register}
+              watch={watch}
+            />
+          )}
+        </FormWrapper>,
+      )
+
+      // Initially open
+      expect(screen.getByLabelText(/Heading/)).toBeTruthy()
+
+      // Click to collapse
+      const collapseToggle = screen.getByRole('button', { name: 'Collapse Hero - Hero Content' })
+      fireEvent.click(collapseToggle)
+
+      // Input hidden
+      expect(screen.queryByLabelText(/Heading/)).toBeNull()
+
+      // Click to expand
+      const expandToggle = screen.getByRole('button', { name: 'Expand Hero - Hero Content' })
+      fireEvent.click(expandToggle)
+      expect(screen.getByLabelText(/Heading/)).toBeTruthy()
+    })
+
+    it('renders root-level blocks error and block-level subfield error', () => {
+      render(
+        <FormWrapper
+          defaultValues={{
+            layout: [{ id: '1', blockType: 'hero', heading: '' }],
+          }}
+        >
+          {({ control, register, watch }) => (
+            <FieldRenderer
+              field={blocksField}
+              control={control}
+              register={register}
+              watch={watch}
+              error={{
+                message: 'Must have at least 2 blocks',
+                0: { heading: { message: 'Heading is required' } },
+              }}
+            />
+          )}
+        </FormWrapper>,
+      )
+
+      expect(screen.getByText('Must have at least 2 blocks')).toBeTruthy()
+      expect(screen.getByText('Heading is required')).toBeTruthy()
     })
   })
 })

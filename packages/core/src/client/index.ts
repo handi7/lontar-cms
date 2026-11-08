@@ -5,6 +5,9 @@ export { CLIENT_CONFIG_VERSION } from './client-config'
 export type {
   ClientArrayField,
   ClientArrayFieldAdmin,
+  ClientBlock,
+  ClientBlocksField,
+  ClientBlocksFieldAdmin,
   ClientCheckboxField,
   ClientCollection,
   ClientConfig,

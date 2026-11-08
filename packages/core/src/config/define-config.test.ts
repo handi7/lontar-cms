@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { fakeAdapter, Posts, SECRET } from '../__fixtures__/posts'
-import { fields as f } from '../fields'
+import { block, fields as f } from '../fields'
 import { defineConfig, LontarConfigError } from './define-config'
 import type { CollectionConfig } from './types'
 
@@ -747,5 +747,103 @@ describe('defineConfig', () => {
         ],
       }),
     ).toThrow('field name "id" is reserved')
+  })
+
+  it('validates blocks fields (duplicate slugs, reserved subfield names, and depth)', () => {
+    const hero1 = block({ slug: 'hero', fields: { title: f.text() } })
+    const hero2 = block({ slug: 'hero', fields: { subtitle: f.text() } })
+
+    // Duplicate slugs
+    expect(() =>
+      defineConfig({
+        secret: SECRET,
+        db: fakeAdapter,
+        collections: [
+          notes({
+            fields: {
+              layout: {
+                type: 'blocks',
+                blocks: [hero1, hero2],
+              },
+            },
+          }),
+        ],
+      }),
+    ).toThrow('duplicate block slug "hero"')
+
+    // Reserved blockType name
+    expect(() =>
+      defineConfig({
+        secret: SECRET,
+        db: fakeAdapter,
+        collections: [
+          notes({
+            fields: {
+              layout: {
+                type: 'blocks',
+                blocks: [
+                  {
+                    slug: 'custom',
+                    fields: {
+                      blockType: f.text(),
+                    },
+                  },
+                ],
+              },
+            },
+          }),
+        ],
+      }),
+    ).toThrow('field name "blockType" is reserved')
+
+    // Reserved id name
+    expect(() =>
+      defineConfig({
+        secret: SECRET,
+        db: fakeAdapter,
+        collections: [
+          notes({
+            fields: {
+              layout: {
+                type: 'blocks',
+                blocks: [
+                  {
+                    slug: 'custom',
+                    fields: {
+                      id: f.text(),
+                    },
+                  },
+                ],
+              },
+            },
+          }),
+        ],
+      }),
+    ).toThrow('field name "id" is reserved')
+
+    // Target validation inside block subfields
+    expect(() =>
+      defineConfig({
+        secret: SECRET,
+        db: fakeAdapter,
+        collections: [
+          notes({
+            fields: {
+              layout: {
+                type: 'blocks',
+                blocks: [
+                  {
+                    slug: 'promo',
+                    fields: {
+                      featuredAuthor: f.relationship({ relationTo: 'unknown-authors' }),
+                    },
+                  },
+                ],
+              },
+            },
+          }),
+        ],
+      }),
+    ).toThrow('refers to unknown collection "unknown-authors"')
   })
 })

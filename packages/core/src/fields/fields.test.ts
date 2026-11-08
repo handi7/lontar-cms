@@ -1,7 +1,7 @@
 import { describe, expect, expectTypeOf, it } from 'vitest'
 import { Posts } from '../__fixtures__/posts'
 import { collection } from '../config/collection'
-import { fields as f } from '.'
+import { block, fields as f } from '.'
 import type { InferDoc } from './infer'
 import type { Fields } from './types'
 
@@ -114,6 +114,65 @@ describe('fields', () => {
     expect(() => f.array({ fields: { title: f.text() }, maxRows: 0 })).toThrow('maxRows')
     expect(() => f.array({ fields: { title: f.text() }, maxRows: 501 })).toThrow('500')
     expect(() => f.array({ fields: { title: f.text() }, minRows: 5, maxRows: 2 })).toThrow(
+      'cannot be greater than maxRows',
+    )
+  })
+
+  it('builds block and blocks field objects', () => {
+    const hero = block({
+      slug: 'hero',
+      labels: { singular: 'Hero', plural: 'Heroes' },
+      fields: { heading: f.text({ required: true }) },
+    })
+    expect(hero).toStrictEqual({
+      slug: 'hero',
+      labels: { singular: 'Hero', plural: 'Heroes' },
+      fields: { heading: { type: 'text', required: true } },
+    })
+
+    const layout = f.blocks({
+      label: 'Page Layout',
+      required: true,
+      minRows: 1,
+      maxRows: 10,
+      blocks: [hero],
+    })
+    expect(layout).toStrictEqual({
+      type: 'blocks',
+      label: 'Page Layout',
+      required: true,
+      minRows: 1,
+      maxRows: 10,
+      blocks: [hero],
+    })
+  })
+
+  it('throws when block has invalid options or reserved field names', () => {
+    // @ts-expect-error missing config
+    expect(() => block(null)).toThrow('configuration object')
+    // @ts-expect-error missing slug
+    expect(() => block({})).toThrow('slug')
+    // @ts-expect-error missing fields
+    expect(() => block({ slug: 'hero' })).toThrow('fields')
+    expect(() => block({ slug: 'hero', fields: { id: f.text() } })).toThrow('reserved name "id"')
+    expect(() => block({ slug: 'hero', fields: { blockType: f.text() } })).toThrow(
+      'reserved name "blockType"',
+    )
+  })
+
+  it('throws when blocks field has invalid options', () => {
+    // @ts-expect-error missing options
+    expect(() => f.blocks(null)).toThrow('options object')
+    // @ts-expect-error missing blocks
+    expect(() => f.blocks({})).toThrow('blocks')
+    expect(() => f.blocks({ blocks: [] })).toThrow('non-empty')
+    const hero = block({ slug: 'hero', fields: { heading: f.text() } })
+    const heroDuplicate = block({ slug: 'hero', fields: { title: f.text() } })
+    expect(() => f.blocks({ blocks: [hero, heroDuplicate] })).toThrow('Duplicate block slug')
+    expect(() => f.blocks({ blocks: [hero], minRows: -1 })).toThrow('minRows')
+    expect(() => f.blocks({ blocks: [hero], maxRows: 0 })).toThrow('maxRows')
+    expect(() => f.blocks({ blocks: [hero], maxRows: 501 })).toThrow('500')
+    expect(() => f.blocks({ blocks: [hero], minRows: 4, maxRows: 2 })).toThrow(
       'cannot be greater than maxRows',
     )
   })
@@ -331,6 +390,65 @@ describe('InferDoc', () => {
         id: string
         name: string
       }[]
+    }>()
+  })
+
+  it('infers blocks fields as a discriminated union on blockType with stable id', () => {
+    const Hero = block({
+      slug: 'hero',
+      fields: {
+        heading: f.text({ required: true }),
+        subheading: f.text(),
+      },
+    })
+
+    const RichContent = block({
+      slug: 'richContent',
+      fields: {
+        body: f.richText({ required: true }),
+      },
+    })
+
+    const pages = collection({
+      slug: 'pages',
+      fields: {
+        title: f.text({ required: true }),
+        layout: f.blocks({
+          required: true,
+          blocks: [Hero, RichContent],
+        }),
+        optionalLayout: f.blocks({
+          blocks: [Hero],
+        }),
+      },
+    })
+
+    docOf(pages).toEqualTypeOf<{
+      id: number
+      createdAt: string
+      updatedAt: string
+      title: string
+      layout: (
+        | {
+            id: string
+            blockType: 'hero'
+            heading: string
+            subheading: string | null
+          }
+        | {
+            id: string
+            blockType: 'richContent'
+            body: Record<string, unknown>
+          }
+      )[]
+      optionalLayout:
+        | {
+            id: string
+            blockType: 'hero'
+            heading: string
+            subheading: string | null
+          }[]
+        | null
     }>()
   })
 })

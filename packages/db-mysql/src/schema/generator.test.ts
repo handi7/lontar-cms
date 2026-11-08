@@ -383,4 +383,35 @@ describe('generateSchemaFile', () => {
     expect(output).toContain("title: varchar('title', { length: 255 }).notNull(),")
     expect(output).toContain("gallery: json('gallery').notNull(),")
   })
+
+  it('generates json column for blocks fields', () => {
+    const pages: CollectionConfig = {
+      slug: 'pages',
+      fields: {
+        title: { type: 'text', required: true },
+        layout: {
+          type: 'blocks',
+          required: true,
+          blocks: [
+            {
+              slug: 'hero',
+              fields: {
+                heading: { type: 'text', required: true },
+              },
+            },
+          ],
+        },
+      },
+    }
+
+    const config: Config = {
+      secret: 'test-secret',
+      db: fakeAdapter,
+      collections: [pages],
+    }
+
+    const output = generateSchemaFile(config)
+    expect(output).toContain("title: varchar('title', { length: 255 }).notNull(),")
+    expect(output).toContain("layout: json('layout').notNull(),")
+  })
 })

@@ -77,6 +77,14 @@ export function formatFieldForForm(f: ClientField, val: unknown): unknown {
       row && typeof row === 'object' ? formatDocForForm(f.fields, row) : row,
     )
   }
+  if (f.type === 'blocks') {
+    if (!Array.isArray(val)) return []
+    return (val as Array<Record<string, unknown>>).map((row) => {
+      if (!row || typeof row !== 'object') return row
+      const blockDef = f.blocks.find((b) => b.slug === row.blockType)
+      return blockDef ? formatDocForForm(blockDef.fields, row) : row
+    })
+  }
   return val
 }
 
@@ -93,6 +101,33 @@ export function formatDocForForm(
   return formatted
 }
 
+function formatFieldValueForSubmit(f: ClientField, val: unknown): unknown {
+  if (f.type === 'date') {
+    return formatDateForSubmit(val)
+  }
+  if (f.type === 'group' && val && typeof val === 'object') {
+    return formatDocForSubmit(f.fields, val as Record<string, unknown>)
+  }
+  if (f.type === 'array' && Array.isArray(val)) {
+    const rows = val as readonly unknown[]
+    return rows.map((row) =>
+      row && typeof row === 'object'
+        ? formatDocForSubmit(f.fields, row as Record<string, unknown>)
+        : row,
+    )
+  }
+  if (f.type === 'blocks' && Array.isArray(val)) {
+    const rows = val as readonly unknown[]
+    return rows.map((row) => {
+      if (!row || typeof row !== 'object') return row
+      const record = row as Record<string, unknown>
+      const blockDef = f.blocks.find((b) => b.slug === record.blockType)
+      return blockDef ? formatDocForSubmit(blockDef.fields, record) : record
+    })
+  }
+  return val
+}
+
 export function formatDocForSubmit(
   fields: readonly ClientField[],
   data: Record<string, unknown>,
@@ -100,21 +135,17 @@ export function formatDocForSubmit(
   const formatted = { ...data }
   for (const f of fields) {
     if (f.name in formatted) {
-      if (f.type === 'date') {
-        formatted[f.name] = formatDateForSubmit(formatted[f.name])
-      } else if (f.type === 'group' && formatted[f.name] && typeof formatted[f.name] === 'object') {
-        formatted[f.name] = formatDocForSubmit(
-          f.fields,
-          formatted[f.name] as Record<string, unknown>,
-        )
-      } else if (f.type === 'array' && Array.isArray(formatted[f.name])) {
-        formatted[f.name] = (formatted[f.name] as Array<Record<string, unknown>>).map((row) =>
-          row && typeof row === 'object' ? formatDocForSubmit(f.fields, row) : row,
-        )
-      }
+      formatted[f.name] = formatFieldValueForSubmit(f, formatted[f.name])
     }
   }
   return formatted
+}
+
+function getExplicitDefault(f: ClientField): unknown {
+  if ('defaultValue' in f && f.defaultValue !== undefined) {
+    return f.type === 'date' ? formatDateForInput(f.defaultValue) : f.defaultValue
+  }
+  return undefined
 }
 
 export function getFieldDefault(f: ClientField): unknown {
@@ -122,14 +153,12 @@ export function getFieldDefault(f: ClientField): unknown {
     const subDefaults = computeDefaultValues(f.fields)
     return Object.keys(subDefaults).length > 0 ? subDefaults : undefined
   }
-  if (f.type === 'array') {
+  if (f.type === 'array' || f.type === 'blocks') {
     return []
   }
-  if ('defaultValue' in f && f.defaultValue !== undefined) {
-    if (f.type === 'date') {
-      return formatDateForInput(f.defaultValue)
-    }
-    return f.defaultValue
+  const explicit = getExplicitDefault(f)
+  if (explicit !== undefined) {
+    return explicit
   }
   if (f.type === 'checkbox') return false
   if (f.type === 'relationship' && f.hasMany) return []

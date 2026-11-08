@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { fakeAdapter, postsConfig, SECRET } from '../__fixtures__/posts'
 import { CLIENT_CONFIG_VERSION } from '../client/client-config'
-import { fields as f } from '../fields'
+import { block, fields as f } from '../fields'
 import { defineConfig } from './define-config'
 import { toClientConfig } from './to-client-config'
 import type { CollectionConfig } from './types'
@@ -554,6 +554,74 @@ describe('toClientConfig', () => {
         fields: [
           { name: 'caption', type: 'text', label: 'Caption', required: true, maxLength: 255 },
           { name: 'year', type: 'number', label: 'Year', required: false },
+        ],
+      },
+    ])
+  })
+
+  it('serializes blocks fields with block types, subfields, and default labels', () => {
+    const Hero = block({
+      slug: 'hero',
+      labels: { singular: 'Hero Block', plural: 'Hero Blocks' },
+      fields: {
+        heading: f.text({ required: true }),
+        subheading: f.text(),
+      },
+    })
+
+    const RichContent = block({
+      slug: 'rich-content',
+      fields: {
+        body: f.richText(),
+      },
+    })
+
+    const col = clientCollection({
+      slug: 'pages',
+      fields: {
+        layout: f.blocks({
+          label: 'Page Layout',
+          required: true,
+          minRows: 1,
+          maxRows: 20,
+          labels: { singular: 'Section', plural: 'Sections' },
+          admin: { description: 'Modular page sections' },
+          blocks: [Hero, RichContent],
+        }),
+      },
+    })
+
+    expect(col).toBeDefined()
+    expect(col?.fields).toEqual([
+      {
+        name: 'layout',
+        type: 'blocks',
+        label: 'Page Layout',
+        required: true,
+        minRows: 1,
+        maxRows: 20,
+        labels: { singular: 'Section', plural: 'Sections' },
+        admin: { description: 'Modular page sections' },
+        blocks: [
+          {
+            slug: 'hero',
+            labels: { singular: 'Hero Block', plural: 'Hero Blocks' },
+            fields: [
+              { name: 'heading', type: 'text', label: 'Heading', required: true, maxLength: 255 },
+              {
+                name: 'subheading',
+                type: 'text',
+                label: 'Subheading',
+                required: false,
+                maxLength: 255,
+              },
+            ],
+          },
+          {
+            slug: 'rich-content',
+            labels: { singular: 'Rich Content', plural: 'Rich Contents' },
+            fields: [{ name: 'body', type: 'richText', label: 'Body', required: false }],
+          },
         ],
       },
     ])

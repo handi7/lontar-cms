@@ -1,6 +1,7 @@
 import { z } from 'zod'
 import type {
   ClientArrayField,
+  ClientBlocksField,
   ClientCheckboxField,
   ClientDateField,
   ClientEmailField,
@@ -155,6 +156,37 @@ const zodByType = {
         .optional()
         .transform((val) => val || generateRowId()),
     })
+    let arr = z.array(rowSchema)
+    const minRows = field.minRows ?? (field.required ? 1 : 0)
+    if (minRows > 0) {
+      arr = arr.min(minRows, `Must have at least ${minRows} ${minRows === 1 ? 'item' : 'items'}`)
+    }
+    const maxRows = field.maxRows ?? 100
+    arr = arr.max(maxRows, `Must have at most ${maxRows} items`)
+    return arr
+  },
+  blocks: (field: ClientBlocksField) => {
+    const blockSchemas = field.blocks.map((b) => {
+      return clientFieldsToZod(b.fields).extend({
+        id: z
+          .string()
+          .optional()
+          .transform((val) => val || generateRowId()),
+        blockType: z.literal(b.slug),
+      })
+    })
+
+    const rowSchema =
+      blockSchemas.length === 0
+        ? z.never()
+        : blockSchemas.length === 1
+          ? blockSchemas[0]!
+          : z.discriminatedUnion('blockType', [
+              blockSchemas[0]!,
+              blockSchemas[1]!,
+              ...blockSchemas.slice(2),
+            ])
+
     let arr = z.array(rowSchema)
     const minRows = field.minRows ?? (field.required ? 1 : 0)
     if (minRows > 0) {

@@ -239,5 +239,94 @@ describe('form-utils', () => {
         },
       ])
     })
+
+    it('handles blocks fields for defaults, formatDocForForm, and formatDocForSubmit', () => {
+      const blocksFields: ClientField[] = [
+        {
+          name: 'layout',
+          type: 'blocks',
+          label: 'Layout',
+          required: false,
+          blocks: [
+            {
+              slug: 'hero',
+              labels: { singular: 'Hero', plural: 'Heroes' },
+              fields: [
+                { name: 'heading', type: 'text', label: 'Heading', required: true },
+                { name: 'date', type: 'date', label: 'Date', required: false },
+              ],
+            },
+            {
+              slug: 'cta',
+              labels: { singular: 'CTA', plural: 'CTAs' },
+              fields: [{ name: 'text', type: 'text', label: 'Text', required: true }],
+            },
+          ],
+        },
+      ]
+
+      const defaults = computeDefaultValues(blocksFields)
+      expect(defaults.layout).toEqual([])
+
+      const incomingDoc = {
+        layout: [
+          {
+            id: 'row-hero',
+            blockType: 'hero',
+            heading: 'Main Hero',
+            date: '2024-08-10T09:00:00.000Z',
+          },
+          {
+            id: 'row-cta',
+            blockType: 'cta',
+            text: 'Click here',
+          },
+        ],
+      }
+      const formDoc = formatDocForForm(blocksFields, incomingDoc)
+      expect(formDoc.layout).toEqual([
+        {
+          id: 'row-hero',
+          blockType: 'hero',
+          heading: 'Main Hero',
+          date: formatDateForInput('2024-08-10T09:00:00.000Z'),
+        },
+        {
+          id: 'row-cta',
+          blockType: 'cta',
+          text: 'Click here',
+        },
+      ])
+
+      const submittingDoc = {
+        layout: [
+          {
+            id: 'row-hero',
+            blockType: 'hero',
+            heading: 'Main Hero',
+            date: '2024-08-10T09:00',
+          },
+          {
+            id: 'row-cta',
+            blockType: 'cta',
+            text: 'Click here',
+          },
+        ],
+      }
+      const submitDoc = formatDocForSubmit(blocksFields, submittingDoc)
+      expect(submitDoc.layout).toEqual([
+        {
+          id: 'row-hero',
+          blockType: 'hero',
+          heading: 'Main Hero',
+          date: formatDateForSubmit('2024-08-10T09:00'),
+        },
+        {
+          id: 'row-cta',
+          blockType: 'cta',
+          text: 'Click here',
+        },
+      ])
+    })
   })
 })

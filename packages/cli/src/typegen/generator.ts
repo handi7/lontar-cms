@@ -1,5 +1,7 @@
 import type {
   ArrayField,
+  Block,
+  BlocksField,
   CollectionConfig,
   Config,
   Field,
@@ -115,12 +117,13 @@ function renderPrimitiveFieldType(type: string): string | null {
 function renderGroupType(
   field: GroupField,
   collectionMap: Map<string, string>,
+  parentPrefix: string,
   indent: number,
 ): string {
   const pad = ' '.repeat(indent)
   const lines: string[] = ['{']
   for (const [subName, subField] of Object.entries(field.fields)) {
-    lines.push(renderFieldLine(subName, subField, collectionMap, indent + 2))
+    lines.push(renderFieldLine(subName, subField, collectionMap, parentPrefix, indent + 2))
   }
   lines.push(`${pad}}`)
   return lines.join('\n')
@@ -129,18 +132,95 @@ function renderGroupType(
 function renderArrayType(
   field: ArrayField,
   collectionMap: Map<string, string>,
+  parentPrefix: string,
   indent: number,
 ): string {
   const pad = ' '.repeat(indent)
   const lines: string[] = ['Array<{', `${pad}  id: string`]
   for (const [subName, subField] of Object.entries(field.fields)) {
-    lines.push(renderFieldLine(subName, subField, collectionMap, indent + 2))
+    lines.push(renderFieldLine(subName, subField, collectionMap, parentPrefix, indent + 2))
   }
   lines.push(`${pad}}>`)
   return lines.join('\n')
 }
 
-function renderFieldType(field: Field, collectionMap: Map<string, string>, indent = 2): string {
+function resolveBlocksUnionTypeName(parentPrefix: string, fieldName: string): string {
+  return `${parentPrefix}${toPascalCase(fieldName)}Block`
+}
+
+function resolveBlockInterfaceName(
+  parentPrefix: string,
+  fieldName: string,
+  blockSlug: string,
+): string {
+  return `${parentPrefix}${toPascalCase(fieldName)}${toPascalCase(blockSlug)}Block`
+}
+
+function renderBlockInterface(
+  block: Block,
+  blockInterfaceName: string,
+  collectionMap: Map<string, string>,
+): string {
+  const lines: string[] = [
+    `export interface ${blockInterfaceName} {`,
+    '  id: string',
+    `  blockType: '${block.slug}'`,
+  ]
+  for (const [subName, subField] of Object.entries(block.fields)) {
+    lines.push(renderFieldLine(subName, subField, collectionMap, blockInterfaceName, 2))
+  }
+  lines.push('}')
+  return lines.join('\n')
+}
+
+function renderBlocksFieldDefinitions(
+  fieldName: string,
+  field: BlocksField,
+  parentPrefix: string,
+  collectionMap: Map<string, string>,
+): string[] {
+  const defs: string[] = []
+  const blockNames: string[] = []
+  for (const block of field.blocks) {
+    const blockInterfaceName = resolveBlockInterfaceName(parentPrefix, fieldName, block.slug)
+    blockNames.push(blockInterfaceName)
+    defs.push(renderBlockInterface(block, blockInterfaceName, collectionMap))
+  }
+  const unionName = resolveBlocksUnionTypeName(parentPrefix, fieldName)
+  const unionTypes = blockNames.length > 0 ? blockNames.join(' | ') : 'never'
+  defs.push(`export type ${unionName} = ${unionTypes}`)
+  return defs
+}
+
+function collectBlockDefinitions(
+  fields: Record<string, Field>,
+  parentPrefix: string,
+  collectionMap: Map<string, string>,
+): string[] {
+  const defs: string[] = []
+  for (const [name, field] of Object.entries(fields)) {
+    if (field.type === 'blocks') {
+      defs.push(...renderBlocksFieldDefinitions(name, field, parentPrefix, collectionMap))
+    } else if (field.type === 'group') {
+      defs.push(
+        ...collectBlockDefinitions(
+          field.fields,
+          `${parentPrefix}${toPascalCase(name)}`,
+          collectionMap,
+        ),
+      )
+    }
+  }
+  return defs
+}
+
+function renderFieldType(
+  name: string,
+  field: Field,
+  collectionMap: Map<string, string>,
+  parentPrefix = '',
+  indent = 2,
+): string {
   const primitive = renderPrimitiveFieldType(field.type)
   if (primitive) {
     return primitive
@@ -155,10 +235,14 @@ function renderFieldType(field: Field, collectionMap: Map<string, string>, inden
     return buildUploadFieldType(field, collectionMap)
   }
   if (field.type === 'group') {
-    return renderGroupType(field, collectionMap, indent)
+    return renderGroupType(field, collectionMap, `${parentPrefix}${toPascalCase(name)}`, indent)
   }
   if (field.type === 'array') {
-    return renderArrayType(field, collectionMap, indent)
+    return renderArrayType(field, collectionMap, `${parentPrefix}${toPascalCase(name)}`, indent)
+  }
+  if (field.type === 'blocks') {
+    const unionName = resolveBlocksUnionTypeName(parentPrefix, name)
+    return `Array<${unionName}>`
   }
   return 'unknown'
 }
@@ -167,11 +251,12 @@ function renderFieldLine(
   name: string,
   field: Field,
   collectionMap: Map<string, string>,
+  parentPrefix = '',
   indent = 2,
 ): string {
   const pad = ' '.repeat(indent)
   const prop = formatFieldName(name)
-  const typeStr = renderFieldType(field, collectionMap, indent)
+  const typeStr = renderFieldType(name, field, collectionMap, parentPrefix, indent)
   if (field.required) {
     return `${pad}${prop}: ${typeStr}`
   }
@@ -228,7 +313,7 @@ function renderCollectionInterface(
   }
 
   for (const [name, field] of Object.entries(col.fields)) {
-    lines.push(renderFieldLine(name, field, collectionMap))
+    lines.push(renderFieldLine(name, field, collectionMap, interfaceName))
   }
 
   lines.push('}')
@@ -248,7 +333,7 @@ function renderGlobalInterface(
   ]
 
   for (const [name, field] of Object.entries(glob.fields)) {
-    lines.push(renderFieldLine(name, field, collectionMap))
+    lines.push(renderFieldLine(name, field, collectionMap, interfaceName))
   }
 
   lines.push('}')
@@ -283,42 +368,51 @@ function renderModuleAugmentation(
   return `declare module '@lontar/core' {\n  interface LontarCollections {\n${colLines.join('\n')}\n  }\n  interface LontarGlobals {\n${globLines.join('\n')}\n  }\n}`
 }
 
+function buildEntityNameMap<T extends { slug: string }>(
+  items: readonly T[],
+  resolver: (item: T) => string,
+  suffix: string,
+  usedNames: Set<string>,
+): Map<string, string> {
+  const map = new Map<string, string>()
+  for (const item of items) {
+    let name = resolver(item)
+    while (usedNames.has(name)) {
+      name = `${name}${suffix}`
+    }
+    usedNames.add(name)
+    map.set(item.slug, name)
+  }
+  return map
+}
+
 export function generateTypes(config: Config): string {
   const collections = config.collections ?? []
   const globals = config.globals ?? []
 
-  const collectionMap = new Map<string, string>()
-  const globalMap = new Map<string, string>()
   const usedNames = new Set<string>(['Config', 'LontarCollections', 'LontarGlobals'])
-
-  for (const col of collections) {
-    let name = resolveCollectionInterfaceName(col)
-    while (usedNames.has(name)) {
-      name = `${name}Doc`
-    }
-    usedNames.add(name)
-    collectionMap.set(col.slug, name)
-  }
-
-  for (const glob of globals) {
-    let name = resolveGlobalInterfaceName(glob)
-    while (usedNames.has(name)) {
-      name = `${name}Global`
-    }
-    usedNames.add(name)
-    globalMap.set(glob.slug, name)
-  }
+  const collectionMap = buildEntityNameMap(
+    collections,
+    resolveCollectionInterfaceName,
+    'Doc',
+    usedNames,
+  )
+  const globalMap = buildEntityNameMap(globals, resolveGlobalInterfaceName, 'Global', usedNames)
 
   const sections: string[] = [
     '/* eslint-disable */\n// Generated by @lontar/cli. Do not edit directly.',
   ]
 
   for (const col of collections) {
-    sections.push(renderCollectionInterface(col, collectionMap.get(col.slug)!, collectionMap))
+    const ifaceName = collectionMap.get(col.slug)!
+    sections.push(...collectBlockDefinitions(col.fields, ifaceName, collectionMap))
+    sections.push(renderCollectionInterface(col, ifaceName, collectionMap))
   }
 
   for (const glob of globals) {
-    sections.push(renderGlobalInterface(glob, globalMap.get(glob.slug)!, collectionMap))
+    const ifaceName = globalMap.get(glob.slug)!
+    sections.push(...collectBlockDefinitions(glob.fields, ifaceName, collectionMap))
+    sections.push(renderGlobalInterface(glob, ifaceName, collectionMap))
   }
 
   sections.push(renderConfigInterface(collections, globals, collectionMap, globalMap))
