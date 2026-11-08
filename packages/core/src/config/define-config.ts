@@ -1,5 +1,6 @@
 import { SYSTEM_FIELDS, UPLOAD_SYSTEM_FIELDS } from '../client/system-fields'
 import type {
+  ArrayField,
   Field,
   RelationshipField,
   SlugField,
@@ -120,6 +121,8 @@ function validateFieldTargets(
       issues.push(...validateUploadTarget(where, name, field, collectionMap))
     } else if (field.type === 'relationship') {
       issues.push(...validateRelationshipTarget(where, name, field, collectionMap))
+    } else if (field.type === 'group' || field.type === 'array') {
+      issues.push(...validateFieldTargets(where, field.fields, collectionMap))
     }
   }
   return issues
@@ -162,10 +165,7 @@ function validateCollection(collection: CollectionConfig): string[] {
   const isUpload = Boolean(collection.upload)
   return [
     ...validateSlug(collection.slug, 'Collection'),
-    ...Object.keys(collection.fields).flatMap((name) => validateFieldName(where, name, isUpload)),
-    ...Object.entries(collection.fields).flatMap(([name, field]) =>
-      validateField(where, name, field, collection.fields),
-    ),
+    ...validateFields(where, collection.fields, isUpload, 1),
     ...validatePagination(where, collection.pagination),
     ...validateAdmin(where, collection),
     ...validateAccess(where, collection),
@@ -203,12 +203,82 @@ function validateGlobal(global: GlobalConfig): string[] {
   const where = `Global "${global.slug}"`
   return [
     ...validateSlug(global.slug, 'Global'),
-    ...Object.keys(global.fields).flatMap((name) => validateFieldName(where, name)),
-    ...Object.entries(global.fields).flatMap(([name, field]) =>
-      validateField(where, name, field, global.fields),
-    ),
+    ...validateFields(where, global.fields, false, 1),
     ...validateGlobalAccess(where, global),
   ]
+}
+
+function validateFields(
+  where: string,
+  fields: Record<string, Field>,
+  isUpload: boolean,
+  depth: number,
+): string[] {
+  const issues: string[] = []
+  for (const [name, field] of Object.entries(fields)) {
+    issues.push(...validateFieldName(where, name, depth === 1 && isUpload))
+    if (depth > 1 && name === 'id') {
+      issues.push(`${where}: field name "id" is reserved.`)
+    }
+    issues.push(...validateField(where, name, field, fields, depth))
+  }
+  return issues
+}
+
+function validateGroupField(where: string, name: string, depth: number): string[] {
+  if (depth > 3) {
+    return [`${where}: group field "${name}" exceeds maximum nesting depth of 3.`]
+  }
+  return []
+}
+
+function validateMinRows(where: string, name: string, minRows?: number): string[] {
+  if (minRows !== undefined && (!Number.isInteger(minRows) || minRows < 0)) {
+    return [`${where}: array field "${name}" minRows must be a non-negative integer.`]
+  }
+  return []
+}
+
+function validateMaxRows(where: string, name: string, maxRows?: number): string[] {
+  if (maxRows === undefined) return []
+  if (!Number.isInteger(maxRows) || maxRows <= 0) {
+    return [`${where}: array field "${name}" maxRows must be a positive integer.`]
+  }
+  if (maxRows > 500) {
+    return [`${where}: array field "${name}" maxRows (${maxRows}) exceeds maximum of 500.`]
+  }
+  return []
+}
+
+function validateArrayBounds(where: string, name: string, field: ArrayField): string[] {
+  const issues = [
+    ...validateMinRows(where, name, field.minRows),
+    ...validateMaxRows(where, name, field.maxRows),
+  ]
+  if (field.minRows !== undefined && field.maxRows !== undefined && field.minRows > field.maxRows) {
+    issues.push(
+      `${where}: array field "${name}" minRows (${field.minRows}) cannot be greater than maxRows (${field.maxRows}).`,
+    )
+  }
+  return issues
+}
+
+function validateArrayField(
+  where: string,
+  name: string,
+  field: ArrayField,
+  depth: number,
+): string[] {
+  const issues = validateArrayBounds(where, name, field)
+  if (depth > 3) {
+    issues.push(`${where}: array field "${name}" exceeds maximum nesting depth of 3.`)
+  }
+  if (field.admin?.rowLabel && !field.fields[field.admin.rowLabel]) {
+    issues.push(
+      `${where}: array field "${name}" admin.rowLabel refers to unknown field "${field.admin.rowLabel}".`,
+    )
+  }
+  return issues
 }
 
 function validateField(
@@ -216,6 +286,7 @@ function validateField(
   name: string,
   field: Field,
   fields: Record<string, Field>,
+  depth: number,
 ): string[] {
   if (field.type === 'text') {
     return validateTextField(where, name, field)
@@ -225,6 +296,18 @@ function validateField(
   }
   if (field.type === 'slug') {
     return validateSlugField(where, name, field, fields)
+  }
+  if (field.type === 'group') {
+    return [
+      ...validateGroupField(where, name, depth),
+      ...validateFields(`${where} -> group "${name}"`, field.fields, false, depth + 1),
+    ]
+  }
+  if (field.type === 'array') {
+    return [
+      ...validateArrayField(where, name, field, depth),
+      ...validateFields(`${where} -> array "${name}"`, field.fields, false, depth + 1),
+    ]
   }
   return []
 }

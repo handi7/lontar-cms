@@ -180,4 +180,25 @@ describe('collectionToTable', () => {
     expect(col(columns, 'id').primary).toBe(true)
     expect(col(columns, 'siteTitle').notNull).toBe(true)
   })
+
+  it('maps array field to MySqlJson column', () => {
+    const portfolio: CollectionConfig = {
+      slug: 'portfolio',
+      fields: {
+        gallery: {
+          type: 'array',
+          required: true,
+          fields: {
+            caption: { type: 'text' },
+          },
+        },
+      },
+    }
+
+    const table = collectionToTable(portfolio)
+    const columns = getTableColumns(table) as Record<string, AnyMySqlColumn>
+
+    expect(col(columns, 'gallery').columnType).toBe('MySqlJson')
+    expect(col(columns, 'gallery').notNull).toBe(true)
+  })
 })

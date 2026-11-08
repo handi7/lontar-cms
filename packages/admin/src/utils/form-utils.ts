@@ -71,6 +71,12 @@ export function formatFieldForForm(f: ClientField, val: unknown): unknown {
     if (!val || typeof val !== 'object') return val
     return formatDocForForm(f.fields, val as Record<string, unknown>)
   }
+  if (f.type === 'array') {
+    if (!Array.isArray(val)) return []
+    return (val as Array<Record<string, unknown>>).map((row) =>
+      row && typeof row === 'object' ? formatDocForForm(f.fields, row) : row,
+    )
+  }
   return val
 }
 
@@ -101,6 +107,10 @@ export function formatDocForSubmit(
           f.fields,
           formatted[f.name] as Record<string, unknown>,
         )
+      } else if (f.type === 'array' && Array.isArray(formatted[f.name])) {
+        formatted[f.name] = (formatted[f.name] as Array<Record<string, unknown>>).map((row) =>
+          row && typeof row === 'object' ? formatDocForSubmit(f.fields, row) : row,
+        )
       }
     }
   }
@@ -111,6 +121,9 @@ export function getFieldDefault(f: ClientField): unknown {
   if (f.type === 'group') {
     const subDefaults = computeDefaultValues(f.fields)
     return Object.keys(subDefaults).length > 0 ? subDefaults : undefined
+  }
+  if (f.type === 'array') {
+    return []
   }
   if ('defaultValue' in f && f.defaultValue !== undefined) {
     if (f.type === 'date') {

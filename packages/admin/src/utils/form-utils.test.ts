@@ -185,5 +185,59 @@ describe('form-utils', () => {
         releaseDate: formatDateForSubmit('2024-06-01T12:00'),
       })
     })
+
+    it('handles array fields for defaults, formatDocForForm, and formatDocForSubmit', () => {
+      const arrayFields: ClientField[] = [
+        {
+          name: 'gallery',
+          type: 'array',
+          label: 'Gallery',
+          required: false,
+          fields: [
+            { name: 'caption', type: 'text', label: 'Caption', required: true },
+            { name: 'capturedAt', type: 'date', label: 'Captured At', required: false },
+          ],
+        },
+      ]
+
+      const defaults = computeDefaultValues(arrayFields)
+      expect(defaults.gallery).toEqual([])
+
+      const incomingDoc = {
+        gallery: [
+          {
+            id: 'row-1',
+            caption: 'Sunset',
+            capturedAt: '2024-07-04T18:00:00.000Z',
+          },
+        ],
+      }
+      const formDoc = formatDocForForm(arrayFields, incomingDoc)
+      expect(formDoc.gallery).toEqual([
+        {
+          id: 'row-1',
+          caption: 'Sunset',
+          capturedAt: formatDateForInput('2024-07-04T18:00:00.000Z'),
+        },
+      ])
+
+      const submittingDoc = {
+        gallery: [
+          {
+            id: 'row-1',
+            caption: 'Sunset',
+            capturedAt: '2024-07-04T18:00',
+          },
+        ],
+      }
+      const submitDoc = formatDocForSubmit(arrayFields, submittingDoc)
+      expect(submitDoc.gallery).toEqual([
+        {
+          id: 'row-1',
+          caption: 'Sunset',
+          capturedAt: formatDateForSubmit('2024-07-04T18:00'),
+        },
+      ])
+    })
   })
 })

@@ -309,4 +309,52 @@ describe('generateTypes', () => {
     })
     expect(transpileResult.outputText).toBeDefined()
   })
+
+  it('generates array types with id and row subfields', () => {
+    const config: Config = {
+      secret: 'test-secret',
+      db: { name: 'mock' } as unknown as Config['db'],
+      collections: [
+        {
+          slug: 'portfolio',
+          fields: {
+            title: { type: 'text', required: true },
+            gallery: {
+              type: 'array',
+              required: true,
+              fields: {
+                caption: { type: 'text', required: true },
+                year: { type: 'number' },
+              },
+            },
+            features: {
+              type: 'array',
+              fields: {
+                name: { type: 'text', required: true },
+              },
+            },
+          },
+        },
+      ],
+    }
+
+    const output = generateTypes(config)
+    expect(output).toContain('export interface Portfolio {')
+    expect(output).toContain('  title: string')
+    expect(output).toContain('  gallery: Array<{')
+    expect(output).toContain('    id: string')
+    expect(output).toContain('    caption: string')
+    expect(output).toContain('    year?: number | null')
+    expect(output).toContain('  features?: Array<{')
+    expect(output).toContain('    name: string')
+    expect(output).toContain('  }> | null')
+
+    const transpileResult = ts.transpileModule(output, {
+      compilerOptions: {
+        module: ts.ModuleKind.ESNext,
+        target: ts.ScriptTarget.ES2022,
+      },
+    })
+    expect(transpileResult.outputText).toBeDefined()
+  })
 })

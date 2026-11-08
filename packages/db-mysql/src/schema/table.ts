@@ -15,6 +15,7 @@ import {
   type MySqlTable,
 } from 'drizzle-orm/mysql-core'
 import type {
+  ArrayField,
   CheckboxField,
   CollectionConfig,
   DateField,
@@ -101,6 +102,11 @@ function uploadToColumn(name: string, field: UploadField) {
   return field.required ? base.notNull() : base
 }
 
+function arrayToColumn(name: string, field: ArrayField) {
+  const base = json(name)
+  return field.required ? base.notNull() : base
+}
+
 function basicFieldToColumn(name: string, field: Field) {
   if (field.type === 'text') return textToColumn(name, field)
   if (field.type === 'number') return numberToColumn(name, field)
@@ -120,6 +126,7 @@ function fieldToColumn(name: string, field: Field) {
   if (field.type === 'richText') return richTextToColumn(name, field)
   if (field.type === 'relationship') return relationshipToColumn(name, field)
   if (field.type === 'upload') return uploadToColumn(name, field)
+  if (field.type === 'array') return arrayToColumn(name, field)
   throw new Error(`Unsupported field type: ${(field as Field).type}`)
 }
 

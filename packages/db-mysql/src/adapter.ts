@@ -20,6 +20,7 @@ import { drizzle, type MySql2Database } from 'drizzle-orm/mysql2'
 import { migrate } from 'drizzle-orm/mysql2/migrator'
 import mysql from 'mysql2/promise'
 import {
+  generateRowId,
   parseSort,
   type CollectionConfig,
   type Config,
@@ -163,6 +164,29 @@ function sanitizeRelationship(value: unknown): unknown {
   return Number.isNaN(num) ? null : num
 }
 
+function sanitizeArray(value: unknown): unknown {
+  if (value === '' || value === null || value === undefined) return null
+  let arr: unknown = value
+  if (typeof arr === 'string') {
+    try {
+      arr = JSON.parse(arr) as unknown
+    } catch {
+      return null
+    }
+  }
+  if (!Array.isArray(arr)) return null
+  return arr.map((item: unknown): unknown => {
+    if (item && typeof item === 'object' && !Array.isArray(item)) {
+      const record = item as Record<string, unknown>
+      if (!('id' in record) || !record.id) {
+        return { ...record, id: generateRowId() }
+      }
+      return record
+    }
+    return item
+  })
+}
+
 function sanitizeFieldValue(
   field: CollectionConfig['fields'][string] | undefined,
   value: unknown,
@@ -170,6 +194,7 @@ function sanitizeFieldValue(
   if (field?.type === 'date') return sanitizeDate(value)
   if (field?.type === 'richText') return sanitizeRichText(value)
   if (field?.type === 'relationship') return sanitizeRelationship(value)
+  if (field?.type === 'array') return sanitizeArray(value)
   return value
 }
 

@@ -1,4 +1,5 @@
 import type {
+  ArrayField,
   CollectionConfig,
   Config,
   Field,
@@ -125,6 +126,20 @@ function renderGroupType(
   return lines.join('\n')
 }
 
+function renderArrayType(
+  field: ArrayField,
+  collectionMap: Map<string, string>,
+  indent: number,
+): string {
+  const pad = ' '.repeat(indent)
+  const lines: string[] = ['Array<{', `${pad}  id: string`]
+  for (const [subName, subField] of Object.entries(field.fields)) {
+    lines.push(renderFieldLine(subName, subField, collectionMap, indent + 2))
+  }
+  lines.push(`${pad}}>`)
+  return lines.join('\n')
+}
+
 function renderFieldType(field: Field, collectionMap: Map<string, string>, indent = 2): string {
   const primitive = renderPrimitiveFieldType(field.type)
   if (primitive) {
@@ -141,6 +156,9 @@ function renderFieldType(field: Field, collectionMap: Map<string, string>, inden
   }
   if (field.type === 'group') {
     return renderGroupType(field, collectionMap, indent)
+  }
+  if (field.type === 'array') {
+    return renderArrayType(field, collectionMap, indent)
   }
   return 'unknown'
 }

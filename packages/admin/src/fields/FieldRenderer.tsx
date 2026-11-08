@@ -1,19 +1,24 @@
 import { useState, useEffect } from 'react'
-import { Controller } from 'react-hook-form'
+import { Controller, useFieldArray } from 'react-hook-form'
 import type { Control, UseFormRegister, UseFormSetValue, UseFormWatch } from 'react-hook-form'
-import type {
-  ClientCheckboxField,
-  ClientDateField,
-  ClientEmailField,
-  ClientField,
-  ClientGroupField,
-  ClientNumberField,
-  ClientRichTextField,
-  ClientSelectField,
-  ClientSlugField,
-  ClientTextareaField,
-  ClientTextField,
+import {
+  generateRowId,
+  type ClientArrayField,
+  type ClientCheckboxField,
+  type ClientDateField,
+  type ClientEmailField,
+  type ClientField,
+  type ClientGroupField,
+  type ClientNumberField,
+  type ClientRichTextField,
+  type ClientSelectField,
+  type ClientSlugField,
+  type ClientTextareaField,
+  type ClientTextField,
 } from '@lontar/core/client'
+import { ArrowDown, ArrowUp, ChevronDown, ChevronRight, Copy, Plus, Trash2 } from 'lucide-react'
+import { Button } from '../components/ui/button'
+import { computeDefaultValues } from '../utils/form-utils'
 import { Field, FieldError, FieldLabel } from '../components/ui/field'
 import { Checkbox } from '../components/ui/checkbox'
 import { Input } from '../components/ui/input'
@@ -543,15 +548,362 @@ function GroupFieldRenderer({
 function getErrorMessage(
   error?: { message?: string } | Record<string, unknown>,
 ): string | undefined {
-  if (
-    error &&
-    typeof error === 'object' &&
-    'message' in error &&
-    typeof error.message === 'string'
-  ) {
+  if (!error || typeof error !== 'object') return undefined
+  if ('message' in error && typeof error.message === 'string') {
     return error.message
   }
+  if ('root' in error && error.root && typeof error.root === 'object' && 'message' in error.root) {
+    return (error.root as { message?: string }).message
+  }
   return undefined
+}
+
+interface ArrayFieldRendererProps {
+  field: ClientArrayField
+  fullName: string
+  control: Control<Record<string, unknown>>
+  register: UseFormRegister<Record<string, unknown>>
+  error?: { message?: string } | Record<string, unknown>
+  setValue?: UseFormSetValue<Record<string, unknown>>
+  watch?: UseFormWatch<Record<string, unknown>>
+  mode?: 'create' | 'edit'
+}
+
+interface ArrayRowRendererProps {
+  field: ClientArrayField
+  index: number
+  totalRows: number
+  minRows: number
+  maxRows: number
+  rowPath: string
+  control: Control<Record<string, unknown>>
+  register: UseFormRegister<Record<string, unknown>>
+  rowError?: Record<string, unknown>
+  setValue?: UseFormSetValue<Record<string, unknown>>
+  watch?: UseFormWatch<Record<string, unknown>>
+  mode?: 'create' | 'edit'
+  onMoveUp: () => void
+  onMoveDown: () => void
+  onRemove: () => void
+  onDuplicate: () => void
+}
+
+function getRowLabelFromSubfields(
+  field: ClientArrayField,
+  rowPath: string,
+  watch?: UseFormWatch<Record<string, unknown>>,
+): string | undefined {
+  if (!watch) return undefined
+
+  if (field.admin?.rowLabel) {
+    const val: unknown = watch(`${rowPath}.${field.admin.rowLabel}` as never)
+    if (typeof val === 'string' && val.trim().length > 0) {
+      return val
+    }
+  }
+
+  const firstTextField = field.fields.find(
+    (f) => f.type === 'text' || f.type === 'slug' || f.type === 'email',
+  )
+  if (firstTextField) {
+    const val: unknown = watch(`${rowPath}.${firstTextField.name}` as never)
+    if (typeof val === 'string' && val.trim().length > 0) {
+      return val
+    }
+  }
+
+  return undefined
+}
+
+function getRowLabel(
+  field: ClientArrayField,
+  index: number,
+  rowPath: string,
+  watch?: UseFormWatch<Record<string, unknown>>,
+): string {
+  const custom = getRowLabelFromSubfields(field, rowPath, watch)
+  if (custom) return custom
+  const singular = field.labels?.singular || field.label || 'Row'
+  return `${singular} #${index + 1}`
+}
+
+function ArrayRowRenderer({
+  field,
+  index,
+  totalRows,
+  minRows,
+  maxRows,
+  rowPath,
+  control,
+  register,
+  rowError,
+  setValue,
+  watch,
+  mode,
+  onMoveUp,
+  onMoveDown,
+  onRemove,
+  onDuplicate,
+}: ArrayRowRendererProps) {
+  const [collapsed, setCollapsed] = useState(false)
+  const label = getRowLabel(field, index, rowPath, watch)
+
+  return (
+    <div
+      className="lontar-array-row lt:rounded-md lt:border lt:border-[var(--lontar-border)] lt:bg-[var(--lontar-card)] lt:overflow-hidden"
+      data-array-row={index}
+    >
+      <div className="lt:flex lt:items-center lt:justify-between lt:gap-2 lt:px-3 lt:py-2 lt:bg-[var(--lontar-muted)]/50 lt:border-b lt:border-[var(--lontar-border)]">
+        <button
+          type="button"
+          onClick={() => setCollapsed(!collapsed)}
+          className="lt:flex lt:items-center lt:gap-2 lt:text-sm lt:font-medium lt:text-[var(--lontar-text)] lt:hover:text-[var(--lontar-text-primary)] lt:focus-visible:outline-none lt:cursor-pointer"
+          aria-expanded={!collapsed}
+          aria-label={`${collapsed ? 'Expand' : 'Collapse'} ${label}`}
+        >
+          {collapsed ? (
+            <ChevronRight className="lt:size-4 lt:text-[var(--lontar-muted-foreground)]" />
+          ) : (
+            <ChevronDown className="lt:size-4 lt:text-[var(--lontar-muted-foreground)]" />
+          )}
+          <span>{label}</span>
+        </button>
+
+        <div className="lt:flex lt:items-center lt:gap-1">
+          <Button
+            type="button"
+            variant="ghost"
+            size="icon"
+            className="lt:size-7"
+            disabled={index === 0}
+            onClick={(e) => {
+              e.stopPropagation()
+              onMoveUp()
+            }}
+            aria-label="Move row up"
+            title="Move row up"
+          >
+            <ArrowUp className="lt:size-3.5" />
+          </Button>
+          <Button
+            type="button"
+            variant="ghost"
+            size="icon"
+            className="lt:size-7"
+            disabled={index === totalRows - 1}
+            onClick={(e) => {
+              e.stopPropagation()
+              onMoveDown()
+            }}
+            aria-label="Move row down"
+            title="Move row down"
+          >
+            <ArrowDown className="lt:size-3.5" />
+          </Button>
+          <Button
+            type="button"
+            variant="ghost"
+            size="icon"
+            className="lt:size-7"
+            disabled={totalRows >= maxRows}
+            onClick={(e) => {
+              e.stopPropagation()
+              onDuplicate()
+            }}
+            aria-label="Duplicate row"
+            title="Duplicate row"
+          >
+            <Copy className="lt:size-3.5" />
+          </Button>
+          <Button
+            type="button"
+            variant="ghost"
+            size="icon"
+            className="lt:size-7 lt:text-[var(--lontar-destructive)] lt:hover:bg-[var(--lontar-destructive)]/10"
+            disabled={totalRows <= minRows}
+            onClick={(e) => {
+              e.stopPropagation()
+              onRemove()
+            }}
+            aria-label="Remove row"
+            title="Remove row"
+          >
+            <Trash2 className="lt:size-3.5" />
+          </Button>
+        </div>
+      </div>
+
+      {!collapsed && (
+        <div className="lt:p-4 lt:flex lt:flex-col lt:gap-4">
+          {field.fields.map((subField) => {
+            const subError =
+              rowError && typeof rowError === 'object' && Object.hasOwn(rowError, subField.name)
+                ? rowError[subField.name]
+                : undefined
+            return (
+              <FieldRenderer
+                key={subField.name}
+                field={subField}
+                control={control}
+                register={register}
+                setValue={setValue}
+                watch={watch}
+                mode={mode}
+                pathPrefix={rowPath}
+                error={subError as { message?: string } | undefined}
+              />
+            )
+          })}
+        </div>
+      )}
+    </div>
+  )
+}
+
+function ArrayHeader({
+  label,
+  required,
+  description,
+  rowCount,
+  maxRows,
+  hasBounds,
+}: {
+  label: string
+  required: boolean
+  description?: string
+  rowCount: number
+  maxRows: number
+  hasBounds: boolean
+}) {
+  return (
+    <div className="lt:flex lt:items-center lt:justify-between lt:gap-2">
+      <div>
+        <legend className="lt:text-sm lt:font-semibold lt:text-[var(--lontar-text)] lt:px-1">
+          <span>{label}</span>
+          {required && (
+            <span className="lontar-required lt:ml-1 lt:text-[var(--lontar-destructive)]">*</span>
+          )}
+        </legend>
+        {description && (
+          <p className="lt:text-xs lt:text-[var(--lontar-muted-foreground)] lt:px-1 lt:mt-0.5">
+            {description}
+          </p>
+        )}
+      </div>
+      {hasBounds && (
+        <span className="lt:text-xs lt:text-[var(--lontar-muted-foreground)]">
+          {rowCount} / {maxRows}
+        </span>
+      )}
+    </div>
+  )
+}
+
+function getRowError(
+  error: { message?: string } | Record<string, unknown> | undefined,
+  index: number,
+): Record<string, unknown> | undefined {
+  if (!error || typeof error !== 'object') return undefined
+  if (Array.isArray(error)) {
+    return error[index] as Record<string, unknown> | undefined
+  }
+  return (error as Record<string, unknown>)[index] as Record<string, unknown> | undefined
+}
+
+function ArrayFieldRenderer({
+  field,
+  fullName,
+  control,
+  register,
+  error,
+  setValue,
+  watch,
+  mode,
+}: ArrayFieldRendererProps) {
+  const { fields, append, remove, move, insert } = useFieldArray({
+    control,
+    name: fullName as never,
+  })
+
+  const minRows = field.minRows ?? (field.required ? 1 : 0)
+  const maxRows = field.maxRows ?? 100
+  const singular = field.labels?.singular || field.label || 'Row'
+  const rootErrorMessage = getErrorMessage(error)
+  const hasBounds = field.minRows !== undefined || field.maxRows !== undefined
+
+  return (
+    <fieldset
+      className="lontar-field-array lt:rounded-lg lt:border lt:border-[var(--lontar-border)] lt:p-4 lt:flex lt:flex-col lt:gap-4"
+      data-array={fullName}
+    >
+      <ArrayHeader
+        label={field.label}
+        required={field.required}
+        description={field.admin?.description}
+        rowCount={fields.length}
+        maxRows={maxRows}
+        hasBounds={hasBounds}
+      />
+
+      {rootErrorMessage && (
+        <FieldError className="lontar-field-error" errors={[{ message: rootErrorMessage }]} />
+      )}
+
+      <div className="lt:flex lt:flex-col lt:gap-3">
+        {fields.map((item, index) => {
+          const rowPath = `${fullName}.${index}`
+          const rowError = getRowError(error, index)
+
+          return (
+            <ArrayRowRenderer
+              key={item.id}
+              field={field}
+              index={index}
+              totalRows={fields.length}
+              minRows={minRows}
+              maxRows={maxRows}
+              rowPath={rowPath}
+              control={control}
+              register={register}
+              rowError={rowError}
+              setValue={setValue}
+              watch={watch}
+              mode={mode}
+              onMoveUp={() => move(index, index - 1)}
+              onMoveDown={() => move(index, index + 1)}
+              onRemove={() => remove(index)}
+              onDuplicate={() => {
+                const currentData: unknown = watch ? watch(rowPath as never) : undefined
+                const cloned =
+                  currentData && typeof currentData === 'object'
+                    ? { ...(currentData as Record<string, unknown>) }
+                    : computeDefaultValues(field.fields)
+                cloned.id = generateRowId()
+                insert(index + 1, cloned)
+              }}
+            />
+          )
+        })}
+      </div>
+
+      <div>
+        <Button
+          type="button"
+          variant="outline"
+          size="sm"
+          disabled={fields.length >= maxRows}
+          onClick={() => {
+            const defaults = computeDefaultValues(field.fields)
+            append({ ...defaults, id: generateRowId() })
+          }}
+          className="lt:flex lt:items-center lt:gap-1.5"
+        >
+          <Plus className="lt:size-4" />
+          <span>Add {singular}</span>
+        </Button>
+      </div>
+    </fieldset>
+  )
 }
 
 interface StandardFieldRendererProps {
@@ -624,6 +976,21 @@ export function FieldRenderer({
   if (field.type === 'group') {
     return (
       <GroupFieldRenderer
+        field={field}
+        fullName={fullName}
+        control={control}
+        register={register}
+        error={error}
+        setValue={setValue}
+        watch={watch}
+        mode={mode}
+      />
+    )
+  }
+
+  if (field.type === 'array') {
+    return (
+      <ArrayFieldRenderer
         field={field}
         fullName={fullName}
         control={control}

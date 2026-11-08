@@ -521,4 +521,41 @@ describe('toClientConfig', () => {
       },
     ])
   })
+
+  it('serializes array fields with subfields and options', () => {
+    const col = clientCollection({
+      slug: 'portfolio',
+      fields: {
+        gallery: f.array({
+          label: 'Project Gallery',
+          minRows: 1,
+          maxRows: 12,
+          labels: { singular: 'Image', plural: 'Images' },
+          admin: { description: 'Project photo gallery', rowLabel: 'caption' },
+          fields: {
+            caption: f.text({ required: true }),
+            year: f.number(),
+          },
+        }),
+      },
+    })
+
+    expect(col).toBeDefined()
+    expect(col?.fields).toEqual([
+      {
+        name: 'gallery',
+        type: 'array',
+        label: 'Project Gallery',
+        required: false,
+        minRows: 1,
+        maxRows: 12,
+        labels: { singular: 'Image', plural: 'Images' },
+        admin: { description: 'Project photo gallery', rowLabel: 'caption' },
+        fields: [
+          { name: 'caption', type: 'text', label: 'Caption', required: true, maxLength: 255 },
+          { name: 'year', type: 'number', label: 'Year', required: false },
+        ],
+      },
+    ])
+  })
 })

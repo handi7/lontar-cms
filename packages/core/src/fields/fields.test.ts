@@ -82,6 +82,40 @@ describe('fields', () => {
         metaDescription: { type: 'textarea' },
       },
     })
+    expect(
+      f.array({
+        minRows: 1,
+        maxRows: 10,
+        labels: { singular: 'Slide', plural: 'Slides' },
+        admin: { description: 'Slides for slider', rowLabel: 'title' },
+        fields: {
+          title: f.text({ required: true }),
+          caption: f.text(),
+        },
+      }),
+    ).toStrictEqual({
+      type: 'array',
+      minRows: 1,
+      maxRows: 10,
+      labels: { singular: 'Slide', plural: 'Slides' },
+      admin: { description: 'Slides for slider', rowLabel: 'title' },
+      fields: {
+        title: { type: 'text', required: true },
+        caption: { type: 'text' },
+      },
+    })
+  })
+
+  it('throws when array field has invalid options', () => {
+    // @ts-expect-error missing fields
+    expect(() => f.array({})).toThrow('fields')
+    expect(() => f.array({ fields: { id: f.text() } })).toThrow('reserved name "id"')
+    expect(() => f.array({ fields: { title: f.text() }, minRows: -1 })).toThrow('minRows')
+    expect(() => f.array({ fields: { title: f.text() }, maxRows: 0 })).toThrow('maxRows')
+    expect(() => f.array({ fields: { title: f.text() }, maxRows: 501 })).toThrow('500')
+    expect(() => f.array({ fields: { title: f.text() }, minRows: 5, maxRows: 2 })).toThrow(
+      'cannot be greater than maxRows',
+    )
   })
 
   it('throws when group field has no fields object', () => {
@@ -258,6 +292,45 @@ describe('InferDoc', () => {
       header: {
         bannerText: string
       }
+    }>()
+  })
+
+  it('infers array fields correctly with row id', () => {
+    const portfolio = collection({
+      slug: 'portfolio',
+      fields: {
+        title: f.text({ required: true }),
+        gallery: f.array({
+          fields: {
+            caption: f.text(),
+            image: f.number({ required: true }),
+          },
+        }),
+        tags: f.array({
+          required: true,
+          fields: {
+            name: f.text({ required: true }),
+          },
+        }),
+      },
+    })
+
+    docOf(portfolio).toEqualTypeOf<{
+      id: number
+      createdAt: string
+      updatedAt: string
+      title: string
+      gallery:
+        | {
+            id: string
+            caption: string | null
+            image: number
+          }[]
+        | null
+      tags: {
+        id: string
+        name: string
+      }[]
     }>()
   })
 })

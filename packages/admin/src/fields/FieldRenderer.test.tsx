@@ -3,6 +3,7 @@ import { render, screen, fireEvent, waitFor, cleanup } from '@testing-library/re
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { useForm } from 'react-hook-form'
 import type {
+  ClientArrayField,
   ClientCheckboxField,
   ClientDateField,
   ClientEmailField,
@@ -875,5 +876,174 @@ describe('group field rendering and binding', () => {
     )
 
     expect(screen.getByText('Meta title is required')).toBeTruthy()
+  })
+
+  describe('array field', () => {
+    const arrayField: ClientArrayField = {
+      name: 'gallery',
+      type: 'array',
+      label: 'Photo Gallery',
+      required: false,
+      labels: { singular: 'Photo', plural: 'Photos' },
+      admin: { description: 'Upload photos with captions', rowLabel: 'caption' },
+      fields: [
+        { name: 'caption', type: 'text', label: 'Caption', required: true },
+        { name: 'author', type: 'text', label: 'Author', required: false },
+      ],
+    }
+
+    it('renders empty array with Add button and appends a row when clicked', async () => {
+      render(
+        <FormWrapper defaultValues={{ gallery: [] }}>
+          {({ control, register, watch }) => (
+            <FieldRenderer field={arrayField} control={control} register={register} watch={watch} />
+          )}
+        </FormWrapper>,
+      )
+
+      expect(screen.getByText('Photo Gallery')).toBeTruthy()
+      expect(screen.getByText('Upload photos with captions')).toBeTruthy()
+      expect(screen.getByRole('button', { name: 'Add Photo' })).toBeTruthy()
+
+      // Click Add Photo
+      fireEvent.click(screen.getByRole('button', { name: 'Add Photo' }))
+
+      // A new row is added with label Caption
+      await waitFor(() => {
+        expect(screen.getByLabelText(/Caption/)).toBeTruthy()
+      })
+    })
+
+    it('supports add, move up/down, duplicate, and remove operations', async () => {
+      let submittedData: unknown = null
+
+      render(
+        <FormWrapper
+          defaultValues={{
+            gallery: [
+              { id: '1', caption: 'Pic A', author: 'Alice' },
+              { id: '2', caption: 'Pic B', author: 'Bob' },
+            ],
+          }}
+        >
+          {({ control, register, watch, handleSubmit }) => (
+            <>
+              <FieldRenderer
+                field={arrayField}
+                control={control}
+                register={register}
+                watch={watch}
+              />
+              <button
+                type="button"
+                onClick={() => {
+                  void handleSubmit((data) => {
+                    submittedData = data
+                  })()
+                }}
+              >
+                Save
+              </button>
+            </>
+          )}
+        </FormWrapper>,
+      )
+
+      // Both rows should show their captions in the row headers
+      expect(screen.getByText('Pic A')).toBeTruthy()
+      expect(screen.getByText('Pic B')).toBeTruthy()
+
+      // Reorder: Move second row up
+      const moveUpButtons = screen.getAllByRole('button', { name: 'Move row up' })
+      expect((moveUpButtons[0] as HTMLButtonElement).disabled).toBe(true)
+      expect((moveUpButtons[1] as HTMLButtonElement).disabled).toBe(false)
+
+      fireEvent.click(moveUpButtons[1]!)
+
+      // Save and verify order swapped
+      fireEvent.click(screen.getByText('Save'))
+      await waitFor(() => {
+        expect(submittedData).toMatchObject({
+          gallery: [
+            { caption: 'Pic B', author: 'Bob' },
+            { caption: 'Pic A', author: 'Alice' },
+          ],
+        })
+      })
+
+      // Duplicate the first row (now Pic B)
+      const duplicateButtons = screen.getAllByRole('button', { name: 'Duplicate row' })
+      fireEvent.click(duplicateButtons[0]!)
+
+      // There should now be 3 rows
+      await waitFor(() => {
+        const removeButtons = screen.getAllByRole('button', { name: 'Remove row' })
+        expect(removeButtons).toHaveLength(3)
+      })
+
+      // Remove the last row
+      const removeButtons = screen.getAllByRole('button', { name: 'Remove row' })
+      fireEvent.click(removeButtons[2]!)
+
+      await waitFor(() => {
+        const currentRemoveButtons = screen.getAllByRole('button', { name: 'Remove row' })
+        expect(currentRemoveButtons).toHaveLength(2)
+      })
+    })
+
+    it('toggles collapse on row header click', () => {
+      render(
+        <FormWrapper
+          defaultValues={{
+            gallery: [{ id: '1', caption: 'Sample Photo', author: 'Charlie' }],
+          }}
+        >
+          {({ control, register, watch }) => (
+            <FieldRenderer field={arrayField} control={control} register={register} watch={watch} />
+          )}
+        </FormWrapper>,
+      )
+
+      // Initially open: input is present
+      expect(screen.getByLabelText(/Caption/)).toBeTruthy()
+
+      // Click row header button to collapse
+      const collapseToggle = screen.getByRole('button', { name: 'Collapse Sample Photo' })
+      fireEvent.click(collapseToggle)
+
+      // Now collapsed: input is removed
+      expect(screen.queryByLabelText(/Caption/)).toBeNull()
+
+      // Click to expand again
+      const expandToggle = screen.getByRole('button', { name: 'Expand Sample Photo' })
+      fireEvent.click(expandToggle)
+      expect(screen.getByLabelText(/Caption/)).toBeTruthy()
+    })
+
+    it('renders root-level array error and row-level subfield error', () => {
+      render(
+        <FormWrapper
+          defaultValues={{
+            gallery: [{ id: '1', caption: '', author: '' }],
+          }}
+        >
+          {({ control, register, watch }) => (
+            <FieldRenderer
+              field={arrayField}
+              control={control}
+              register={register}
+              watch={watch}
+              error={{
+                message: 'Must have at least 2 items',
+                0: { caption: { message: 'Caption is required' } },
+              }}
+            />
+          )}
+        </FormWrapper>,
+      )
+
+      expect(screen.getByText('Must have at least 2 items')).toBeTruthy()
+      expect(screen.getByText('Caption is required')).toBeTruthy()
+    })
   })
 })

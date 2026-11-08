@@ -111,6 +111,30 @@ export interface GroupField extends BaseField {
   fields: Record<string, Field>
 }
 
+export interface ArrayFieldAdminOptions {
+  description?: string
+  rowLabel?: string
+}
+
+export interface ArrayFieldOptions {
+  label?: string
+  required?: boolean
+  fields: Record<string, Field>
+  minRows?: number
+  maxRows?: number
+  labels?: { singular: string; plural: string }
+  admin?: ArrayFieldAdminOptions
+}
+
+export interface ArrayField extends BaseField {
+  type: 'array'
+  fields: Record<string, Field>
+  minRows?: number
+  maxRows?: number
+  labels?: { singular: string; plural: string }
+  admin?: ArrayFieldAdminOptions
+}
+
 export type Field =
   | TextField
   | NumberField
@@ -124,5 +148,6 @@ export type Field =
   | RelationshipField
   | UploadField
   | GroupField
+  | ArrayField
 export type FieldType = Field['type']
 export type Fields = Record<string, Field>

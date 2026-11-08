@@ -3,6 +3,8 @@
 // See docs/adr/0003-client-config-format.md.
 export { CLIENT_CONFIG_VERSION } from './client-config'
 export type {
+  ClientArrayField,
+  ClientArrayFieldAdmin,
   ClientCheckboxField,
   ClientCollection,
   ClientConfig,
@@ -31,3 +33,4 @@ export type {
 } from './system-fields'
 export type { FieldFilter, FilterOperator, SortItem, Where, WhereClause, WhereField } from './query'
 export { clientFieldToZod, clientFieldsToZod, isRichTextEmpty } from './zod'
+export { generateRowId } from './id'
