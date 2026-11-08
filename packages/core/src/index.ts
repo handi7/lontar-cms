@@ -2,6 +2,7 @@ export { collection } from './config/collection'
 export { global } from './config/global'
 export { defineConfig, LontarConfigError } from './config/define-config'
 export { toClientCollection, toClientConfig, toClientGlobal } from './config/to-client-config'
+export { CLIENT_CONFIG_VERSION } from './client/client-config'
 export { fields } from './fields'
 export { createLontar, type CreateLontarOptions, type LontarApp } from './server/create-lontar'
 export { getLontar } from './local'
@@ -109,6 +110,8 @@ export type {
   Field,
   Fields,
   FieldType,
+  GroupField,
+  GroupFieldOptions,
   NumberField,
   RelationshipField,
   RelationshipFieldOptions,

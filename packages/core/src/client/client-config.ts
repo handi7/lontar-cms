@@ -1,5 +1,5 @@
 /** Bumped whenever the shape below changes incompatibly. */
-export const CLIENT_CONFIG_VERSION = 1
+export const CLIENT_CONFIG_VERSION = 2
 
 /**
  * Everything the admin knows about the config, served as JSON from
@@ -120,6 +120,11 @@ export interface ClientUploadField extends ClientFieldBase {
   relationTo: string
 }
 
+export interface ClientGroupField extends ClientFieldBase {
+  type: 'group'
+  fields: ClientField[]
+}
+
 export type ClientField =
   | ClientTextField
   | ClientNumberField
@@ -132,3 +137,4 @@ export type ClientField =
   | ClientRichTextField
   | ClientRelationshipField
   | ClientUploadField
+  | ClientGroupField

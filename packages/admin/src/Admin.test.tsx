@@ -1,12 +1,12 @@
 import { describe, expect, it, vi, beforeEach, afterEach } from 'vitest'
 import { within, render, screen, waitFor, fireEvent, cleanup } from '@testing-library/react'
 import { createMemoryHistory } from '@tanstack/react-router'
-import type { ClientConfig } from '@lontar/core/client'
+import { CLIENT_CONFIG_VERSION, type ClientConfig } from '@lontar/core/client'
 import { Admin } from './Admin'
 import { chooseSelectOption } from './test/radix'
 
 const mockConfig: ClientConfig = {
-  version: 1,
+  version: CLIENT_CONFIG_VERSION,
   collections: [
     {
       slug: 'posts',
@@ -187,7 +187,7 @@ describe('Admin SPA', () => {
 
   it('formats checkbox, select, and date columns in collection list view', async () => {
     const configWithAllFields: ClientConfig = {
-      version: 1,
+      version: CLIENT_CONFIG_VERSION,
       collections: [
         {
           slug: 'articles',
@@ -944,7 +944,7 @@ describe('Admin SPA', () => {
 
     it('resets list view state (search term, filters, page) when navigating between collections', async () => {
       const multiCollectionConfig: ClientConfig = {
-        version: 1,
+        version: CLIENT_CONFIG_VERSION,
         collections: [
           {
             slug: 'posts',
@@ -1040,7 +1040,7 @@ describe('Admin SPA', () => {
 
     it('resets global view state (success banner and form fields) when navigating between globals', async () => {
       const multiGlobalConfig: ClientConfig = {
-        version: 1,
+        version: CLIENT_CONFIG_VERSION,
         collections: [],
         globals: [
           {
@@ -1120,7 +1120,7 @@ describe('Admin SPA', () => {
 
     it('uses collection useAsTitle as default search field instead of id', async () => {
       const searchConfig: ClientConfig = {
-        version: 1,
+        version: CLIENT_CONFIG_VERSION,
         collections: [
           {
             slug: 'articles',
@@ -1189,7 +1189,7 @@ describe('Admin SPA', () => {
 
     it('clearing optional upload-doc fields sends empty string in FormData', async () => {
       const uploadConfig: ClientConfig = {
-        version: 1,
+        version: CLIENT_CONFIG_VERSION,
         collections: [
           {
             slug: 'media',

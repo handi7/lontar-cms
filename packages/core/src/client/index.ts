@@ -10,6 +10,7 @@ export type {
   ClientEmailField,
   ClientField,
   ClientGlobal,
+  ClientGroupField,
   ClientNumberField,
   ClientRelationshipField,
   ClientRichTextField,

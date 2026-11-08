@@ -484,4 +484,41 @@ describe('toClientConfig', () => {
     })
     expect(client.collections[1]?.upload).toBe(true)
   })
+
+  it('serializes group fields with nested subfields', () => {
+    const col = clientCollection({
+      slug: 'pages',
+      fields: {
+        title: f.text({ required: true }),
+        seo: f.group({
+          label: 'SEO Metadata',
+          fields: {
+            metaTitle: f.text({ required: true, maxLength: 70 }),
+            metaDescription: f.textarea({ maxLength: 160 }),
+          },
+        }),
+      },
+    })
+
+    expect(col).toBeDefined()
+    expect(col?.fields).toEqual([
+      { name: 'title', type: 'text', label: 'Title', required: true, maxLength: 255 },
+      {
+        name: 'seo',
+        type: 'group',
+        label: 'SEO Metadata',
+        required: false,
+        fields: [
+          { name: 'metaTitle', type: 'text', label: 'Meta Title', required: true, maxLength: 70 },
+          {
+            name: 'metaDescription',
+            type: 'textarea',
+            label: 'Meta Description',
+            required: false,
+            maxLength: 160,
+          },
+        ],
+      },
+    ])
+  })
 })

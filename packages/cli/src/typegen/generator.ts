@@ -3,6 +3,7 @@ import type {
   Config,
   Field,
   GlobalConfig,
+  GroupField,
   RelationshipField,
   SelectField,
   UploadConfig,
@@ -110,7 +111,21 @@ function renderPrimitiveFieldType(type: string): string | null {
   }
 }
 
-function renderFieldType(field: Field, collectionMap: Map<string, string>): string {
+function renderGroupType(
+  field: GroupField,
+  collectionMap: Map<string, string>,
+  indent: number,
+): string {
+  const pad = ' '.repeat(indent)
+  const lines: string[] = ['{']
+  for (const [subName, subField] of Object.entries(field.fields)) {
+    lines.push(renderFieldLine(subName, subField, collectionMap, indent + 2))
+  }
+  lines.push(`${pad}}`)
+  return lines.join('\n')
+}
+
+function renderFieldType(field: Field, collectionMap: Map<string, string>, indent = 2): string {
   const primitive = renderPrimitiveFieldType(field.type)
   if (primitive) {
     return primitive
@@ -124,16 +139,25 @@ function renderFieldType(field: Field, collectionMap: Map<string, string>): stri
   if (field.type === 'upload') {
     return buildUploadFieldType(field, collectionMap)
   }
+  if (field.type === 'group') {
+    return renderGroupType(field, collectionMap, indent)
+  }
   return 'unknown'
 }
 
-function renderFieldLine(name: string, field: Field, collectionMap: Map<string, string>): string {
+function renderFieldLine(
+  name: string,
+  field: Field,
+  collectionMap: Map<string, string>,
+  indent = 2,
+): string {
+  const pad = ' '.repeat(indent)
   const prop = formatFieldName(name)
-  const typeStr = renderFieldType(field, collectionMap)
+  const typeStr = renderFieldType(field, collectionMap, indent)
   if (field.required) {
-    return `  ${prop}: ${typeStr}`
+    return `${pad}${prop}: ${typeStr}`
   }
-  return `  ${prop}?: ${typeStr} | null`
+  return `${pad}${prop}?: ${typeStr} | null`
 }
 
 function renderUploadPreset(sizeKey: string): string {

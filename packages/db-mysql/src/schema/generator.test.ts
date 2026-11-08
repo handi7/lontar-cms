@@ -323,4 +323,38 @@ describe('generateSchemaFile', () => {
     expect(moduleSpecifier).toContain('drizzle-orm/mysql-core')
     expect(moduleSpecifier.startsWith('/') || /^[A-Z]:\//i.test(moduleSpecifier)).toBe(true)
   })
+
+  it('generates flattened column names for group fields and nested group fields', () => {
+    const pages: CollectionConfig = {
+      slug: 'pages',
+      fields: {
+        title: { type: 'text', required: true },
+        seo: {
+          type: 'group',
+          fields: {
+            metaTitle: { type: 'text', required: true, maxLength: 60 },
+            metaDescription: { type: 'textarea' },
+            og: {
+              type: 'group',
+              fields: {
+                imageAlt: { type: 'text' },
+              },
+            },
+          },
+        },
+      },
+    }
+
+    const config: Config = {
+      secret: 'test-secret',
+      db: fakeAdapter,
+      collections: [pages],
+    }
+
+    const output = generateSchemaFile(config)
+    expect(output).toContain("title: varchar('title', { length: 255 }).notNull(),")
+    expect(output).toContain("seo__metaTitle: varchar('seo__metaTitle', { length: 60 }).notNull(),")
+    expect(output).toContain("seo__metaDescription: text('seo__metaDescription'),")
+    expect(output).toContain("seo__og__imageAlt: varchar('seo__og__imageAlt', { length: 255 }),")
+  })
 })

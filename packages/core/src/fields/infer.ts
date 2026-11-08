@@ -16,11 +16,24 @@ interface FieldValueMap {
   upload: number
 }
 
-type FieldValue<F extends Field> = F extends { type: 'relationship'; hasMany: true }
-  ? number[]
-  : F extends { required: true }
-    ? FieldValueMap[F['type']]
-    : FieldValueMap[F['type']] | null
+type InferGroupFields<F extends Fields> = {
+  -readonly [K in keyof F]: FieldValue<F[K]>
+}
+
+type FieldValue<F extends Field> = F extends {
+  type: 'group'
+  fields: infer SubFields extends Fields
+}
+  ? F extends { required: true }
+    ? InferGroupFields<SubFields>
+    : InferGroupFields<SubFields> | null
+  : F extends { type: 'relationship'; hasMany: true }
+    ? number[]
+    : F['type'] extends keyof FieldValueMap
+      ? F extends { required: true }
+        ? FieldValueMap[F['type']]
+        : FieldValueMap[F['type']] | null
+      : unknown
 
 type Simplify<T> = { [K in keyof T]: T[K] }
 

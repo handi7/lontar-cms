@@ -237,7 +237,17 @@ function buildColumns(
     return {
       id: key,
       header: getColumnLabel(key, collection),
-      accessorFn: (row) => row[key],
+      accessorFn: (row) => {
+        if (key.includes('.')) {
+          return key.split('.').reduce((acc: unknown, part) => {
+            if (acc && typeof acc === 'object') {
+              return (acc as Record<string, unknown>)[part]
+            }
+            return undefined
+          }, row)
+        }
+        return row[key]
+      },
       enableSorting: true,
       cell: ({ getValue, row }) => (
         <DataCellRenderer

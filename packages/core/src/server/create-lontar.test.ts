@@ -4,6 +4,7 @@ import {
   collection,
   defineConfig,
   fields,
+  CLIENT_CONFIG_VERSION,
   type Config,
   type DatabaseAdapter,
   type StoredDoc,
@@ -360,7 +361,7 @@ describe('createLontar REST API', () => {
       expect(res.status).toBe(200)
 
       const body = (await res.json()) as { version: number; collections: unknown[] }
-      expect(body.version).toBe(1)
+      expect(body.version).toBe(CLIENT_CONFIG_VERSION)
       expect(body.collections).toHaveLength(1)
     })
   })

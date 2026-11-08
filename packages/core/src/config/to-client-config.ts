@@ -7,6 +7,7 @@ import {
   type ClientEmailField,
   type ClientField,
   type ClientGlobal,
+  type ClientGroupField,
   type ClientNumberField,
   type ClientRelationshipField,
   type ClientRichTextField,
@@ -23,6 +24,7 @@ import type {
   EmailField,
   Field,
   FieldType,
+  GroupField,
   NumberField,
   RelationshipField,
   RichTextField,
@@ -132,6 +134,12 @@ const toClientField = {
   upload: (name: string, field: UploadField): ClientUploadField => ({
     ...baseField(name, field),
     relationTo: field.relationTo,
+  }),
+  group: (name: string, field: GroupField): ClientGroupField => ({
+    ...baseField(name, field),
+    fields: Object.entries(field.fields).map(([subName, subField]) =>
+      clientField(subName, subField),
+    ),
   }),
 } satisfies {
   [K in FieldType]: (name: string, field: Extract<Field, { type: K }>) => ClientField

@@ -19,7 +19,7 @@ export type FieldFilter = {
 export type WhereField = FieldFilter | FilterValue
 
 export interface Where {
-  [field: string]: WhereField | Where[] | undefined
+  [field: string]: WhereField | Where | Where[] | undefined
   and?: Where[]
   or?: Where[]
 }

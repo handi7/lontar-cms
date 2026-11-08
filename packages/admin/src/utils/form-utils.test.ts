@@ -137,5 +137,53 @@ describe('form-utils', () => {
       expect(formDoc.publishedAt).toBe(formatDateForInput('2024-05-01T03:00:00.000Z'))
       expect(formDoc.categories).toEqual([1, 2])
     })
+
+    it('handles nested group fields for defaults, formatDocForForm, and formatDocForSubmit', () => {
+      const groupFields: ClientField[] = [
+        {
+          name: 'seo',
+          type: 'group',
+          label: 'SEO',
+          required: false,
+          fields: [
+            {
+              name: 'metaTitle',
+              type: 'text',
+              label: 'Meta Title',
+              required: true,
+              defaultValue: 'Default SEO',
+            },
+            { name: 'releaseDate', type: 'date', label: 'Release Date', required: false },
+          ],
+        },
+      ]
+
+      const defaults = computeDefaultValues(groupFields)
+      expect(defaults.seo).toEqual({ metaTitle: 'Default SEO' })
+
+      const incomingDoc = {
+        seo: {
+          metaTitle: 'Custom Meta',
+          releaseDate: '2024-06-01T12:00:00.000Z',
+        },
+      }
+      const formDoc = formatDocForForm(groupFields, incomingDoc)
+      expect(formDoc.seo).toEqual({
+        metaTitle: 'Custom Meta',
+        releaseDate: formatDateForInput('2024-06-01T12:00:00.000Z'),
+      })
+
+      const submittingDoc = {
+        seo: {
+          metaTitle: 'Custom Meta',
+          releaseDate: '2024-06-01T12:00',
+        },
+      }
+      const submitDoc = formatDocForSubmit(groupFields, submittingDoc)
+      expect(submitDoc.seo).toEqual({
+        metaTitle: 'Custom Meta',
+        releaseDate: formatDateForSubmit('2024-06-01T12:00'),
+      })
+    })
   })
 })

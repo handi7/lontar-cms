@@ -117,7 +117,7 @@ describe('validateWhere', () => {
         or: [
           { titel: { equals: 'bad' } },
           {
-            and: [{ views: { unknown_op: 5 } as unknown as { greater_than: number } }],
+            and: [{ views: { unknown_op: 5 } }],
           },
         ],
       },

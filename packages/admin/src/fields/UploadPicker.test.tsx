@@ -2,13 +2,17 @@ import { describe, expect, it, vi, beforeEach, afterEach } from 'vitest'
 import { render, screen, fireEvent, waitFor, cleanup } from '@testing-library/react'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { useForm } from 'react-hook-form'
-import type { ClientConfig, ClientUploadField } from '@lontar/core/client'
+import {
+  CLIENT_CONFIG_VERSION,
+  type ClientConfig,
+  type ClientUploadField,
+} from '@lontar/core/client'
 import { AdminContext } from '../context/AdminContext'
 import { PortalContainerProvider } from '../context/PortalContainer'
 import { UploadPicker } from './UploadPicker'
 
 const mockConfig: ClientConfig = {
-  version: 1,
+  version: CLIENT_CONFIG_VERSION,
   collections: [
     {
       slug: 'media',
