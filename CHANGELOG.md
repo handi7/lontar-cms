@@ -5,6 +5,28 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.2.0] - 2026-11-08
+
+The admin moves to shadcn/ui on a scoped Tailwind v4 build, with Radix primitives and a dark theme (M6, tracked in #123). Nothing changes outside `@lontar/admin`: the API, the database, the config and the values the admin sends are the same as in 0.1.2. The other packages are bumped to keep every `@lontar/*` version in step.
+
+### Added
+
+- Dark mode for the admin. It follows the operating system by default, and editors can pick Light, Dark or System in the sidebar. The choice is stored in `localStorage` under `lontar-admin-theme`. Dark is a second set of values for the same `--lontar-*` tokens, so there are no new tokens to learn. A host can theme dark mode through the selectors documented in the README ([ADR 0020](docs/adr/0020-admin-dark-mode.md)) (#121).
+- Date fields use a calendar popover with a time input. Checkboxes and select fields use Radix Checkbox and Select. The value each one sends is unchanged, and tests pin it across four time zones (#117, #118).
+- Deleting a document asks for confirmation in a dialog instead of `window.confirm`, and Cancel sends no request (#136).
+- The relationship and upload pickers show their search results in a popover instead of pushing the fields below them down. Their icon buttons have tooltips (#136).
+- A contributing guide (`CONTRIBUTING.md`), and labels added to pull requests automatically (#130).
+
+### Changed
+
+- The admin is built from shadcn/ui components on Tailwind v4. Every utility is prefixed `lt:`, Tailwind's preflight is not shipped, every rule is scoped to `.lontar-admin`, and portalled content renders inside that wrapper. A build step fails if any selector could reach the host page ([ADR 0019](docs/adr/0019-admin-shadcn-tailwind-scoping.md)) (#113–#116, #119).
+- Most of the admin's hand-written `lontar-*` class names are gone, and the ones that remain are internal. The supported way to theme the admin is still the `--lontar-*` custom properties documented in the README. If your app styled the admin through its class names, move those overrides to the tokens.
+- The sidebar stays in view while the page scrolls, and its menu scrolls on its own (#140).
+
+### Fixed
+
+- Global CSS on the host page, such as Tailwind v3's preflight or Bootstrap's reboot, no longer overrides the admin's borders, button backgrounds or typography. The admin's stylesheet ships its reset and utilities outside cascade layers, and the e2e suite now loads a host reset over the admin (#143).
+
 ## [0.1.2] - 2026-11-06
 
 Post-release fixes for 0.1.1: CLI, admin, uploads, and config validation. This is the first version published from GitHub Actions, with npm provenance.
