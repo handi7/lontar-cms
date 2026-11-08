@@ -54,6 +54,13 @@ const pagesCollection: CollectionConfig = {
         metaDescription: { type: 'textarea' },
       },
     },
+    gallery: {
+      type: 'array',
+      fields: {
+        caption: { type: 'text' },
+        year: { type: 'number', integer: true },
+      },
+    },
   },
 }
 
@@ -1031,5 +1038,95 @@ describe('mysqlAdapter (integration)', () => {
       },
     })
     expect(cleared?.seo).toBeNull()
+  })
+
+  it('handles array fields: insert, reorder, and remove', async () => {
+    // 1. Create with array rows without IDs
+    const created = await adapter.create({
+      collection: pagesCollection,
+      data: {
+        title: 'Gallery Page',
+        gallery: [
+          { caption: 'First photo', year: 2021 },
+          { caption: 'Second photo', year: 2022 },
+        ],
+      },
+    })
+    expect(created.id).toBeDefined()
+    const rows = created.gallery as Array<{ id: string; caption: string; year: number }>
+    expect(rows).toHaveLength(2)
+    const [first, second] = rows
+    expect(first).toBeDefined()
+    expect(second).toBeDefined()
+    expect(first!.id).toMatch(/^[0-9a-f]{16}$/)
+    expect(second!.id).toMatch(/^[0-9a-f]{16}$/)
+    expect(first!.caption).toBe('First photo')
+    expect(second!.caption).toBe('Second photo')
+
+    const row1Id = first!.id
+    const row2Id = second!.id
+
+    // 2. Reorder and add a third row
+    const reordered = await adapter.update({
+      collection: pagesCollection,
+      id: created.id,
+      data: {
+        gallery: [
+          { id: row2Id, caption: 'Second photo (now first)', year: 2022 },
+          { id: row1Id, caption: 'First photo (now second)', year: 2021 },
+          { caption: 'Third photo', year: 2023 },
+        ],
+      },
+    })
+    const reorderedRows = reordered?.gallery as Array<{ id: string; caption: string; year: number }>
+    expect(reorderedRows).toHaveLength(3)
+    const [reordered1, reordered2, reordered3] = reorderedRows
+    expect(reordered1!.id).toBe(row2Id)
+    expect(reordered1!.caption).toBe('Second photo (now first)')
+    expect(reordered2!.id).toBe(row1Id)
+    expect(reordered3!.id).toMatch(/^[0-9a-f]{16}$/)
+    expect(reordered3!.caption).toBe('Third photo')
+
+    // 3. Remove a row
+    const removed = await adapter.update({
+      collection: pagesCollection,
+      id: created.id,
+      data: {
+        gallery: [{ id: row1Id, caption: 'First photo only', year: 2021 }],
+      },
+    })
+    const remainingRows = removed?.gallery as Array<{ id: string; caption: string; year: number }>
+    expect(remainingRows).toHaveLength(1)
+    expect(remainingRows[0]?.id).toBe(row1Id)
+  })
+
+  it('rolls back array field changes when transaction fails', async () => {
+    const created = await adapter.create({
+      collection: pagesCollection,
+      data: {
+        title: 'Rollback Gallery Page',
+        gallery: [{ id: 'keep-this-row-1', caption: 'Initial photo', year: 2020 }],
+      },
+    })
+    const originalRows = created.gallery as Array<{ id: string; caption: string; year: number }>
+
+    await expect(
+      adapter.transaction!(async (tx) => {
+        await tx.update({
+          collection: pagesCollection,
+          id: created.id,
+          data: {
+            gallery: [],
+          },
+        })
+        throw new Error('Forced rollback')
+      }),
+    ).rejects.toThrow('Database operation failed')
+
+    const afterRollback = await adapter.findByID({
+      collection: pagesCollection,
+      id: created.id,
+    })
+    expect(afterRollback?.gallery).toEqual(originalRows)
   })
 })

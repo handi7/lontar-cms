@@ -1,5 +1,6 @@
 import { createRequire } from 'node:module'
 import type {
+  ArrayField,
   CheckboxField,
   CollectionConfig,
   Config,
@@ -153,6 +154,14 @@ function renderUploadField(name: string, field: UploadField): string {
   return code
 }
 
+function renderArrayField(name: string, field: ArrayField): string {
+  let code = `json('${name}')`
+  if (field.required) {
+    code += '.notNull()'
+  }
+  return code
+}
+
 function renderBasicField(name: string, field: Field): string | null {
   if (field.type === 'text') return renderTextField(name, field)
   if (field.type === 'number') return renderNumberField(name, field)
@@ -172,6 +181,7 @@ function renderField(name: string, field: Field): string {
   if (field.type === 'richText') return renderRichTextField(name, field)
   if (field.type === 'relationship') return renderRelationshipField(name, field)
   if (field.type === 'upload') return renderUploadField(name, field)
+  if (field.type === 'array') return renderArrayField(name, field)
   throw new Error(`Unsupported field type: ${(field as Field).type}`)
 }
 
@@ -186,6 +196,7 @@ const FIELD_TYPE_IMPORTS: Record<string, string> = {
   richText: 'json',
   relationship: 'int',
   upload: 'int',
+  array: 'json',
 }
 
 function collectFieldImports(field: Field, imports: Set<string>): void {

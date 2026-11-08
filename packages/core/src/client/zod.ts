@@ -1,5 +1,6 @@
 import { z } from 'zod'
 import type {
+  ClientArrayField,
   ClientCheckboxField,
   ClientDateField,
   ClientEmailField,
@@ -14,6 +15,8 @@ import type {
   ClientTextField,
   ClientUploadField,
 } from './client-config'
+
+import { generateRowId } from './id'
 
 const MAX_INT_32 = 2147483647
 const DEFAULT_STRING_MAX_LENGTH = 255
@@ -144,6 +147,22 @@ const zodByType = {
   },
   group: (field: ClientGroupField) => {
     return clientFieldsToZod(field.fields)
+  },
+  array: (field: ClientArrayField) => {
+    const rowSchema = clientFieldsToZod(field.fields).extend({
+      id: z
+        .string()
+        .optional()
+        .transform((val) => val || generateRowId()),
+    })
+    let arr = z.array(rowSchema)
+    const minRows = field.minRows ?? (field.required ? 1 : 0)
+    if (minRows > 0) {
+      arr = arr.min(minRows, `Must have at least ${minRows} ${minRows === 1 ? 'item' : 'items'}`)
+    }
+    const maxRows = field.maxRows ?? 100
+    arr = arr.max(maxRows, `Must have at most ${maxRows} items`)
+    return arr
   },
 } satisfies { [K in ClientField['type']]: (field: Extract<ClientField, { type: K }>) => z.ZodType }
 

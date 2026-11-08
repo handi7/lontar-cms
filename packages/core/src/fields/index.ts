@@ -1,4 +1,5 @@
 import type {
+  ArrayField,
   CheckboxField,
   DateField,
   EmailField,
@@ -78,6 +79,40 @@ function group<const O extends Options<GroupField>>(options: O): O & { type: 'gr
   return { ...options, type: 'group' }
 }
 
+function validateMinRowOption(minRows?: number): void {
+  if (minRows !== undefined && (!Number.isInteger(minRows) || minRows < 0)) {
+    throw new Error('Array minRows must be a non-negative integer')
+  }
+}
+
+function validateMaxRowOption(maxRows?: number): void {
+  if (maxRows !== undefined && (!Number.isInteger(maxRows) || maxRows <= 0)) {
+    throw new Error('Array maxRows must be a positive integer')
+  }
+  if (maxRows !== undefined && maxRows > 500) {
+    throw new Error('Array maxRows cannot exceed 500')
+  }
+}
+
+function validateArrayRows(minRows?: number, maxRows?: number): void {
+  validateMinRowOption(minRows)
+  validateMaxRowOption(maxRows)
+  if (minRows !== undefined && maxRows !== undefined && minRows > maxRows) {
+    throw new Error('Array minRows cannot be greater than maxRows')
+  }
+}
+
+function array<const O extends Options<ArrayField>>(options: O): O & { type: 'array' } {
+  if (!options || typeof options.fields !== 'object' || options.fields === null) {
+    throw new Error('Array field requires a "fields" object')
+  }
+  if ('id' in options.fields) {
+    throw new Error('Array subfields cannot include reserved name "id"')
+  }
+  validateArrayRows(options.minRows, options.maxRows)
+  return { ...options, type: 'array' }
+}
+
 export const fields = {
   text,
   number,
@@ -91,4 +126,5 @@ export const fields = {
   relationship,
   upload,
   group,
+  array,
 }

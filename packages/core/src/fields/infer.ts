@@ -20,6 +20,12 @@ type InferGroupFields<F extends Fields> = {
   -readonly [K in keyof F]: FieldValue<F[K]>
 }
 
+export type InferArrayRow<F extends Fields> = Simplify<
+  { id: string } & {
+    -readonly [K in keyof F]: FieldValue<F[K]>
+  }
+>
+
 type FieldValue<F extends Field> = F extends {
   type: 'group'
   fields: infer SubFields extends Fields
@@ -27,13 +33,20 @@ type FieldValue<F extends Field> = F extends {
   ? F extends { required: true }
     ? InferGroupFields<SubFields>
     : InferGroupFields<SubFields> | null
-  : F extends { type: 'relationship'; hasMany: true }
-    ? number[]
-    : F['type'] extends keyof FieldValueMap
-      ? F extends { required: true }
-        ? FieldValueMap[F['type']]
-        : FieldValueMap[F['type']] | null
-      : unknown
+  : F extends {
+        type: 'array'
+        fields: infer SubFields extends Fields
+      }
+    ? F extends { required: true }
+      ? InferArrayRow<SubFields>[]
+      : InferArrayRow<SubFields>[] | null
+    : F extends { type: 'relationship'; hasMany: true }
+      ? number[]
+      : F['type'] extends keyof FieldValueMap
+        ? F extends { required: true }
+          ? FieldValueMap[F['type']]
+          : FieldValueMap[F['type']] | null
+        : unknown
 
 type Simplify<T> = { [K in keyof T]: T[K] }
 

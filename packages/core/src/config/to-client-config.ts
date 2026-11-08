@@ -17,8 +17,10 @@ import {
   type ClientTextareaField,
   type ClientTextField,
   type ClientUploadField,
+  type ClientArrayField,
 } from '../client/client-config'
 import type {
+  ArrayField,
   CheckboxField,
   DateField,
   EmailField,
@@ -137,6 +139,20 @@ const toClientField = {
   }),
   group: (name: string, field: GroupField): ClientGroupField => ({
     ...baseField(name, field),
+    fields: Object.entries(field.fields).map(([subName, subField]) =>
+      clientField(subName, subField),
+    ),
+  }),
+  array: (name: string, field: ArrayField): ClientArrayField => ({
+    ...baseField(name, field),
+    ...defined({
+      minRows: field.minRows,
+      maxRows: field.maxRows,
+      labels: field.labels,
+      admin: field.admin
+        ? { description: field.admin.description, rowLabel: field.admin.rowLabel }
+        : undefined,
+    }),
     fields: Object.entries(field.fields).map(([subName, subField]) =>
       clientField(subName, subField),
     ),

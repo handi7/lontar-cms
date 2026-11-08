@@ -357,4 +357,30 @@ describe('generateSchemaFile', () => {
     expect(output).toContain("seo__metaDescription: text('seo__metaDescription'),")
     expect(output).toContain("seo__og__imageAlt: varchar('seo__og__imageAlt', { length: 255 }),")
   })
+
+  it('generates json column for array fields', () => {
+    const portfolio: CollectionConfig = {
+      slug: 'portfolio',
+      fields: {
+        title: { type: 'text', required: true },
+        gallery: {
+          type: 'array',
+          required: true,
+          fields: {
+            caption: { type: 'text' },
+          },
+        },
+      },
+    }
+
+    const config: Config = {
+      secret: 'test-secret',
+      db: fakeAdapter,
+      collections: [portfolio],
+    }
+
+    const output = generateSchemaFile(config)
+    expect(output).toContain("title: varchar('title', { length: 255 }).notNull(),")
+    expect(output).toContain("gallery: json('gallery').notNull(),")
+  })
 })

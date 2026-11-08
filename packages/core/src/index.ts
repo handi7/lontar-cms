@@ -4,6 +4,7 @@ export { defineConfig, LontarConfigError } from './config/define-config'
 export { toClientCollection, toClientConfig, toClientGlobal } from './config/to-client-config'
 export { CLIENT_CONFIG_VERSION } from './client/client-config'
 export { fields } from './fields'
+export { generateRowId } from './client/id'
 export { createLontar, type CreateLontarOptions, type LontarApp } from './server/create-lontar'
 export { getLontar } from './local'
 export type {
@@ -104,6 +105,9 @@ export type {
   UploadSystemFields,
 } from './client/system-fields'
 export type {
+  ArrayField,
+  ArrayFieldAdminOptions,
+  ArrayFieldOptions,
   CheckboxField,
   DateField,
   EmailField,

@@ -527,6 +527,80 @@ describe('clientFieldToZod', () => {
       expect(schema.safeParse({}).success).toBe(false)
     })
   })
+
+  describe('array fields', () => {
+    it('validates an optional array and generates 16-hex row id', () => {
+      const schema = clientFieldToZod({
+        name: 'gallery',
+        type: 'array',
+        label: 'Gallery',
+        required: false,
+        fields: [
+          { name: 'caption', type: 'text', label: 'Caption', required: true, maxLength: 60 },
+        ],
+      })
+
+      expect(schema.safeParse(undefined).success).toBe(true)
+      expect(schema.safeParse(null).success).toBe(true)
+
+      const parsed = schema.parse([
+        { caption: 'Pic 1' },
+        { id: 'custom-row-id-123', caption: 'Pic 2' },
+      ]) as Array<{ id: string; caption: string }>
+      expect(parsed).toBeDefined()
+      expect(Array.isArray(parsed)).toBe(true)
+      expect(parsed[0]?.caption).toBe('Pic 1')
+      expect(parsed[0]?.id).toMatch(/^[0-9a-f]{16}$/)
+      expect(parsed[1]?.caption).toBe('Pic 2')
+      expect(parsed[1]?.id).toBe('custom-row-id-123')
+
+      // Invalid subfield
+      expect(schema.safeParse([{}])).toMatchObject({ success: false })
+      // Non-array
+      expect(schema.safeParse('not an array')).toMatchObject({ success: false })
+    })
+
+    it('enforces minRows and maxRows', () => {
+      const schema = clientFieldToZod({
+        name: 'items',
+        type: 'array',
+        label: 'Items',
+        required: false,
+        minRows: 2,
+        maxRows: 3,
+        fields: [{ name: 'title', type: 'text', label: 'Title', required: true, maxLength: 60 }],
+      })
+
+      expect(schema.safeParse([{ title: 'One' }]).success).toBe(false)
+      expect(schema.safeParse([{ title: 'One' }, { title: 'Two' }]).success).toBe(true)
+      expect(
+        schema.safeParse([{ title: 'One' }, { title: 'Two' }, { title: 'Three' }]).success,
+      ).toBe(true)
+      expect(
+        schema.safeParse([
+          { title: 'One' },
+          { title: 'Two' },
+          { title: 'Three' },
+          { title: 'Four' },
+        ]).success,
+      ).toBe(false)
+    })
+
+    it('defaults minRows to 1 when required is true', () => {
+      const schema = clientFieldToZod({
+        name: 'items',
+        type: 'array',
+        label: 'Items',
+        required: true,
+        fields: [{ name: 'title', type: 'text', label: 'Title', required: true, maxLength: 60 }],
+      })
+
+      expect(schema.safeParse(undefined).success).toBe(false)
+      expect(schema.safeParse(null).success).toBe(false)
+      expect(schema.safeParse([]).success).toBe(false)
+      expect(schema.safeParse([{ title: 'One' }]).success).toBe(true)
+    })
+  })
 })
 
 describe('clientFieldsToZod', () => {

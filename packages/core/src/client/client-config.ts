@@ -125,6 +125,20 @@ export interface ClientGroupField extends ClientFieldBase {
   fields: ClientField[]
 }
 
+export interface ClientArrayFieldAdmin {
+  description?: string
+  rowLabel?: string
+}
+
+export interface ClientArrayField extends ClientFieldBase {
+  type: 'array'
+  fields: ClientField[]
+  minRows?: number
+  maxRows?: number
+  labels?: { singular: string; plural: string }
+  admin?: ClientArrayFieldAdmin
+}
+
 export type ClientField =
   | ClientTextField
   | ClientNumberField
@@ -138,3 +152,4 @@ export type ClientField =
   | ClientRelationshipField
   | ClientUploadField
   | ClientGroupField
+  | ClientArrayField

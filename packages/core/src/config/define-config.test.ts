@@ -674,4 +674,78 @@ describe('defineConfig', () => {
       }),
     ).toThrow('Global "site-settings": slug field "slug" `from` refers to unknown field "missing"')
   })
+
+  it('rejects nested containers deeper than 3 levels', () => {
+    // Level 1: array, Level 2: group, Level 3: group, Level 4: group -> invalid!
+    expect(() =>
+      defineConfig({
+        secret: SECRET,
+        db: fakeAdapter,
+        collections: [
+          notes({
+            fields: {
+              l1: f.array({
+                fields: {
+                  l2: f.group({
+                    fields: {
+                      l3: f.group({
+                        fields: {
+                          l4: f.group({
+                            fields: {
+                              deep: f.text(),
+                            },
+                          }),
+                        },
+                      }),
+                    },
+                  }),
+                },
+              }),
+            },
+          }),
+        ],
+      }),
+    ).toThrow('exceeds maximum nesting depth of 3')
+  })
+
+  it('validates array admin.rowLabel refers to a known subfield', () => {
+    expect(() =>
+      defineConfig({
+        secret: SECRET,
+        db: fakeAdapter,
+        collections: [
+          notes({
+            fields: {
+              items: f.array({
+                admin: { rowLabel: 'nonexistent' },
+                fields: {
+                  title: f.text(),
+                },
+              }),
+            },
+          }),
+        ],
+      }),
+    ).toThrow('admin.rowLabel refers to unknown field "nonexistent"')
+  })
+
+  it('rejects reserved subfield name "id" in nested containers', () => {
+    expect(() =>
+      defineConfig({
+        secret: SECRET,
+        db: fakeAdapter,
+        collections: [
+          notes({
+            fields: {
+              info: f.group({
+                fields: {
+                  id: f.text(),
+                },
+              }),
+            },
+          }),
+        ],
+      }),
+    ).toThrow('field name "id" is reserved')
+  })
 })
