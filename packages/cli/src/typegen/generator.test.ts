@@ -423,4 +423,86 @@ describe('generateTypes', () => {
     })
     expect(transpileResult.outputText).toBeDefined()
   })
+
+  it('generates populated vs unpopulated types for relationships and uploads inside group, array, and blocks', () => {
+    const config: Config = {
+      secret: 'test-secret',
+      db: { name: 'mock' } as unknown as Config['db'],
+      collections: [
+        {
+          slug: 'media',
+          upload: true,
+          fields: {
+            alt: { type: 'text' },
+          },
+        },
+        {
+          slug: 'authors',
+          fields: {
+            name: { type: 'text', required: true },
+          },
+        },
+        {
+          slug: 'articles',
+          fields: {
+            title: { type: 'text', required: true },
+            meta: {
+              type: 'group',
+              fields: {
+                cover: { type: 'upload', relationTo: 'media', required: true },
+                leadAuthor: { type: 'relationship', relationTo: 'authors' },
+              },
+            },
+            references: {
+              type: 'array',
+              fields: {
+                article: { type: 'relationship', relationTo: 'articles', required: true },
+                coAuthors: { type: 'relationship', relationTo: 'authors', hasMany: true },
+              },
+            },
+            content: {
+              type: 'blocks',
+              blocks: [
+                {
+                  slug: 'imageSpotlight',
+                  labels: { singular: 'Image Spotlight', plural: 'Image Spotlights' },
+                  fields: {
+                    image: { type: 'upload', relationTo: 'media', required: true },
+                    photographer: { type: 'relationship', relationTo: 'authors' },
+                  },
+                },
+              ],
+            },
+          },
+        },
+      ],
+    }
+
+    const output = generateTypes(config)
+
+    // Block interface should have populated vs unpopulated types for upload and relationship
+    expect(output).toContain('export interface ArticleContentImageSpotlightBlock {')
+    expect(output).toContain('  id: string')
+    expect(output).toContain("  blockType: 'imageSpotlight'")
+    expect(output).toContain('  image: number | Media')
+    expect(output).toContain('  photographer?: number | Author | null')
+
+    // Article interface should have group and array with proper reference types
+    expect(output).toContain('  meta?: {')
+    expect(output).toContain('    cover: number | Media')
+    expect(output).toContain('    leadAuthor?: number | Author | null')
+
+    expect(output).toContain('  references?: Array<{')
+    expect(output).toContain('    id: string')
+    expect(output).toContain('    article: number | Article')
+    expect(output).toContain('    coAuthors?: (number | Author)[] | null')
+
+    const transpileResult = ts.transpileModule(output, {
+      compilerOptions: {
+        module: ts.ModuleKind.ESNext,
+        target: ts.ScriptTarget.ES2022,
+      },
+    })
+    expect(transpileResult.outputText).toBeDefined()
+  })
 })

@@ -2,7 +2,14 @@ import { checkAccess } from '../access'
 import type { AuthUser } from '../auth/types'
 import type { CollectionConfig } from '../config/types'
 import type { DatabaseAdapter, DocumentData } from '../database/adapter'
-import type { RelationshipField, UploadField } from '../fields/types'
+import type {
+  ArrayField,
+  BlocksField,
+  Field,
+  GroupField,
+  RelationshipField,
+  UploadField,
+} from '../fields/types'
 import { runAfterReadHooks } from '../hooks/runner'
 
 export function parseDepth(val: string | undefined): number {
@@ -24,34 +31,184 @@ export interface PopulateOptions {
   overrideAccess?: boolean
 }
 
-function collectManyIds(
-  val: unknown,
-  ids: Set<number>,
-  targetColSlug: string,
-  seen: ReadonlySet<string>,
+interface SingleRefSlot {
+  type: 'single'
+  targetColSlug: string
+  targetId: number
+  assign: (populated: DocumentData | null) => void
+}
+
+interface ManyRefSlot {
+  type: 'many'
+  targetColSlug: string
+  targetIds: number[]
+  assign: (populated: Array<DocumentData | number>) => void
+}
+
+type RefSlot = SingleRefSlot | ManyRefSlot
+
+function collectRelationshipSlot(
+  container: Record<string, unknown>,
+  name: string,
+  field: RelationshipField,
+  slots: RefSlot[],
 ): void {
+  const val = container[name]
+  if (field.hasMany) {
+    if (Array.isArray(val)) {
+      const targetIds = val.filter((id): id is number => typeof id === 'number' && id > 0)
+      slots.push({
+        type: 'many',
+        targetColSlug: field.relationTo,
+        targetIds,
+        assign: (populated) => {
+          container[name] = populated
+        },
+      })
+    } else {
+      container[name] = []
+    }
+  } else if (typeof val === 'number' && val > 0) {
+    slots.push({
+      type: 'single',
+      targetColSlug: field.relationTo,
+      targetId: val,
+      assign: (populated) => {
+        container[name] = populated
+      },
+    })
+  } else {
+    container[name] = null
+  }
+}
+
+function collectUploadSlot(
+  container: Record<string, unknown>,
+  name: string,
+  field: UploadField,
+  slots: RefSlot[],
+): void {
+  const val = container[name]
+  if (typeof val === 'number' && val > 0) {
+    slots.push({
+      type: 'single',
+      targetColSlug: field.relationTo,
+      targetId: val,
+      assign: (populated) => {
+        container[name] = populated
+      },
+    })
+  } else {
+    container[name] = null
+  }
+}
+
+function collectBlocksSlots(
+  container: Record<string, unknown>,
+  name: string,
+  field: BlocksField,
+  slots: RefSlot[],
+): void {
+  const val = container[name]
   if (!Array.isArray(val)) return
-  for (const item of val) {
-    if (typeof item === 'number' && item > 0 && !seen.has(`${targetColSlug}:${item}`)) {
-      ids.add(item)
+  const blocksBySlug = new Map(field.blocks.map((b) => [b.slug, b]))
+  for (const row of val) {
+    if (!row || typeof row !== 'object') continue
+    const blockType = (row as Record<string, unknown>).blockType
+    if (typeof blockType !== 'string') continue
+    const blockDef = blocksBySlug.get(blockType)
+    if (blockDef) {
+      collectSlots(row as Record<string, unknown>, blockDef.fields, slots)
     }
   }
 }
 
+function collectArraySlots(
+  container: Record<string, unknown>,
+  name: string,
+  field: ArrayField,
+  slots: RefSlot[],
+): void {
+  const val = container[name]
+  if (!Array.isArray(val)) return
+  for (const row of val) {
+    if (row && typeof row === 'object') {
+      collectSlots(row as Record<string, unknown>, field.fields, slots)
+    }
+  }
+}
+
+function collectGroupSlots(
+  container: Record<string, unknown>,
+  name: string,
+  field: GroupField,
+  slots: RefSlot[],
+): void {
+  const val = container[name]
+  if (val && typeof val === 'object' && !Array.isArray(val)) {
+    collectSlots(val as Record<string, unknown>, field.fields, slots)
+  }
+}
+
+function collectFieldSlot(
+  container: Record<string, unknown>,
+  name: string,
+  field: Field,
+  slots: RefSlot[],
+): void {
+  if (field.type === 'relationship') {
+    collectRelationshipSlot(container, name, field, slots)
+  } else if (field.type === 'upload') {
+    collectUploadSlot(container, name, field, slots)
+  } else if (field.type === 'group') {
+    collectGroupSlots(container, name, field, slots)
+  } else if (field.type === 'array') {
+    collectArraySlots(container, name, field, slots)
+  } else if (field.type === 'blocks') {
+    collectBlocksSlots(container, name, field, slots)
+  }
+}
+
+function collectSlots(
+  container: Record<string, unknown>,
+  fields: Record<string, Field>,
+  slots: RefSlot[],
+): void {
+  for (const [name, field] of Object.entries(fields)) {
+    collectFieldSlot(container, name, field, slots)
+  }
+}
+
+function groupSlotsByTarget(slots: RefSlot[]): Map<string, RefSlot[]> {
+  const grouped = new Map<string, RefSlot[]>()
+  for (const slot of slots) {
+    let list = grouped.get(slot.targetColSlug)
+    if (!list) {
+      list = []
+      grouped.set(slot.targetColSlug, list)
+    }
+    list.push(slot)
+  }
+  return grouped
+}
+
 function extractTargetIds(
-  docs: DocumentData[],
-  fieldName: string,
-  hasMany: boolean,
+  slots: RefSlot[],
   targetColSlug: string,
   seen: ReadonlySet<string>,
 ): number[] {
   const ids = new Set<number>()
-  for (const doc of docs) {
-    const val = doc[fieldName]
-    if (hasMany) {
-      collectManyIds(val, ids, targetColSlug, seen)
-    } else if (typeof val === 'number' && val > 0 && !seen.has(`${targetColSlug}:${val}`)) {
-      ids.add(val)
+  for (const slot of slots) {
+    if (slot.type === 'single') {
+      if (!seen.has(`${targetColSlug}:${slot.targetId}`)) {
+        ids.add(slot.targetId)
+      }
+    } else {
+      for (const id of slot.targetIds) {
+        if (!seen.has(`${targetColSlug}:${id}`)) {
+          ids.add(id)
+        }
+      }
     }
   }
   return Array.from(ids)
@@ -76,55 +233,26 @@ async function fetchTargetDocs(
   return new Map(transformed.map((d) => [d.id as number, d]))
 }
 
-function assignManyField(
-  doc: DocumentData,
-  fieldName: string,
-  targetColSlug: string,
+function assignTargetSlots(
+  slots: RefSlot[],
   docsById: Map<number, DocumentData>,
   seen: ReadonlySet<string>,
 ): void {
-  const current = doc[fieldName]
-  if (!Array.isArray(current)) {
-    doc[fieldName] = []
-    return
-  }
-  doc[fieldName] = current
-    .map((id) => {
-      if (typeof id !== 'number') return null
-      if (seen.has(`${targetColSlug}:${id}`)) return id
-      return docsById.get(id) ?? null
-    })
-    .filter((d): d is DocumentData | number => d !== null && d !== undefined)
-}
-
-function assignSingleField(
-  doc: DocumentData,
-  fieldName: string,
-  targetColSlug: string,
-  docsById: Map<number, DocumentData>,
-  seen: ReadonlySet<string>,
-): void {
-  const current = doc[fieldName]
-  if (typeof current === 'number' && current > 0) {
-    if (seen.has(`${targetColSlug}:${current}`)) return
-    doc[fieldName] = docsById.get(current) ?? null
-    return
-  }
-  doc[fieldName] = null
-}
-
-function assignPopulatedField(
-  doc: DocumentData,
-  fieldName: string,
-  hasMany: boolean,
-  targetColSlug: string,
-  docsById: Map<number, DocumentData>,
-  seen: ReadonlySet<string>,
-): void {
-  if (hasMany) {
-    assignManyField(doc, fieldName, targetColSlug, docsById, seen)
-  } else {
-    assignSingleField(doc, fieldName, targetColSlug, docsById, seen)
+  for (const slot of slots) {
+    if (slot.type === 'single') {
+      if (seen.has(`${slot.targetColSlug}:${slot.targetId}`)) {
+        continue
+      }
+      slot.assign(docsById.get(slot.targetId) ?? null)
+    } else {
+      const populated = slot.targetIds
+        .map((id) => {
+          if (seen.has(`${slot.targetColSlug}:${id}`)) return id
+          return docsById.get(id) ?? null
+        })
+        .filter((d): d is DocumentData | number => d !== null && d !== undefined)
+      slot.assign(populated)
+    }
   }
 }
 
@@ -166,11 +294,11 @@ async function populateChildren(
   }
 }
 
-interface PopulateFieldArgs {
-  fieldName: string
-  field: RelationshipField | UploadField
-  docs: DocumentData[]
-  collection: CollectionConfig
+interface PopulateTargetArgs {
+  targetCol: CollectionConfig
+  targetSlots: RefSlot[]
+  parentDocs: DocumentData[]
+  parentCollection: CollectionConfig
   depth: number
   collections: readonly CollectionConfig[]
   db: DatabaseAdapter
@@ -180,12 +308,12 @@ interface PopulateFieldArgs {
   overrideAccess?: boolean
 }
 
-async function populateField(args: PopulateFieldArgs): Promise<void> {
+async function populateTargetCollection(args: PopulateTargetArgs): Promise<void> {
   const {
-    fieldName,
-    field,
-    docs,
-    collection,
+    targetCol,
+    targetSlots,
+    parentDocs,
+    parentCollection,
     depth,
     collections,
     db,
@@ -194,22 +322,19 @@ async function populateField(args: PopulateFieldArgs): Promise<void> {
     seen,
     overrideAccess,
   } = args
-  const targetCol = collections.find((c) => c.slug === field.relationTo)
-  if (!targetCol) return
 
   const canRead = overrideAccess ? true : await checkAccess(targetCol.access?.read, { user })
   if (!canRead) return
 
-  const hasMany = field.type === 'relationship' ? Boolean(field.hasMany) : false
-  const targetIds = extractTargetIds(docs, fieldName, hasMany, targetCol.slug, seen)
+  const targetIds = extractTargetIds(targetSlots, targetCol.slug, seen)
   const docsById = await fetchTargetDocs(targetCol, targetIds, db, req)
 
   if (depth > 1 && docsById.size > 0) {
     await populateChildren(
       targetCol,
       docsById,
-      docs,
-      collection,
+      parentDocs,
+      parentCollection,
       depth,
       collections,
       db,
@@ -220,42 +345,71 @@ async function populateField(args: PopulateFieldArgs): Promise<void> {
     )
   }
 
-  for (const doc of docs) {
-    assignPopulatedField(doc, fieldName, hasMany, targetCol.slug, docsById, seen)
-  }
+  assignTargetSlots(targetSlots, docsById, seen)
 }
 
-export async function populateDocs(options: PopulateOptions): Promise<DocumentData[]> {
+function hasReferenceFields(fields: Record<string, Field>): boolean {
+  for (const field of Object.values(fields)) {
+    if (field.type === 'relationship' || field.type === 'upload') return true
+    if ((field.type === 'group' || field.type === 'array') && hasReferenceFields(field.fields)) {
+      return true
+    }
+    if (field.type === 'blocks') {
+      for (const b of field.blocks) {
+        if (hasReferenceFields(b.fields)) return true
+      }
+    }
+  }
+  return false
+}
+
+function filterDocsToPopulate(
+  docs: DocumentData[],
+  collectionSlug: string,
+  seen: ReadonlySet<string>,
+): DocumentData[] {
+  return docs.filter((doc) => {
+    return typeof doc.id !== 'number' || !seen.has(`${collectionSlug}:${doc.id}`)
+  })
+}
+
+interface PopulateAllTargetsArgs {
+  slots: RefSlot[]
+  docsToPopulate: DocumentData[]
+  collection: CollectionConfig
+  depth: number
+  collections: readonly CollectionConfig[]
+  db: DatabaseAdapter
+  user: AuthUser | null
+  req?: Request
+  seen: ReadonlySet<string>
+  overrideAccess?: boolean
+}
+
+async function populateAllTargets(args: PopulateAllTargetsArgs): Promise<void> {
   const {
-    docs,
+    slots,
+    docsToPopulate,
     collection,
     depth,
     collections,
     db,
-    user = null,
+    user,
     req,
-    seen = new Set(),
+    seen,
     overrideAccess,
-  } = options
-  if (depth <= 0 || docs.length === 0) return docs
+  } = args
 
-  const relFields = Object.entries(collection.fields).filter(
-    ([, field]) => field.type === 'relationship' || field.type === 'upload',
-  ) as Array<[string, RelationshipField | UploadField]>
+  const slotsByTarget = groupSlotsByTarget(slots)
+  for (const [targetColSlug, targetSlots] of slotsByTarget) {
+    const targetCol = collections.find((c) => c.slug === targetColSlug)
+    if (!targetCol) continue
 
-  if (relFields.length === 0) return docs
-
-  const docsToPopulate = docs.filter((doc) => {
-    return typeof doc.id !== 'number' || !seen.has(`${collection.slug}:${doc.id}`)
-  })
-  if (docsToPopulate.length === 0) return docs
-
-  for (const [fieldName, field] of relFields) {
-    await populateField({
-      fieldName,
-      field,
-      docs: docsToPopulate,
-      collection,
+    await populateTargetCollection({
+      targetCol,
+      targetSlots,
+      parentDocs: docsToPopulate,
+      parentCollection: collection,
       depth,
       collections,
       db,
@@ -265,6 +419,37 @@ export async function populateDocs(options: PopulateOptions): Promise<DocumentDa
       overrideAccess,
     })
   }
+}
+
+export async function populateDocs(options: PopulateOptions): Promise<DocumentData[]> {
+  const { docs, collection, depth, collections, db, req, overrideAccess } = options
+  const user = options.user ?? null
+  const seen = options.seen ?? new Set<string>()
+
+  if (depth <= 0 || docs.length === 0) return docs
+  if (!hasReferenceFields(collection.fields)) return docs
+
+  const docsToPopulate = filterDocsToPopulate(docs, collection.slug, seen)
+  if (docsToPopulate.length === 0) return docs
+
+  const slots: RefSlot[] = []
+  for (const doc of docsToPopulate) {
+    collectSlots(doc, collection.fields, slots)
+  }
+  if (slots.length === 0) return docs
+
+  await populateAllTargets({
+    slots,
+    docsToPopulate,
+    collection,
+    depth,
+    collections,
+    db,
+    user,
+    req,
+    seen,
+    overrideAccess,
+  })
 
   return docs
 }

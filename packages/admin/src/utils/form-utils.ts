@@ -60,13 +60,7 @@ export function normalizeRelationshipValue(val: unknown, hasMany?: boolean): unk
   return extractIdFromItem(val) ?? val
 }
 
-export function formatFieldForForm(f: ClientField, val: unknown): unknown {
-  if (f.type === 'date') {
-    return formatDateForInput(val)
-  }
-  if (f.type === 'relationship') {
-    return normalizeRelationshipValue(val, f.hasMany)
-  }
+function formatNestedFieldForForm(f: ClientField, val: unknown): unknown {
   if (f.type === 'group') {
     if (!val || typeof val !== 'object') return val
     return formatDocForForm(f.fields, val as Record<string, unknown>)
@@ -88,6 +82,19 @@ export function formatFieldForForm(f: ClientField, val: unknown): unknown {
   return val
 }
 
+export function formatFieldForForm(f: ClientField, val: unknown): unknown {
+  if (f.type === 'date') {
+    return formatDateForInput(val)
+  }
+  if (f.type === 'relationship') {
+    return normalizeRelationshipValue(val, f.hasMany)
+  }
+  if (f.type === 'upload') {
+    return extractIdFromItem(val) ?? val
+  }
+  return formatNestedFieldForForm(f, val)
+}
+
 export function formatDocForForm(
   fields: readonly ClientField[],
   data: Record<string, unknown>,
@@ -101,10 +108,7 @@ export function formatDocForForm(
   return formatted
 }
 
-function formatFieldValueForSubmit(f: ClientField, val: unknown): unknown {
-  if (f.type === 'date') {
-    return formatDateForSubmit(val)
-  }
+function formatNestedValueForSubmit(f: ClientField, val: unknown): unknown {
   if (f.type === 'group' && val && typeof val === 'object') {
     return formatDocForSubmit(f.fields, val as Record<string, unknown>)
   }
@@ -126,6 +130,19 @@ function formatFieldValueForSubmit(f: ClientField, val: unknown): unknown {
     })
   }
   return val
+}
+
+function formatFieldValueForSubmit(f: ClientField, val: unknown): unknown {
+  if (f.type === 'date') {
+    return formatDateForSubmit(val)
+  }
+  if (f.type === 'relationship') {
+    return normalizeRelationshipValue(val, f.hasMany)
+  }
+  if (f.type === 'upload') {
+    return extractIdFromItem(val) ?? (val === null || val === '' ? null : val)
+  }
+  return formatNestedValueForSubmit(f, val)
 }
 
 export function formatDocForSubmit(

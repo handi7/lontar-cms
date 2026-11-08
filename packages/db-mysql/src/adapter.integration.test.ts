@@ -85,6 +85,50 @@ const pagesCollection: CollectionConfig = {
   },
 }
 
+const nestedCollection: CollectionConfig = {
+  slug: 'nested_docs',
+  labels: { singular: 'Nested Doc', plural: 'Nested Docs' },
+  fields: {
+    title: { type: 'text', required: true },
+    seo: {
+      type: 'group',
+      fields: {
+        metaTitle: { type: 'text' },
+        featuredPost: { type: 'relationship', relationTo: 'posts' },
+      },
+    },
+    gallery: {
+      type: 'array',
+      fields: {
+        caption: { type: 'text' },
+        featuredPost: { type: 'relationship', relationTo: 'posts' },
+      },
+    },
+    layout: {
+      type: 'blocks',
+      blocks: [
+        {
+          slug: 'hero',
+          labels: { singular: 'Hero', plural: 'Heroes' },
+          fields: {
+            heading: { type: 'text', required: true },
+            featuredPost: { type: 'relationship', relationTo: 'posts' },
+          },
+        },
+        {
+          slug: 'cta',
+          labels: { singular: 'Call to Action', plural: 'Calls to Action' },
+          fields: {
+            text: { type: 'text', required: true },
+            buttonUrl: { type: 'text', required: true },
+            relatedPosts: { type: 'relationship', relationTo: 'posts', hasMany: true },
+          },
+        },
+      ],
+    },
+  },
+}
+
 const headerGlobal: GlobalConfig = {
   slug: 'header',
   fields: {
@@ -108,7 +152,13 @@ describe('mysqlAdapter (integration)', () => {
     const config: Config = {
       secret: 'test-secret',
       db: adapter,
-      collections: [postsCollection, categoriesCollection, tagsCollection, pagesCollection],
+      collections: [
+        postsCollection,
+        categoriesCollection,
+        tagsCollection,
+        pagesCollection,
+        nestedCollection,
+      ],
       globals: [headerGlobal],
     }
 
@@ -1239,5 +1289,98 @@ describe('mysqlAdapter (integration)', () => {
       id: created.id,
     })
     expect(afterRollback?.layout).toEqual(updatedBlocks)
+  })
+
+  it('stores and retrieves relationships inside group, array, and blocks', async () => {
+    // 1. Create a referenced post
+    const post1 = await adapter.create({
+      collection: postsCollection,
+      data: {
+        title: 'Referenced Post 1',
+      },
+    })
+    const post2 = await adapter.create({
+      collection: postsCollection,
+      data: {
+        title: 'Referenced Post 2',
+      },
+    })
+
+    // 2. Create a page with references in seo, gallery, and layout
+    const page = await adapter.create({
+      collection: nestedCollection,
+      data: {
+        title: 'Complex Nested Page',
+        seo: {
+          metaTitle: 'SEO Meta',
+          featuredPost: post1.id,
+        },
+        gallery: [
+          {
+            caption: 'First photo',
+            featuredPost: post2.id,
+          },
+        ],
+        layout: [
+          {
+            blockType: 'hero',
+            heading: 'Hero Heading',
+            featuredPost: post1.id,
+          },
+          {
+            blockType: 'cta',
+            text: 'CTA Text',
+            buttonUrl: '/cta',
+            relatedPosts: [post1.id, post2.id],
+          },
+        ],
+      },
+    })
+
+    expect(page.id).toBeDefined()
+    const verifyDoc = (doc: Record<string, unknown>, p1: number, p2: number) => {
+      const seo = doc.seo as Record<string, unknown>
+      const gallery = doc.gallery as Array<Record<string, unknown>>
+      const layout = doc.layout as Array<Record<string, unknown>>
+      expect(seo.featuredPost).toBe(p1)
+      expect(gallery[0]!.featuredPost).toBe(p2)
+      expect(layout[0]!.featuredPost).toBe(p1)
+      expect(layout[1]!.relatedPosts).toEqual([p1, p2])
+    }
+    verifyDoc(page, post1.id, post2.id)
+
+    // 3. Retrieve using findByID
+    const fetched = await adapter.findByID({
+      collection: nestedCollection,
+      id: page.id,
+    })
+    expect(fetched).not.toBeNull()
+    verifyDoc(fetched!, post1.id, post2.id)
+
+    // 4. Update references inside nested fields
+    const layoutBlocks = page.layout as Array<Record<string, unknown>>
+    const updated = await adapter.update({
+      collection: nestedCollection,
+      id: page.id,
+      data: {
+        seo: {
+          metaTitle: 'Updated SEO Meta',
+          featuredPost: post2.id,
+        },
+        layout: [
+          {
+            id: layoutBlocks[0]!.id as string,
+            blockType: 'hero',
+            heading: 'Hero Heading Updated',
+            featuredPost: null,
+          },
+        ],
+      },
+    })
+    expect(updated).not.toBeNull()
+    const updatedSeo = updated!.seo as Record<string, unknown>
+    const updatedLayout = updated!.layout as Array<Record<string, unknown>>
+    expect(updatedSeo.featuredPost).toBe(post2.id)
+    expect(updatedLayout[0]!.featuredPost).toBeNull()
   })
 })

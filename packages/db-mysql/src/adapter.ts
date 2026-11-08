@@ -658,6 +658,50 @@ async function fetchJunctionRows(
     .orderBy(asc(jTable.order))) as Array<{ parentId: number; targetId: number }>
 }
 
+function extractRelationData(data: DocumentData, name: string): unknown {
+  if (name in data) return data[name]
+  const parts = name.split('__')
+  let cur: unknown = data
+  for (const part of parts) {
+    if (!cur || typeof cur !== 'object') return undefined
+    cur = (cur as Record<string, unknown>)[part]
+  }
+  return cur
+}
+
+function setTargetRelationIds(doc: StoredDoc, fieldName: string, ids: number[]): void {
+  if (!fieldName.includes('__')) {
+    doc[fieldName] = ids
+    return
+  }
+  const parts = fieldName.split('__')
+  let cur: Record<string, unknown> = doc
+  for (let i = 0; i < parts.length - 1; i++) {
+    const p = parts[i]!
+    if (!cur[p] || typeof cur[p] !== 'object') {
+      cur[p] = {}
+    }
+    cur = cur[p] as Record<string, unknown>
+  }
+  cur[parts[parts.length - 1]!] = ids
+}
+
+function pushTargetRelationId(doc: StoredDoc, fieldName: string, targetId: number): void {
+  if (!fieldName.includes('__')) {
+    ;(doc[fieldName] as number[]).push(targetId)
+    return
+  }
+  const parts = fieldName.split('__')
+  let cur: unknown = doc
+  for (const p of parts) {
+    if (!cur || typeof cur !== 'object') return
+    cur = (cur as Record<string, unknown>)[p]
+  }
+  if (Array.isArray(cur)) {
+    cur.push(targetId)
+  }
+}
+
 async function syncHasManyRelations(
   executor: DbExecutor,
   caches: AdapterCaches,
@@ -667,8 +711,9 @@ async function syncHasManyRelations(
 ): Promise<void> {
   const junctionTables = getJunctionTables(caches, collection)
   for (const [name, jTable] of Object.entries(junctionTables)) {
-    if (name in data) {
-      await syncSingleHasManyRelation(executor, jTable, parentId, data[name])
+    const val = extractRelationData(data, name)
+    if (val !== undefined) {
+      await syncSingleHasManyRelation(executor, jTable, parentId, val)
     }
   }
 }
@@ -688,13 +733,13 @@ async function populateHasManyRelations(
 
   for (const [fieldName, jTable] of junctionEntries) {
     for (const doc of docs) {
-      doc[fieldName] = []
+      setTargetRelationIds(doc, fieldName, [])
     }
     const rows = await fetchJunctionRows(executor, jTable, parentIds)
     for (const row of rows) {
       const doc = docs.find((d) => d.id === row.parentId)
       if (doc) {
-        ;(doc[fieldName] as number[]).push(row.targetId)
+        pushTargetRelationId(doc, fieldName, row.targetId)
       }
     }
   }

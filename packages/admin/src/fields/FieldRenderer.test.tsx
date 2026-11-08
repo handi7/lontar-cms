@@ -1046,6 +1046,51 @@ describe('group field rendering and binding', () => {
       expect(screen.getByText('Must have at least 2 items')).toBeTruthy()
       expect(screen.getByText('Caption is required')).toBeTruthy()
     })
+
+    it('renders relationship and upload pickers inside array rows', () => {
+      const arrayWithPickers: ClientArrayField = {
+        name: 'gallery',
+        type: 'array',
+        label: 'Gallery',
+        required: false,
+        fields: [
+          {
+            name: 'photo',
+            type: 'upload',
+            label: 'Photo',
+            relationTo: 'media',
+            required: false,
+          },
+          {
+            name: 'author',
+            type: 'relationship',
+            label: 'Author',
+            relationTo: 'authors',
+            required: false,
+          },
+        ],
+      }
+      render(
+        <FormWrapper
+          defaultValues={{
+            gallery: [{ id: '1', photo: null, author: null }],
+          }}
+        >
+          {({ control, register, setValue, watch }) => (
+            <FieldRenderer
+              field={arrayWithPickers}
+              control={control}
+              register={register}
+              setValue={setValue}
+              watch={watch}
+            />
+          )}
+        </FormWrapper>,
+      )
+      expect(screen.getByText('Photo')).toBeTruthy()
+      expect(screen.getByText('Author')).toBeTruthy()
+      expect(screen.getByRole('button', { name: /upload/i })).toBeTruthy()
+    })
   })
 
   describe('BlocksFieldRenderer', () => {
@@ -1310,6 +1355,64 @@ describe('group field rendering and binding', () => {
 
       expect(screen.getByText('Must have at least 2 blocks')).toBeTruthy()
       expect(screen.getByText('Heading is required')).toBeTruthy()
+    })
+
+    it('renders relationship and upload pickers inside block rows', () => {
+      const blocksWithPickers: ClientBlocksField = {
+        name: 'layout',
+        type: 'blocks',
+        label: 'Layout',
+        required: false,
+        blocks: [
+          {
+            slug: 'hero',
+            labels: { singular: 'Hero', plural: 'Heroes' },
+            fields: [
+              {
+                name: 'bgImage',
+                type: 'upload',
+                label: 'Background Image',
+                relationTo: 'media',
+                required: false,
+              },
+              {
+                name: 'featuredAuthor',
+                type: 'relationship',
+                label: 'Featured Author',
+                relationTo: 'authors',
+                required: false,
+              },
+            ],
+          },
+        ],
+      }
+      render(
+        <FormWrapper
+          defaultValues={{
+            layout: [
+              {
+                id: '1',
+                blockType: 'hero',
+                bgImage: null,
+                featuredAuthor: null,
+              },
+            ],
+          }}
+        >
+          {({ control, register, setValue, watch }) => (
+            <FieldRenderer
+              field={blocksWithPickers}
+              control={control}
+              register={register}
+              setValue={setValue}
+              watch={watch}
+            />
+          )}
+        </FormWrapper>,
+      )
+      expect(screen.getByText('Background Image')).toBeTruthy()
+      expect(screen.getByText('Featured Author')).toBeTruthy()
+      expect(screen.getByRole('button', { name: /upload/i })).toBeTruthy()
     })
   })
 })
