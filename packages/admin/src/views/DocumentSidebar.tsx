@@ -1,5 +1,13 @@
+import { ChevronDown } from 'lucide-react'
 import { Button } from '../components/ui/button'
 import { Card } from '../components/ui/card'
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from '../components/ui/dropdown-menu'
+import { DocumentStatusBadge, getDocumentStatus, type DocumentStatus } from './DocumentStatusBadge'
 
 export interface SidebarMetadataProps {
   doc: Record<string, unknown>
@@ -40,41 +48,136 @@ function SidebarMetadata({ doc, showId }: SidebarMetadataProps) {
 export interface SidebarActionsProps {
   submitLabel: string
   isPending: boolean
-  isDeleting: boolean
+  isDeleting?: boolean
   onDelete?: () => void
   canDelete: boolean
+  hasDrafts?: boolean
+  canUnpublish?: boolean
+  onPublish?: () => void
+  onSaveDraft?: () => void
+  onUnpublish?: () => void
+  isPublishing?: boolean
+  isSavingDraft?: boolean
+  isUnpublishing?: boolean
 }
 
-function SidebarActions({
-  submitLabel,
-  isPending,
-  isDeleting,
-  onDelete,
-  canDelete,
-}: SidebarActionsProps) {
+interface DraftPublishActionsProps {
+  isBusy: boolean
+  isPublishing?: boolean
+  isSavingDraft?: boolean
+  isUnpublishing?: boolean
+  canUnpublish?: boolean
+  onPublish?: () => void
+  onSaveDraft?: () => void
+  onUnpublish?: () => void
+}
+
+function DraftPublishActions(props: DraftPublishActionsProps) {
+  const {
+    isBusy,
+    isPublishing,
+    isSavingDraft,
+    isUnpublishing,
+    canUnpublish,
+    onPublish,
+    onSaveDraft,
+    onUnpublish,
+  } = props
+
+  const publishLabel = isPublishing ? 'Publishing...' : 'Publish'
+  const draftLabel = isSavingDraft ? 'Saving draft...' : 'Save draft'
+  const unpublishLabel = isUnpublishing ? 'Unpublishing...' : 'Unpublish'
+
+  return (
+    <div className="lt:flex lt:w-full lt:items-center">
+      <Button
+        type={onPublish ? 'button' : 'submit'}
+        onClick={onPublish}
+        disabled={isBusy}
+        className="lt:flex-1 lt:rounded-r-none"
+      >
+        {publishLabel}
+      </Button>
+      <DropdownMenu>
+        <DropdownMenuTrigger asChild>
+          <Button
+            type="button"
+            disabled={isBusy}
+            className="lt:rounded-l-none lt:border-l lt:border-primary-foreground/20 lt:px-2"
+            aria-label="Publishing options"
+          >
+            <ChevronDown className="lt:size-4" />
+          </Button>
+        </DropdownMenuTrigger>
+        <DropdownMenuContent align="end">
+          <DropdownMenuItem onClick={onSaveDraft} disabled={isBusy}>
+            {draftLabel}
+          </DropdownMenuItem>
+          {canUnpublish && onUnpublish ? (
+            <DropdownMenuItem
+              onClick={onUnpublish}
+              disabled={isBusy}
+              className="lt:text-destructive lt:hover:text-destructive lt:focus:text-destructive"
+            >
+              {unpublishLabel}
+            </DropdownMenuItem>
+          ) : null}
+        </DropdownMenuContent>
+      </DropdownMenu>
+    </div>
+  )
+}
+
+function SidebarActions(props: SidebarActionsProps) {
+  const isBusy = Boolean(
+    props.isPending || props.isPublishing || props.isSavingDraft || props.isUnpublishing,
+  )
+
   return (
     <div className="lt:flex lt:flex-col lt:gap-2">
-      <Button type="submit" disabled={isPending} className="lt:w-full">
-        {submitLabel}
-      </Button>
+      {!props.hasDrafts ? (
+        <Button type="submit" disabled={props.isPending} className="lt:w-full">
+          {props.submitLabel}
+        </Button>
+      ) : (
+        <DraftPublishActions
+          isBusy={isBusy}
+          isPublishing={props.isPublishing}
+          isSavingDraft={props.isSavingDraft}
+          isUnpublishing={props.isUnpublishing}
+          canUnpublish={props.canUnpublish}
+          onPublish={props.onPublish}
+          onSaveDraft={props.onSaveDraft}
+          onUnpublish={props.onUnpublish}
+        />
+      )}
 
-      {/* Slot: Save Draft / Publish / Unpublish actions (#201) */}
       {/* Slot: Live preview toggle (#204) */}
       {/* Slot: Version history entry point (#202) */}
 
-      {canDelete && onDelete && (
+      {props.canDelete && props.onDelete ? (
         <Button
           type="button"
           variant="outline"
           className="lt:w-full lt:text-destructive lt:hover:border-destructive lt:hover:bg-error-bg lt:hover:text-destructive"
-          disabled={isDeleting}
-          onClick={onDelete}
+          disabled={Boolean(props.isDeleting || isBusy)}
+          onClick={props.onDelete}
         >
           Delete
         </Button>
-      )}
+      ) : null}
     </div>
   )
+}
+
+function resolveCanUnpublish(
+  mode: 'create' | 'edit',
+  status: DocumentStatus,
+  doc?: Record<string, unknown> | null,
+): boolean {
+  if (mode !== 'edit') return false
+  if (status === 'published' || status === 'changed') return true
+  return Boolean(doc?._isPublished || doc?._status === 'published')
 }
 
 export interface DocumentSidebarProps {
@@ -86,19 +189,21 @@ export interface DocumentSidebarProps {
   doc?: Record<string, unknown> | null
   showDelete?: boolean
   showId?: boolean
+  hasDrafts?: boolean
+  status?: DocumentStatus
+  onPublish?: () => void
+  onSaveDraft?: () => void
+  onUnpublish?: () => void
+  isPublishing?: boolean
+  isSavingDraft?: boolean
+  isUnpublishing?: boolean
 }
 
-export function DocumentSidebar({
-  mode = 'edit',
-  submitLabel,
-  isPending,
-  isDeleting = false,
-  onDelete,
-  doc,
-  showDelete = false,
-  showId = true,
-}: DocumentSidebarProps) {
-  const canDelete = mode === 'edit' && showDelete
+export function DocumentSidebar(props: DocumentSidebarProps) {
+  const mode = props.mode ?? 'edit'
+  const resolvedStatus: DocumentStatus = props.status ?? getDocumentStatus(props.doc)
+  const canUnpublish = resolveCanUnpublish(mode, resolvedStatus, props.doc)
+  const canDelete = mode === 'edit' && Boolean(props.showDelete)
 
   return (
     <aside
@@ -106,18 +211,34 @@ export function DocumentSidebar({
       className="lt:w-full lg:lt:w-[300px] lt:shrink-0 lt:order-first lg:lt:order-none lg:lt:sticky lg:lt:top-8 lt:flex lt:flex-col lt:gap-4"
     >
       <Card className="lt:p-5 lt:shadow-none lt:flex lt:flex-col lt:gap-4">
-        {/* Slot: Document status badge & publish state (#201) */}
+        {props.hasDrafts && (
+          <div className="lt:flex lt:items-center lt:justify-between lt:text-xs">
+            <span className="lt:font-medium lt:text-muted-foreground">Status</span>
+            <DocumentStatusBadge status={resolvedStatus} />
+          </div>
+        )}
+
         {/* Slot: Autosave indicator (#203) */}
 
         <SidebarActions
-          submitLabel={submitLabel}
-          isPending={isPending}
-          isDeleting={isDeleting}
-          onDelete={onDelete}
+          submitLabel={props.submitLabel}
+          isPending={props.isPending}
+          isDeleting={props.isDeleting}
+          onDelete={props.onDelete}
           canDelete={canDelete}
+          hasDrafts={props.hasDrafts}
+          canUnpublish={canUnpublish}
+          onPublish={props.onPublish}
+          onSaveDraft={props.onSaveDraft}
+          onUnpublish={props.onUnpublish}
+          isPublishing={props.isPublishing}
+          isSavingDraft={props.isSavingDraft}
+          isUnpublishing={props.isUnpublishing}
         />
 
-        {mode === 'edit' && doc && <SidebarMetadata doc={doc} showId={showId} />}
+        {mode === 'edit' && props.doc && (
+          <SidebarMetadata doc={props.doc} showId={props.showId ?? true} />
+        )}
       </Card>
     </aside>
   )

@@ -2,9 +2,12 @@ import { describe, expect, it, vi, afterEach } from 'vitest'
 import {
   ApiClientError,
   createDoc,
+  fetchDoc,
   formatApiErrorMessage,
+  publishDoc,
   setOnUnauthorized,
   signOut,
+  unpublishDoc,
   updateDoc,
 } from './client'
 
@@ -142,6 +145,54 @@ describe('ApiClientError and API Client error handling', () => {
 
     it('returns string representation of unknown error', () => {
       expect(formatApiErrorMessage('Something went wrong')).toBe('Something went wrong')
+    })
+  })
+
+  describe('draft and publish operations', () => {
+    it('appends ?draft=true when requested in fetchDoc, createDoc, and updateDoc', async () => {
+      const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue({
+        ok: true,
+        json: vi.fn().mockResolvedValue({ id: 1, title: 'Draft Post', _status: 'draft' }),
+      } as unknown as Response)
+
+      await fetchDoc('/api', 'posts', 1, { draft: true })
+      expect(fetchSpy).toHaveBeenLastCalledWith('/api/posts/1?draft=true', {
+        credentials: 'include',
+      })
+
+      await createDoc('/api', 'posts', { title: 'Draft' }, { draft: true })
+      expect(fetchSpy).toHaveBeenLastCalledWith(
+        '/api/posts?draft=true',
+        expect.objectContaining({ method: 'POST', body: JSON.stringify({ title: 'Draft' }) }),
+      )
+
+      await updateDoc('/api', 'posts', 1, { title: 'Updated Draft' }, { draft: true })
+      expect(fetchSpy).toHaveBeenLastCalledWith(
+        '/api/posts/1?draft=true',
+        expect.objectContaining({
+          method: 'PATCH',
+          body: JSON.stringify({ title: 'Updated Draft' }),
+        }),
+      )
+    })
+
+    it('calls /publish and /unpublish endpoints', async () => {
+      const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue({
+        ok: true,
+        json: vi.fn().mockResolvedValue({ id: 1, _status: 'published' }),
+      } as unknown as Response)
+
+      await publishDoc('/api', 'posts', 1)
+      expect(fetchSpy).toHaveBeenLastCalledWith(
+        '/api/posts/1/publish',
+        expect.objectContaining({ method: 'POST' }),
+      )
+
+      await unpublishDoc('/api', 'posts', 1)
+      expect(fetchSpy).toHaveBeenLastCalledWith(
+        '/api/posts/1/unpublish',
+        expect.objectContaining({ method: 'POST' }),
+      )
     })
   })
 })

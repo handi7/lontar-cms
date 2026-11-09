@@ -97,6 +97,40 @@ async function compensateCreate(
   }
 }
 
+async function prepareCreatePayload(
+  collection: CollectionConfig,
+  clientCol: ReturnType<typeof toClientCollection>,
+  args: {
+    data: DocumentData
+    draft?: boolean
+    req?: Request
+  },
+): Promise<{
+  finalData: DocumentData
+  status: DocStatus | undefined
+  statusTransition: DocStatusTransition | undefined
+}> {
+  const initialData = sanitizeConditionalFields(clientCol.fields, args.data)
+  const { status, statusTransition } = resolveCreateStatus(collection, args.data, args.draft)
+  if (status !== undefined) {
+    initialData._status = status
+  }
+  const data = await runBeforeChangeHooks({
+    collection,
+    data: initialData,
+    operation: 'create',
+    status,
+    previousStatus: undefined,
+    statusTransition,
+    req: args.req,
+  })
+  const finalData = sanitizeConditionalFields(clientCol.fields, data)
+  if (collection.versions?.drafts) {
+    finalData._status = data._status ?? status
+  }
+  return { finalData, status, statusTransition }
+}
+
 export async function executeCreate(args: {
   collection: CollectionConfig
   db: DatabaseAdapter
@@ -108,24 +142,11 @@ export async function executeCreate(args: {
 }): Promise<MutationExecutionResult> {
   const clientCol = toClientCollection(args.collection)
   const run = async (txDb: DatabaseAdapter): Promise<MutationExecutionResult> => {
-    const initialData = sanitizeConditionalFields(clientCol.fields, args.data)
-    const { status, statusTransition } = resolveCreateStatus(args.collection, args.data, args.draft)
-    if (status !== undefined) {
-      initialData._status = status
-    }
-    const data = await runBeforeChangeHooks({
-      collection: args.collection,
-      data: initialData,
-      operation: 'create',
-      status,
-      previousStatus: undefined,
-      statusTransition,
-      req: args.req,
-    })
-    const finalData = sanitizeConditionalFields(clientCol.fields, data)
-    if (args.collection.versions?.drafts) {
-      finalData._status = data._status ?? status
-    }
+    const { finalData, status, statusTransition } = await prepareCreatePayload(
+      args.collection,
+      clientCol,
+      args,
+    )
     const created = await txDb.create({ collection: args.collection, data: finalData })
     await maybeSaveVersion({
       txDb,
@@ -146,7 +167,10 @@ export async function executeCreate(args: {
         statusTransition,
         req: args.req,
       })
-      return { success: true, doc }
+      const finalDoc = args.collection.versions?.drafts
+        ? { ...doc, _isPublished: doc._status === 'published' }
+        : doc
+      return { success: true, doc: finalDoc }
     } catch (hookErr) {
       if (!args.db.transaction) {
         await compensateCreate(txDb, args.collection, created.id)
@@ -254,7 +278,7 @@ async function handleDraftRevisionUpdate(args: {
     statusTransition: args.statusTransition,
     req: args.req,
   })
-  return { success: true, doc }
+  return { success: true, doc: { ...doc, _isPublished: true } }
 }
 
 async function prepareUpdatePayload(
@@ -347,7 +371,10 @@ async function handleParentRowUpdate(args: {
       statusTransition: args.statusTransition,
       req: args.req,
     })
-    return { success: true, doc }
+    const finalDoc = args.collection.versions?.drafts
+      ? { ...doc, _isPublished: doc._status === 'published' }
+      : doc
+    return { success: true, doc: finalDoc }
   } catch (hookErr) {
     if (!args.rootDb.transaction) {
       await compensateUpdate(

@@ -21,6 +21,7 @@ export type DocStatus = (typeof DOC_STATUSES)[number]
 
 export interface DraftSystemFields {
   _status: DocStatus
+  _isPublished?: boolean
 }
 
 export const UPLOAD_SYSTEM_FIELDS = [

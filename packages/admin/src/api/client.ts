@@ -194,6 +194,7 @@ export interface FetchCollectionDocsOptions {
   limit?: number
   sort?: string
   where?: Where
+  draft?: boolean
 }
 
 export async function fetchCollectionDocs(
@@ -206,6 +207,7 @@ export async function fetchCollectionDocs(
   if (options.page) params.set('page', String(options.page))
   if (options.limit) params.set('limit', String(options.limit))
   if (options.sort) params.set('sort', options.sort)
+  if (options.draft) params.set('draft', 'true')
   if (options.where) serializeQueryParam(params, 'where', options.where)
 
   const query = params.toString() ? `?${params.toString()}` : ''
@@ -217,9 +219,11 @@ export async function fetchDoc(
   apiBase: string,
   slug: string,
   id: number | string,
+  options?: { draft?: boolean },
 ): Promise<Record<string, unknown>> {
   const base = apiBase.replace(/\/+$/, '')
-  const res = await fetch(`${base}/${slug}/${id}`, { credentials: 'include' })
+  const query = options?.draft ? '?draft=true' : ''
+  const res = await fetch(`${base}/${slug}/${id}${query}`, { credentials: 'include' })
   return handleResponse<Record<string, unknown>>(res)
 }
 
@@ -227,10 +231,12 @@ export async function createDoc(
   apiBase: string,
   slug: string,
   data: Record<string, unknown> | FormData,
+  options?: { draft?: boolean },
 ): Promise<Record<string, unknown>> {
   const base = apiBase.replace(/\/+$/, '')
   const isFormData = typeof FormData !== 'undefined' && data instanceof FormData
-  const res = await fetch(`${base}/${slug}`, {
+  const query = options?.draft ? '?draft=true' : ''
+  const res = await fetch(`${base}/${slug}${query}`, {
     method: 'POST',
     headers: isFormData ? undefined : { 'Content-Type': 'application/json' },
     credentials: 'include',
@@ -244,14 +250,44 @@ export async function updateDoc(
   slug: string,
   id: number | string,
   data: Record<string, unknown> | FormData,
+  options?: { draft?: boolean },
 ): Promise<Record<string, unknown>> {
   const base = apiBase.replace(/\/+$/, '')
   const isFormData = typeof FormData !== 'undefined' && data instanceof FormData
-  const res = await fetch(`${base}/${slug}/${id}`, {
+  const query = options?.draft ? '?draft=true' : ''
+  const res = await fetch(`${base}/${slug}/${id}${query}`, {
     method: 'PATCH',
     headers: isFormData ? undefined : { 'Content-Type': 'application/json' },
     credentials: 'include',
     body: isFormData ? data : JSON.stringify(data),
+  })
+  return handleResponse<Record<string, unknown>>(res)
+}
+
+export async function publishDoc(
+  apiBase: string,
+  slug: string,
+  id: number | string,
+): Promise<Record<string, unknown>> {
+  const base = apiBase.replace(/\/+$/, '')
+  const res = await fetch(`${base}/${slug}/${id}/publish`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    credentials: 'include',
+  })
+  return handleResponse<Record<string, unknown>>(res)
+}
+
+export async function unpublishDoc(
+  apiBase: string,
+  slug: string,
+  id: number | string,
+): Promise<Record<string, unknown>> {
+  const base = apiBase.replace(/\/+$/, '')
+  const res = await fetch(`${base}/${slug}/${id}/unpublish`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    credentials: 'include',
   })
   return handleResponse<Record<string, unknown>>(res)
 }

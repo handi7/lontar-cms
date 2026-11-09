@@ -118,4 +118,39 @@ describe('CollectionFilterBar', () => {
 
     expect(onRemoveFilter).toHaveBeenCalledWith('1')
   })
+
+  it('renders status filter select when hasDrafts is true and calls onStatusFilterChange', () => {
+    const onStatusFilterChange = vi.fn()
+    const draftCollection: ClientCollection = {
+      ...testCollection,
+      versions: { drafts: true },
+    }
+
+    render(
+      <div className="lontar-admin">
+        <PortalContainerProvider>
+          <CollectionFilterBar
+            collection={draftCollection}
+            searchTerm=""
+            onSearchChange={vi.fn()}
+            activeFilters={[]}
+            onAddFilter={vi.fn()}
+            onRemoveFilter={vi.fn()}
+            onClearAll={vi.fn()}
+            hasDrafts={true}
+            statusFilter="draft"
+            onStatusFilterChange={onStatusFilterChange}
+          />
+        </PortalContainerProvider>
+      </div>,
+    )
+
+    const statusTrigger = screen.getByRole('combobox', { name: 'Filter by status' })
+    expect(statusTrigger).toBeTruthy()
+    expect(screen.getByText('status = "draft"')).toBeTruthy()
+
+    const clearStatusBtn = screen.getByLabelText('Remove status filter')
+    fireEvent.click(clearStatusBtn)
+    expect(onStatusFilterChange).toHaveBeenCalledWith('all')
+  })
 })

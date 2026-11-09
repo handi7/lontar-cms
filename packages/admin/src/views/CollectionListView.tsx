@@ -31,6 +31,7 @@ import {
 } from '../components/ui/table'
 import { CollectionFilterBar, type ActiveFilter } from './CollectionFilterBar'
 import { ConfirmDeleteDialog } from './ConfirmDeleteDialog'
+import { DocumentStatusBadge } from './DocumentStatusBadge'
 import { EmptyCard } from './EmptyCard'
 import { NotFoundView } from './NotFoundView'
 import { ViewHeader } from './ViewHeader'
@@ -44,6 +45,7 @@ const headClass =
 
 function getColumnLabel(key: string, collection: ClientCollection): string {
   if (key === 'id') return 'ID'
+  if (key === '_status') return 'Status'
   if (key === 'createdAt') return 'Created At'
   if (key === 'updatedAt') return 'Updated At'
   const field = collection.fields.find((f) => f.name === key)
@@ -140,16 +142,7 @@ function renderCellContent(
   return renderPrimitiveValue(val)
 }
 
-function buildWhereQuery(
-  searchTerm: string,
-  searchField: string,
-  activeFilters: ActiveFilter[],
-): Where | undefined {
-  const where: Where = {}
-  if (searchTerm.trim()) {
-    where[searchField] = { contains: searchTerm.trim() }
-  }
-
+function applyActiveFilters(where: Where, activeFilters: ActiveFilter[]): void {
   for (const filter of activeFilters) {
     if (!filter.field || !filter.operator || filter.value === '') continue
     const fieldWhere = (where[filter.field] ?? {}) as Record<string, unknown>
@@ -160,6 +153,24 @@ function buildWhereQuery(
     }
     where[filter.field] = fieldWhere
   }
+}
+
+function buildWhereQuery(
+  searchTerm: string,
+  searchField: string,
+  activeFilters: ActiveFilter[],
+  statusFilter?: 'all' | 'published' | 'draft',
+): Where | undefined {
+  const where: Where = {}
+  if (searchTerm.trim()) {
+    where[searchField] = { contains: searchTerm.trim() }
+  }
+
+  if (statusFilter && statusFilter !== 'all') {
+    where._status = { equals: statusFilter }
+  }
+
+  applyActiveFilters(where, activeFilters)
 
   return Object.keys(where).length > 0 ? where : undefined
 }
@@ -202,6 +213,10 @@ function DataCellRenderer({
   isUploadCollection,
   collectionSlug,
 }: DataCellRendererProps) {
+  if (colKey === '_status') {
+    return <DocumentStatusBadge doc={rowDoc} />
+  }
+
   const rawContent = renderCellContent(val ?? (colKey === 'id' ? rowDoc.id : ''), field, colKey)
   const isMediaTitle = isUploadCollection && (colKey === titleKey || colKey === 'filename')
   const content = isMediaTitle ? renderMediaThumbnailCell(rowDoc, rawContent) : rawContent
@@ -227,8 +242,17 @@ function buildColumns(
 ): ColumnDef<Record<string, unknown>>[] {
   const columnKeys =
     collection.admin.defaultColumns.length > 0
-      ? collection.admin.defaultColumns
+      ? [...collection.admin.defaultColumns]
       : ['id', ...collection.fields.map((f) => f.name), 'createdAt']
+
+  if (collection.versions?.drafts && !columnKeys.includes('_status')) {
+    const createdAtIndex = columnKeys.indexOf('createdAt')
+    if (createdAtIndex !== -1) {
+      columnKeys.splice(createdAtIndex, 0, '_status')
+    } else {
+      columnKeys.push('_status')
+    }
+  }
 
   const titleKey = collection.admin.useAsTitle || 'id'
 
@@ -452,10 +476,16 @@ function formatSortParam(sorting: SortingState): string | undefined {
 function useListFilters() {
   const [page, setPage] = useState(1)
   const [searchTerm, setSearchTerm] = useState('')
+  const [statusFilter, setStatusFilter] = useState<'all' | 'published' | 'draft'>('all')
   const [activeFilters, setActiveFilters] = useState<ActiveFilter[]>([])
 
   const handleSearchChange = (term: string) => {
     setSearchTerm(term)
+    setPage(1)
+  }
+
+  const handleStatusFilterChange = (val: 'all' | 'published' | 'draft') => {
+    setStatusFilter(val)
     setPage(1)
   }
 
@@ -471,6 +501,7 @@ function useListFilters() {
 
   const handleClearAll = () => {
     setSearchTerm('')
+    setStatusFilter('all')
     setActiveFilters([])
     setPage(1)
   }
@@ -479,8 +510,10 @@ function useListFilters() {
     page,
     setPage,
     searchTerm,
+    statusFilter,
     activeFilters,
     handleSearchChange,
+    handleStatusFilterChange,
     handleAddFilter,
     handleRemoveFilter,
     handleClearAll,
@@ -558,9 +591,10 @@ function useCollectionDocsQuery(
   page: number,
   sortParam: string | undefined,
   where: Where | undefined,
+  hasDrafts?: boolean,
 ) {
   return useQuery({
-    queryKey: [slug, page, sortParam, where],
+    queryKey: [slug, page, sortParam, where, hasDrafts ? 'draft' : 'published'],
     queryFn: () =>
       slug
         ? fetchCollectionDocs(apiBase, slug, {
@@ -568,24 +602,29 @@ function useCollectionDocsQuery(
             limit: 10,
             sort: sortParam,
             where,
+            draft: hasDrafts,
           })
         : null,
     enabled: Boolean(slug),
   })
 }
 
-export function CollectionListView() {
+interface CollectionListTableProps {
+  collection: ClientCollection
+}
+
+function CollectionListTable({ collection }: CollectionListTableProps) {
   const { apiBase } = useAdmin()
-  const { collection: slug } = useParams({ strict: false })
-  const collection = useCollection(slug)
   const [sorting, setSorting] = useState<SortingState>([])
 
   const {
     page,
     setPage,
     searchTerm,
+    statusFilter,
     activeFilters,
     handleSearchChange,
+    handleStatusFilterChange,
     handleAddFilter,
     handleRemoveFilter,
     handleClearAll,
@@ -599,24 +638,31 @@ export function CollectionListView() {
     confirmOpen,
     closeConfirm,
     confirmDelete,
-  } = useListDeleteMutation(apiBase, slug)
+  } = useListDeleteMutation(apiBase, collection.slug)
 
   useEffect(() => {
     setDeleteError(null)
-  }, [slug, page, setDeleteError])
+  }, [collection.slug, page, setDeleteError])
 
-  const searchField = collection?.admin.useAsTitle || 'title'
+  const searchField = collection.admin.useAsTitle || 'title'
+  const hasDrafts = Boolean(collection.versions?.drafts)
 
   const where = useMemo(
-    () => buildWhereQuery(searchTerm, searchField, activeFilters),
-    [searchTerm, searchField, activeFilters],
+    () => buildWhereQuery(searchTerm, searchField, activeFilters, statusFilter),
+    [searchTerm, searchField, activeFilters, statusFilter],
   )
 
   const sortParam = useMemo(() => formatSortParam(sorting), [sorting])
-  const { data, isLoading, error } = useCollectionDocsQuery(apiBase, slug, page, sortParam, where)
+  const { data, isLoading, error } = useCollectionDocsQuery(
+    apiBase,
+    collection.slug,
+    page,
+    sortParam,
+    where,
+    hasDrafts,
+  )
 
   const columns = useMemo(() => {
-    if (!collection) return []
     return buildColumns(collection, handleDelete, isDeleting)
   }, [collection, handleDelete, isDeleting])
 
@@ -636,11 +682,9 @@ export function CollectionListView() {
     getCoreRowModel: getCoreRowModel(),
   })
 
-  if (!collection) {
-    return <NotFoundView />
-  }
-
-  const hasActiveFilters = Boolean(searchTerm.trim() || activeFilters.length > 0)
+  const hasActiveFilters = Boolean(
+    searchTerm.trim() || activeFilters.length > 0 || (hasDrafts && statusFilter !== 'all'),
+  )
 
   return (
     <div>
@@ -667,6 +711,9 @@ export function CollectionListView() {
         onAddFilter={handleAddFilter}
         onRemoveFilter={handleRemoveFilter}
         onClearAll={handleClearAll}
+        hasDrafts={hasDrafts}
+        statusFilter={statusFilter}
+        onStatusFilterChange={handleStatusFilterChange}
       />
 
       <ListAlerts queryError={error} deleteError={deleteError} />
@@ -692,4 +739,15 @@ export function CollectionListView() {
       />
     </div>
   )
+}
+
+export function CollectionListView() {
+  const { collection: slug } = useParams({ strict: false })
+  const collection = useCollection(slug)
+
+  if (!collection) {
+    return <NotFoundView />
+  }
+
+  return <CollectionListTable collection={collection} />
 }

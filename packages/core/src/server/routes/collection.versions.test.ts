@@ -223,12 +223,13 @@ describe('Snapshot writes, version history API and retention', () => {
     expect(v2?.snapshot.title).toBe('Draft Edit')
     expect(v2?._status).toBe('draft')
 
-    // Reading with ?draft=true returns draft snapshot
+    // Reading with ?draft=true returns draft snapshot with _isPublished = true
     const resDraft = await app.request(`/api/posts/${doc1.id}?draft=true`)
     expect(resDraft.status).toBe(200)
     const draftDoc = (await resDraft.json()) as StoredDoc
     expect(draftDoc.title).toBe('Draft Edit')
     expect(draftDoc._status).toBe('draft')
+    expect(draftDoc._isPublished).toBe(true)
 
     // Public read returns original published doc
     const resPublic = await app.request(`/api/posts/${doc1.id}`)
@@ -236,6 +237,7 @@ describe('Snapshot writes, version history API and retention', () => {
     const pubDoc = (await resPublic.json()) as StoredDoc
     expect(pubDoc.title).toBe('First Post')
     expect(pubDoc._status).toBe('published')
+    expect(pubDoc._isPublished).toBe(true)
   })
 
   it('updates autosave row in place during continuous autosaves', async () => {
