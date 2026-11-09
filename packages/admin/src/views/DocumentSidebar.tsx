@@ -1,4 +1,4 @@
-import { ChevronDown } from 'lucide-react'
+import { ChevronDown, History } from 'lucide-react'
 import { Button } from '../components/ui/button'
 import { Card } from '../components/ui/card'
 import {
@@ -53,6 +53,8 @@ export interface SidebarActionsProps {
   canDelete: boolean
   hasDrafts?: boolean
   canUnpublish?: boolean
+  hasVersions?: boolean
+  onOpenHistory?: () => void
   onPublish?: () => void
   onSaveDraft?: () => void
   onUnpublish?: () => void
@@ -153,7 +155,18 @@ function SidebarActions(props: SidebarActionsProps) {
       )}
 
       {/* Slot: Live preview toggle (#204) */}
-      {/* Slot: Version history entry point (#202) */}
+      {props.hasVersions && props.onOpenHistory ? (
+        <Button
+          type="button"
+          variant="outline"
+          className="lt:w-full lt:gap-1.5"
+          disabled={isBusy}
+          onClick={props.onOpenHistory}
+        >
+          <History className="lt:size-4" />
+          <span>Version History</span>
+        </Button>
+      ) : null}
 
       {props.canDelete && props.onDelete ? (
         <Button
@@ -190,6 +203,8 @@ export interface DocumentSidebarProps {
   showDelete?: boolean
   showId?: boolean
   hasDrafts?: boolean
+  hasVersions?: boolean
+  onOpenHistory?: () => void
   status?: DocumentStatus
   onPublish?: () => void
   onSaveDraft?: () => void
@@ -204,6 +219,7 @@ export function DocumentSidebar(props: DocumentSidebarProps) {
   const resolvedStatus: DocumentStatus = props.status ?? getDocumentStatus(props.doc)
   const canUnpublish = resolveCanUnpublish(mode, resolvedStatus, props.doc)
   const canDelete = mode === 'edit' && Boolean(props.showDelete)
+  const hasVersions = mode === 'edit' && Boolean(props.hasVersions)
 
   return (
     <aside
@@ -227,6 +243,8 @@ export function DocumentSidebar(props: DocumentSidebarProps) {
           onDelete={props.onDelete}
           canDelete={canDelete}
           hasDrafts={props.hasDrafts}
+          hasVersions={hasVersions}
+          onOpenHistory={props.onOpenHistory}
           canUnpublish={canUnpublish}
           onPublish={props.onPublish}
           onSaveDraft={props.onSaveDraft}

@@ -3,8 +3,11 @@ import {
   ApiClientError,
   createDoc,
   fetchDoc,
+  fetchDocVersions,
+  fetchDocVersionByID,
   formatApiErrorMessage,
   publishDoc,
+  restoreDocVersion,
   setOnUnauthorized,
   signOut,
   unpublishDoc,
@@ -191,6 +194,47 @@ describe('ApiClientError and API Client error handling', () => {
       await unpublishDoc('/api', 'posts', 1)
       expect(fetchSpy).toHaveBeenLastCalledWith(
         '/api/posts/1/unpublish',
+        expect.objectContaining({ method: 'POST' }),
+      )
+    })
+  })
+
+  describe('version history operations', () => {
+    it('fetches version list with pagination params', async () => {
+      const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue({
+        ok: true,
+        json: vi
+          .fn()
+          .mockResolvedValue({ docs: [], totalDocs: 0, page: 1, limit: 10, totalPages: 1 }),
+      } as unknown as Response)
+
+      await fetchDocVersions('/api', 'posts', 1, { page: 2, limit: 5 })
+      expect(fetchSpy).toHaveBeenLastCalledWith('/api/posts/1/versions?page=2&limit=5', {
+        credentials: 'include',
+      })
+    })
+
+    it('fetches single version by ID', async () => {
+      const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue({
+        ok: true,
+        json: vi.fn().mockResolvedValue({ id: 10, versionNumber: 2 }),
+      } as unknown as Response)
+
+      await fetchDocVersionByID('/api', 'posts', 1, 10)
+      expect(fetchSpy).toHaveBeenLastCalledWith('/api/posts/1/versions/10', {
+        credentials: 'include',
+      })
+    })
+
+    it('restores a version via POST to /versions/:versionId/restore', async () => {
+      const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue({
+        ok: true,
+        json: vi.fn().mockResolvedValue({ id: 1, title: 'Restored' }),
+      } as unknown as Response)
+
+      await restoreDocVersion('/api', 'posts', 1, 10)
+      expect(fetchSpy).toHaveBeenLastCalledWith(
+        '/api/posts/1/versions/10/restore',
         expect.objectContaining({ method: 'POST' }),
       )
     })

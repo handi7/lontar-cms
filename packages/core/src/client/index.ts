@@ -36,6 +36,8 @@ export {
   UPLOAD_SYSTEM_FIELDS,
 } from './system-fields'
 export type {
+  ClientPaginatedVersions,
+  ClientVersion,
   DocStatus,
   DraftSystemFields,
   SystemFieldName,
@@ -66,3 +68,17 @@ export {
   type ClientFieldsToZodOptions,
 } from './zod'
 export { generateRowId } from './id'
+export type {
+  ChangeType,
+  PrimitiveFieldDiff,
+  GroupFieldDiff,
+  ArrayItemDiff,
+  ArrayFieldDiff,
+  BlocksFieldDiff,
+  FieldDiff,
+  DocumentDiff,
+  DiffableFieldItem,
+  DiffableFields,
+  DiffableCollection,
+} from './diff'
+export { diffPrimitive, diffFields, diffSnapshots } from './diff'

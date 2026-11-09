@@ -175,7 +175,7 @@ approval on the `npm` environment. Don't run `pnpm publish` by hand; see `docs/r
   - [x] #200 `beforeValidate`, `beforeDelete` and `afterDelete` hooks (done)
   - [x] #212 Two-column edit layout with a document sidebar (done)
   - [x] #201 Admin draft and publish controls (done)
-  - [ ] #202 Admin version history with compare and restore
+  - [x] #202 Admin version history with compare and restore (done)
   - [ ] #203 Admin autosave
   - [ ] #204 Live preview: `admin.preview.url`, iframe pane, frontend helper
   - [ ] #205 Outgoing webhooks on change, publish and delete

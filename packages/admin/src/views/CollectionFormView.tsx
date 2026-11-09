@@ -33,6 +33,7 @@ import { EmptyCard } from './EmptyCard'
 import { ViewHeader } from './ViewHeader'
 import { CollectionBreadcrumbs } from './FormBreadcrumbs'
 import { DocumentSidebar } from './DocumentSidebar'
+import { VersionHistorySheet } from './VersionHistorySheet'
 
 function getFormTitle(mode: 'create' | 'edit', singular: string, id?: string): string {
   if (mode === 'create') return `Create ${singular}`
@@ -411,8 +412,10 @@ function CollectionEditor({ collection, mode, id }: CollectionEditorProps) {
   const [selectedFile, setSelectedFile] = useState<File | null>(null)
   const [fileError, setFileError] = useState<string | null>(null)
   const [confirmOpen, setConfirmOpen] = useState(false)
+  const [historyOpen, setHistoryOpen] = useState(false)
 
   const hasDrafts = Boolean(collection.versions?.drafts)
+  const hasVersions = Boolean(collection.versions)
   const docQuery = useDocumentQuery(mode, apiBase, collection.slug, id, hasDrafts)
   const schema = useMemo(() => clientFieldsToZod(collection.fields), [collection])
   const defaultValues = useMemo(() => computeDefaultValues(collection.fields), [collection])
@@ -539,6 +542,8 @@ function CollectionEditor({ collection, mode, id }: CollectionEditorProps) {
           showDelete={mode === 'edit'}
           doc={docQuery.data}
           hasDrafts={hasDrafts}
+          hasVersions={hasVersions}
+          onOpenHistory={() => setHistoryOpen(true)}
           onPublish={onPublish}
           onSaveDraft={onSaveDraft}
           onUnpublish={() => unpublishMutation.mutate()}
@@ -547,6 +552,21 @@ function CollectionEditor({ collection, mode, id }: CollectionEditorProps) {
           isUnpublishing={unpublishMutation.isPending}
         />
       </form>
+
+      {hasVersions && id && (
+        <VersionHistorySheet
+          open={historyOpen}
+          onOpenChange={setHistoryOpen}
+          apiBase={apiBase}
+          collection={collection}
+          id={id}
+          currentDoc={docQuery.data}
+          onRestoreSuccess={(restoredDoc) => {
+            reset(formatDocForForm(collection.fields, restoredDoc))
+            setSuccessMsg('Version restored successfully!')
+          }}
+        />
+      )}
     </div>
   )
 }
