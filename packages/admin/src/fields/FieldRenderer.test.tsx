@@ -1,5 +1,5 @@
 import { describe, expect, it, afterEach, vi } from 'vitest'
-import { render, screen, fireEvent, waitFor, cleanup } from '@testing-library/react'
+import { render, screen, fireEvent, waitFor, cleanup, act } from '@testing-library/react'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { useForm } from 'react-hook-form'
 import type {
@@ -1413,6 +1413,233 @@ describe('group field rendering and binding', () => {
       expect(screen.getByText('Background Image')).toBeTruthy()
       expect(screen.getByText('Featured Author')).toBeTruthy()
       expect(screen.getByRole('button', { name: /upload/i })).toBeTruthy()
+    })
+  })
+
+  describe('conditional fields via admin.condition', () => {
+    it('mounts and unmounts reactively when sibling field value changes', () => {
+      const formatField: ClientSelectField = {
+        name: 'format',
+        type: 'select',
+        label: 'Format',
+        required: true,
+        options: [
+          { label: 'Standard', value: 'standard' },
+          { label: 'Video', value: 'video' },
+        ],
+      }
+
+      const videoUrlField: ClientTextField = {
+        name: 'videoUrl',
+        type: 'text',
+        label: 'Video URL',
+        required: true,
+        condition: { format: { equals: 'video' } },
+      }
+
+      render(
+        <FormWrapper defaultValues={{ format: 'standard' }}>
+          {({ control, register, setValue, watch }) => (
+            <>
+              <button
+                type="button"
+                data-testid="set-video"
+                onClick={() => setValue('format', 'video')}
+              >
+                Set Video
+              </button>
+              <button
+                type="button"
+                data-testid="set-standard"
+                onClick={() => setValue('format', 'standard')}
+              >
+                Set Standard
+              </button>
+              <FieldRenderer
+                field={formatField}
+                control={control}
+                register={register}
+                setValue={setValue}
+                watch={watch}
+              />
+              <FieldRenderer
+                field={videoUrlField}
+                control={control}
+                register={register}
+                setValue={setValue}
+                watch={watch}
+              />
+            </>
+          )}
+        </FormWrapper>,
+      )
+
+      // Initially format is 'standard', so Video URL is hidden
+      expect(screen.queryByLabelText(/video url/i)).toBeNull()
+
+      // Change format to 'video'
+      act(() => {
+        fireEvent.click(screen.getByTestId('set-video'))
+      })
+
+      // Video URL should now be rendered
+      expect(screen.getByLabelText(/video url/i)).toBeTruthy()
+
+      // Change format back to 'standard'
+      act(() => {
+        fireEvent.click(screen.getByTestId('set-standard'))
+      })
+
+      // Video URL should be unmounted
+      expect(screen.queryByLabelText(/video url/i)).toBeNull()
+    })
+
+    it('mounts and unmounts conditional fields inside array rows based on row data', () => {
+      const galleryField: ClientArrayField = {
+        name: 'gallery',
+        type: 'array',
+        label: 'Gallery',
+        required: false,
+        fields: [
+          {
+            name: 'mediaType',
+            type: 'select',
+            label: 'Media Type',
+            required: true,
+            options: [
+              { label: 'Image', value: 'image' },
+              { label: 'Video', value: 'video' },
+            ],
+          },
+          {
+            name: 'videoEmbed',
+            type: 'text',
+            label: 'Video Embed',
+            required: false,
+            condition: { mediaType: { equals: 'video' } },
+          },
+        ],
+      }
+
+      render(
+        <FormWrapper
+          defaultValues={{
+            gallery: [
+              { id: '1', mediaType: 'image' },
+              { id: '2', mediaType: 'video' },
+            ],
+          }}
+        >
+          {({ control, register, setValue, watch }) => (
+            <>
+              <button
+                type="button"
+                data-testid="toggle-row-0"
+                onClick={() => setValue('gallery.0.mediaType' as never, 'video' as never)}
+              >
+                Toggle Row 0
+              </button>
+              <FieldRenderer
+                field={galleryField}
+                control={control}
+                register={register}
+                setValue={setValue}
+                watch={watch}
+              />
+            </>
+          )}
+        </FormWrapper>,
+      )
+
+      // Only Row 1 has mediaType: video, so only one Video Embed input exists initially
+      const embedsBefore = screen.getAllByLabelText(/video embed/i)
+      expect(embedsBefore).toHaveLength(1)
+
+      // Toggle row 0 to 'video'
+      act(() => {
+        fireEvent.click(screen.getByTestId('toggle-row-0'))
+      })
+
+      // Now both rows have mediaType: video, so two Video Embed inputs exist
+      const embedsAfter = screen.getAllByLabelText(/video embed/i)
+      expect(embedsAfter).toHaveLength(2)
+    })
+
+    it('mounts and unmounts block row conditional fields conditioned on $root', () => {
+      const showBannerField: ClientCheckboxField = {
+        name: 'showBanner',
+        type: 'checkbox',
+        label: 'Show Banner',
+        required: false,
+      }
+
+      const layoutField: ClientBlocksField = {
+        name: 'layout',
+        type: 'blocks',
+        label: 'Layout',
+        required: false,
+        blocks: [
+          {
+            slug: 'hero',
+            labels: { singular: 'Hero', plural: 'Heroes' },
+            fields: [
+              {
+                name: 'bannerText',
+                type: 'text',
+                label: 'Banner Text',
+                required: false,
+                condition: { '$root.showBanner': { equals: true } },
+              },
+            ],
+          },
+        ],
+      }
+
+      render(
+        <FormWrapper
+          defaultValues={{
+            showBanner: false,
+            layout: [{ id: '1', blockType: 'hero' }],
+          }}
+        >
+          {({ control, register, setValue, watch }) => (
+            <>
+              <button
+                type="button"
+                data-testid="enable-banner"
+                onClick={() => setValue('showBanner', true)}
+              >
+                Enable Banner
+              </button>
+              <FieldRenderer
+                field={showBannerField}
+                control={control}
+                register={register}
+                setValue={setValue}
+                watch={watch}
+              />
+              <FieldRenderer
+                field={layoutField}
+                control={control}
+                register={register}
+                setValue={setValue}
+                watch={watch}
+              />
+            </>
+          )}
+        </FormWrapper>,
+      )
+
+      // Initially showBanner is false, so bannerText is not rendered
+      expect(screen.queryByLabelText(/banner text/i)).toBeNull()
+
+      // Enable banner
+      act(() => {
+        fireEvent.click(screen.getByTestId('enable-banner'))
+      })
+
+      // Banner Text should now be rendered
+      expect(screen.getByLabelText(/banner text/i)).toBeTruthy()
     })
   })
 })

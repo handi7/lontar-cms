@@ -1,13 +1,21 @@
+import type { FieldCondition } from '../client/condition'
+
 /*
  * Field definitions are plain data (docs/adr/0003-client-config-format.md).
  * Anything that converts a field (to Zod, to a column, to a ClientField) lives
  * in a registry keyed by `type`, never on the field object itself.
  */
 
-interface BaseField {
+export interface FieldAdminOptions {
+  description?: string
+  condition?: FieldCondition
+}
+
+export interface BaseField {
   /** Shown in the admin. Defaults to the field name, humanized. */
   label?: string
   required?: boolean
+  admin?: FieldAdminOptions
 }
 
 export interface TextField extends BaseField {
@@ -111,8 +119,7 @@ export interface GroupField extends BaseField {
   fields: Record<string, Field>
 }
 
-export interface ArrayFieldAdminOptions {
-  description?: string
+export interface ArrayFieldAdminOptions extends FieldAdminOptions {
   rowLabel?: string
 }
 
@@ -153,9 +160,7 @@ export interface BlockConfig<
   fields: TFields
 }
 
-export interface BlocksFieldAdminOptions {
-  description?: string
-}
+export type BlocksFieldAdminOptions = FieldAdminOptions
 
 export interface BlocksFieldOptions {
   label?: string

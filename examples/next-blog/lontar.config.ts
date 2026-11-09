@@ -85,7 +85,13 @@ const posts = collection({
     author: f.relationship({ relationTo: 'authors' }),
     categories: f.relationship({ relationTo: 'categories', hasMany: true }),
     content: f.richText(),
-    publishedAt: f.date(),
+    publishedAt: f.date({
+      admin: {
+        condition: {
+          status: { equals: 'published' },
+        },
+      },
+    }),
   },
   hooks: {
     beforeChange: [

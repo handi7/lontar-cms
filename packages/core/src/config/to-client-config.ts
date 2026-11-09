@@ -269,12 +269,15 @@ function clientAdmin(
 function baseField<F extends Field>(
   name: string,
   field: F,
-): Pick<ClientField, 'name' | 'label' | 'required'> & { type: F['type'] } {
+): Pick<ClientField, 'name' | 'label' | 'required' | 'condition'> & { type: F['type'] } {
   return {
     name,
     type: field.type,
     label: field.label ?? humanize(name),
     required: field.required ?? false,
+    ...defined({
+      condition: field.admin?.condition,
+    }),
   }
 }
 

@@ -51,7 +51,14 @@ test.describe('Lontar CMS Admin in Next.js', () => {
     await expect(page.getByRole('heading', { name: 'Create Post' })).toBeVisible()
     const uniqueTitle = `E2E Test Post ${Date.now()}`
     await page.locator('input[name="title"]').fill(uniqueTitle)
+
+    // publishedAt should be hidden while status defaults to Draft
+    await expect(page.locator('button[id="publishedAt"]')).not.toBeVisible()
+
     await chooseOption(page, /^status/i, 'Published')
+
+    // publishedAt should mount reactively when status is Published
+    await expect(page.locator('button[id="publishedAt"]')).toBeVisible()
 
     // 7. Submit form
     await page.getByRole('button', { name: 'Create Post' }).click()
@@ -83,7 +90,9 @@ test.describe('Lontar CMS Admin in Next.js', () => {
     // 10. Update the post
     const updatedTitle = `${uniqueTitle} (Updated)`
     await page.locator('input[name="title"]').fill(updatedTitle)
+    await expect(page.locator('button[id="publishedAt"]')).toBeVisible()
     await chooseOption(page, /^status/i, 'Draft')
+    await expect(page.locator('button[id="publishedAt"]')).not.toBeVisible()
     await page.getByRole('button', { name: 'Save Changes' }).click()
     await expect(page.getByText('Saved successfully!')).toBeVisible()
 
@@ -103,7 +112,8 @@ test.describe('Lontar CMS Admin in Next.js', () => {
     await expect(page.getByRole('link', { name: updatedTitle })).not.toBeVisible()
 
     // 14. Verify user profile in sidebar and logout
-    await expect(page.getByText('Admin User')).toBeVisible()
+    await expect(page.getByText(/Admin/)).toBeVisible()
+    await expect(page.getByText(adminEmail)).toBeVisible()
     await page.getByRole('button', { name: 'Sign out' }).click()
     await expect(page.getByRole('heading', { name: 'Sign in to Admin' })).toBeVisible()
   })
