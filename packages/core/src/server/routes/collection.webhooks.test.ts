@@ -12,6 +12,9 @@ function createMockAdapter(storage: Map<number, StoredDoc> = new Map()) {
   let inTx = false
 
   const adapter: DatabaseAdapter = {
+    name: 'mock',
+    toSchemaFile: vi.fn().mockReturnValue(''),
+    migrate: vi.fn().mockResolvedValue(undefined),
     find: vi.fn().mockImplementation(() => {
       const docs = Array.from(storage.values())
       return Promise.resolve({
@@ -147,6 +150,8 @@ describe('outgoing webhooks integration', () => {
 
     expect(capturedDeliveries).toHaveLength(1)
     const delivery = capturedDeliveries[0]
+    expect(delivery).toBeDefined()
+    if (!delivery) throw new Error('expected delivery')
     expect(delivery.url).toBe('https://mysite.com/api/revalidate')
 
     const sig = delivery.headers.get('x-lontar-signature-256') ?? ''
@@ -291,8 +296,11 @@ describe('outgoing webhooks integration', () => {
 
     // publish-only was NOT notified, but change-listener WAS notified!
     expect(capturedDeliveries).toHaveLength(1)
-    expect(capturedDeliveries[0].url).toBe('https://mysite.com/change-listener')
-    const payload = JSON.parse(capturedDeliveries[0].body) as Record<string, unknown>
+    const delivery = capturedDeliveries[0]
+    expect(delivery).toBeDefined()
+    if (!delivery) throw new Error('expected delivery')
+    expect(delivery.url).toBe('https://mysite.com/change-listener')
+    const payload = JSON.parse(delivery.body) as Record<string, unknown>
     expect(payload.event).toBe('update')
     expect(payload.status).toBe('draft')
   })
@@ -334,7 +342,10 @@ describe('outgoing webhooks integration', () => {
     await drainPendingWebhooks()
 
     expect(capturedDeliveries).toHaveLength(1)
-    expect(JSON.parse(capturedDeliveries[0].body)).toMatchObject({
+    const d0 = capturedDeliveries[0]
+    expect(d0).toBeDefined()
+    if (!d0) throw new Error('expected delivery 0')
+    expect(JSON.parse(d0.body)).toMatchObject({
       event: 'publish',
       collection: 'posts',
       id: 1,
@@ -348,7 +359,10 @@ describe('outgoing webhooks integration', () => {
     await drainPendingWebhooks()
 
     expect(capturedDeliveries).toHaveLength(2)
-    expect(JSON.parse(capturedDeliveries[1].body)).toMatchObject({
+    const d1 = capturedDeliveries[1]
+    expect(d1).toBeDefined()
+    if (!d1) throw new Error('expected delivery 1')
+    expect(JSON.parse(d1.body)).toMatchObject({
       event: 'unpublish',
       collection: 'posts',
       id: 1,
@@ -362,7 +376,10 @@ describe('outgoing webhooks integration', () => {
     await drainPendingWebhooks()
 
     expect(capturedDeliveries).toHaveLength(3)
-    expect(JSON.parse(capturedDeliveries[2].body)).toMatchObject({
+    const d2 = capturedDeliveries[2]
+    expect(d2).toBeDefined()
+    if (!d2) throw new Error('expected delivery 2')
+    expect(JSON.parse(d2.body)).toMatchObject({
       event: 'delete',
       collection: 'posts',
       id: 1,
@@ -401,8 +418,11 @@ describe('outgoing webhooks integration', () => {
     await drainPendingWebhooks()
 
     expect(capturedDeliveries).toHaveLength(1)
-    expect(capturedDeliveries[0].url).toBe('https://mysite.com/global-revalidate')
-    const payload = JSON.parse(capturedDeliveries[0].body) as Record<string, unknown>
+    const d0 = capturedDeliveries[0]
+    expect(d0).toBeDefined()
+    if (!d0) throw new Error('expected delivery')
+    expect(d0.url).toBe('https://mysite.com/global-revalidate')
+    const payload = JSON.parse(d0.body) as Record<string, unknown>
     expect(payload.event).toBe('update')
     expect(payload.global).toBe('settings')
   })
