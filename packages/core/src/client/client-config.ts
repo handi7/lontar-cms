@@ -22,8 +22,13 @@ export interface ClientGlobal {
   fields: ClientField[]
 }
 
+export interface ClientVersionsAutosaveConfig {
+  interval: number
+}
+
 export interface ClientVersionsConfig {
   drafts?: boolean
+  autosave?: ClientVersionsAutosaveConfig
   maxPerDoc?: number
 }
 

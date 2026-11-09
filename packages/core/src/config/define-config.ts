@@ -179,11 +179,29 @@ function validateCollection(collection: CollectionConfig): string[] {
   ]
 }
 
-function validateDrafts(where: string, drafts: unknown): string[] {
-  if (drafts !== undefined && typeof drafts !== 'boolean') {
-    return [`${where}: versions.drafts must be a boolean.`]
+function validateAutosave(where: string, autosave: unknown): string[] {
+  if (autosave === undefined) return []
+  if (typeof autosave === 'boolean') return []
+  if (typeof autosave !== 'object' || autosave === null || Array.isArray(autosave)) {
+    return [`${where}: autosave must be a boolean or an object.`]
+  }
+  const obj = autosave as Record<string, unknown>
+  if (obj.interval !== undefined) {
+    if (typeof obj.interval !== 'number' || !Number.isInteger(obj.interval) || obj.interval < 500) {
+      return [`${where}: autosave.interval must be an integer of at least 500ms.`]
+    }
   }
   return []
+}
+
+function validateDrafts(where: string, drafts: unknown): string[] {
+  if (drafts === undefined) return []
+  if (typeof drafts === 'boolean') return []
+  if (typeof drafts === 'object' && drafts !== null && !Array.isArray(drafts)) {
+    const d = drafts as Record<string, unknown>
+    return validateAutosave(`${where}: versions.drafts`, d.autosave)
+  }
+  return [`${where}: versions.drafts must be a boolean or an object.`]
 }
 
 function validateMaxPerDoc(where: string, maxPerDoc: unknown): string[] {
@@ -200,7 +218,21 @@ function validateVersions(where: string, versions?: unknown): string[] {
     return [`${where}: \`versions\` must be an object.`]
   }
   const v = versions as Record<string, unknown>
-  return [...validateDrafts(where, v.drafts), ...validateMaxPerDoc(where, v.maxPerDoc)]
+  const draftsEnabled = Boolean(
+    v.drafts === true || (typeof v.drafts === 'object' && v.drafts !== null),
+  )
+
+  const issues = [
+    ...validateDrafts(where, v.drafts),
+    ...validateAutosave(`${where}: versions`, v.autosave),
+    ...validateMaxPerDoc(where, v.maxPerDoc),
+  ]
+
+  if (v.autosave !== undefined && !draftsEnabled) {
+    issues.push(`${where}: versions.autosave requires drafts to be enabled.`)
+  }
+
+  return issues
 }
 
 function validatePaginationBound(

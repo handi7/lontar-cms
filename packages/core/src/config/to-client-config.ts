@@ -19,6 +19,8 @@ import {
   type ClientUploadField,
   type ClientArrayField,
   type ClientBlocksField,
+  type ClientVersionsAutosaveConfig,
+  type ClientVersionsConfig,
 } from '../client/client-config'
 import type {
   ArrayField,
@@ -40,7 +42,7 @@ import type {
   UploadField,
 } from '../fields/types'
 import { humanize } from '../utils/humanize'
-import type { CollectionConfig, Config, GlobalConfig } from './types'
+import type { CollectionConfig, Config, GlobalConfig, VersionsConfig } from './types'
 
 const MAX_DEFAULT_COLUMNS = 4
 export const DEFAULT_STRING_MAX_LENGTH = 255
@@ -192,14 +194,50 @@ export function toClientConfig(config: Config): ClientConfig {
   }
 }
 
+function resolveAutosaveInterval(raw: unknown): number {
+  if (typeof raw === 'object' && raw !== null && 'interval' in raw) {
+    const interval = (raw as { interval?: unknown }).interval
+    if (typeof interval === 'number' && interval >= 500) {
+      return interval
+    }
+  }
+  return 2000
+}
+
+function resolveAutosaveConfig(
+  versions: VersionsConfig,
+  draftsEnabled: boolean,
+): ClientVersionsAutosaveConfig | undefined {
+  if (!draftsEnabled) return undefined
+
+  const rawAutosave =
+    typeof versions.drafts === 'object' && versions.drafts !== null && 'autosave' in versions.drafts
+      ? versions.drafts.autosave
+      : versions.autosave
+
+  if (!rawAutosave) return undefined
+  return { interval: resolveAutosaveInterval(rawAutosave) }
+}
+
+function toClientVersions(versions?: VersionsConfig): ClientVersionsConfig | undefined {
+  if (!versions) return undefined
+  const draftsEnabled = Boolean(
+    versions.drafts === true || (typeof versions.drafts === 'object' && versions.drafts !== null),
+  )
+
+  const autosave = resolveAutosaveConfig(versions, draftsEnabled)
+  const result = defined({
+    drafts: draftsEnabled ? true : undefined,
+    autosave,
+    maxPerDoc: versions.maxPerDoc,
+  })
+
+  return Object.keys(result).length > 0 ? result : undefined
+}
+
 export function toClientGlobal(global: GlobalConfig): ClientGlobal {
   const fields = Object.entries(global.fields).map(([name, field]) => clientField(name, field))
-  const versions = global.versions
-    ? defined({
-        drafts: global.versions.drafts,
-        maxPerDoc: global.versions.maxPerDoc,
-      })
-    : undefined
+  const versions = toClientVersions(global.versions)
   return {
     slug: global.slug,
     label: global.label ?? humanize(global.slug),
@@ -224,12 +262,7 @@ export function toClientCollection(collection: CollectionConfig): ClientCollecti
         maxLimit: collection.pagination.maxLimit,
       })
     : undefined
-  const versions = collection.versions
-    ? defined({
-        drafts: collection.versions.drafts,
-        maxPerDoc: collection.versions.maxPerDoc,
-      })
-    : undefined
+  const versions = toClientVersions(collection.versions)
 
   return {
     slug: collection.slug,

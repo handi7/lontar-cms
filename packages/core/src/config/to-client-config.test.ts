@@ -713,4 +713,39 @@ describe('toClientConfig', () => {
     expect(serialized.globals[0]?.versions).toEqual({ drafts: true })
     expect(JSON.parse(JSON.stringify(serialized))).toStrictEqual(serialized)
   })
+
+  it('serializes autosave options on collections with drafts enabled', () => {
+    const config = defineConfig({
+      secret: SECRET,
+      db: fakeAdapter,
+      collections: [
+        {
+          slug: 'articles',
+          versions: { drafts: true, autosave: true },
+          fields: { title: f.text() },
+        },
+        {
+          slug: 'notes',
+          versions: { drafts: { autosave: { interval: 4000 } } },
+          fields: { title: f.text() },
+        },
+        {
+          slug: 'logs',
+          versions: { maxPerDoc: 10 },
+          fields: { title: f.text() },
+        },
+      ],
+    })
+    const serialized = toClientConfig(config)
+    expect(serialized.collections[0]?.versions).toEqual({
+      drafts: true,
+      autosave: { interval: 2000 },
+    })
+    expect(serialized.collections[1]?.versions).toEqual({
+      drafts: true,
+      autosave: { interval: 4000 },
+    })
+    expect(serialized.collections[2]?.versions).toEqual({ maxPerDoc: 10 })
+    expect(JSON.parse(JSON.stringify(serialized))).toStrictEqual(serialized)
+  })
 })

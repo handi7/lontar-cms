@@ -238,5 +238,18 @@ describe('ApiClientError and API Client error handling', () => {
         expect.objectContaining({ method: 'POST' }),
       )
     })
+
+    it('sends draft=true and autosave=true query params on autosave update', async () => {
+      const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue({
+        ok: true,
+        json: vi.fn().mockResolvedValue({ id: 1, title: 'Autosaved' }),
+      } as unknown as Response)
+
+      await updateDoc('/api', 'posts', 1, { title: 'Autosaved' }, { autosave: true })
+      expect(fetchSpy).toHaveBeenLastCalledWith(
+        '/api/posts/1?draft=true&autosave=true',
+        expect.objectContaining({ method: 'PATCH' }),
+      )
+    })
   })
 })
