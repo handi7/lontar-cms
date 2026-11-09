@@ -2,20 +2,41 @@ import { describe, expect, it, vi } from 'vitest'
 import { parseDepth, populateDoc, populateDocs } from './index'
 import type { CollectionConfig } from '../config/types'
 import type { DatabaseAdapter, DocumentData, PaginatedDocs, StoredDoc } from '../database/adapter'
+import type { Where } from '../query/types'
+
+function extractInIds(where?: Where): unknown[] | null {
+  if (!where?.id || typeof where.id !== 'object' || !('in' in where.id)) return null
+  const inCond = where.id as { in?: unknown }
+  return Array.isArray(inCond.in) ? inCond.in : null
+}
+
+function filterByInWhere(items: StoredDoc[], where?: Where): StoredDoc[] {
+  const inIds = extractInIds(where)
+  if (!inIds) return items
+  return items.filter((item) => inIds.includes(item.id))
+}
+
+function resolveMockLimit(
+  limit: number,
+  maxLimit: number | undefined,
+  overrideLimit: boolean | undefined,
+): number {
+  if (overrideLimit || maxLimit === undefined) return limit
+  return Math.min(limit, maxLimit)
+}
 
 function createMockAdapter(docsByCollection: Record<string, StoredDoc[]>): DatabaseAdapter {
   return {
     name: 'mock',
-    find({ collection, where }): Promise<PaginatedDocs> {
-      let items = (docsByCollection[collection.slug] ?? []).map((d) => ({ ...d }))
-      if (where?.id && typeof where.id === 'object' && 'in' in where.id) {
-        const inIds = Array.isArray(where.id.in) ? (where.id.in as unknown[]) : []
-        items = items.filter((item) => inIds.includes(item.id))
-      }
+    find({ collection, where, limit, overrideLimit }): Promise<PaginatedDocs> {
+      const all = (docsByCollection[collection.slug] ?? []).map((d) => ({ ...d }))
+      const filtered = filterByInWhere(all, where)
+      const effectiveLimit = resolveMockLimit(limit, collection.pagination?.maxLimit, overrideLimit)
+      const docs = effectiveLimit >= 0 ? filtered.slice(0, effectiveLimit) : filtered
       return Promise.resolve({
-        docs: items,
-        totalDocs: items.length,
-        limit: 100,
+        docs,
+        totalDocs: docs.length,
+        limit: effectiveLimit,
         page: 1,
         totalPages: 1,
       })
@@ -728,6 +749,65 @@ describe('populateDocs', () => {
       expect((populated.seo as Record<string, unknown>).ogImage).toBe(10)
       expect((populated.gallery as Array<Record<string, unknown>>)[0]!.image).toBe(20)
       expect((populated.layout as Array<Record<string, unknown>>)[0]!.backgroundImage).toBe(10)
+    })
+
+    it('is not truncated by target collection pagination.maxLimit', async () => {
+      const mediaWithMaxLimit: CollectionConfig = {
+        slug: 'media',
+        access: { read: () => true },
+        pagination: { maxLimit: 2 },
+        fields: {
+          filename: { type: 'text', required: true },
+        },
+      }
+
+      const mediaItems: StoredDoc[] = [
+        { id: 1, filename: '1.jpg', createdAt: '', updatedAt: '' },
+        { id: 2, filename: '2.jpg', createdAt: '', updatedAt: '' },
+        { id: 3, filename: '3.jpg', createdAt: '', updatedAt: '' },
+        { id: 4, filename: '4.jpg', createdAt: '', updatedAt: '' },
+        { id: 5, filename: '5.jpg', createdAt: '', updatedAt: '' },
+      ]
+
+      const galleryCol: CollectionConfig = {
+        slug: 'gallery-pages',
+        access: { read: () => true },
+        fields: {
+          title: { type: 'text', required: true },
+          images: {
+            type: 'relationship',
+            relationTo: 'media',
+            hasMany: true,
+          },
+        },
+      }
+
+      const db = createMockAdapter({
+        media: mediaItems,
+      })
+
+      const doc: DocumentData = {
+        id: 100,
+        title: 'Vacation Photos',
+        images: [1, 2, 3, 4, 5],
+      }
+
+      const result = await populateDocs({
+        docs: [doc],
+        collection: galleryCol,
+        depth: 1,
+        collections: [galleryCol, mediaWithMaxLimit],
+        db,
+      })
+
+      const populated = result[0]!
+      expect(populated.images).toEqual([
+        expect.objectContaining({ id: 1, filename: '1.jpg' }),
+        expect.objectContaining({ id: 2, filename: '2.jpg' }),
+        expect.objectContaining({ id: 3, filename: '3.jpg' }),
+        expect.objectContaining({ id: 4, filename: '4.jpg' }),
+        expect.objectContaining({ id: 5, filename: '5.jpg' }),
+      ])
     })
   })
 })
