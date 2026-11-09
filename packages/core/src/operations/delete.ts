@@ -1,7 +1,9 @@
 import { checkAccess } from '../access'
 import type { AuthUser } from '../auth/types'
+import type { DocStatus } from '../client/system-fields'
 import type { CollectionConfig } from '../config/types'
-import type { DocumentData } from '../database/adapter'
+import type { DatabaseAdapter, DocumentData } from '../database/adapter'
+import { runAfterDeleteHooks, runBeforeDeleteHooks } from '../hooks'
 import { handleUploadDelete } from '../server/routes/collection-upload'
 import { AccessDeniedError } from './errors'
 import type { DeleteOperationArgs } from './types'
@@ -24,18 +26,47 @@ export async function deleteOperation<T = DocumentData>(
     await assertDeleteAccess(args.collection, args.id, args.user)
   }
 
-  const originalDoc = args.collection.upload
-    ? await args.config.db.findByID({ collection: args.collection, id: args.id })
-    : null
+  const run = async (txDb: DatabaseAdapter): Promise<DocumentData | null> => {
+    const docToDelete = await txDb.findByID({ collection: args.collection, id: args.id })
+    if (!docToDelete) {
+      return null
+    }
 
-  const doc = await args.config.db.delete({ collection: args.collection, id: args.id })
-  if (!doc) {
+    await runBeforeDeleteHooks({
+      collection: args.collection,
+      id: args.id,
+      doc: docToDelete,
+      status: docToDelete._status as DocStatus | undefined,
+      req: args.req,
+    })
+
+    const deleted = await txDb.delete({ collection: args.collection, id: args.id })
+    if (!deleted) {
+      return null
+    }
+
+    return docToDelete
+  }
+
+  const deletedDoc = args.config.db.transaction
+    ? await args.config.db.transaction(run)
+    : await run(args.config.db)
+
+  if (!deletedDoc) {
     return null
   }
 
-  if (originalDoc) {
-    await handleUploadDelete(args.collection, args.config, originalDoc)
+  if (args.collection.upload) {
+    await handleUploadDelete(args.collection, args.config, deletedDoc)
   }
 
-  return doc as T
+  const finalDoc = await runAfterDeleteHooks({
+    collection: args.collection,
+    id: args.id,
+    doc: deletedDoc,
+    status: deletedDoc._status as DocStatus | undefined,
+    req: args.req,
+  })
+
+  return finalDoc as T
 }

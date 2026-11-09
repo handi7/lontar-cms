@@ -3,7 +3,12 @@ import { defineConfig } from '../../config/define-config'
 import { global } from '../../config/global'
 import type { DatabaseAdapter, StoredDoc } from '../../database/adapter'
 import { fields as f } from '../../fields'
-import type { AfterChangeHook, AfterReadHook, BeforeChangeHook } from '../../hooks'
+import type {
+  AfterChangeHook,
+  AfterReadHook,
+  BeforeChangeHook,
+  BeforeValidateHook,
+} from '../../hooks'
 import { createLontar } from '../create-lontar'
 
 function createMockAdapter() {
@@ -275,5 +280,45 @@ describe('Global REST Routes', () => {
     )
     expect(postRes.status).toBe(401)
     expect(await postRes.json()).toEqual({ error: 'Unauthorized' })
+  })
+
+  it('runs beforeValidate hook on global update to normalize data before Zod validation', async () => {
+    const beforeValidateHook: BeforeValidateHook = ({ data }) => {
+      if (typeof data.siteTitle === 'string') {
+        data.siteTitle = data.siteTitle.trim()
+      }
+      return data
+    }
+
+    const { db } = createMockAdapter()
+    const lontar = createLontar(
+      defineConfig({
+        secret: 'test-secret',
+        db,
+        collections: [],
+        globals: [
+          global({
+            slug: 'header',
+            access: { read: () => true, update: () => true },
+            fields: { siteTitle: f.text({ required: true }) },
+            hooks: {
+              beforeValidate: [beforeValidateHook],
+            },
+          }),
+        ],
+      }),
+    )
+
+    const res = await lontar.fetch(
+      new Request('http://localhost/api/globals/header', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ siteTitle: '   Clean Site Title   ' }),
+      }),
+    )
+
+    expect(res.status).toBe(200)
+    const json = (await res.json()) as { siteTitle: string }
+    expect(json.siteTitle).toBe('Clean Site Title')
   })
 })

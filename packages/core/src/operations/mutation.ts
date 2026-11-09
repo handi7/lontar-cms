@@ -24,7 +24,7 @@ export function buildRevertData(
   return revertData
 }
 
-function resolveCreateStatus(
+export function resolveCreateStatus(
   collection: CollectionConfig,
   data: DocumentData,
   draft?: boolean,
@@ -178,7 +178,7 @@ function resolveUpdateStatusTransition(
   return status === 'published' ? 'published' : 'draft'
 }
 
-function resolveUpdateStatus(args: {
+export function resolveUpdateStatus(args: {
   collection: CollectionConfig
   data: DocumentData
   originalDoc: DocumentData
