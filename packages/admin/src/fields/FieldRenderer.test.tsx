@@ -1642,4 +1642,81 @@ describe('group field rendering and binding', () => {
       expect(screen.getByLabelText(/banner text/i)).toBeTruthy()
     })
   })
+
+  describe('theme styling classes (#183)', () => {
+    it('applies theme utilities to group, array, and blocks without undefined CSS variables', () => {
+      const groupField = {
+        name: 'seo',
+        type: 'group' as const,
+        label: 'SEO',
+        required: true,
+        fields: [{ name: 'title', type: 'text' as const, label: 'Title', required: true }],
+      }
+      const arrayField: ClientArrayField = {
+        name: 'items',
+        type: 'array',
+        label: 'Items',
+        required: false,
+        fields: [{ name: 'text', type: 'text', label: 'Text', required: true }],
+      }
+      const blocksField: ClientBlocksField = {
+        name: 'layout',
+        type: 'blocks',
+        label: 'Layout',
+        required: false,
+        blocks: [
+          {
+            slug: 'hero',
+            labels: { singular: 'Hero', plural: 'Heroes' },
+            fields: [{ name: 'heading', type: 'text', label: 'Heading', required: true }],
+          },
+        ],
+      }
+
+      const { container } = render(
+        <FormWrapper
+          defaultValues={{
+            seo: { title: 'Test' },
+            items: [{ id: '1', text: 'Item 1' }],
+            layout: [{ id: '2', blockType: 'hero', heading: 'Hero 1' }],
+          }}
+        >
+          {({ control, register, watch }) => (
+            <>
+              <FieldRenderer field={groupField} control={control} register={register} />
+              <FieldRenderer
+                field={arrayField}
+                control={control}
+                register={register}
+                watch={watch}
+              />
+              <FieldRenderer
+                field={blocksField}
+                control={control}
+                register={register}
+                watch={watch}
+              />
+            </>
+          )}
+        </FormWrapper>,
+      )
+
+      // Group fieldset uses lt:border-border, legend uses lt:text-foreground
+      const groupFieldset = container.querySelector('[data-group="seo"]')
+      expect(groupFieldset?.className).toContain('lt:border-border')
+      expect(groupFieldset?.className).not.toContain('lt:border-[var(--lontar-border)]')
+
+      // Array row uses lt:border-border, lt:bg-card, and header strip uses lt:bg-muted/50
+      const arrayRow = container.querySelector('[data-array-row="0"]')
+      expect(arrayRow?.className).toContain('lt:border-border')
+      expect(arrayRow?.className).toContain('lt:bg-card')
+      expect(arrayRow?.className).not.toContain('lt:bg-[var(--lontar-card)]')
+
+      // Block row uses lt:border-border, lt:bg-card
+      const blockRow = container.querySelector('[data-block-row="0"]')
+      expect(blockRow?.className).toContain('lt:border-border')
+      expect(blockRow?.className).toContain('lt:bg-card')
+      expect(blockRow?.className).not.toContain('lt:bg-[var(--lontar-card)]')
+    })
+  })
 })
