@@ -45,9 +45,16 @@ export interface GlobalHooks {
   afterDelete?: AfterDeleteHook[]
 }
 
+export interface VersionsAutosaveConfig {
+  /** Debounce interval in milliseconds. Defaults to 2000 (2s). Minimum 500ms. */
+  interval?: number
+}
+
 export interface VersionsConfig {
-  /** When true, enables draft/publish lifecycle and adds `_status` system field. */
-  drafts?: boolean
+  /** When true (or object), enables draft/publish lifecycle and adds `_status` system field. */
+  drafts?: boolean | { autosave?: boolean | VersionsAutosaveConfig }
+  /** Autosave options when drafts are enabled. */
+  autosave?: boolean | VersionsAutosaveConfig
   /** Maximum historical versions retained per document. Defaults to 50; 0 for unlimited. */
   maxPerDoc?: number
 }

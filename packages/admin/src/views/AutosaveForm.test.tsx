@@ -1,0 +1,235 @@
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { createMemoryHistory } from '@tanstack/react-router'
+import { CLIENT_CONFIG_VERSION, type ClientConfig } from '@lontar/core/client'
+import { Admin } from '../Admin'
+
+const mockConfigWithAutosave: ClientConfig = {
+  version: CLIENT_CONFIG_VERSION,
+  collections: [
+    {
+      slug: 'articles',
+      labels: { singular: 'Article', plural: 'Articles' },
+      versions: {
+        drafts: true,
+        autosave: { interval: 500 },
+      },
+      admin: { useAsTitle: 'title', defaultColumns: ['title'] },
+      fields: [
+        { name: 'title', label: 'Title', type: 'text', required: true },
+        { name: 'content', label: 'Content', type: 'textarea', required: false },
+      ],
+    },
+  ],
+  globals: [],
+}
+
+const mockAuthUser = {
+  id: 'user-1',
+  name: 'Admin User',
+  email: 'admin@example.com',
+}
+
+const mockAuthSession = {
+  id: 'session-1',
+  userId: 'user-1',
+  expiresAt: new Date(Date.now() + 86400000).toISOString(),
+}
+
+function mockJsonResponse(data: unknown, status = 200): Promise<Response> {
+  return Promise.resolve(
+    new Response(JSON.stringify(data), {
+      status,
+      headers: { 'Content-Type': 'application/json' },
+    }),
+  )
+}
+
+describe('Autosave in edit form (#203)', () => {
+  beforeEach(() => {
+    vi.restoreAllMocks()
+    vi.useFakeTimers({ shouldAdvanceTime: true })
+  })
+
+  afterEach(() => {
+    vi.useRealTimers()
+    cleanup()
+  })
+
+  it('triggers debounced autosave when form is dirty and valid, updating the sidebar indicator', async () => {
+    const existingDoc = {
+      id: 1,
+      title: 'Original Title',
+      content: 'Original content',
+      _status: 'draft',
+      _isPublished: false,
+      createdAt: '2026-01-01T00:00:00.000Z',
+      updatedAt: '2026-01-01T00:00:00.000Z',
+    }
+
+    const requests: { url: string; method: string }[] = []
+
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockImplementation((url: string, init?: RequestInit) => {
+        if (url.includes('/_lontar/config')) {
+          return mockJsonResponse(mockConfigWithAutosave)
+        }
+        if (url.includes('/auth/get-session')) {
+          return mockJsonResponse({ user: mockAuthUser, session: mockAuthSession })
+        }
+        if (url.includes('/api/articles/1') && init?.method === 'PATCH') {
+          requests.push({ url, method: 'PATCH' })
+          return mockJsonResponse({
+            ...existingDoc,
+            title: 'Updated Autosaved Title',
+          })
+        }
+        if (url.includes('/api/articles/1')) {
+          return mockJsonResponse(existingDoc)
+        }
+        return Promise.reject(new Error(`Unhandled URL: ${url}`))
+      }),
+    )
+
+    const history = createMemoryHistory({ initialEntries: ['/admin/articles/1'] })
+    render(<Admin apiBase="/api" basePath="/admin" history={history} />)
+
+    // Wait for form to load
+    await waitFor(() => {
+      expect(screen.getByRole('textbox', { name: /Title/i })).toBeTruthy()
+    })
+
+    const titleInput = screen.getByRole('textbox', { name: /Title/i })
+    expect((titleInput as HTMLInputElement).value).toBe('Original Title')
+
+    // Edit the title input to trigger dirty state
+    fireEvent.change(titleInput, { target: { value: 'Updated Autosaved Title' } })
+
+    // Before debounce interval (500ms), no patch request has been sent yet
+    expect(requests.filter((r) => r.method === 'PATCH')).toHaveLength(0)
+
+    // Advance timers past debounce interval
+    act(() => {
+      vi.advanceTimersByTime(600)
+    })
+
+    // Autosave PATCH request was sent with draft=true&autosave=true
+    await waitFor(() => {
+      const patchReqs = requests.filter((r) => r.method === 'PATCH')
+      expect(patchReqs.length).toBeGreaterThanOrEqual(1)
+      expect(patchReqs[0]?.url).toContain('draft=true')
+      expect(patchReqs[0]?.url).toContain('autosave=true')
+    })
+
+    // Saved indicator is displayed in sidebar
+    await waitFor(() => {
+      expect(screen.getByText('Saved just now')).toBeTruthy()
+    })
+  })
+
+  it('does not autosave when a required field is invalid', async () => {
+    const existingDoc = {
+      id: 1,
+      title: 'Valid Title',
+      content: 'Some text',
+      _status: 'draft',
+      _isPublished: false,
+    }
+
+    const requests: { url: string; method: string }[] = []
+
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockImplementation((url: string, init?: RequestInit) => {
+        if (url.includes('/_lontar/config')) {
+          return mockJsonResponse(mockConfigWithAutosave)
+        }
+        if (url.includes('/auth/get-session')) {
+          return mockJsonResponse({ user: mockAuthUser, session: mockAuthSession })
+        }
+        if (url.includes('/api/articles/1') && init?.method === 'PATCH') {
+          requests.push({ url, method: 'PATCH' })
+          return mockJsonResponse(existingDoc)
+        }
+        if (url.includes('/api/articles/1')) {
+          return mockJsonResponse(existingDoc)
+        }
+        return Promise.reject(new Error(`Unhandled URL: ${url}`))
+      }),
+    )
+
+    const history = createMemoryHistory({ initialEntries: ['/admin/articles/1'] })
+    render(<Admin apiBase="/api" basePath="/admin" history={history} />)
+
+    await waitFor(() => {
+      expect(screen.getByRole('textbox', { name: /Title/i })).toBeTruthy()
+    })
+
+    const titleInput = screen.getByRole('textbox', { name: /Title/i })
+
+    // Clear required title (invalid!)
+    fireEvent.change(titleInput, { target: { value: '' } })
+
+    // Advance timers past debounce interval
+    act(() => {
+      vi.advanceTimersByTime(1000)
+    })
+
+    // No PATCH request should have been made
+    expect(requests.filter((r) => r.method === 'PATCH')).toHaveLength(0)
+    expect(screen.queryByText('Saved just now')).toBeNull()
+  })
+
+  it('preserves form state and displays error indicator when autosave fails', async () => {
+    const existingDoc = {
+      id: 1,
+      title: 'Original Title',
+      content: 'Original content',
+      _status: 'draft',
+      _isPublished: false,
+    }
+
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockImplementation((url: string, init?: RequestInit) => {
+        if (url.includes('/_lontar/config')) {
+          return mockJsonResponse(mockConfigWithAutosave)
+        }
+        if (url.includes('/auth/get-session')) {
+          return mockJsonResponse({ user: mockAuthUser, session: mockAuthSession })
+        }
+        if (url.includes('/api/articles/1') && init?.method === 'PATCH') {
+          return Promise.reject(new Error('Failed to fetch: Network error'))
+        }
+        if (url.includes('/api/articles/1')) {
+          return mockJsonResponse(existingDoc)
+        }
+        return Promise.reject(new Error(`Unhandled URL: ${url}`))
+      }),
+    )
+
+    const history = createMemoryHistory({ initialEntries: ['/admin/articles/1'] })
+    render(<Admin apiBase="/api" basePath="/admin" history={history} />)
+
+    await waitFor(() => {
+      expect(screen.getByRole('textbox', { name: /Title/i })).toBeTruthy()
+    })
+
+    const titleInput = screen.getByRole('textbox', { name: /Title/i })
+    fireEvent.change(titleInput, { target: { value: 'My Unsaved Edits' } })
+
+    // Advance timer to trigger autosave
+    act(() => {
+      vi.advanceTimersByTime(600)
+    })
+
+    // Error indicator is displayed
+    await waitFor(() => {
+      expect(screen.getByText("Couldn't save, retrying…")).toBeTruthy()
+    })
+
+    // Form retains the local user edits
+    expect((titleInput as HTMLInputElement).value).toBe('My Unsaved Edits')
+  })
+})

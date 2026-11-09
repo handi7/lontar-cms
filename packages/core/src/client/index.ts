@@ -26,6 +26,7 @@ export type {
   ClientTextField,
   ClientUploadConfig,
   ClientUploadField,
+  ClientVersionsAutosaveConfig,
   ClientVersionsConfig,
 } from './client-config'
 export {

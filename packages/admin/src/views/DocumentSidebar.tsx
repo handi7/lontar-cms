@@ -8,6 +8,7 @@ import {
   DropdownMenuTrigger,
 } from '../components/ui/dropdown-menu'
 import { DocumentStatusBadge, getDocumentStatus, type DocumentStatus } from './DocumentStatusBadge'
+import { AutosaveIndicator, type AutosaveStatus } from './AutosaveIndicator'
 
 export interface SidebarMetadataProps {
   doc: Record<string, unknown>
@@ -205,6 +206,11 @@ export interface DocumentSidebarProps {
   hasDrafts?: boolean
   hasVersions?: boolean
   onOpenHistory?: () => void
+  autosave?: {
+    status: AutosaveStatus
+    lastSavedAt?: Date | null
+    consecutiveErrors?: number
+  }
   status?: DocumentStatus
   onPublish?: () => void
   onSaveDraft?: () => void
@@ -235,6 +241,13 @@ export function DocumentSidebar(props: DocumentSidebarProps) {
         )}
 
         {/* Slot: Autosave indicator (#203) */}
+        {props.autosave && (
+          <AutosaveIndicator
+            status={props.autosave.status}
+            lastSavedAt={props.autosave.lastSavedAt}
+            consecutiveErrors={props.autosave.consecutiveErrors}
+          />
+        )}
 
         <SidebarActions
           submitLabel={props.submitLabel}

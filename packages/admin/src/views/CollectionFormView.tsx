@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo } from 'react'
+import { useState, useEffect, useMemo, useCallback } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { useNavigate, useParams } from '@tanstack/react-router'
 import {
@@ -7,11 +7,14 @@ import {
   type UseFormRegister,
   type UseFormSetValue,
   type UseFormWatch,
+  type UseFormGetValues,
+  type UseFormReset,
   type UseFormSetError,
   type UseFormHandleSubmit,
   type FieldErrors,
 } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
+import type { z } from 'zod'
 import { clientFieldsToZod, type ClientCollection } from '@lontar/core/client'
 import { useAdmin, useCollection } from '../context/AdminContext'
 import {
@@ -34,6 +37,7 @@ import { ViewHeader } from './ViewHeader'
 import { CollectionBreadcrumbs } from './FormBreadcrumbs'
 import { DocumentSidebar } from './DocumentSidebar'
 import { VersionHistorySheet } from './VersionHistorySheet'
+import { useAutosave } from '../hooks/useAutosave'
 
 function getFormTitle(mode: 'create' | 'edit', singular: string, id?: string): string {
   if (mode === 'create') return `Create ${singular}`
@@ -358,6 +362,7 @@ interface UseCollectionFormSubmitOptions {
     variables: { data: Record<string, unknown> | FormData; draft?: boolean } | undefined
   }
   handleSubmit: UseFormHandleSubmit<Record<string, unknown>>
+  onBeforeSubmit?: () => void
 }
 
 function useCollectionFormSubmit({
@@ -368,8 +373,10 @@ function useCollectionFormSubmit({
   setFileError,
   saveMutation,
   handleSubmit,
+  onBeforeSubmit,
 }: UseCollectionFormSubmitOptions) {
   const submitWithDraft = (draft: boolean) => {
+    onBeforeSubmit?.()
     void handleSubmit((v) => {
       const payload = formatDocForSubmit(collection.fields, v)
       if (!collection.upload) {
@@ -397,6 +404,117 @@ function useCollectionFormSubmit({
     isPublishing,
     isSavingDraft,
   }
+}
+
+interface UseCollectionAutosaveOptions {
+  collection: ClientCollection
+  mode: 'create' | 'edit'
+  id?: string
+  apiBase: string
+  isDirty: boolean
+  errors: FieldErrors<Record<string, unknown>>
+  getValues: UseFormGetValues<Record<string, unknown>>
+  formValues: Record<string, unknown>
+  schema: z.ZodTypeAny
+  selectedFile: File | null
+  reset: UseFormReset<Record<string, unknown>>
+}
+
+function useCollectionAutosave({
+  collection,
+  mode,
+  id,
+  apiBase,
+  isDirty,
+  errors,
+  getValues,
+  formValues,
+  schema,
+  selectedFile,
+  reset,
+}: UseCollectionAutosaveOptions) {
+  const queryClient = useQueryClient()
+  const autosaveEnabled =
+    mode === 'edit' &&
+    Boolean(collection.versions?.drafts) &&
+    Boolean(collection.versions?.autosave) &&
+    Boolean(id)
+  const autosaveInterval = collection.versions?.autosave?.interval ?? 2000
+
+  const isValid = useMemo(() => {
+    if (Object.keys(errors).length > 0) return false
+    const values = formValues && Object.keys(formValues).length > 0 ? formValues : getValues()
+    const payload = formatDocForSubmit(collection.fields, values)
+    return schema.safeParse(payload).success
+  }, [errors, formValues, getValues, collection.fields, schema])
+
+  const onSave = useCallback(async () => {
+    if (!id) throw new Error('Missing document id')
+    const values = getValues()
+    const payload = formatDocForSubmit(collection.fields, values)
+    const data =
+      collection.upload && selectedFile ? buildUploadFormData(payload, selectedFile) : payload
+    return updateDoc(apiBase, collection.slug, id, data, { autosave: true })
+  }, [apiBase, collection.fields, collection.slug, collection.upload, id, getValues, selectedFile])
+
+  const onSuccess = useCallback(
+    (savedDoc: Record<string, unknown>) => {
+      reset(formatDocForForm(collection.fields, savedDoc), { keepValues: true })
+      queryClient.setQueryData(['document', apiBase, collection.slug, String(id)], savedDoc)
+      void queryClient.invalidateQueries({
+        queryKey: ['doc-versions', apiBase, collection.slug, id],
+      })
+    },
+    [apiBase, collection.fields, collection.slug, id, queryClient, reset],
+  )
+
+  const autosave = useAutosave({
+    enabled: autosaveEnabled,
+    interval: autosaveInterval,
+    isDirty,
+    isValid,
+    onSave,
+    onSuccess,
+  })
+
+  const sidebarAutosave = autosaveEnabled
+    ? {
+        status: autosave.status,
+        lastSavedAt: autosave.lastSavedAt,
+        consecutiveErrors: autosave.consecutiveErrors,
+      }
+    : undefined
+
+  return {
+    ...autosave,
+    sidebarAutosave,
+  }
+}
+
+interface VersionHistorySheetWrapperProps {
+  hasVersions: boolean
+  id?: string
+  open: boolean
+  onOpenChange: (open: boolean) => void
+  apiBase: string
+  collection: ClientCollection
+  currentDoc?: Record<string, unknown> | null
+  onRestoreSuccess: (doc: Record<string, unknown>) => void
+}
+
+function VersionHistorySheetWrapper(props: VersionHistorySheetWrapperProps) {
+  if (!props.hasVersions || !props.id) return null
+  return (
+    <VersionHistorySheet
+      open={props.open}
+      onOpenChange={props.onOpenChange}
+      apiBase={props.apiBase}
+      collection={props.collection}
+      id={props.id}
+      currentDoc={props.currentDoc}
+      onRestoreSuccess={props.onRestoreSuccess}
+    />
+  )
 }
 
 export interface CollectionEditorProps {
@@ -427,11 +545,28 @@ function CollectionEditor({ collection, mode, id }: CollectionEditorProps) {
     reset,
     setValue,
     watch,
+    getValues,
     setError,
     formState: { errors, isSubmitting, isDirty },
   } = useForm<Record<string, unknown>>({
     resolver: zodResolver(schema),
     defaultValues,
+  })
+
+  const formValues = watch()
+
+  const autosave = useCollectionAutosave({
+    collection,
+    mode,
+    id,
+    apiBase,
+    isDirty,
+    errors,
+    getValues,
+    formValues,
+    schema,
+    selectedFile,
+    reset,
   })
 
   useEffect(() => {
@@ -453,6 +588,7 @@ function CollectionEditor({ collection, mode, id }: CollectionEditorProps) {
     setApiError,
     setSuccessMsg,
     onSaveSuccess: () => {
+      autosave.cancelAutosave()
       setSelectedFile(null)
       setFileError(null)
     },
@@ -466,6 +602,7 @@ function CollectionEditor({ collection, mode, id }: CollectionEditorProps) {
     setFileError,
     saveMutation,
     handleSubmit,
+    onBeforeSubmit: autosave.cancelAutosave,
   })
 
   if (shouldShowQueryState(mode, docQuery.isLoading, docQuery.error)) {
@@ -544,6 +681,7 @@ function CollectionEditor({ collection, mode, id }: CollectionEditorProps) {
           hasDrafts={hasDrafts}
           hasVersions={hasVersions}
           onOpenHistory={() => setHistoryOpen(true)}
+          autosave={autosave.sidebarAutosave}
           onPublish={onPublish}
           onSaveDraft={onSaveDraft}
           onUnpublish={() => unpublishMutation.mutate()}
@@ -553,20 +691,19 @@ function CollectionEditor({ collection, mode, id }: CollectionEditorProps) {
         />
       </form>
 
-      {hasVersions && id && (
-        <VersionHistorySheet
-          open={historyOpen}
-          onOpenChange={setHistoryOpen}
-          apiBase={apiBase}
-          collection={collection}
-          id={id}
-          currentDoc={docQuery.data}
-          onRestoreSuccess={(restoredDoc) => {
-            reset(formatDocForForm(collection.fields, restoredDoc))
-            setSuccessMsg('Version restored successfully!')
-          }}
-        />
-      )}
+      <VersionHistorySheetWrapper
+        hasVersions={hasVersions}
+        id={id}
+        open={historyOpen}
+        onOpenChange={setHistoryOpen}
+        apiBase={apiBase}
+        collection={collection}
+        currentDoc={docQuery.data}
+        onRestoreSuccess={(restoredDoc) => {
+          reset(formatDocForForm(collection.fields, restoredDoc))
+          setSuccessMsg('Version restored successfully!')
+        }}
+      />
     </div>
   )
 }

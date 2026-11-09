@@ -225,4 +225,36 @@ describe('DocumentSidebar', () => {
     )
     expect(screen.queryByRole('button', { name: 'Version History' })).toBeNull()
   })
+
+  it('renders autosave indicator states in the sidebar', () => {
+    const { rerender } = render(
+      <DocumentSidebar
+        mode="edit"
+        submitLabel="Save Changes"
+        isPending={false}
+        autosave={{ status: 'saving' }}
+      />,
+    )
+    expect(screen.getByText('Saving…')).toBeTruthy()
+
+    rerender(
+      <DocumentSidebar
+        mode="edit"
+        submitLabel="Save Changes"
+        isPending={false}
+        autosave={{ status: 'saved', lastSavedAt: new Date() }}
+      />,
+    )
+    expect(screen.getByText('Saved just now')).toBeTruthy()
+
+    rerender(
+      <DocumentSidebar
+        mode="edit"
+        submitLabel="Save Changes"
+        isPending={false}
+        autosave={{ status: 'error', consecutiveErrors: 1 }}
+      />,
+    )
+    expect(screen.getByText("Couldn't save, retrying…")).toBeTruthy()
+  })
 })

@@ -250,16 +250,24 @@ export async function createDoc(
   return handleResponse<Record<string, unknown>>(res)
 }
 
+function buildUpdateQuery(options?: { draft?: boolean; autosave?: boolean }): string {
+  const params = new URLSearchParams()
+  if (options?.draft || options?.autosave) params.set('draft', 'true')
+  if (options?.autosave) params.set('autosave', 'true')
+  const query = params.toString()
+  return query ? `?${query}` : ''
+}
+
 export async function updateDoc(
   apiBase: string,
   slug: string,
   id: number | string,
   data: Record<string, unknown> | FormData,
-  options?: { draft?: boolean },
+  options?: { draft?: boolean; autosave?: boolean },
 ): Promise<Record<string, unknown>> {
   const base = apiBase.replace(/\/+$/, '')
   const isFormData = typeof FormData !== 'undefined' && data instanceof FormData
-  const query = options?.draft ? '?draft=true' : ''
+  const query = buildUpdateQuery(options)
   const res = await fetch(`${base}/${slug}/${id}${query}`, {
     method: 'PATCH',
     headers: isFormData ? undefined : { 'Content-Type': 'application/json' },

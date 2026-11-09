@@ -103,7 +103,16 @@ describe('defineConfig', () => {
       'Collection "notes": `versions` must be an object.',
     ])
     expect(issuesOf([notes({ versions: { drafts: 'yes' as never } })])).toEqual([
-      'Collection "notes": versions.drafts must be a boolean.',
+      'Collection "notes": versions.drafts must be a boolean or an object.',
+    ])
+    expect(issuesOf([notes({ versions: { autosave: true } })])).toEqual([
+      'Collection "notes": versions.autosave requires drafts to be enabled.',
+    ])
+    expect(issuesOf([notes({ versions: { drafts: false, autosave: true } })])).toEqual([
+      'Collection "notes": versions.autosave requires drafts to be enabled.',
+    ])
+    expect(issuesOf([notes({ versions: { drafts: true, autosave: { interval: 200 } } })])).toEqual([
+      'Collection "notes": versions: autosave.interval must be an integer of at least 500ms.',
     ])
     expect(issuesOf([notes({ versions: { maxPerDoc: -1 } })])).toEqual([
       'Collection "notes": versions.maxPerDoc must be a non-negative integer.',
@@ -112,6 +121,10 @@ describe('defineConfig', () => {
       'Collection "notes": versions.maxPerDoc must be a non-negative integer.',
     ])
     expect(issuesOf([notes({ versions: { drafts: true, maxPerDoc: 10 } })])).toEqual([])
+    expect(issuesOf([notes({ versions: { drafts: true, autosave: true } })])).toEqual([])
+    expect(
+      issuesOf([notes({ versions: { drafts: { autosave: { interval: 3000 } }, maxPerDoc: 10 } })]),
+    ).toEqual([])
   })
 
   it('rejects admin options that name an unknown field', () => {

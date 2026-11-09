@@ -2078,4 +2078,82 @@ describe('mysqlAdapter (integration)', () => {
     })
     expect(remainingVersions.totalDocs).toBe(0)
   })
+
+  it('guarantees continuous autosaves generate at most one transient version row without exhausting retention (#203)', async () => {
+    const parentDoc = await adapter.create({
+      collection: versionedPostsCollection,
+      data: {
+        title: 'Initial Document',
+        content: 'Original body',
+        _status: 'published',
+      },
+    })
+
+    // 20 continuous autosaves
+    let lastAutosaveId: number | undefined
+    for (let i = 1; i <= 20; i++) {
+      const v = await adapter.saveVersion!({
+        collection: versionedPostsCollection,
+        parentId: parentDoc.id,
+        snapshot: { ...parentDoc, title: `Autosave iteration ${i}` },
+        status: 'draft',
+        autosave: true,
+      })
+      if (lastAutosaveId === undefined) {
+        lastAutosaveId = v.id
+      } else {
+        expect(v.id).toBe(lastAutosaveId) // In-place row update
+      }
+    }
+
+    const versionsAfterAutosaves = await adapter.findVersions!({
+      collection: versionedPostsCollection,
+      parentId: parentDoc.id,
+    })
+    expect(versionsAfterAutosaves.totalDocs).toBe(1)
+    expect(versionsAfterAutosaves.docs[0]?.autosave).toBe(true)
+    expect(versionsAfterAutosaves.docs[0]?.snapshot.title).toBe('Autosave iteration 20')
+
+    // An explicit manual draft creates a permanent row with autosave: false
+    const manualDraft = await adapter.saveVersion!({
+      collection: versionedPostsCollection,
+      parentId: parentDoc.id,
+      snapshot: { ...parentDoc, title: 'Manual Draft' },
+      status: 'draft',
+      autosave: false,
+    })
+    expect(manualDraft.id).not.toBe(lastAutosaveId)
+    expect(manualDraft.autosave).toBe(false)
+
+    const versionsAfterManual = await adapter.findVersions!({
+      collection: versionedPostsCollection,
+      parentId: parentDoc.id,
+    })
+    expect(versionsAfterManual.totalDocs).toBe(2)
+
+    // Further continuous autosaves now create one new autosave row and update it in place
+    let secondAutosaveId: number | undefined
+    for (let i = 1; i <= 10; i++) {
+      const v = await adapter.saveVersion!({
+        collection: versionedPostsCollection,
+        parentId: parentDoc.id,
+        snapshot: { ...parentDoc, title: `Second session autosave ${i}` },
+        status: 'draft',
+        autosave: true,
+      })
+      if (secondAutosaveId === undefined) {
+        secondAutosaveId = v.id
+      } else {
+        expect(v.id).toBe(secondAutosaveId)
+      }
+    }
+
+    const versionsFinal = await adapter.findVersions!({
+      collection: versionedPostsCollection,
+      parentId: parentDoc.id,
+    })
+    // Exactly 2 rows retained per maxPerDoc: 2 (the manual draft and the second session autosave)
+    expect(versionsFinal.totalDocs).toBe(2)
+    expect(versionsFinal.docs.map((d) => d.id)).toEqual([secondAutosaveId, manualDraft.id])
+  })
 })
