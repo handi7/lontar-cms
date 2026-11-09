@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import type { ClientCollection } from '@lontar/core/client'
+import type { ClientCollection, ClientField } from '@lontar/core/client'
 import { Badge } from '../components/ui/badge'
 import { Button } from '../components/ui/button'
 import { Input } from '../components/ui/input'
@@ -31,6 +31,32 @@ export const OPERATOR_OPTIONS = [
   { value: 'in', label: 'In (comma-separated)' },
 ]
 
+export interface FilterFieldOption {
+  name: string
+  label: string
+}
+
+export function collectFilterFields(
+  fields: ClientField[],
+  prefix = '',
+  labelPrefix = '',
+): FilterFieldOption[] {
+  const options: FilterFieldOption[] = []
+  for (const field of fields) {
+    const fieldPath = prefix ? `${prefix}.${field.name}` : field.name
+    const fieldLabel = labelPrefix
+      ? `${labelPrefix} > ${field.label || field.name}`
+      : field.label || field.name
+
+    if (field.type === 'group') {
+      options.push(...collectFilterFields(field.fields, fieldPath, fieldLabel))
+    } else {
+      options.push({ name: fieldPath, label: fieldLabel })
+    }
+  }
+  return options
+}
+
 export function CollectionFilterBar({
   collection,
   searchTerm,
@@ -49,9 +75,16 @@ export function CollectionFilterBar({
   onClearAll: () => void
 }) {
   const [isOpen, setIsOpen] = useState(false)
-  const [selectedField, setSelectedField] = useState(
-    collection.admin.useAsTitle || collection.fields[0]?.name || 'id',
-  )
+  const filterFields: FilterFieldOption[] = [
+    { name: 'id', label: 'ID' },
+    ...collectFilterFields(collection.fields),
+    { name: 'createdAt', label: 'Created At' },
+  ]
+  const [selectedField, setSelectedField] = useState(() => {
+    const candidate = collection.admin.useAsTitle || ''
+    const match = filterFields.find((f) => f.name === candidate)
+    return match ? match.name : filterFields[1]?.name || filterFields[0]?.name || 'id'
+  })
   const [selectedOperator, setSelectedOperator] = useState('contains')
   const [filterValue, setFilterValue] = useState('')
 
@@ -67,12 +100,6 @@ export function CollectionFilterBar({
     setFilterValue('')
     setIsOpen(false)
   }
-
-  const filterFields = [
-    { name: 'id', label: 'ID' },
-    ...collection.fields.map((f) => ({ name: f.name, label: f.label ?? f.name })),
-    { name: 'createdAt', label: 'Created At' },
-  ]
 
   return (
     <div className="lt:mb-5 lt:flex lt:flex-col lt:gap-3">

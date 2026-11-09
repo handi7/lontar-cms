@@ -1383,4 +1383,146 @@ describe('mysqlAdapter (integration)', () => {
     expect(updatedSeo.featuredPost).toBe(post2.id)
     expect(updatedLayout[0]!.featuredPost).toBeNull()
   })
+
+  it('filters and sorts on nested field paths: group, array, and blocks', async () => {
+    const pageA = await adapter.create({
+      collection: pagesCollection,
+      data: {
+        title: 'Summer Vacation Unique',
+        seo: { metaTitle: 'Summer Trip Unique', metaDescription: 'Sunny beach vacation' },
+        gallery: [
+          { caption: 'Sunny beach photo', year: 1981 },
+          { caption: 'Palm trees photo', year: 1982 },
+        ],
+        layout: [
+          { blockType: 'hero', heading: 'Welcome to Paradise Unique' },
+          { blockType: 'cta', text: 'Book Now Unique', buttonUrl: '/book' },
+        ],
+      },
+    })
+
+    const pageB = await adapter.create({
+      collection: pagesCollection,
+      data: {
+        title: 'Winter Cabin Unique',
+        seo: { metaTitle: 'Winter Retreat Unique', metaDescription: 'Snowy cabin in the woods' },
+        gallery: [{ caption: 'Snow mountain photo', year: 1983 }],
+        layout: [{ blockType: 'hero', heading: 'Cozy Winter Escape Unique' }],
+      },
+    })
+
+    const pageC = await adapter.create({
+      collection: pagesCollection,
+      data: {
+        title: 'Autumn Harvest Unique',
+      },
+    })
+
+    // 1. Group filtering: dot notation and nested object
+    const resGroupDot = await adapter.find({
+      collection: pagesCollection,
+      page: 1,
+      limit: 10,
+      where: { 'seo.metaTitle': { equals: 'Summer Trip Unique' } },
+    })
+    expect(resGroupDot.docs.map((d) => d.id)).toEqual([pageA.id])
+
+    const resGroupNested = await adapter.find({
+      collection: pagesCollection,
+      page: 1,
+      limit: 10,
+      where: { seo: { metaTitle: { equals: 'Winter Retreat Unique' } } },
+    })
+    expect(resGroupNested.docs.map((d) => d.id)).toEqual([pageB.id])
+
+    // 2. Group sorting
+    const resSortAsc = await adapter.find({
+      collection: pagesCollection,
+      page: 1,
+      limit: 10,
+      where: { id: { in: [pageA.id, pageB.id, pageC.id] } },
+      sort: 'seo.metaTitle',
+    })
+    expect(resSortAsc.docs.map((d) => d.id)).toEqual([pageC.id, pageA.id, pageB.id])
+
+    const resSortDesc = await adapter.find({
+      collection: pagesCollection,
+      page: 1,
+      limit: 10,
+      where: { id: { in: [pageA.id, pageB.id, pageC.id] } },
+      sort: '-seo.metaTitle',
+    })
+    expect(resSortDesc.docs.map((d) => d.id)).toEqual([pageB.id, pageA.id, pageC.id])
+
+    // 3. Array filtering
+    const resArrayEquals = await adapter.find({
+      collection: pagesCollection,
+      page: 1,
+      limit: 10,
+      where: { 'gallery.caption': { equals: 'Sunny beach photo' } },
+    })
+    expect(resArrayEquals.docs.map((d) => d.id)).toEqual([pageA.id])
+
+    const resArrayContains = await adapter.find({
+      collection: pagesCollection,
+      page: 1,
+      limit: 10,
+      where: { 'gallery.caption': { contains: 'mountain photo' } },
+    })
+    expect(resArrayContains.docs.map((d) => d.id)).toEqual([pageB.id])
+
+    const resArrayIn = await adapter.find({
+      collection: pagesCollection,
+      page: 1,
+      limit: 10,
+      where: { 'gallery.year': { in: [1981, 1999] } },
+    })
+    expect(resArrayIn.docs.map((d) => d.id)).toEqual([pageA.id])
+
+    const resArrayNested = await adapter.find({
+      collection: pagesCollection,
+      page: 1,
+      limit: 10,
+      where: { gallery: { caption: { equals: 'Snow mountain photo' } } },
+    })
+    expect(resArrayNested.docs.map((d) => d.id)).toEqual([pageB.id])
+
+    // 4. Blocks filtering
+    const resBlocksEquals = await adapter.find({
+      collection: pagesCollection,
+      page: 1,
+      limit: 10,
+      where: { 'layout.heading': { equals: 'Welcome to Paradise Unique' } },
+    })
+    expect(resBlocksEquals.docs.map((d) => d.id)).toEqual([pageA.id])
+
+    const resBlocksContains = await adapter.find({
+      collection: pagesCollection,
+      page: 1,
+      limit: 10,
+      where: { 'layout.heading': { contains: 'Cozy Winter' } },
+    })
+    expect(resBlocksContains.docs.map((d) => d.id)).toEqual([pageB.id])
+
+    const resBlocksType = await adapter.find({
+      collection: pagesCollection,
+      page: 1,
+      limit: 10,
+      where: {
+        and: [
+          { id: { in: [pageA.id, pageB.id, pageC.id] } },
+          { 'layout.blockType': { equals: 'cta' } },
+        ],
+      },
+    })
+    expect(resBlocksType.docs.map((d) => d.id)).toEqual([pageA.id])
+
+    const resBlocksCtaText = await adapter.find({
+      collection: pagesCollection,
+      page: 1,
+      limit: 10,
+      where: { 'layout.text': { equals: 'Book Now Unique' } },
+    })
+    expect(resBlocksCtaText.docs.map((d) => d.id)).toEqual([pageA.id])
+  })
 })

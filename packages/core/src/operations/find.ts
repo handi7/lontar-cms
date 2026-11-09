@@ -4,8 +4,8 @@ import { DEFAULT_LIMIT, MAX_LIMIT, type CollectionConfig, type Config } from '..
 import type { DocumentData, PaginatedDocs } from '../database/adapter'
 import { runAfterReadHooks } from '../hooks'
 import { populateDocs } from '../populate'
-import type { Where } from '../query/types'
-import { validateWhere } from '../query/validator'
+import type { SortItem, Where } from '../query/types'
+import { validateSort, validateWhere } from '../query/validator'
 import { AccessDeniedError, ValidationError } from './errors'
 import type { FindOperationArgs } from './types'
 
@@ -58,6 +58,17 @@ function assertValidWhere(where: Where | undefined, collection: CollectionConfig
   }
 }
 
+function assertValidSort(
+  sort: string | SortItem[] | undefined,
+  collection: CollectionConfig,
+): void {
+  if (!sort) return
+  const issues = validateSort(sort, collection)
+  if (issues.length > 0) {
+    throw new ValidationError('Validation failed', { issues })
+  }
+}
+
 export async function findOperation<T = DocumentData>(
   args: FindOperationArgs,
 ): Promise<PaginatedDocs<T>> {
@@ -67,6 +78,7 @@ export async function findOperation<T = DocumentData>(
 
   const { page, limit } = resolveLimits(args.collection, args.config, args.page, args.limit)
   assertValidWhere(args.where, args.collection)
+  assertValidSort(args.sort, args.collection)
 
   const result = await args.config.db.find({
     collection: args.collection,

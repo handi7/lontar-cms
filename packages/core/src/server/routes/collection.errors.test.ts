@@ -58,6 +58,24 @@ describe('API Error Handling and SQL Leak Prevention', () => {
     },
   })
 
+  const pagesCol = collection({
+    slug: 'pages',
+    access: publicAccess,
+    fields: {
+      title: f.text({ required: true }),
+      seo: f.group({
+        fields: {
+          metaTitle: f.text(),
+        },
+      }),
+      gallery: f.array({
+        fields: {
+          caption: f.text(),
+        },
+      }),
+    },
+  })
+
   const headerGlobal = global({
     slug: 'header',
     access: publicAccess,
@@ -291,5 +309,77 @@ describe('API Error Handling and SQL Leak Prevention', () => {
     expect(json.issues[0]?.path).toEqual(['title'])
     expect(json.issues[0]?.message).toContain('<=255 characters')
     expect(mockCreate).not.toHaveBeenCalled()
+  })
+
+  it('returns 400 when sorting on array or blocks path', async () => {
+    const { db } = createErrorMockAdapter()
+    const lontar = createLontar(
+      defineConfig({
+        secret: 'test-secret',
+        db,
+        collections: [pagesCol],
+      }),
+    )
+
+    const res = await lontar.fetch(new Request('http://localhost/api/pages?sort=gallery.caption'))
+    expect(res.status).toBe(400)
+    const json = (await res.json()) as {
+      error: string
+      issues: Array<{ path: string; message: string }>
+    }
+    expect(json.error).toBe('Validation failed')
+    expect(json.issues[0]?.path).toBe('gallery.caption')
+    expect(json.issues[0]?.message).toContain('not supported')
+  })
+
+  it('returns 400 when sorting on unknown field', async () => {
+    const { db } = createErrorMockAdapter()
+    const lontar = createLontar(
+      defineConfig({
+        secret: 'test-secret',
+        db,
+        collections: [pagesCol],
+      }),
+    )
+
+    const res = await lontar.fetch(new Request('http://localhost/api/pages?sort=unknownField'))
+    expect(res.status).toBe(400)
+    const json = (await res.json()) as {
+      error: string
+      issues: Array<{ path: string; message: string }>
+    }
+    expect(json.error).toBe('Validation failed')
+    expect(json.issues[0]?.path).toBe('unknownField')
+  })
+
+  it('accepts valid sort on group subfield and calls db.find', async () => {
+    const { db, mockFind } = createErrorMockAdapter()
+    mockFind.mockResolvedValue({
+      docs: [],
+      totalDocs: 0,
+      limit: 10,
+      totalPages: 1,
+      page: 1,
+      pagingCounter: 1,
+      hasPrevPage: false,
+      hasNextPage: false,
+      prevPage: null,
+      nextPage: null,
+    })
+    const lontar = createLontar(
+      defineConfig({
+        secret: 'test-secret',
+        db,
+        collections: [pagesCol],
+      }),
+    )
+
+    const res = await lontar.fetch(new Request('http://localhost/api/pages?sort=seo.metaTitle'))
+    expect(res.status).toBe(200)
+    expect(mockFind).toHaveBeenCalledWith(
+      expect.objectContaining({
+        sort: 'seo.metaTitle',
+      }),
+    )
   })
 })
