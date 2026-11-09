@@ -70,7 +70,7 @@ interface BlockRow {
   - The admin SPA generates an `id` client-side when adding a row (`useFieldArray`).
   - The server automatically generates an `id` during validation/sanitization if an item is created via REST or Local API without one.
   - The `id` is persistent across updates unless the row is explicitly deleted.
-- **Reserved properties**: `id` is reserved for all array and block rows. `blockType` is reserved for block rows. Subfields cannot use these names.
+- **Reserved properties**: `id` is reserved for all array and block rows. `blockType` is reserved for block rows. Subfields cannot use these names. The substring `__` (double underscore) is reserved across all field names as the group-column separator.
 - **Benefits**:
   - Stable React keys for list rendering and drag-and-drop reordering without DOM state bugs.
   - Granular diff computation in M8 (detecting which block was added, removed, or updated rather than diffing the whole list).

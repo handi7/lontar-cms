@@ -482,6 +482,11 @@ function validateFieldName(where: string, name: string, isUpload = false): strin
       `${where}: field name "${name}" must start with a letter or underscore and contain only letters, digits and underscores.`,
     ]
   }
+  if (name.includes('__')) {
+    return [
+      `${where}: field name "${name}" cannot contain "__" (reserved as the group-column separator).`,
+    ]
+  }
   if (SYSTEM_FIELD_NAMES.has(name)) {
     return [`${where}: field name "${name}" is reserved for a system field.`]
   }

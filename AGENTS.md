@@ -162,7 +162,7 @@ approval on the `npm` environment. Don't run `pnpm publish` by hand; see `docs/r
   - [x] #159 Conditional fields via `admin.condition` (done)
   - [x] #160 `examples/next-blog` pages built from blocks, with e2e (done)
   - [ ] Code review fixes from `main` @ 0a3d5dd, in fix order
-    - [ ] Correctness: #170 (done), #171 (done), #172
+    - [ ] Correctness: #170 (done), #171 (done), #172 (done)
     - [ ] Needed before M8: #173, #176
     - [ ] Conditional fields: #174, #175
     - [ ] Admin styling: #183
