@@ -59,9 +59,19 @@ export interface VersionsConfig {
   maxPerDoc?: number
 }
 
+export interface PreviewConfig {
+  /** URL template for live preview, e.g. 'https://mysite.com/posts/{slug}?preview=1'. */
+  url: string
+}
+
+export interface GlobalAdmin {
+  preview?: PreviewConfig
+}
+
 export interface GlobalConfig<F extends Fields = Fields> {
   slug: string
   label?: string
+  admin?: GlobalAdmin
   access?: GlobalAccess
   hooks?: GlobalHooks
   versions?: VersionsConfig
@@ -78,6 +88,8 @@ export interface CollectionAdmin<Name extends string = string> {
   useAsTitle?: Name
   /** Columns of the list view. Defaults to the title and the next few fields. */
   defaultColumns?: Name[]
+  /** Live preview configuration. */
+  preview?: PreviewConfig
 }
 
 export const DEFAULT_LIMIT = 10

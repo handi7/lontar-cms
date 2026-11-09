@@ -1,4 +1,4 @@
-import { ChevronDown, History } from 'lucide-react'
+import { ChevronDown, Eye, History } from 'lucide-react'
 import { Button } from '../components/ui/button'
 import { Card } from '../components/ui/card'
 import {
@@ -56,6 +56,9 @@ export interface SidebarActionsProps {
   canUnpublish?: boolean
   hasVersions?: boolean
   onOpenHistory?: () => void
+  hasPreview?: boolean
+  isPreviewOpen?: boolean
+  onTogglePreview?: () => void
   onPublish?: () => void
   onSaveDraft?: () => void
   onUnpublish?: () => void
@@ -131,6 +134,72 @@ function DraftPublishActions(props: DraftPublishActionsProps) {
   )
 }
 
+interface PreviewToggleButtonProps {
+  hasPreview?: boolean
+  isOpen?: boolean
+  disabled?: boolean
+  onToggle?: () => void
+}
+
+function PreviewToggleButton(props: PreviewToggleButtonProps) {
+  if (!props.hasPreview || !props.onToggle) return null
+  return (
+    <Button
+      type="button"
+      variant={props.isOpen ? 'secondary' : 'outline'}
+      className="lt:w-full lt:gap-1.5"
+      disabled={props.disabled}
+      onClick={props.onToggle}
+    >
+      <Eye className="lt:size-4" />
+      <span>{props.isOpen ? 'Hide Preview' : 'Live Preview'}</span>
+    </Button>
+  )
+}
+
+interface HistoryButtonProps {
+  hasVersions?: boolean
+  disabled?: boolean
+  onOpen?: () => void
+}
+
+function HistoryButton(props: HistoryButtonProps) {
+  if (!props.hasVersions || !props.onOpen) return null
+  return (
+    <Button
+      type="button"
+      variant="outline"
+      className="lt:w-full lt:gap-1.5"
+      disabled={props.disabled}
+      onClick={props.onOpen}
+    >
+      <History className="lt:size-4" />
+      <span>Version History</span>
+    </Button>
+  )
+}
+
+interface DeleteButtonProps {
+  canDelete?: boolean
+  disabled?: boolean
+  onDelete?: () => void
+}
+
+function DeleteButton(props: DeleteButtonProps) {
+  if (!props.canDelete || !props.onDelete) return null
+  return (
+    <Button
+      type="button"
+      variant="outline"
+      className="lt:w-full lt:text-destructive lt:hover:border-destructive lt:hover:bg-error-bg lt:hover:text-destructive"
+      disabled={props.disabled}
+      onClick={props.onDelete}
+    >
+      Delete
+    </Button>
+  )
+}
+
 function SidebarActions(props: SidebarActionsProps) {
   const isBusy = Boolean(
     props.isPending || props.isPublishing || props.isSavingDraft || props.isUnpublishing,
@@ -155,31 +224,24 @@ function SidebarActions(props: SidebarActionsProps) {
         />
       )}
 
-      {/* Slot: Live preview toggle (#204) */}
-      {props.hasVersions && props.onOpenHistory ? (
-        <Button
-          type="button"
-          variant="outline"
-          className="lt:w-full lt:gap-1.5"
-          disabled={isBusy}
-          onClick={props.onOpenHistory}
-        >
-          <History className="lt:size-4" />
-          <span>Version History</span>
-        </Button>
-      ) : null}
+      <PreviewToggleButton
+        hasPreview={props.hasPreview}
+        isOpen={props.isPreviewOpen}
+        disabled={isBusy}
+        onToggle={props.onTogglePreview}
+      />
 
-      {props.canDelete && props.onDelete ? (
-        <Button
-          type="button"
-          variant="outline"
-          className="lt:w-full lt:text-destructive lt:hover:border-destructive lt:hover:bg-error-bg lt:hover:text-destructive"
-          disabled={Boolean(props.isDeleting || isBusy)}
-          onClick={props.onDelete}
-        >
-          Delete
-        </Button>
-      ) : null}
+      <HistoryButton
+        hasVersions={props.hasVersions}
+        disabled={isBusy}
+        onOpen={props.onOpenHistory}
+      />
+
+      <DeleteButton
+        canDelete={props.canDelete}
+        disabled={Boolean(props.isDeleting || isBusy)}
+        onDelete={props.onDelete}
+      />
     </div>
   )
 }
@@ -206,6 +268,9 @@ export interface DocumentSidebarProps {
   hasDrafts?: boolean
   hasVersions?: boolean
   onOpenHistory?: () => void
+  hasPreview?: boolean
+  isPreviewOpen?: boolean
+  onTogglePreview?: () => void
   autosave?: {
     status: AutosaveStatus
     lastSavedAt?: Date | null
@@ -258,6 +323,9 @@ export function DocumentSidebar(props: DocumentSidebarProps) {
           hasDrafts={props.hasDrafts}
           hasVersions={hasVersions}
           onOpenHistory={props.onOpenHistory}
+          hasPreview={props.hasPreview}
+          isPreviewOpen={props.isPreviewOpen}
+          onTogglePreview={props.onTogglePreview}
           canUnpublish={canUnpublish}
           onPublish={props.onPublish}
           onSaveDraft={props.onSaveDraft}

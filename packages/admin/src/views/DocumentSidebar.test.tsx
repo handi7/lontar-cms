@@ -257,4 +257,35 @@ describe('DocumentSidebar', () => {
     )
     expect(screen.getByText("Couldn't save, retrying…")).toBeTruthy()
   })
+
+  it('renders Live Preview button when hasPreview is true and toggles on click', () => {
+    const onToggle = vi.fn()
+    const { rerender } = render(
+      <DocumentSidebar
+        mode="edit"
+        submitLabel="Save Changes"
+        isPending={false}
+        hasPreview={true}
+        isPreviewOpen={false}
+        onTogglePreview={onToggle}
+      />,
+    )
+
+    const previewBtn = screen.getByRole('button', { name: 'Live Preview' })
+    expect(previewBtn).toBeTruthy()
+    previewBtn.click()
+    expect(onToggle).toHaveBeenCalledTimes(1)
+
+    rerender(
+      <DocumentSidebar
+        mode="edit"
+        submitLabel="Save Changes"
+        isPending={false}
+        hasPreview={true}
+        isPreviewOpen={true}
+        onTogglePreview={onToggle}
+      />,
+    )
+    expect(screen.getByRole('button', { name: 'Hide Preview' })).toBeTruthy()
+  })
 })

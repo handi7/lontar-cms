@@ -748,4 +748,41 @@ describe('toClientConfig', () => {
     expect(serialized.collections[2]?.versions).toEqual({ maxPerDoc: 10 })
     expect(JSON.parse(JSON.stringify(serialized))).toStrictEqual(serialized)
   })
+
+  it('serializes admin.preview url on collections and globals', () => {
+    const config = defineConfig({
+      secret: SECRET,
+      db: fakeAdapter,
+      collections: [
+        {
+          slug: 'articles',
+          admin: {
+            preview: {
+              url: 'https://mysite.com/posts/{slug}?preview=1',
+            },
+          },
+          fields: { title: f.text() },
+        },
+      ],
+      globals: [
+        {
+          slug: 'header',
+          admin: {
+            preview: {
+              url: 'https://mysite.com/?preview=header',
+            },
+          },
+          fields: { logoText: f.text() },
+        },
+      ],
+    })
+    const serialized = toClientConfig(config)
+    expect(serialized.collections[0]?.admin.preview).toEqual({
+      url: 'https://mysite.com/posts/{slug}?preview=1',
+    })
+    expect(serialized.globals[0]?.admin?.preview).toEqual({
+      url: 'https://mysite.com/?preview=header',
+    })
+    expect(JSON.parse(JSON.stringify(serialized))).toStrictEqual(serialized)
+  })
 })

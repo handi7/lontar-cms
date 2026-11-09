@@ -916,4 +916,69 @@ describe('defineConfig', () => {
       }),
     ).toThrow('refers to unknown collection "unknown-authors"')
   })
+
+  it('validates admin.preview on collections and globals', () => {
+    // Non-object preview
+    expect(() =>
+      defineConfig({
+        secret: SECRET,
+        db: fakeAdapter,
+        collections: [
+          notes({
+            // @ts-expect-error invalid preview type
+            admin: { preview: 'https://example.com' },
+          }),
+        ],
+      }),
+    ).toThrow('admin.preview must be an object')
+
+    // Empty URL
+    expect(() =>
+      defineConfig({
+        secret: SECRET,
+        db: fakeAdapter,
+        collections: [
+          notes({
+            admin: { preview: { url: '   ' } },
+          }),
+        ],
+      }),
+    ).toThrow('admin.preview.url must be a non-empty string')
+
+    // Empty URL on global
+    expect(() =>
+      defineConfig({
+        secret: SECRET,
+        db: fakeAdapter,
+        collections: [notes()],
+        globals: [
+          {
+            slug: 'site-settings',
+            admin: { preview: { url: '' } },
+            fields: { siteName: f.text() },
+          },
+        ],
+      }),
+    ).toThrow('admin.preview.url must be a non-empty string')
+
+    // Valid preview on collection and global
+    expect(() =>
+      defineConfig({
+        secret: SECRET,
+        db: fakeAdapter,
+        collections: [
+          notes({
+            admin: { preview: { url: 'https://example.com/posts/{slug}?preview=1' } },
+          }),
+        ],
+        globals: [
+          {
+            slug: 'site-settings',
+            admin: { preview: { url: '/api/preview/settings' } },
+            fields: { siteName: f.text() },
+          },
+        ],
+      }),
+    ).not.toThrow()
+  })
 })
