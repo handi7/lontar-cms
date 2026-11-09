@@ -194,9 +194,16 @@ export function toClientConfig(config: Config): ClientConfig {
 
 export function toClientGlobal(global: GlobalConfig): ClientGlobal {
   const fields = Object.entries(global.fields).map(([name, field]) => clientField(name, field))
+  const versions = global.versions
+    ? defined({
+        drafts: global.versions.drafts,
+        maxPerDoc: global.versions.maxPerDoc,
+      })
+    : undefined
   return {
     slug: global.slug,
     label: global.label ?? humanize(global.slug),
+    ...(versions && Object.keys(versions).length > 0 ? { versions } : {}),
     fields,
   }
 }
@@ -217,6 +224,12 @@ export function toClientCollection(collection: CollectionConfig): ClientCollecti
         maxLimit: collection.pagination.maxLimit,
       })
     : undefined
+  const versions = collection.versions
+    ? defined({
+        drafts: collection.versions.drafts,
+        maxPerDoc: collection.versions.maxPerDoc,
+      })
+    : undefined
 
   return {
     slug: collection.slug,
@@ -224,6 +237,7 @@ export function toClientCollection(collection: CollectionConfig): ClientCollecti
     admin: clientAdmin(collection, fields),
     ...(upload ? { upload } : {}),
     ...(pagination && Object.keys(pagination).length > 0 ? { pagination } : {}),
+    ...(versions && Object.keys(versions).length > 0 ? { versions } : {}),
     fields,
   }
 }

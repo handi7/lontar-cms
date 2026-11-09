@@ -28,6 +28,8 @@ export {
   findByIDOperation,
   findGlobalOperation,
   findOperation,
+  publishOperation,
+  unpublishOperation,
   updateGlobalOperation,
   updateOperation,
 } from './operations'
@@ -38,6 +40,7 @@ export type {
   FindGlobalOperationArgs,
   FindOperationArgs,
   OperationContext,
+  PublishOperationArgs,
   UpdateGlobalOperationArgs,
   UpdateOperationArgs,
 } from './operations'
@@ -82,6 +85,7 @@ export type {
   BeforeChangeHook,
   BeforeChangeHookArgs,
   CollectionHooks,
+  DocStatusTransition,
 } from './hooks'
 
 export type { Auth, AuthSession, AuthUser, LontarVariables } from './auth/types'
@@ -103,6 +107,7 @@ export type {
   GlobalConfig,
   GlobalHooks,
   PaginationConfig,
+  VersionsConfig,
 } from './config/types'
 export { DEFAULT_LIMIT, MAX_LIMIT } from './config/types'
 export {
@@ -119,8 +124,16 @@ export type {
   StoredDoc,
 } from './database/adapter'
 export type { InferArrayRow, InferBlockRow, InferDoc } from './fields/infer'
-export { SYSTEM_FIELDS, UPLOAD_SYSTEM_FIELDS } from './client/system-fields'
+export {
+  BASE_SYSTEM_FIELDS,
+  DOC_STATUSES,
+  DRAFT_SYSTEM_FIELDS,
+  SYSTEM_FIELDS,
+  UPLOAD_SYSTEM_FIELDS,
+} from './client/system-fields'
 export type {
+  DocStatus,
+  DraftSystemFields,
   SystemFieldName,
   SystemFields,
   UploadSystemFieldName,

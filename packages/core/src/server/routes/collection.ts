@@ -16,6 +16,8 @@ import {
   findByIDOperation,
   findOperation,
   NotFoundError,
+  publishOperation,
+  unpublishOperation,
   updateOperation,
   ValidationError,
 } from '../../operations'
@@ -86,6 +88,7 @@ async function handleFind(c: Context<LontarEnv>, collection: CollectionConfig, c
   const { page, limit } = resolvePagination((k) => c.req.query(k), collection, config)
   const sort = c.req.query('sort')
   const depth = parseDepth(c.req.query('depth'))
+  const draft = c.req.query('draft') === 'true'
 
   const whereResult = resolveWhereFilter(c.req.raw.url, collection)
   if ('issues' in whereResult && whereResult.issues) {
@@ -108,6 +111,7 @@ async function handleFind(c: Context<LontarEnv>, collection: CollectionConfig, c
       page,
       limit,
       depth,
+      draft,
       overrideAccess: false,
       user,
       req: c.req.raw,
@@ -132,6 +136,7 @@ async function handleFindByID(c: Context<LontarEnv>, collection: CollectionConfi
   }
 
   const depth = parseDepth(c.req.query('depth'))
+  const draft = c.req.query('draft') === 'true'
 
   try {
     const doc = await findByIDOperation({
@@ -139,6 +144,7 @@ async function handleFindByID(c: Context<LontarEnv>, collection: CollectionConfi
       collection,
       id,
       depth,
+      draft,
       overrideAccess: false,
       user,
       req: c.req.raw,
@@ -182,6 +188,7 @@ async function handleCreate(
   }
 
   const depth = parseDepth(c.req.query('depth'))
+  const draft = c.req.query('draft') === 'true'
 
   try {
     const doc = await createOperation({
@@ -189,6 +196,7 @@ async function handleCreate(
       collection,
       data: body as DocumentData,
       depth,
+      draft,
       overrideAccess: false,
       user,
       req: c.req.raw,
@@ -222,6 +230,7 @@ async function handleJsonUpdate(
   }
 
   const depth = parseDepth(c.req.query('depth'))
+  const draft = c.req.query('draft') === 'true'
 
   try {
     const doc = await updateOperation({
@@ -230,22 +239,84 @@ async function handleJsonUpdate(
       id,
       data: body as DocumentData,
       depth,
+      draft,
       overrideAccess: false,
       user,
       req: c.req.raw,
     })
     return c.json(doc, 200)
   } catch (err) {
-    if (err instanceof AccessDeniedError) {
-      return accessDenied(c, user)
+    return handleMutationError(err, c, user)
+  }
+}
+
+function handleMutationError(err: unknown, c: Context<LontarEnv>, user: AuthUser | null) {
+  if (err instanceof AccessDeniedError) {
+    return accessDenied(c, user)
+  }
+  if (err instanceof NotFoundError) {
+    return c.json({ error: err.message }, 404)
+  }
+  if (err instanceof ValidationError) {
+    if (err.issues && err.issues.length > 0) {
+      return c.json({ error: err.message, issues: err.issues }, 400)
     }
-    if (err instanceof NotFoundError) {
-      return c.json({ error: err.message }, 404)
-    }
-    if (err instanceof ValidationError) {
-      return c.json({ error: 'Validation failed', issues: err.issues }, 400)
-    }
-    throw err
+    return c.json({ error: err.message }, 400)
+  }
+  throw err
+}
+
+async function handlePublish(c: Context<LontarEnv>, collection: CollectionConfig, config: Config) {
+  const user = c.get('user') ?? null
+  const id = parseId(c.req.param('id'))
+  if (id === null) {
+    return c.json({ error: 'Invalid document ID' }, 400)
+  }
+
+  const depth = parseDepth(c.req.query('depth'))
+
+  try {
+    const doc = await publishOperation({
+      config,
+      collection,
+      id,
+      depth,
+      overrideAccess: false,
+      user,
+      req: c.req.raw,
+    })
+    return c.json(doc, 200)
+  } catch (err) {
+    return handleMutationError(err, c, user)
+  }
+}
+
+async function handleUnpublish(
+  c: Context<LontarEnv>,
+  collection: CollectionConfig,
+  config: Config,
+) {
+  const user = c.get('user') ?? null
+  const id = parseId(c.req.param('id'))
+  if (id === null) {
+    return c.json({ error: 'Invalid document ID' }, 400)
+  }
+
+  const depth = parseDepth(c.req.query('depth'))
+
+  try {
+    const doc = await unpublishOperation({
+      config,
+      collection,
+      id,
+      depth,
+      overrideAccess: false,
+      user,
+      req: c.req.raw,
+    })
+    return c.json(doc, 200)
+  } catch (err) {
+    return handleMutationError(err, c, user)
   }
 }
 
@@ -383,6 +454,18 @@ export function registerCollectionRoutes(router: Hono<LontarEnv>, config: Config
     if (!col) return c.json({ error: `Collection "${c.req.param('collection')}" not found` }, 404)
     const schema = clientFieldsToZod(toClientCollection(col).fields)
     return handleCreate(c, col, config, schema)
+  })
+
+  router.post('/:collection/:id/publish', (c) => {
+    const col = findCol(c)
+    if (!col) return c.json({ error: `Collection "${c.req.param('collection')}" not found` }, 404)
+    return handlePublish(c, col, config)
+  })
+
+  router.post('/:collection/:id/unpublish', (c) => {
+    const col = findCol(c)
+    if (!col) return c.json({ error: `Collection "${c.req.param('collection')}" not found` }, 404)
+    return handleUnpublish(c, col, config)
   })
 
   router.patch('/:collection/:id', patchLimit, (c) => {

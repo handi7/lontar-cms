@@ -328,12 +328,13 @@ function renderCollectionInterface(
   interfaceName: string,
   collectionMap: Map<string, string>,
 ): string {
-  const lines: string[] = [
-    `export interface ${interfaceName} {`,
-    '  id: number',
-    '  createdAt: string',
-    '  updatedAt: string',
-  ]
+  const lines: string[] = [`export interface ${interfaceName} {`, '  id: number']
+
+  if (col.versions?.drafts) {
+    lines.push("  _status: 'draft' | 'published'")
+  }
+
+  lines.push('  createdAt: string', '  updatedAt: string')
 
   if (col.upload) {
     lines.push(
@@ -360,12 +361,13 @@ function renderGlobalInterface(
   interfaceName: string,
   collectionMap: Map<string, string>,
 ): string {
-  const lines: string[] = [
-    `export interface ${interfaceName} {`,
-    '  id: number',
-    '  createdAt: string',
-    '  updatedAt: string',
-  ]
+  const lines: string[] = [`export interface ${interfaceName} {`, '  id: number']
+
+  if (glob.versions?.drafts) {
+    lines.push("  _status: 'draft' | 'published'")
+  }
+
+  lines.push('  createdAt: string', '  updatedAt: string')
 
   for (const [name, field] of Object.entries(glob.fields)) {
     lines.push(renderFieldLine(name, field, collectionMap, interfaceName))

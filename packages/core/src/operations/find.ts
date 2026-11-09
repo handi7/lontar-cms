@@ -69,20 +69,48 @@ function assertValidSort(
   }
 }
 
+async function assertFindAccess(
+  collection: CollectionConfig,
+  user: AuthUser | null,
+  draft?: boolean,
+): Promise<void> {
+  await assertReadAccess(collection, user)
+  if (draft) {
+    const allowed = await checkAccess(collection.access?.update, { user })
+    if (!allowed) {
+      throw new AccessDeniedError('Access denied', { user })
+    }
+  }
+}
+
+function resolveFindWhere(
+  collection: CollectionConfig,
+  where?: Where,
+  draft?: boolean,
+): Where | undefined {
+  if (collection.versions?.drafts && !draft) {
+    const publishedFilter: Where = { _status: { equals: 'published' } }
+    return where ? { and: [where, publishedFilter] } : publishedFilter
+  }
+  return where
+}
+
 export async function findOperation<T = DocumentData>(
   args: FindOperationArgs,
 ): Promise<PaginatedDocs<T>> {
   if (!args.overrideAccess) {
-    await assertReadAccess(args.collection, args.user)
+    await assertFindAccess(args.collection, args.user ?? null, args.draft)
   }
 
   const { page, limit } = resolveLimits(args.collection, args.config, args.page, args.limit)
   assertValidWhere(args.where, args.collection)
   assertValidSort(args.sort, args.collection)
 
+  const where = resolveFindWhere(args.collection, args.where, args.draft)
+
   const result = await args.config.db.find({
     collection: args.collection,
-    where: args.where,
+    where,
     sort: args.sort,
     page,
     limit,
@@ -103,6 +131,7 @@ export async function findOperation<T = DocumentData>(
     user: args.user ?? null,
     req: args.req,
     overrideAccess: args.overrideAccess,
+    draft: args.draft,
   })
 
   return { ...result, docs: populated as T[] }

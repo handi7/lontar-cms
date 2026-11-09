@@ -323,6 +323,9 @@ function castSystemField(fieldName: string, value: unknown): unknown {
   if (fieldName === 'createdAt' || fieldName === 'updatedAt') {
     return typeof value === 'string' ? new Date(value) : value
   }
+  if (fieldName === '_status') {
+    return typeof value === 'string' ? value : String(value)
+  }
   return undefined
 }
 

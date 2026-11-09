@@ -227,9 +227,18 @@ function addUploadColumns(columns: Record<string, MySqlColumnBuilder>): void {
   columns.sizes = json('sizes')
 }
 
-function createTable(slug: string, fields: Fields, isUpload = false): DynamicTable {
+function createTable(
+  slug: string,
+  fields: Fields,
+  isUpload = false,
+  hasDrafts = false,
+): DynamicTable {
   const columns: Record<string, MySqlColumnBuilder> = {
     id: int('id').autoincrement().primaryKey(),
+  }
+
+  if (hasDrafts) {
+    columns._status = varchar('_status', { length: 20 }).default('draft').notNull()
   }
 
   if (isUpload) {
@@ -247,13 +256,24 @@ function createTable(slug: string, fields: Fields, isUpload = false): DynamicTab
   columns.createdAt = timestamp('createdAt').defaultNow().notNull()
   columns.updatedAt = timestamp('updatedAt').defaultNow().onUpdateNow().notNull()
 
+  if (hasDrafts) {
+    return mysqlTable(slug, columns, (t) => [
+      index(`${slug}__status_idx`).on(t._status as AnyMySqlColumn),
+    ]) as unknown as DynamicTable
+  }
+
   return mysqlTable(slug, columns) as unknown as DynamicTable
 }
 
 export function collectionToTable(collection: CollectionConfig): DynamicTable {
-  return createTable(collection.slug, collection.fields, Boolean(collection.upload))
+  return createTable(
+    collection.slug,
+    collection.fields,
+    Boolean(collection.upload),
+    Boolean(collection.versions?.drafts),
+  )
 }
 
 export function globalToTable(global: GlobalConfig): DynamicTable {
-  return createTable(global.slug, global.fields)
+  return createTable(global.slug, global.fields, false, Boolean(global.versions?.drafts))
 }

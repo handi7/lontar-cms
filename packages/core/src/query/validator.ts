@@ -1,6 +1,10 @@
 import type { CollectionConfig } from '../config/types'
 import type { Field } from '../fields/types'
-import { SYSTEM_FIELDS, UPLOAD_SYSTEM_FIELDS } from '../client/system-fields'
+import {
+  BASE_SYSTEM_FIELDS,
+  DRAFT_SYSTEM_FIELDS,
+  UPLOAD_SYSTEM_FIELDS,
+} from '../client/system-fields'
 import { KNOWN_OPERATORS, parseSort } from './parser'
 import type { SortItem, Where } from './types'
 
@@ -90,7 +94,12 @@ export function getGroupFields(collection: CollectionConfig): Set<string> {
 }
 
 export function getAllowedFields(collection: CollectionConfig): Set<string> {
-  const allowed = new Set<string>(SYSTEM_FIELDS)
+  const allowed = new Set<string>(BASE_SYSTEM_FIELDS)
+  if (collection.versions?.drafts) {
+    for (const f of DRAFT_SYSTEM_FIELDS) {
+      allowed.add(f)
+    }
+  }
   if (collection.upload) {
     for (const f of UPLOAD_SYSTEM_FIELDS) {
       allowed.add(f)
@@ -258,7 +267,12 @@ function collectSortableGroupFields(
 }
 
 function collectSortableFields(collection: CollectionConfig): Set<string> {
-  const sortable = new Set<string>(SYSTEM_FIELDS)
+  const sortable = new Set<string>(BASE_SYSTEM_FIELDS)
+  if (collection.versions?.drafts) {
+    for (const f of DRAFT_SYSTEM_FIELDS) {
+      sortable.add(f)
+    }
+  }
   if (collection.upload) {
     for (const f of UPLOAD_SYSTEM_FIELDS) {
       sortable.add(f)

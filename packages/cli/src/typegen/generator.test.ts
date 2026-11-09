@@ -553,4 +553,40 @@ describe('generateTypes', () => {
     })
     expect(transpileResult.outputText).toBeDefined()
   })
+
+  it('includes _status: "draft" | "published" when drafts are enabled', () => {
+    const config: Config = {
+      secret: 'test-secret',
+      db: { name: 'mock' } as unknown as Config['db'],
+      collections: [
+        {
+          slug: 'posts',
+          versions: { drafts: true },
+          fields: {
+            title: { type: 'text', required: true },
+          },
+        },
+      ],
+      globals: [
+        {
+          slug: 'settings',
+          versions: { drafts: true },
+          fields: {
+            siteName: { type: 'text', required: true },
+          },
+        },
+      ],
+    }
+
+    const output = generateTypes(config)
+    expect(output).toContain("  _status: 'draft' | 'published'")
+
+    const transpileResult = ts.transpileModule(output, {
+      compilerOptions: {
+        module: ts.ModuleKind.ESNext,
+        target: ts.ScriptTarget.ES2022,
+      },
+    })
+    expect(transpileResult.outputText).toBeDefined()
+  })
 })

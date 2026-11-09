@@ -17,18 +17,21 @@ export interface FindOperationArgs extends OperationContext {
   page?: number
   limit?: number
   depth?: number
+  draft?: boolean
 }
 
 export interface FindByIDOperationArgs extends OperationContext {
   collection: CollectionConfig
   id: number
   depth?: number
+  draft?: boolean
 }
 
 export interface CreateOperationArgs extends OperationContext {
   collection: CollectionConfig
   data: DocumentData
   depth?: number
+  draft?: boolean
 }
 
 export interface UpdateOperationArgs extends OperationContext {
@@ -36,6 +39,7 @@ export interface UpdateOperationArgs extends OperationContext {
   id: number
   data: DocumentData
   depth?: number
+  draft?: boolean
 }
 
 export interface DeleteOperationArgs extends OperationContext {

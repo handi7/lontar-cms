@@ -22,3 +22,4 @@ export type {
   UpdateOperationArgs,
 } from './types'
 export { updateOperation } from './update'
+export { publishOperation, unpublishOperation, type PublishOperationArgs } from './publish'

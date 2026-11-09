@@ -173,9 +173,34 @@ function validateCollection(collection: CollectionConfig): string[] {
     ...validateSlug(collection.slug, 'Collection'),
     ...validateFields(where, collection.fields, isUpload, 1),
     ...validatePagination(where, collection.pagination),
+    ...validateVersions(where, collection.versions),
     ...validateAdmin(where, collection),
     ...validateAccess(where, collection),
   ]
+}
+
+function validateDrafts(where: string, drafts: unknown): string[] {
+  if (drafts !== undefined && typeof drafts !== 'boolean') {
+    return [`${where}: versions.drafts must be a boolean.`]
+  }
+  return []
+}
+
+function validateMaxPerDoc(where: string, maxPerDoc: unknown): string[] {
+  if (maxPerDoc === undefined) return []
+  if (typeof maxPerDoc !== 'number' || !Number.isInteger(maxPerDoc) || maxPerDoc < 0) {
+    return [`${where}: versions.maxPerDoc must be a non-negative integer.`]
+  }
+  return []
+}
+
+function validateVersions(where: string, versions?: unknown): string[] {
+  if (versions === undefined || versions === null) return []
+  if (typeof versions !== 'object' || Array.isArray(versions)) {
+    return [`${where}: \`versions\` must be an object.`]
+  }
+  const v = versions as Record<string, unknown>
+  return [...validateDrafts(where, v.drafts), ...validateMaxPerDoc(where, v.maxPerDoc)]
 }
 
 function validatePaginationBound(
@@ -210,6 +235,7 @@ function validateGlobal(global: GlobalConfig): string[] {
   return [
     ...validateSlug(global.slug, 'Global'),
     ...validateFields(where, global.fields, false, 1),
+    ...validateVersions(where, global.versions),
     ...validateGlobalAccess(where, global),
   ]
 }

@@ -39,11 +39,19 @@ export interface GlobalHooks {
   afterRead?: AfterReadHook[]
 }
 
+export interface VersionsConfig {
+  /** When true, enables draft/publish lifecycle and adds `_status` system field. */
+  drafts?: boolean
+  /** Maximum historical versions retained per document. Defaults to 50; 0 for unlimited. */
+  maxPerDoc?: number
+}
+
 export interface GlobalConfig<F extends Fields = Fields> {
   slug: string
   label?: string
   access?: GlobalAccess
   hooks?: GlobalHooks
+  versions?: VersionsConfig
   fields: F
 }
 
@@ -85,6 +93,8 @@ export interface CollectionConfig<F extends Fields = Fields> {
   upload?: boolean | UploadConfig
   /** Optional pagination settings (default and max limit). */
   pagination?: PaginationConfig
+  /** Optional versioning and draft settings. */
+  versions?: VersionsConfig
   /** Authored as an object for type inference; order is preserved in ClientConfig. */
   fields: F
 }

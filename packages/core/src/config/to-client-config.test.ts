@@ -688,4 +688,29 @@ describe('toClientConfig', () => {
     const serialized = toClientConfig(config)
     expect(JSON.parse(JSON.stringify(serialized))).toStrictEqual(serialized)
   })
+
+  it('serializes versions configuration on collections and globals', () => {
+    const config = defineConfig({
+      secret: SECRET,
+      db: fakeAdapter,
+      collections: [
+        {
+          slug: 'posts',
+          versions: { drafts: true, maxPerDoc: 20 },
+          fields: { title: f.text() },
+        },
+      ],
+      globals: [
+        {
+          slug: 'settings',
+          versions: { drafts: true },
+          fields: { siteName: f.text() },
+        },
+      ],
+    })
+    const serialized = toClientConfig(config)
+    expect(serialized.collections[0]?.versions).toEqual({ drafts: true, maxPerDoc: 20 })
+    expect(serialized.globals[0]?.versions).toEqual({ drafts: true })
+    expect(JSON.parse(JSON.stringify(serialized))).toStrictEqual(serialized)
+  })
 })

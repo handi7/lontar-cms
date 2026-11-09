@@ -89,10 +89,29 @@ describe('defineConfig', () => {
     ])
   })
 
-  it.each(['id', 'createdAt', 'updatedAt'])('rejects the system field name %j', (name) => {
-    expect(issuesOf([notes({ fields: { [name]: f.text() } })])).toEqual([
-      `Collection "notes": field name "${name}" is reserved for a system field.`,
+  it.each(['id', '_status', 'createdAt', 'updatedAt'])(
+    'rejects the system field name %j',
+    (name) => {
+      expect(issuesOf([notes({ fields: { [name]: f.text() } })])).toEqual([
+        `Collection "notes": field name "${name}" is reserved for a system field.`,
+      ])
+    },
+  )
+
+  it('validates versions configuration on collections', () => {
+    expect(issuesOf([notes({ versions: 'invalid' as never })])).toEqual([
+      'Collection "notes": `versions` must be an object.',
     ])
+    expect(issuesOf([notes({ versions: { drafts: 'yes' as never } })])).toEqual([
+      'Collection "notes": versions.drafts must be a boolean.',
+    ])
+    expect(issuesOf([notes({ versions: { maxPerDoc: -1 } })])).toEqual([
+      'Collection "notes": versions.maxPerDoc must be a non-negative integer.',
+    ])
+    expect(issuesOf([notes({ versions: { maxPerDoc: 1.5 } })])).toEqual([
+      'Collection "notes": versions.maxPerDoc must be a non-negative integer.',
+    ])
+    expect(issuesOf([notes({ versions: { drafts: true, maxPerDoc: 10 } })])).toEqual([])
   })
 
   it('rejects admin options that name an unknown field', () => {

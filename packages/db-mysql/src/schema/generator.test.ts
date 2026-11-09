@@ -453,4 +453,26 @@ describe('generateSchemaFile', () => {
     expect(output).toContain("settings__duration: double('settings__duration'),")
     expect(output).not.toContain("settings__duration: double('settings__duration').notNull(),")
   })
+
+  it('generates _status column and index when drafts are enabled', () => {
+    const articles: CollectionConfig = {
+      slug: 'articles',
+      versions: { drafts: true },
+      fields: {
+        title: { type: 'text', required: true },
+      },
+    }
+
+    const config: Config = {
+      secret: 'test-secret',
+      db: fakeAdapter,
+      collections: [articles],
+    }
+
+    const output = generateSchemaFile(config)
+    expect(output).toContain(
+      "_status: varchar('_status', { length: 20 }).default('draft').notNull(),",
+    )
+    expect(output).toContain("(t) => [index('articles__status_idx').on(t._status)],")
+  })
 })

@@ -26,9 +26,18 @@ export type {
   ClientTextField,
   ClientUploadConfig,
   ClientUploadField,
+  ClientVersionsConfig,
 } from './client-config'
-export { SYSTEM_FIELDS, UPLOAD_SYSTEM_FIELDS } from './system-fields'
+export {
+  BASE_SYSTEM_FIELDS,
+  DOC_STATUSES,
+  DRAFT_SYSTEM_FIELDS,
+  SYSTEM_FIELDS,
+  UPLOAD_SYSTEM_FIELDS,
+} from './system-fields'
 export type {
+  DocStatus,
+  DraftSystemFields,
   SystemFieldName,
   SystemFields,
   UploadSystemFieldName,
