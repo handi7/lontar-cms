@@ -177,7 +177,7 @@ approval on the `npm` environment. Don't run `pnpm publish` by hand; see `docs/r
   - [x] #201 Admin draft and publish controls (done)
   - [x] #202 Admin version history with compare and restore (done)
   - [x] #203 Admin autosave (done)
-  - [ ] #204 Live preview: `admin.preview.url`, iframe pane, frontend helper
+  - [x] #204 Live preview: `admin.preview.url`, iframe pane, frontend helper (done)
   - [ ] #205 Outgoing webhooks on change, publish and delete
   - [ ] #206 Drafts and version history for globals
   - [ ] #207 `examples/next-blog` draft preview and revalidation, with e2e

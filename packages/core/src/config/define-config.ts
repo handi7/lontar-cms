@@ -268,6 +268,7 @@ function validateGlobal(global: GlobalConfig): string[] {
     ...validateSlug(global.slug, 'Global'),
     ...validateFields(where, global.fields, false, 1),
     ...validateVersions(where, global.versions),
+    ...validatePreview(where, global.admin?.preview),
     ...validateGlobalAccess(where, global),
   ]
 }
@@ -554,6 +555,18 @@ function validateFieldName(where: string, name: string, isUpload = false): strin
   return []
 }
 
+function validatePreview(where: string, preview: unknown): string[] {
+  if (preview === undefined) return []
+  if (typeof preview !== 'object' || preview === null || Array.isArray(preview)) {
+    return [`${where}: admin.preview must be an object.`]
+  }
+  const obj = preview as Record<string, unknown>
+  if (typeof obj.url !== 'string' || obj.url.trim() === '') {
+    return [`${where}: admin.preview.url must be a non-empty string.`]
+  }
+  return []
+}
+
 function validateAdmin(where: string, collection: CollectionConfig): string[] {
   const known = new Set<string>([
     ...SYSTEM_FIELDS,
@@ -567,6 +580,7 @@ function validateAdmin(where: string, collection: CollectionConfig): string[] {
   return [
     ...(useAsTitle === undefined ? [] : check('useAsTitle')(useAsTitle)),
     ...defaultColumns.flatMap(check('defaultColumns')),
+    ...validatePreview(where, collection.admin?.preview),
   ]
 }
 

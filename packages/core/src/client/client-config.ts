@@ -14,9 +14,18 @@ export interface ClientConfig {
   globals: ClientGlobal[]
 }
 
+export interface ClientPreviewConfig {
+  url: string
+}
+
+export interface ClientGlobalAdmin {
+  preview?: ClientPreviewConfig
+}
+
 export interface ClientGlobal {
   slug: string
   label: string
+  admin?: ClientGlobalAdmin
   versions?: ClientVersionsConfig
   /** In config order. System fields are not listed. */
   fields: ClientField[]
@@ -42,10 +51,16 @@ export interface ClientPaginationConfig {
   maxLimit?: number
 }
 
+export interface ClientCollectionAdmin {
+  useAsTitle: string
+  defaultColumns: string[]
+  preview?: ClientPreviewConfig
+}
+
 export interface ClientCollection {
   slug: string
   labels: { singular: string; plural: string }
-  admin: { useAsTitle: string; defaultColumns: string[] }
+  admin: ClientCollectionAdmin
   upload?: boolean | ClientUploadConfig
   pagination?: ClientPaginationConfig
   versions?: ClientVersionsConfig

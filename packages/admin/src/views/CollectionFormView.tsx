@@ -37,7 +37,9 @@ import { ViewHeader } from './ViewHeader'
 import { CollectionBreadcrumbs } from './FormBreadcrumbs'
 import { DocumentSidebar } from './DocumentSidebar'
 import { VersionHistorySheet } from './VersionHistorySheet'
+import { PreviewPane } from './preview/PreviewPane'
 import { useAutosave } from '../hooks/useAutosave'
+import { cn } from '../lib/utils'
 
 function getFormTitle(mode: 'create' | 'edit', singular: string, id?: string): string {
   if (mode === 'create') return `Create ${singular}`
@@ -517,6 +519,63 @@ function VersionHistorySheetWrapper(props: VersionHistorySheetWrapperProps) {
   )
 }
 
+function usePreviewState(collectionSlug: string, hasPreview: boolean) {
+  const [isOpen, setIsOpen] = useState(() => {
+    if (!hasPreview) return false
+    try {
+      return localStorage.getItem(`lontar:preview:open:${collectionSlug}`) === 'true'
+    } catch {
+      return false
+    }
+  })
+
+  const toggle = useCallback(() => {
+    setIsOpen((prev) => {
+      const next = !prev
+      try {
+        localStorage.setItem(`lontar:preview:open:${collectionSlug}`, String(next))
+      } catch {
+        // Ignore localStorage error
+      }
+      return next
+    })
+  }, [collectionSlug])
+
+  const close = useCallback(() => {
+    setIsOpen(false)
+    try {
+      localStorage.setItem(`lontar:preview:open:${collectionSlug}`, 'false')
+    } catch {
+      // Ignore localStorage error
+    }
+  }, [collectionSlug])
+
+  return { isOpen, toggle, close }
+}
+
+interface PreviewPaneWrapperProps {
+  collection: ClientCollection
+  isOpen: boolean
+  urlTemplate?: string
+  values: Record<string, unknown>
+  onClose: () => void
+}
+
+function PreviewPaneWrapper(props: PreviewPaneWrapperProps) {
+  if (!props.isOpen || !props.urlTemplate) return null
+
+  return (
+    <div className="lt:w-full xl:lt:w-1/2 xl:lt:sticky xl:lt:top-8 xl:lt:h-[calc(100vh-5rem)] lt:h-[600px] lt:shrink-0">
+      <PreviewPane
+        collectionSlug={props.collection.slug}
+        urlTemplate={props.urlTemplate}
+        values={props.values}
+        onClose={props.onClose}
+      />
+    </div>
+  )
+}
+
 export interface CollectionEditorProps {
   collection: ClientCollection
   mode: 'create' | 'edit'
@@ -534,6 +593,9 @@ function CollectionEditor({ collection, mode, id }: CollectionEditorProps) {
 
   const hasDrafts = Boolean(collection.versions?.drafts)
   const hasVersions = Boolean(collection.versions)
+  const previewUrlTemplate = collection.admin?.preview?.url
+  const hasPreview = Boolean(previewUrlTemplate)
+  const preview = usePreviewState(collection.slug, hasPreview)
   const docQuery = useDocumentQuery(mode, apiBase, collection.slug, id, hasDrafts)
   const schema = useMemo(() => clientFieldsToZod(collection.fields), [collection])
   const defaultValues = useMemo(() => computeDefaultValues(collection.fields), [collection])
@@ -646,50 +708,65 @@ function CollectionEditor({ collection, mode, id }: CollectionEditorProps) {
 
       <CollectionStatusAlerts apiError={apiError} successMsg={successMsg} />
 
-      <form
-        onSubmit={(e) => {
-          e.preventDefault()
-          onPublish()
-        }}
-        className="lt:flex lt:flex-col lg:lt:flex-row lt:gap-8 lt:items-start"
-      >
-        <FormFields
-          collection={collection}
-          mode={mode}
-          control={control}
-          register={register}
-          setValue={setValue}
-          watch={watch}
-          errors={errors}
-          selectedFile={selectedFile}
-          onFileChange={(file) => {
-            setSelectedFile(file)
-            setFileError(null)
-          }}
-          fileError={fileError}
-          doc={docQuery.data}
-        />
+      <div className="lt:flex lt:flex-col xl:lt:flex-row lt:gap-6 lt:w-full lt:items-start">
+        <div className={cn('lt:w-full lt:min-w-0', preview.isOpen && 'xl:lt:w-1/2')}>
+          <form
+            onSubmit={(e) => {
+              e.preventDefault()
+              onPublish()
+            }}
+            className="lt:flex lt:flex-col lg:lt:flex-row lt:gap-8 lt:items-start"
+          >
+            <FormFields
+              collection={collection}
+              mode={mode}
+              control={control}
+              register={register}
+              setValue={setValue}
+              watch={watch}
+              errors={errors}
+              selectedFile={selectedFile}
+              onFileChange={(file) => {
+                setSelectedFile(file)
+                setFileError(null)
+              }}
+              fileError={fileError}
+              doc={docQuery.data}
+            />
 
-        <DocumentSidebar
-          mode={mode}
-          submitLabel={submitLabel}
-          isPending={isSubmitting || saveMutation.isPending || unpublishMutation.isPending}
-          isDeleting={deleteMutation.isPending}
-          onDelete={() => setConfirmOpen(true)}
-          showDelete={mode === 'edit'}
-          doc={docQuery.data}
-          hasDrafts={hasDrafts}
-          hasVersions={hasVersions}
-          onOpenHistory={() => setHistoryOpen(true)}
-          autosave={autosave.sidebarAutosave}
-          onPublish={onPublish}
-          onSaveDraft={onSaveDraft}
-          onUnpublish={() => unpublishMutation.mutate()}
-          isPublishing={isPublishing}
-          isSavingDraft={isSavingDraft}
-          isUnpublishing={unpublishMutation.isPending}
+            <DocumentSidebar
+              mode={mode}
+              submitLabel={submitLabel}
+              isPending={isSubmitting || saveMutation.isPending || unpublishMutation.isPending}
+              isDeleting={deleteMutation.isPending}
+              onDelete={() => setConfirmOpen(true)}
+              showDelete={mode === 'edit'}
+              doc={docQuery.data}
+              hasDrafts={hasDrafts}
+              hasVersions={hasVersions}
+              hasPreview={hasPreview}
+              isPreviewOpen={preview.isOpen}
+              onTogglePreview={preview.toggle}
+              onOpenHistory={() => setHistoryOpen(true)}
+              autosave={autosave.sidebarAutosave}
+              onPublish={onPublish}
+              onSaveDraft={onSaveDraft}
+              onUnpublish={() => unpublishMutation.mutate()}
+              isPublishing={isPublishing}
+              isSavingDraft={isSavingDraft}
+              isUnpublishing={unpublishMutation.isPending}
+            />
+          </form>
+        </div>
+
+        <PreviewPaneWrapper
+          collection={collection}
+          isOpen={preview.isOpen}
+          urlTemplate={previewUrlTemplate}
+          values={formatDocForSubmit(collection.fields, formValues)}
+          onClose={preview.close}
         />
-      </form>
+      </div>
 
       <VersionHistorySheetWrapper
         hasVersions={hasVersions}

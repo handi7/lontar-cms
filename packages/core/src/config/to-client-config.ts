@@ -238,9 +238,11 @@ function toClientVersions(versions?: VersionsConfig): ClientVersionsConfig | und
 export function toClientGlobal(global: GlobalConfig): ClientGlobal {
   const fields = Object.entries(global.fields).map(([name, field]) => clientField(name, field))
   const versions = toClientVersions(global.versions)
+  const preview = global.admin?.preview?.url ? { url: global.admin.preview.url } : undefined
   return {
     slug: global.slug,
     label: global.label ?? humanize(global.slug),
+    ...(preview ? { admin: { preview } } : {}),
     ...(versions && Object.keys(versions).length > 0 ? { versions } : {}),
     fields,
   }
@@ -305,11 +307,13 @@ function clientAdmin(
   const { admin = {}, upload } = collection
   const useAsTitle = admin.useAsTitle ?? resolveDefaultTitle(fields, Boolean(upload))
   const others = fields.map((field) => field.name).filter((name) => name !== useAsTitle)
+  const preview = admin.preview?.url ? { url: admin.preview.url } : undefined
   return {
     useAsTitle,
     defaultColumns: admin.defaultColumns
       ? [...admin.defaultColumns]
       : [useAsTitle, ...others].slice(0, MAX_DEFAULT_COLUMNS),
+    ...(preview ? { preview } : {}),
   }
 }
 

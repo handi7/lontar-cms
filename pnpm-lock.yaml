@@ -284,6 +284,21 @@ importers:
         specifier: workspace:*
         version: link:../core
 
+  packages/preview:
+    devDependencies:
+      '@testing-library/react':
+        specifier: ^16.3.3
+        version: 16.3.3(@testing-library/dom@10.4.2)(@types/react-dom@19.3.0(@types/react@19.3.0))(@types/react@19.3.0)(react-dom@19.3.1(react@19.3.1))(react@19.3.1)
+      '@types/react':
+        specifier: ^19.1.0
+        version: 19.3.0
+      happy-dom:
+        specifier: ^21.0.4
+        version: 21.0.4
+      react:
+        specifier: ^19.1.0
+        version: 19.3.1
+
   packages/storage-local:
     devDependencies:
       '@lontar/core':

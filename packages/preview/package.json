@@ -1,0 +1,61 @@
+{
+  "name": "@lontar/preview",
+  "version": "0.3.0",
+  "description": "Frontend live preview helper for Lontar CMS: subscribe to real-time draft updates from the admin pane.",
+  "keywords": [
+    "lontar",
+    "cms",
+    "headless-cms",
+    "typescript",
+    "preview",
+    "live-preview",
+    "react"
+  ],
+  "license": "MIT",
+  "homepage": "https://github.com/handi7/lontar-cms#readme",
+  "bugs": {
+    "url": "https://github.com/handi7/lontar-cms/issues"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/handi7/lontar-cms.git",
+    "directory": "packages/preview"
+  },
+  "type": "module",
+  "sideEffects": false,
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    },
+    "./react": {
+      "types": "./dist/react/index.d.ts",
+      "import": "./dist/react/index.js"
+    }
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsdown",
+    "dev": "tsdown --watch",
+    "typecheck": "tsc --noEmit"
+  },
+  "peerDependencies": {
+    "react": ">=18"
+  },
+  "peerDependenciesMeta": {
+    "react": {
+      "optional": true
+    }
+  },
+  "devDependencies": {
+    "@testing-library/react": "^16.3.3",
+    "@types/react": "^19.1.0",
+    "happy-dom": "^21.0.4",
+    "react": "^19.1.0"
+  },
+  "publishConfig": {
+    "access": "public"
+  }
+}
