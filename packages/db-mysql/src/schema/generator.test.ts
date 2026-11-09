@@ -475,4 +475,33 @@ describe('generateSchemaFile', () => {
     )
     expect(output).toContain("(t) => [index('articles__status_idx').on(t._status)],")
   })
+
+  it('generates versions table with parent FK, snapshot JSON and indexes when versions are enabled', () => {
+    const posts: CollectionConfig = {
+      slug: 'posts',
+      versions: { drafts: true, maxPerDoc: 50 },
+      fields: {
+        title: { type: 'text', required: true },
+      },
+    }
+
+    const config: Config = {
+      secret: 'test-secret',
+      db: fakeAdapter,
+      collections: [posts],
+    }
+
+    const output = generateSchemaFile(config)
+
+    expect(output).toContain("export const postsVersions = mysqlTable(\n  'posts_versions',")
+    expect(output).toContain(".references(() => posts.id, { onDelete: 'cascade' })")
+    expect(output).toContain("versionNumber: int('version_number').notNull(),")
+    expect(output).toContain("snapshot: json('snapshot').notNull(),")
+    expect(output).toContain(
+      "_status: varchar('_status', { length: 20 }).default('draft').notNull(),",
+    )
+    expect(output).toContain("autosave: boolean('autosave').default(false).notNull(),")
+    expect(output).toContain("index('posts_versions_parent_id_idx').on(t.parentId, t.id)")
+    expect(output).toContain("index('posts_versions_parent_status_idx').on(t.parentId, t._status)")
+  })
 })

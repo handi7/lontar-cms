@@ -1,6 +1,6 @@
 import { checkAccess } from '../access'
 import type { AuthUser } from '../auth/types'
-import type { CollectionConfig } from '../config/types'
+import type { CollectionConfig, Config } from '../config/types'
 import type { DocumentData } from '../database/adapter'
 import { runAfterReadHooks } from '../hooks'
 import { populateDoc } from '../populate'
@@ -37,6 +37,20 @@ function isDraftHidden(collection: CollectionConfig, doc: DocumentData, draft?: 
   return Boolean(collection.versions?.drafts && !draft && doc._status !== 'published')
 }
 
+async function hydrateDraftDoc(
+  db: Config['db'],
+  collection: CollectionConfig,
+  parentId: number,
+  baseDoc: DocumentData,
+  draft?: boolean,
+): Promise<DocumentData> {
+  if (!draft || !collection.versions || !db.findLatestDraftVersion) {
+    return baseDoc
+  }
+  const latestDraft = await db.findLatestDraftVersion({ collection, parentId })
+  return latestDraft ? latestDraft.snapshot : baseDoc
+}
+
 export async function findByIDOperation<T = DocumentData>(
   args: FindByIDOperationArgs,
 ): Promise<T | null> {
@@ -49,9 +63,11 @@ export async function findByIDOperation<T = DocumentData>(
     return null
   }
 
+  const rawDoc = await hydrateDraftDoc(args.config.db, args.collection, args.id, doc, args.draft)
+
   const transformed = await runAfterReadHooks({
     collection: args.collection,
-    doc,
+    doc: rawDoc,
     req: args.req,
   })
 

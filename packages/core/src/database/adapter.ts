@@ -4,7 +4,7 @@ export {
   type ValidationErrorResponse,
   formatUniqueConstraintError,
 } from './errors'
-import type { SystemFields } from '../client/system-fields'
+import type { DocStatus, SystemFields } from '../client/system-fields'
 import type { CollectionConfig, Config, GlobalConfig } from '../config/types'
 import type { SortItem, Where } from '../query/types'
 
@@ -14,6 +14,42 @@ export type DocumentData = Record<string, unknown>
 /** A document as read back from the database: system fields plus field values. */
 export interface StoredDoc extends SystemFields {
   [field: string]: unknown
+}
+
+export interface StoredVersion {
+  id: number
+  parentId: number
+  versionNumber: number
+  snapshot: DocumentData
+  _status: DocStatus
+  autosave: boolean
+  createdAt: string
+  createdBy: string | null
+}
+
+export interface SaveVersionArgs {
+  collection: CollectionConfig
+  parentId: number
+  snapshot: DocumentData
+  status: DocStatus
+  autosave?: boolean
+  userId?: string | null
+}
+
+export interface FindVersionsArgs {
+  collection: CollectionConfig
+  parentId: number
+  page?: number
+  limit?: number
+  sort?: string | SortItem[]
+}
+
+export interface PaginatedVersions<T = StoredVersion> {
+  docs: T[]
+  totalDocs: number
+  limit: number
+  page: number
+  totalPages: number
 }
 
 export interface FindArgs {
@@ -67,6 +103,24 @@ export interface DatabaseAdapter {
 
   findGlobal(args: { global: GlobalConfig }): Promise<StoredDoc | null>
   updateGlobal(args: { global: GlobalConfig; data: DocumentData }): Promise<StoredDoc>
+
+  // Version history (when versions are enabled)
+  saveVersion?(args: SaveVersionArgs): Promise<StoredVersion>
+  findVersions?(args: FindVersionsArgs): Promise<PaginatedVersions>
+  findVersionByID?(args: {
+    collection: CollectionConfig
+    parentId: number
+    versionId: number
+  }): Promise<StoredVersion | null>
+  findLatestDraftVersion?(args: {
+    collection: CollectionConfig
+    parentId: number
+  }): Promise<StoredVersion | null>
+  pruneVersions?(args: {
+    collection: CollectionConfig
+    parentId: number
+    maxPerDoc: number
+  }): Promise<number>
 
   /**
    * Run operations within a database transaction.

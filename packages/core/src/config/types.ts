@@ -69,6 +69,7 @@ export interface CollectionAdmin<Name extends string = string> {
 
 export const DEFAULT_LIMIT = 10
 export const MAX_LIMIT = 100
+export const DEFAULT_MAX_PER_DOC = 50
 
 export interface PaginationConfig {
   /** Default number of documents per page. Defaults to 10. */

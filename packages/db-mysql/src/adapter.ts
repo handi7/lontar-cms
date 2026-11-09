@@ -11,7 +11,9 @@ import {
   like,
   lt,
   lte,
+  max,
   ne,
+  notInArray,
   or,
   sql,
   type SQL,
@@ -20,6 +22,8 @@ import { drizzle, type MySql2Database } from 'drizzle-orm/mysql2'
 import { migrate } from 'drizzle-orm/mysql2/migrator'
 import mysql from 'mysql2/promise'
 import {
+  DEFAULT_LIMIT,
+  DEFAULT_MAX_PER_DOC,
   generateRowId,
   getTopKey,
   parseSort,
@@ -29,27 +33,34 @@ import {
   type CollectionConfig,
   type Config,
   type DatabaseAdapter,
+  type DocStatus,
   type DocumentData,
   type Field,
   type Fields,
   type FilterOperator,
   type FindArgs,
+  type FindVersionsArgs,
   type GlobalConfig,
   type GroupField,
   type PaginatedDocs,
+  type PaginatedVersions,
+  type SaveVersionArgs,
   type SortItem,
   type StoredDoc,
+  type StoredVersion,
   type Where,
 } from '@lontar/core'
 import { authTables } from './schema/auth'
 import { generateSchemaFile } from './schema/generator'
 import {
   collectionToTable,
+  createVersionsTable,
   flattenGroupFields,
   getCollectionJunctionTables,
   globalToTable,
   type DynamicTable,
   type JunctionTable,
+  type VersionsTable,
 } from './schema/table'
 import { handleDatabaseError, toErrorContext } from './errors'
 import type { AnyMySqlColumn } from 'drizzle-orm/mysql-core'
@@ -902,6 +913,7 @@ type DbExecutor = AdapterDb | AdapterTx
 interface AdapterCaches {
   tableCache: Map<string, DynamicTable>
   junctionTablesCache: Map<string, Record<string, JunctionTable>>
+  versionsTableCache: Map<string, VersionsTable>
 }
 
 function getTable(caches: AdapterCaches, collection: CollectionConfig): DynamicTable {
@@ -909,6 +921,17 @@ function getTable(caches: AdapterCaches, collection: CollectionConfig): DynamicT
   if (!table) {
     table = collectionToTable(collection)
     caches.tableCache.set(collection.slug, table)
+  }
+  return table
+}
+
+function getVersionsTable(caches: AdapterCaches, collection: CollectionConfig): VersionsTable {
+  const versionsSlug = `${collection.slug}_versions`
+  let table = caches.versionsTableCache.get(versionsSlug)
+  if (!table) {
+    const parentTable = getTable(caches, collection)
+    table = createVersionsTable(collection.slug, parentTable)
+    caches.versionsTableCache.set(versionsSlug, table)
   }
   return table
 }
@@ -1277,6 +1300,256 @@ async function updateGlobalDoc(
   }
 }
 
+function parseSnapshot(raw: unknown): DocumentData {
+  if (typeof raw === 'string') {
+    try {
+      return JSON.parse(raw) as DocumentData
+    } catch {
+      return {}
+    }
+  }
+  return (raw as DocumentData) ?? {}
+}
+
+function rowToVersionDoc(row: Record<string, unknown>): StoredVersion {
+  const createdAtVal = row.createdAt ?? row.created_at
+  let createdAt: string
+  if (createdAtVal instanceof Date) {
+    createdAt = createdAtVal.toISOString()
+  } else if (typeof createdAtVal === 'string') {
+    createdAt = createdAtVal
+  } else {
+    createdAt = new Date().toISOString()
+  }
+
+  return {
+    id: Number(row.id),
+    parentId: Number(row.parentId ?? row.parent_id),
+    versionNumber: Number(row.versionNumber ?? row.version_number),
+    snapshot: parseSnapshot(row.snapshot),
+    _status: (row._status ?? row.status ?? 'draft') as DocStatus,
+    autosave: Boolean(row.autosave),
+    createdAt,
+    createdBy: (row.createdBy ?? row.created_by ?? null) as string | null,
+  }
+}
+
+async function updateAutosaveVersion(
+  executor: DbExecutor,
+  vTable: VersionsTable,
+  latestRow: Record<string, unknown>,
+  snapshot: DocumentData,
+  userId?: string | null,
+): Promise<StoredVersion> {
+  const versionId = Number(latestRow.id)
+  await executor
+    .update(vTable)
+    .set({
+      snapshot,
+      createdAt: new Date(),
+      createdBy: userId ?? null,
+    })
+    .where(eq(vTable.id, versionId))
+
+  const updated = await executor.select().from(vTable).where(eq(vTable.id, versionId)).limit(1)
+
+  const row = updated[0]
+  if (!row) {
+    throw new Error('Failed to retrieve updated version row')
+  }
+  return rowToVersionDoc(row)
+}
+
+async function tryUpdateAutosave(
+  executor: DbExecutor,
+  vTable: VersionsTable,
+  args: SaveVersionArgs,
+): Promise<StoredVersion | null> {
+  if (!args.autosave) return null
+  const latest = await executor
+    .select()
+    .from(vTable)
+    .where(eq(vTable.parentId, args.parentId))
+    .orderBy(desc(vTable.id))
+    .limit(1)
+
+  const latestRow = latest[0]
+  if (!latestRow) return null
+  const isDraft = (latestRow._status ?? latestRow.status) === 'draft'
+  const isAutosave = Boolean(latestRow.autosave)
+  if (isDraft && isAutosave) {
+    return await updateAutosaveVersion(executor, vTable, latestRow, args.snapshot, args.userId)
+  }
+  return null
+}
+
+async function insertNewVersion(
+  executor: DbExecutor,
+  vTable: VersionsTable,
+  args: SaveVersionArgs,
+): Promise<StoredVersion> {
+  const maxVerResult = await executor
+    .select({ maxVer: max(vTable.versionNumber) })
+    .from(vTable)
+    .where(eq(vTable.parentId, args.parentId))
+
+  const versionNumber = (Number(maxVerResult[0]?.maxVer) || 0) + 1
+
+  const insertResult = await executor.insert(vTable).values({
+    parentId: args.parentId,
+    versionNumber,
+    snapshot: args.snapshot,
+    _status: args.status,
+    autosave: Boolean(args.autosave),
+    createdBy: args.userId ?? null,
+  })
+
+  const newId = Number((insertResult as unknown as [{ insertId?: number }])[0]?.insertId)
+  const inserted = await executor.select().from(vTable).where(eq(vTable.id, newId)).limit(1)
+
+  const row = inserted[0]
+  if (!row) {
+    throw new Error('Failed to retrieve inserted version row')
+  }
+  return rowToVersionDoc(row)
+}
+
+async function pruneVersionsInternal(
+  executor: DbExecutor,
+  vTable: VersionsTable,
+  parentId: number,
+  maxPerDoc: number,
+): Promise<number> {
+  const keepRows = await executor
+    .select({ id: vTable.id })
+    .from(vTable)
+    .where(eq(vTable.parentId, parentId))
+    .orderBy(desc(vTable.id))
+    .limit(maxPerDoc)
+
+  if (keepRows.length < maxPerDoc) return 0
+
+  const keepIds = keepRows.map((v) => Number(v.id))
+  const deleteResult = await executor
+    .delete(vTable)
+    .where(and(eq(vTable.parentId, parentId), notInArray(vTable.id, keepIds)))
+
+  const affectedRows = Number(
+    (deleteResult as unknown as [{ affectedRows?: number }])[0]?.affectedRows ?? 0,
+  )
+  return affectedRows
+}
+
+async function saveVersion(
+  executor: DbExecutor,
+  caches: AdapterCaches,
+  args: SaveVersionArgs,
+): Promise<StoredVersion> {
+  try {
+    const vTable = getVersionsTable(caches, args.collection)
+    const maxPerDoc = args.collection.versions?.maxPerDoc ?? DEFAULT_MAX_PER_DOC
+
+    const autosaveResult = await tryUpdateAutosave(executor, vTable, args)
+    if (autosaveResult) {
+      return autosaveResult
+    }
+
+    const saved = await insertNewVersion(executor, vTable, args)
+    if (maxPerDoc > 0) {
+      await pruneVersionsInternal(executor, vTable, args.parentId, maxPerDoc)
+    }
+    return saved
+  } catch (err) {
+    handleDatabaseError(err, toErrorContext(args.collection))
+  }
+}
+
+async function findVersions(
+  executor: DbExecutor,
+  caches: AdapterCaches,
+  args: FindVersionsArgs,
+): Promise<PaginatedVersions> {
+  try {
+    const vTable = getVersionsTable(caches, args.collection)
+    const page = Math.max(1, args.page ?? 1)
+    const limit = args.limit ?? DEFAULT_LIMIT
+    const offset = (page - 1) * limit
+
+    const countResult = await executor
+      .select({ count: count() })
+      .from(vTable)
+      .where(eq(vTable.parentId, args.parentId))
+
+    const totalDocs = Number(countResult[0]?.count ?? 0)
+    const totalPages = Math.ceil(totalDocs / limit) || 1
+
+    const rows = await executor
+      .select()
+      .from(vTable)
+      .where(eq(vTable.parentId, args.parentId))
+      .orderBy(desc(vTable.id))
+      .limit(limit)
+      .offset(offset)
+
+    return {
+      docs: rows.map(rowToVersionDoc),
+      totalDocs,
+      limit,
+      page,
+      totalPages,
+    }
+  } catch (err) {
+    handleDatabaseError(err, toErrorContext(args.collection))
+  }
+}
+
+async function findVersionByID(
+  executor: DbExecutor,
+  caches: AdapterCaches,
+  args: { collection: CollectionConfig; parentId: number; versionId: number },
+): Promise<StoredVersion | null> {
+  try {
+    const vTable = getVersionsTable(caches, args.collection)
+    const rows = await executor
+      .select()
+      .from(vTable)
+      .where(and(eq(vTable.parentId, args.parentId), eq(vTable.id, args.versionId)))
+      .limit(1)
+
+    const row = rows[0]
+    if (!row) return null
+    return rowToVersionDoc(row)
+  } catch (err) {
+    handleDatabaseError(err, toErrorContext(args.collection))
+  }
+}
+
+async function findLatestDraftVersion(
+  executor: DbExecutor,
+  caches: AdapterCaches,
+  args: { collection: CollectionConfig; parentId: number },
+): Promise<StoredVersion | null> {
+  try {
+    const vTable = getVersionsTable(caches, args.collection)
+    const rows = await executor
+      .select()
+      .from(vTable)
+      .where(eq(vTable.parentId, args.parentId))
+      .orderBy(desc(vTable.id))
+      .limit(1)
+
+    const latest = rows[0]
+    if (!latest) return null
+    const status = (latest._status ?? latest.status) as DocStatus
+    if (status !== 'draft') {
+      return null
+    }
+    return rowToVersionDoc(latest)
+  } catch (err) {
+    handleDatabaseError(err, toErrorContext(args.collection))
+  }
+}
+
 function createDatabaseOperations(
   executor: DbExecutor,
   caches: AdapterCaches,
@@ -1292,6 +1565,12 @@ function createDatabaseOperations(
     delete: ({ collection, id }) => removeDoc(executor, caches, collection, id),
     findGlobal: ({ global }) => findGlobalDoc(executor, caches, global),
     updateGlobal: ({ global, data }) => updateGlobalDoc(executor, caches, global, data),
+    saveVersion: (args) => saveVersion(executor, caches, args),
+    findVersions: (args) => findVersions(executor, caches, args),
+    findVersionByID: (args) => findVersionByID(executor, caches, args),
+    findLatestDraftVersion: (args) => findLatestDraftVersion(executor, caches, args),
+    pruneVersions: ({ collection, parentId, maxPerDoc }) =>
+      pruneVersionsInternal(executor, getVersionsTable(caches, collection), parentId, maxPerDoc),
     async transaction<T>(cb: (txDb: DatabaseAdapter) => Promise<T>): Promise<T> {
       try {
         return await executor.transaction(async (tx) => {
@@ -1321,6 +1600,7 @@ export function mysqlAdapter(options: MysqlAdapterOptions): MysqlAdapter {
   const caches: AdapterCaches = {
     tableCache: new Map(),
     junctionTablesCache: new Map(),
+    versionsTableCache: new Map(),
   }
   const ops = createDatabaseOperations(db, caches, authAdapter)
 

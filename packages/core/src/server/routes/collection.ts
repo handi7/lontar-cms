@@ -15,8 +15,11 @@ import {
   executeUpdate,
   findByIDOperation,
   findOperation,
+  findVersionByIDOperation,
+  findVersionsOperation,
   NotFoundError,
   publishOperation,
+  restoreVersionOperation,
   unpublishOperation,
   updateOperation,
   ValidationError,
@@ -189,6 +192,7 @@ async function handleCreate(
 
   const depth = parseDepth(c.req.query('depth'))
   const draft = c.req.query('draft') === 'true'
+  const autosave = c.req.query('autosave') === 'true'
 
   try {
     const doc = await createOperation({
@@ -197,6 +201,7 @@ async function handleCreate(
       data: body as DocumentData,
       depth,
       draft,
+      autosave,
       overrideAccess: false,
       user,
       req: c.req.raw,
@@ -231,6 +236,7 @@ async function handleJsonUpdate(
 
   const depth = parseDepth(c.req.query('depth'))
   const draft = c.req.query('draft') === 'true'
+  const autosave = c.req.query('autosave') === 'true'
 
   try {
     const doc = await updateOperation({
@@ -240,6 +246,7 @@ async function handleJsonUpdate(
       data: body as DocumentData,
       depth,
       draft,
+      autosave,
       overrideAccess: false,
       user,
       req: c.req.raw,
@@ -370,6 +377,101 @@ async function handleDelete(c: Context<LontarEnv>, collection: CollectionConfig,
   }
 }
 
+async function handleFindVersions(
+  c: Context<LontarEnv>,
+  collection: CollectionConfig,
+  config: Config,
+) {
+  const id = parseId(c.req.param('id'))
+  if (id === null) {
+    return c.json({ error: 'Invalid document ID' }, 400)
+  }
+  const user = c.get('user') ?? null
+  const { page, limit } = resolvePagination((k) => c.req.query(k), collection, config)
+  const sort = c.req.query('sort')
+
+  try {
+    const result = await findVersionsOperation({
+      config,
+      collection,
+      id,
+      page,
+      limit,
+      sort,
+      user,
+      overrideAccess: false,
+    })
+    return c.json(result, 200)
+  } catch (err) {
+    return handleMutationError(err, c, user)
+  }
+}
+
+async function handleFindVersionByID(
+  c: Context<LontarEnv>,
+  collection: CollectionConfig,
+  config: Config,
+) {
+  const id = parseId(c.req.param('id'))
+  if (id === null) {
+    return c.json({ error: 'Invalid document ID' }, 400)
+  }
+  const versionId = parseId(c.req.param('versionId'))
+  if (versionId === null) {
+    return c.json({ error: 'Invalid version ID' }, 400)
+  }
+  const user = c.get('user') ?? null
+
+  try {
+    const result = await findVersionByIDOperation({
+      config,
+      collection,
+      id,
+      versionId,
+      user,
+      overrideAccess: false,
+    })
+    return c.json(result, 200)
+  } catch (err) {
+    return handleMutationError(err, c, user)
+  }
+}
+
+async function handleRestoreVersion(
+  c: Context<LontarEnv>,
+  collection: CollectionConfig,
+  config: Config,
+) {
+  const id = parseId(c.req.param('id'))
+  if (id === null) {
+    return c.json({ error: 'Invalid document ID' }, 400)
+  }
+  const versionId = parseId(c.req.param('versionId'))
+  if (versionId === null) {
+    return c.json({ error: 'Invalid version ID' }, 400)
+  }
+  const user = c.get('user') ?? null
+  const depth = parseDepth(c.req.query('depth'))
+  const draft = c.req.query('draft') !== undefined ? c.req.query('draft') === 'true' : undefined
+
+  try {
+    const doc = await restoreVersionOperation({
+      config,
+      collection,
+      id,
+      versionId,
+      draft,
+      depth,
+      user,
+      overrideAccess: false,
+      req: c.req.raw,
+    })
+    return c.json(doc, 200)
+  } catch (err) {
+    return handleMutationError(err, c, user)
+  }
+}
+
 function getUploadMaxFileSize(upload: CollectionConfig['upload']): number {
   if (typeof upload === 'object' && upload?.maxFileSize) {
     return upload.maxFileSize
@@ -449,6 +551,18 @@ export function registerCollectionRoutes(router: Hono<LontarEnv>, config: Config
     return handleFindByID(c, col, config)
   })
 
+  router.get('/:collection/:id/versions', (c) => {
+    const col = findCol(c)
+    if (!col) return c.json({ error: `Collection "${c.req.param('collection')}" not found` }, 404)
+    return handleFindVersions(c, col, config)
+  })
+
+  router.get('/:collection/:id/versions/:versionId', (c) => {
+    const col = findCol(c)
+    if (!col) return c.json({ error: `Collection "${c.req.param('collection')}" not found` }, 404)
+    return handleFindVersionByID(c, col, config)
+  })
+
   router.post('/:collection', postLimit, (c) => {
     const col = findCol(c)
     if (!col) return c.json({ error: `Collection "${c.req.param('collection')}" not found` }, 404)
@@ -466,6 +580,12 @@ export function registerCollectionRoutes(router: Hono<LontarEnv>, config: Config
     const col = findCol(c)
     if (!col) return c.json({ error: `Collection "${c.req.param('collection')}" not found` }, 404)
     return handleUnpublish(c, col, config)
+  })
+
+  router.post('/:collection/:id/versions/:versionId/restore', (c) => {
+    const col = findCol(c)
+    if (!col) return c.json({ error: `Collection "${c.req.param('collection')}" not found` }, 404)
+    return handleRestoreVersion(c, col, config)
   })
 
   router.patch('/:collection/:id', patchLimit, (c) => {

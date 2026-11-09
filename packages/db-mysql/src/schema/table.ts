@@ -153,6 +153,57 @@ export function getJunctionTableName(collectionSlug: string, fieldName: string):
   return `${collectionSlug}_${fieldName}`
 }
 
+export function getVersionsTableName(collectionSlug: string): string {
+  return `${collectionSlug}_versions`
+}
+
+export type VersionsTable = MySqlTable & {
+  id: AnyMySqlColumn
+  parentId: AnyMySqlColumn
+  versionNumber: AnyMySqlColumn
+  snapshot: AnyMySqlColumn
+  _status: AnyMySqlColumn
+  autosave: AnyMySqlColumn
+  createdAt: AnyMySqlColumn
+  createdBy: AnyMySqlColumn
+}
+
+export function createVersionsTable(
+  collectionSlug: string,
+  parentTable?: DynamicTable,
+): VersionsTable {
+  const tableName = getVersionsTableName(collectionSlug)
+  const parentIdColumn = parentTable
+    ? int('parent_id')
+        .notNull()
+        .references(() => parentTable.id, { onDelete: 'cascade' })
+    : int('parent_id').notNull()
+
+  const columns = {
+    id: int('id').autoincrement().primaryKey(),
+    parentId: parentIdColumn,
+    versionNumber: int('version_number').notNull(),
+    snapshot: json('snapshot').notNull(),
+    _status: varchar('_status', { length: 20 }).default('draft').notNull(),
+    autosave: boolean('autosave').default(false).notNull(),
+    createdAt: timestamp('created_at').defaultNow().notNull(),
+    createdBy: varchar('created_by', { length: 36 }),
+  }
+
+  return mysqlTable(tableName, columns, (t) => [
+    index(`${tableName}_parent_id_idx`).on(t.parentId, t.id),
+    index(`${tableName}_parent_status_idx`).on(t.parentId, t._status),
+  ])
+}
+
+export function getCollectionVersionsTable(
+  collection: CollectionConfig,
+  parentTable?: DynamicTable,
+): VersionsTable | null {
+  if (!collection.versions) return null
+  return createVersionsTable(collection.slug, parentTable)
+}
+
 export function createJunctionTable(tableName: string): JunctionTable {
   const columns = {
     id: int('id').autoincrement().primaryKey(),

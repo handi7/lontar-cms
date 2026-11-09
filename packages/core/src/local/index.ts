@@ -1,6 +1,11 @@
 import type { AuthUser } from '../auth/types'
 import type { CollectionConfig, Config, GlobalConfig } from '../config/types'
-import type { DocumentData, PaginatedDocs } from '../database/adapter'
+import type {
+  DocumentData,
+  PaginatedDocs,
+  PaginatedVersions,
+  StoredVersion,
+} from '../database/adapter'
 import type { Where } from '../query/types'
 import {
   createOperation,
@@ -8,8 +13,11 @@ import {
   findByIDOperation,
   findGlobalOperation,
   findOperation,
+  findVersionByIDOperation,
+  findVersionsOperation,
   NotFoundError,
   publishOperation,
+  restoreVersionOperation,
   unpublishOperation,
   updateGlobalOperation,
   updateOperation,
@@ -54,6 +62,26 @@ export interface LocalUpdateOptions {
 
 export interface LocalPublishOptions {
   id?: number | string
+  depth?: number
+  overrideAccess?: boolean
+  user?: AuthUser | null
+}
+
+export interface LocalFindVersionsOptions {
+  page?: number
+  limit?: number
+  sort?: string
+  overrideAccess?: boolean
+  user?: AuthUser | null
+}
+
+export interface LocalFindVersionByIDOptions {
+  overrideAccess?: boolean
+  user?: AuthUser | null
+}
+
+export interface LocalRestoreVersionOptions {
+  draft?: boolean
   depth?: number
   overrideAccess?: boolean
   user?: AuthUser | null
@@ -159,6 +187,32 @@ export interface LontarClient {
     collectionSlug: string,
     idOrOptions: number | string | LocalPublishOptions,
     maybeOptions?: Omit<LocalPublishOptions, 'id'>,
+  ): Promise<T>
+
+  findVersions(
+    collectionSlug: string,
+    id: number | string,
+    options?: LocalFindVersionsOptions,
+  ): Promise<PaginatedVersions>
+
+  findVersionByID(
+    collectionSlug: string,
+    id: number | string,
+    versionId: number | string,
+    options?: LocalFindVersionByIDOptions,
+  ): Promise<StoredVersion>
+
+  restoreVersion<K extends keyof LontarCollections>(
+    collectionSlug: K,
+    id: number | string,
+    versionId: number | string,
+    options?: LocalRestoreVersionOptions,
+  ): Promise<LontarCollections[K]>
+  restoreVersion<T = DocumentData>(
+    collectionSlug: string,
+    id: number | string,
+    versionId: number | string,
+    options?: LocalRestoreVersionOptions,
   ): Promise<T>
 
   findGlobal<K extends keyof LontarGlobals>(
@@ -409,6 +463,73 @@ export function getLontar(config: Config): Promise<LontarClient> {
         config,
         collection,
         id,
+        depth: options.depth,
+        overrideAccess: options.overrideAccess ?? true,
+        user: options.user,
+      })
+    },
+
+    async findVersions(
+      slug: string,
+      idOrOptions: number | string,
+      options: LocalFindVersionsOptions = {},
+    ): Promise<PaginatedVersions> {
+      const collection = resolveCollection(config, slug)
+      const id = parseId(idOrOptions)
+      assertValidId(id)
+
+      return findVersionsOperation({
+        config,
+        collection,
+        id,
+        page: options.page,
+        limit: options.limit,
+        sort: options.sort,
+        overrideAccess: options.overrideAccess ?? true,
+        user: options.user,
+      })
+    },
+
+    async findVersionByID(
+      slug: string,
+      idOrOptions: number | string,
+      versionIdOrOptions: number | string,
+      options: LocalFindVersionByIDOptions = {},
+    ): Promise<StoredVersion> {
+      const collection = resolveCollection(config, slug)
+      const id = parseId(idOrOptions)
+      assertValidId(id)
+      const versionId = parseId(versionIdOrOptions)
+      assertValidId(versionId)
+
+      return findVersionByIDOperation({
+        config,
+        collection,
+        id,
+        versionId,
+        overrideAccess: options.overrideAccess ?? true,
+        user: options.user,
+      })
+    },
+
+    async restoreVersion<T = DocumentData>(
+      slug: string,
+      idOrOptions: number | string,
+      versionIdOrOptions: number | string,
+      options: LocalRestoreVersionOptions = {},
+    ): Promise<T> {
+      const collection = resolveCollection(config, slug)
+      const id = parseId(idOrOptions)
+      assertValidId(id)
+      const versionId = parseId(versionIdOrOptions)
+      assertValidId(versionId)
+
+      return restoreVersionOperation<T>({
+        config,
+        collection,
+        id,
+        versionId,
+        draft: options.draft,
         depth: options.depth,
         overrideAccess: options.overrideAccess ?? true,
         user: options.user,
