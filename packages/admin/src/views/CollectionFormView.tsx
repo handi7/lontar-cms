@@ -1,6 +1,6 @@
 import { useState, useEffect, useMemo } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { Link, useNavigate, useParams } from '@tanstack/react-router'
+import { useNavigate, useParams } from '@tanstack/react-router'
 import {
   useForm,
   type Control,
@@ -20,75 +20,11 @@ import { computeDefaultValues, formatDocForForm, formatDocForSubmit } from '../u
 import { ConfirmDeleteDialog } from './ConfirmDeleteDialog'
 import { NotFoundView } from './NotFoundView'
 import { Alert } from '../components/ui/alert'
-import { Button } from '../components/ui/button'
 import { Card } from '../components/ui/card'
 import { EmptyCard } from './EmptyCard'
 import { ViewHeader } from './ViewHeader'
-
-function DocumentMeta({ doc }: { doc?: Record<string, unknown> | null }) {
-  if (!doc) return null
-  return (
-    <div className="lt:mt-1.5 lt:flex lt:gap-4 lt:text-[0.8125rem] lt:text-muted-foreground">
-      <span>
-        <strong>ID:</strong> {String(doc.id)}
-      </span>
-      {typeof doc.createdAt === 'string' && (
-        <span>
-          <strong>Created:</strong> {new Date(doc.createdAt).toLocaleString()}
-        </span>
-      )}
-      {typeof doc.updatedAt === 'string' && (
-        <span>
-          <strong>Updated:</strong> {new Date(doc.updatedAt).toLocaleString()}
-        </span>
-      )}
-    </div>
-  )
-}
-
-function FormHeader({
-  title,
-  mode,
-  collection,
-  doc,
-  isDeleting,
-  onDelete,
-}: {
-  title: string
-  mode: 'create' | 'edit'
-  collection: ClientCollection
-  doc?: Record<string, unknown> | null
-  isDeleting: boolean
-  onDelete: () => void
-}) {
-  return (
-    <ViewHeader
-      title={title}
-      actions={
-        <>
-          {mode === 'edit' && (
-            <Button
-              type="button"
-              variant="outline"
-              className="lt:text-destructive lt:hover:border-destructive lt:hover:bg-error-bg lt:hover:text-destructive"
-              disabled={isDeleting}
-              onClick={onDelete}
-            >
-              Delete
-            </Button>
-          )}
-          <Button asChild variant="outline">
-            <Link to="/$collection" params={{ collection: collection.slug }}>
-              Cancel
-            </Link>
-          </Button>
-        </>
-      }
-    >
-      {mode === 'edit' && <DocumentMeta doc={doc} />}
-    </ViewHeader>
-  )
-}
+import { CollectionBreadcrumbs } from './FormBreadcrumbs'
+import { DocumentSidebar } from './DocumentSidebar'
 
 function getFormTitle(mode: 'create' | 'edit', singular: string, id?: string): string {
   if (mode === 'create') return `Create ${singular}`
@@ -96,21 +32,43 @@ function getFormTitle(mode: 'create' | 'edit', singular: string, id?: string): s
   return `Edit ${singular}${suffix}`
 }
 
-function FormBody({
-  collection,
-  mode,
-  control,
-  register,
-  setValue,
-  watch,
-  errors,
-  isPending,
-  selectedFile,
-  onFileChange,
-  fileError,
-  doc,
-  onSubmit,
-}: {
+function getBreadcrumbTitle(
+  doc: Record<string, unknown> | null | undefined,
+  singular: string,
+  id?: string,
+): string {
+  if (doc) {
+    if (typeof doc.title === 'string' && doc.title.trim()) return doc.title
+    if (typeof doc.name === 'string' && doc.name.trim()) return doc.name
+    if (typeof doc.filename === 'string' && doc.filename.trim()) return doc.filename
+  }
+  return id ? `#${id}` : `Edit ${singular}`
+}
+
+function getSubmitLabel(isPending: boolean, mode: 'create' | 'edit', singular: string): string {
+  if (isPending) return 'Saving...'
+  return mode === 'create' ? `Create ${singular}` : 'Save Changes'
+}
+
+function validateUpload(
+  selectedFile: File | null,
+  uploadConfig: unknown,
+  isCreate: boolean,
+): string | null {
+  if (isCreate && !selectedFile) {
+    return 'Please select a file to upload'
+  }
+  const cfg =
+    typeof uploadConfig === 'object' && uploadConfig !== null
+      ? (uploadConfig as { maxFileSize?: number })
+      : undefined
+  if (selectedFile && cfg?.maxFileSize && selectedFile.size > cfg.maxFileSize) {
+    return `File size exceeds maximum allowed size of ${formatFilesize(cfg.maxFileSize)}`
+  }
+  return null
+}
+
+export interface FormFieldsProps {
   collection: ClientCollection
   mode: 'create' | 'edit'
   control: Control<Record<string, unknown>>
@@ -118,25 +76,31 @@ function FormBody({
   setValue: UseFormSetValue<Record<string, unknown>>
   watch: UseFormWatch<Record<string, unknown>>
   errors: FieldErrors<Record<string, unknown>>
-  isPending: boolean
   selectedFile: File | null
   onFileChange: (file: File | null) => void
   fileError: string | null
   doc?: Record<string, unknown> | null
-  onSubmit: (e: React.FormEvent) => void
-}) {
-  const submitLabel = isPending
-    ? 'Saving...'
-    : mode === 'create'
-      ? `Create ${collection.labels.singular}`
-      : 'Save Changes'
+}
 
+function FormFields({
+  collection,
+  mode,
+  control,
+  register,
+  setValue,
+  watch,
+  errors,
+  selectedFile,
+  onFileChange,
+  fileError,
+  doc,
+}: FormFieldsProps) {
   const uploadConfig = typeof collection.upload === 'object' ? collection.upload : undefined
   const accept = uploadConfig?.mimeTypes?.join(',')
 
   return (
-    <Card className="lt:block lt:p-8 lt:shadow-none">
-      <form onSubmit={onSubmit}>
+    <div className="lt:w-full lg:lt:max-w-[760px] lt:min-w-0 lt:flex-1">
+      <Card className="lt:block lt:p-8 lt:shadow-none">
         {Boolean(collection.upload) && (
           <FileUploadZone
             value={selectedFile}
@@ -174,15 +138,22 @@ function FormBody({
             />
           ))}
         </div>
-
-        <div className="lt:mt-8 lt:flex lt:gap-3 lt:border-t lt:pt-6">
-          <Button type="submit" disabled={isPending}>
-            {submitLabel}
-          </Button>
-        </div>
-      </form>
-    </Card>
+      </Card>
+    </div>
   )
+}
+
+export interface UseDocMutationsOptions {
+  apiBase: string
+  slug: string
+  id?: string
+  mode: 'create' | 'edit'
+  collection: ClientCollection
+  reset: (values?: Record<string, unknown>) => void
+  setError?: UseFormSetError<Record<string, unknown>>
+  setApiError: (msg: string | null) => void
+  setSuccessMsg: (msg: string | null) => void
+  onSaveSuccess?: () => void
 }
 
 function useDocMutations({
@@ -196,18 +167,7 @@ function useDocMutations({
   setApiError,
   setSuccessMsg,
   onSaveSuccess,
-}: {
-  apiBase: string
-  slug?: string
-  id?: string
-  mode: 'create' | 'edit'
-  collection?: ClientCollection
-  reset: (values?: Record<string, unknown>) => void
-  setError?: UseFormSetError<Record<string, unknown>>
-  setApiError: (msg: string | null) => void
-  setSuccessMsg: (msg: string | null) => void
-  onSaveSuccess?: () => void
-}) {
+}: UseDocMutationsOptions) {
   const queryClient = useQueryClient()
   const navigate = useNavigate()
 
@@ -215,7 +175,6 @@ function useDocMutations({
     mutationFn: async (values: Record<string, unknown> | FormData) => {
       setApiError(null)
       setSuccessMsg(null)
-      if (!slug) throw new Error('Missing collection slug')
       if (mode === 'create') return createDoc(apiBase, slug, values)
       if (!id) throw new Error('Missing document id')
       return updateDoc(apiBase, slug, id, values)
@@ -224,10 +183,10 @@ function useDocMutations({
       void queryClient.invalidateQueries({ queryKey: [slug] })
       onSaveSuccess?.()
       if (mode === 'create') {
-        void navigate({ to: '/$collection', params: { collection: slug ?? '' } })
+        void navigate({ to: '/$collection', params: { collection: slug } })
       } else {
         setSuccessMsg('Saved successfully!')
-        reset(collection ? formatDocForForm(collection.fields, savedDoc) : savedDoc)
+        reset(formatDocForForm(collection.fields, savedDoc))
       }
     },
     onError: (err: Error) => {
@@ -245,12 +204,12 @@ function useDocMutations({
 
   const deleteMutation = useMutation({
     mutationFn: () => {
-      if (!slug || !id) throw new Error('Missing collection or id')
+      if (!id) throw new Error('Missing collection or id')
       return deleteDoc(apiBase, slug, id)
     },
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: [slug] })
-      void navigate({ to: '/$collection', params: { collection: slug ?? '' } })
+      void navigate({ to: '/$collection', params: { collection: slug } })
     },
     onError: (err: Error) => {
       setApiError(err.message)
@@ -294,23 +253,57 @@ function buildUploadFormData(values: Record<string, unknown>, file: File | null)
   return formData
 }
 
-export function CollectionFormView({ mode }: { mode: 'create' | 'edit' }) {
-  const { apiBase } = useAdmin()
-  const { collection: slug, id } = useParams({ strict: false })
-  const collection = useCollection(slug)
+export interface CollectionQueryStateProps {
+  isLoading: boolean
+  error: Error | null
+}
 
+function CollectionQueryState({ isLoading, error }: CollectionQueryStateProps) {
+  if (isLoading) return <EmptyCard>Loading document...</EmptyCard>
+  if (error) return <Alert variant="destructive">{error.message}</Alert>
+  return null
+}
+
+export interface CollectionStatusAlertsProps {
+  apiError: string | null
+  successMsg: string | null
+}
+
+function CollectionStatusAlerts({ apiError, successMsg }: CollectionStatusAlertsProps) {
+  if (apiError) {
+    return (
+      <Alert variant="destructive" className="lt:mb-5">
+        {apiError}
+      </Alert>
+    )
+  }
+  if (successMsg) {
+    return (
+      <Alert variant="success" role="status" className="lt:mb-5">
+        {successMsg}
+      </Alert>
+    )
+  }
+  return null
+}
+
+export interface CollectionEditorProps {
+  collection: ClientCollection
+  mode: 'create' | 'edit'
+  id?: string
+}
+
+function CollectionEditor({ collection, mode, id }: CollectionEditorProps) {
+  const { apiBase } = useAdmin()
   const [apiError, setApiError] = useState<string | null>(null)
   const [successMsg, setSuccessMsg] = useState<string | null>(null)
   const [selectedFile, setSelectedFile] = useState<File | null>(null)
   const [fileError, setFileError] = useState<string | null>(null)
+  const [confirmOpen, setConfirmOpen] = useState(false)
 
-  const docQuery = useDocumentQuery(mode, apiBase, slug, id)
-
-  const schema = useMemo(() => {
-    return collection ? clientFieldsToZod(collection.fields) : undefined
-  }, [collection])
-
-  const defaultValues = useMemo(() => computeDefaultValues(collection?.fields ?? []), [collection])
+  const docQuery = useDocumentQuery(mode, apiBase, collection.slug, id)
+  const schema = useMemo(() => clientFieldsToZod(collection.fields), [collection])
+  const defaultValues = useMemo(() => computeDefaultValues(collection.fields), [collection])
 
   const {
     control,
@@ -322,13 +315,13 @@ export function CollectionFormView({ mode }: { mode: 'create' | 'edit' }) {
     setError,
     formState: { errors, isSubmitting, isDirty },
   } = useForm<Record<string, unknown>>({
-    resolver: schema ? zodResolver(schema) : undefined,
+    resolver: zodResolver(schema),
     defaultValues,
   })
 
   useEffect(() => {
     if (docQuery.data && !isDirty) {
-      reset(collection ? formatDocForForm(collection.fields, docQuery.data) : docQuery.data)
+      reset(formatDocForForm(collection.fields, docQuery.data))
       setSelectedFile(null)
       setFileError(null)
     }
@@ -336,7 +329,7 @@ export function CollectionFormView({ mode }: { mode: 'create' | 'edit' }) {
 
   const { saveMutation, deleteMutation } = useDocMutations({
     apiBase,
-    slug,
+    slug: collection.slug,
     id,
     mode,
     collection,
@@ -350,31 +343,30 @@ export function CollectionFormView({ mode }: { mode: 'create' | 'edit' }) {
     },
   })
 
-  // Delete only asks; the dialog's confirm does the delete.
-  const [confirmOpen, setConfirmOpen] = useState(false)
-
-  if (!collection) return <NotFoundView />
-  if (mode === 'edit' && docQuery.isLoading) return <EmptyCard>Loading document...</EmptyCard>
-  if (mode === 'edit' && docQuery.error)
-    return <Alert variant="destructive">{docQuery.error.message}</Alert>
+  if (mode === 'edit' && (docQuery.isLoading || docQuery.error)) {
+    return <CollectionQueryState isLoading={docQuery.isLoading} error={docQuery.error} />
+  }
 
   const title = getFormTitle(mode, collection.labels.singular, id)
+  const breadcrumbTitle =
+    mode === 'create'
+      ? `New ${collection.labels.singular}`
+      : getBreadcrumbTitle(docQuery.data, collection.labels.singular, id)
+  const submitLabel = getSubmitLabel(
+    isSubmitting || saveMutation.isPending,
+    mode,
+    collection.labels.singular,
+  )
 
   const handleFormSubmit = (v: Record<string, unknown>) => {
-    const payload = collection ? formatDocForSubmit(collection.fields, v) : v
+    const payload = formatDocForSubmit(collection.fields, v)
     if (!collection.upload) {
       saveMutation.mutate(payload)
       return
     }
-    if (mode === 'create' && !selectedFile) {
-      setFileError('Please select a file to upload')
-      return
-    }
-    const uploadCfg = typeof collection.upload === 'object' ? collection.upload : undefined
-    if (selectedFile && uploadCfg?.maxFileSize && selectedFile.size > uploadCfg.maxFileSize) {
-      setFileError(
-        `File size exceeds maximum allowed size of ${formatFilesize(uploadCfg.maxFileSize)}`,
-      )
+    const uploadErr = validateUpload(selectedFile, collection.upload, mode === 'create')
+    if (uploadErr) {
+      setFileError(uploadErr)
       return
     }
     saveMutation.mutate(buildUploadFormData(payload, selectedFile))
@@ -382,13 +374,15 @@ export function CollectionFormView({ mode }: { mode: 'create' | 'edit' }) {
 
   return (
     <div>
-      <FormHeader
+      <ViewHeader
         title={title}
-        mode={mode}
-        collection={collection}
-        doc={docQuery.data}
-        isDeleting={deleteMutation.isPending}
-        onDelete={() => setConfirmOpen(true)}
+        breadcrumbs={
+          <CollectionBreadcrumbs
+            collectionLabel={collection.labels.plural}
+            collectionSlug={collection.slug}
+            currentTitle={breadcrumbTitle}
+          />
+        }
       />
 
       <ConfirmDeleteDialog
@@ -400,37 +394,54 @@ export function CollectionFormView({ mode }: { mode: 'create' | 'edit' }) {
         }}
       />
 
-      {apiError && (
-        <Alert variant="destructive" className="lt:mb-5">
-          {apiError}
-        </Alert>
-      )}
-      {successMsg && (
-        <Alert variant="success" role="status" className="lt:mb-5">
-          {successMsg}
-        </Alert>
-      )}
+      <CollectionStatusAlerts apiError={apiError} successMsg={successMsg} />
 
-      <FormBody
-        collection={collection}
-        mode={mode}
-        control={control}
-        register={register}
-        setValue={setValue}
-        watch={watch}
-        errors={errors}
-        isPending={isSubmitting || saveMutation.isPending}
-        selectedFile={selectedFile}
-        onFileChange={(file) => {
-          setSelectedFile(file)
-          setFileError(null)
-        }}
-        fileError={fileError}
-        doc={docQuery.data}
+      <form
         onSubmit={(e) => {
           void handleSubmit(handleFormSubmit)(e)
         }}
-      />
+        className="lt:flex lt:flex-col lg:lt:flex-row lt:gap-8 lt:items-start"
+      >
+        <FormFields
+          collection={collection}
+          mode={mode}
+          control={control}
+          register={register}
+          setValue={setValue}
+          watch={watch}
+          errors={errors}
+          selectedFile={selectedFile}
+          onFileChange={(file) => {
+            setSelectedFile(file)
+            setFileError(null)
+          }}
+          fileError={fileError}
+          doc={docQuery.data}
+        />
+
+        <DocumentSidebar
+          mode={mode}
+          submitLabel={submitLabel}
+          isPending={isSubmitting || saveMutation.isPending}
+          isDeleting={deleteMutation.isPending}
+          onDelete={() => setConfirmOpen(true)}
+          showDelete={mode === 'edit'}
+          doc={docQuery.data}
+        />
+      </form>
     </div>
   )
+}
+
+export interface CollectionFormViewProps {
+  mode: 'create' | 'edit'
+}
+
+export function CollectionFormView({ mode }: CollectionFormViewProps) {
+  const { collection: slug, id } = useParams({ strict: false })
+  const collection = useCollection(slug)
+
+  if (!collection) return <NotFoundView />
+
+  return <CollectionEditor collection={collection} mode={mode} id={id} />
 }

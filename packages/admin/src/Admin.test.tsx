@@ -499,6 +499,8 @@ describe('Admin SPA', () => {
 
     await waitFor(() => {
       expect(screen.getByText('Edit Post #42')).toBeTruthy()
+      expect(screen.getByRole('navigation', { name: 'Breadcrumb' })).toBeTruthy()
+      expect(screen.getByRole('complementary', { name: 'Document sidebar' })).toBeTruthy()
     })
 
     const titleInput = screen.getByRole<HTMLInputElement>('textbox', { name: /^title/i })

@@ -96,8 +96,8 @@ test.describe('Lontar CMS Admin in Next.js', () => {
     await page.getByRole('button', { name: 'Save Changes' }).click()
     await expect(page.getByText('Saved successfully!')).toBeVisible()
 
-    // 11. Return to list view and verify updated title
-    await page.getByRole('link', { name: 'Cancel' }).click()
+    // 11. Return to list view via breadcrumbs and verify updated title
+    await page.getByLabel('Breadcrumb').getByRole('link', { name: 'Posts' }).click()
     await expect(page.getByRole('heading', { name: 'Posts', exact: true })).toBeVisible()
     await expect(page.getByRole('link', { name: updatedTitle })).toBeVisible()
 
