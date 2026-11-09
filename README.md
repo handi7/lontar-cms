@@ -206,6 +206,67 @@ When drafts are enabled:
 - Draft edits to an already-published document are stored as version snapshots in `${collection}_versions` until published.
 - Queries default to published documents. Pass `draft: true` (requires update access) to read the latest draft state.
 
+### Live preview
+
+Collections and globals can configure live preview in the admin edit form using a URL template with `{placeholder}` tokens:
+
+```ts
+const Posts = collection({
+  slug: 'posts',
+  admin: {
+    preview: {
+      url: 'https://mysite.com/posts/{slug}?preview=1',
+    },
+  },
+  fields: {
+    title: f.text({ required: true }),
+    slug: f.slug({ from: 'title' }),
+    content: f.richText(),
+  },
+})
+```
+
+The admin renders the target page in a split-screen iframe and transmits unsaved form state in real time over `postMessage`. In your frontend application, use `@lontar/preview` to render instant updates:
+
+```tsx
+'use client'
+import { useLivePreview } from '@lontar/preview/react'
+
+export function PostView({ post: initialPost }: { post: Post }) {
+  const { data: post } = useLivePreview({
+    initialData: initialPost,
+    serverURL: 'http://localhost:3000',
+  })
+
+  return (
+    <article>
+      <h1>{post.title}</h1>
+      <div>{post.content}</div>
+    </article>
+  )
+}
+```
+
+### Outgoing webhooks
+
+Notify frontend hosts or external services when content changes:
+
+```ts
+export default defineConfig({
+  // Global or per-collection outgoing webhooks
+  webhooks: [
+    {
+      url: 'https://mysite.com/api/revalidate',
+      collections: ['posts', 'pages'],
+      events: ['publish', 'unpublish', 'delete'],
+      secret: process.env.WEBHOOK_SECRET,
+    },
+  ],
+})
+```
+
+Webhook deliveries run asynchronously after database transactions commit, signed with HMAC-SHA256 (`x-lontar-signature-256`) and timestamped (`x-lontar-timestamp`).
+
 ## Migrations and type generation
 
 ```bash
