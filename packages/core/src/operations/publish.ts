@@ -100,6 +100,7 @@ async function transitionDocumentStatus<T = DocumentData>(
     status,
     statusTransition,
     userId: args.user?.id,
+    config: args.config,
   })
 
   if (!result.success) {

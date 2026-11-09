@@ -785,4 +785,56 @@ describe('toClientConfig', () => {
     })
     expect(JSON.parse(JSON.stringify(serialized))).toStrictEqual(serialized)
   })
+
+  it('never leaks webhooks or secrets into ClientConfig', () => {
+    const config = defineConfig({
+      secret: SECRET,
+      db: fakeAdapter,
+      collections: [
+        {
+          slug: 'articles',
+          fields: { title: f.text() },
+          webhooks: [
+            {
+              url: 'https://internal.site.com/api/collection-secret-webhook',
+              events: ['publish'],
+              secret: 'super-confidential-col-secret',
+            },
+          ],
+        },
+      ],
+      globals: [
+        {
+          slug: 'settings',
+          fields: { title: f.text() },
+          webhooks: [
+            {
+              url: 'https://internal.site.com/api/global-secret-webhook',
+              events: ['update'],
+              secret: 'super-confidential-global-secret',
+            },
+          ],
+        },
+      ],
+      webhooks: [
+        {
+          url: 'https://internal.site.com/api/root-secret-webhook',
+          events: ['publish', 'delete'],
+          secret: 'super-confidential-root-secret',
+        },
+      ],
+    })
+
+    const clientCfg = toClientConfig(config)
+    const jsonString = JSON.stringify(clientCfg)
+
+    expect(jsonString).not.toContain('webhooks')
+    expect(jsonString).not.toContain('super-confidential')
+    expect(jsonString).not.toContain('https://internal.site.com')
+    expect((clientCfg as unknown as Record<string, unknown>).webhooks).toBeUndefined()
+    expect(
+      (clientCfg.collections[0] as unknown as Record<string, unknown>).webhooks,
+    ).toBeUndefined()
+    expect((clientCfg.globals[0] as unknown as Record<string, unknown>).webhooks).toBeUndefined()
+  })
 })

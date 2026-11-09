@@ -1,11 +1,12 @@
 import { sanitizeConditionalFields } from '../client/condition'
 import type { DocStatus } from '../client/system-fields'
 import { toClientCollection, toClientGlobal } from '../config/to-client-config'
-import type { CollectionConfig, GlobalConfig } from '../config/types'
+import type { CollectionConfig, Config, GlobalConfig } from '../config/types'
 import type { DatabaseAdapter, DocumentData, StoredDoc } from '../database/adapter'
 import { formatUniqueConstraintError, UniqueConstraintError } from '../database/errors'
 import { runAfterChangeHooks, runBeforeChangeHooks } from '../hooks'
 import type { DocStatusTransition } from '../hooks/types'
+import { dispatchWebhooks, type WebhookAction } from '../webhooks'
 
 export type MutationExecutionResult =
   | { success: true; doc: DocumentData }
@@ -139,6 +140,7 @@ export async function executeCreate(args: {
   draft?: boolean
   autosave?: boolean
   userId?: string | null
+  config?: Config
 }): Promise<MutationExecutionResult> {
   const clientCol = toClientCollection(args.collection)
   const run = async (txDb: DatabaseAdapter): Promise<MutationExecutionResult> => {
@@ -179,17 +181,31 @@ export async function executeCreate(args: {
     }
   }
 
+  let result: MutationExecutionResult
   try {
     if (args.db.transaction) {
-      return await args.db.transaction(run)
+      result = await args.db.transaction(run)
+    } else {
+      result = await run(args.db)
     }
-    return await run(args.db)
   } catch (err) {
     if (err instanceof UniqueConstraintError) {
       return { success: false, status: 400, body: formatUniqueConstraintError(err) }
     }
     throw err
   }
+
+  if (result.success && !args.autosave) {
+    void dispatchWebhooks({
+      config: args.config,
+      collection: args.collection,
+      event: 'create',
+      doc: result.doc,
+      status: result.doc._status as DocStatus | undefined,
+    })
+  }
+
+  return result
 }
 
 function resolveUpdateStatusTransition(
@@ -389,6 +405,12 @@ async function handleParentRowUpdate(args: {
   }
 }
 
+function resolveUpdateWebhookEvent(transition?: DocStatusTransition): WebhookAction {
+  if (transition === 'publish') return 'publish'
+  if (transition === 'unpublish') return 'unpublish'
+  return 'update'
+}
+
 export async function executeUpdate(args: {
   collection: CollectionConfig
   db: DatabaseAdapter
@@ -401,6 +423,7 @@ export async function executeUpdate(args: {
   statusTransition?: DocStatusTransition
   autosave?: boolean
   userId?: string | null
+  config?: Config
 }): Promise<MutationExecutionResult> {
   const clientCol = toClientCollection(args.collection)
   const run = async (txDb: DatabaseAdapter): Promise<MutationExecutionResult> => {
@@ -439,17 +462,34 @@ export async function executeUpdate(args: {
     })
   }
 
+  let result: MutationExecutionResult
   try {
     if (args.db.transaction) {
-      return await args.db.transaction(run)
+      result = await args.db.transaction(run)
+    } else {
+      result = await run(args.db)
     }
-    return await run(args.db)
   } catch (err) {
     if (err instanceof UniqueConstraintError) {
       return { success: false, status: 400, body: formatUniqueConstraintError(err) }
     }
     throw err
   }
+
+  if (result.success && !args.autosave) {
+    const event = resolveUpdateWebhookEvent(args.statusTransition)
+    void dispatchWebhooks({
+      config: args.config,
+      collection: args.collection,
+      event,
+      doc: result.doc,
+      previousDoc: args.originalDoc,
+      status: result.doc._status as DocStatus | undefined,
+      previousStatus: args.originalDoc._status as DocStatus | undefined,
+    })
+  }
+
+  return result
 }
 
 export async function executeGlobalUpdate(args: {
@@ -458,6 +498,7 @@ export async function executeGlobalUpdate(args: {
   existing: StoredDoc | null
   data: DocumentData
   req?: Request
+  config?: Config
 }): Promise<MutationExecutionResult> {
   const clientGlobal = toClientGlobal(args.global)
   const run = async (txDb: DatabaseAdapter): Promise<MutationExecutionResult> => {
@@ -490,15 +531,30 @@ export async function executeGlobalUpdate(args: {
     return { success: true, doc }
   }
 
+  let result: MutationExecutionResult
   try {
     if (args.db.transaction) {
-      return await args.db.transaction(run)
+      result = await args.db.transaction(run)
+    } else {
+      result = await run(args.db)
     }
-    return await run(args.db)
   } catch (err) {
     if (err instanceof UniqueConstraintError) {
       return { success: false, status: 400, body: formatUniqueConstraintError(err) }
     }
     throw err
   }
+
+  if (result.success) {
+    const event = args.existing ? 'update' : 'create'
+    void dispatchWebhooks({
+      config: args.config,
+      global: args.global,
+      event,
+      doc: result.doc,
+      previousDoc: args.existing ?? undefined,
+    })
+  }
+
+  return result
 }

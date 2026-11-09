@@ -515,6 +515,7 @@ interface UploadCreateContext {
     data: DocumentData
     req: Request
     draft?: boolean
+    config?: Config
   }) => Promise<MutationExecutionResult>
 }
 
@@ -560,6 +561,7 @@ export async function handleUploadCreate(ctx: UploadCreateContext): Promise<Resp
       db: config.db,
       req: c.req.raw,
       draft: c.req.query('draft') === 'true',
+      config,
     })
   } catch (err) {
     await safeDeleteMedia(config, processed.uploadDoc)
@@ -590,6 +592,7 @@ interface UploadUpdateContext {
     data: DocumentData
     req: Request
     draft?: boolean
+    config?: Config
   }) => Promise<MutationExecutionResult>
 }
 
@@ -633,6 +636,7 @@ async function applyValidatedUpdate(args: {
       originalDoc: args.originalDoc,
       req: c.req.raw,
       draft: c.req.query('draft') === 'true',
+      config,
     })
   } catch (err) {
     await rollbackNewMedia(config, args.newUploadDoc)

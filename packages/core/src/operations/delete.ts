@@ -5,6 +5,7 @@ import type { CollectionConfig } from '../config/types'
 import type { DatabaseAdapter, DocumentData } from '../database/adapter'
 import { runAfterDeleteHooks, runBeforeDeleteHooks } from '../hooks'
 import { handleUploadDelete } from '../server/routes/collection-upload'
+import { dispatchWebhooks } from '../webhooks'
 import { AccessDeniedError } from './errors'
 import type { DeleteOperationArgs } from './types'
 
@@ -66,6 +67,14 @@ export async function deleteOperation<T = DocumentData>(
     doc: deletedDoc,
     status: deletedDoc._status as DocStatus | undefined,
     req: args.req,
+  })
+
+  void dispatchWebhooks({
+    config: args.config,
+    collection: args.collection,
+    event: 'delete',
+    doc: finalDoc,
+    status: deletedDoc._status as DocStatus | undefined,
   })
 
   return finalDoc as T
