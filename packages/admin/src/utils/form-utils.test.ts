@@ -328,5 +328,154 @@ describe('form-utils', () => {
         },
       ])
     })
+
+    it('normalizes populated relationship and upload objects into IDs inside nested fields', () => {
+      const nestedFields: ClientField[] = [
+        {
+          name: 'seo',
+          type: 'group',
+          label: 'SEO',
+          required: false,
+          fields: [
+            {
+              name: 'ogImage',
+              type: 'upload',
+              label: 'OG Image',
+              relationTo: 'media',
+              required: false,
+            },
+            {
+              name: 'author',
+              type: 'relationship',
+              label: 'Author',
+              relationTo: 'users',
+              required: false,
+            },
+          ],
+        },
+        {
+          name: 'gallery',
+          type: 'array',
+          label: 'Gallery',
+          required: false,
+          fields: [
+            {
+              name: 'photo',
+              type: 'upload',
+              label: 'Photo',
+              relationTo: 'media',
+              required: false,
+            },
+            {
+              name: 'tags',
+              type: 'relationship',
+              label: 'Tags',
+              relationTo: 'tags',
+              hasMany: true,
+              required: false,
+            },
+          ],
+        },
+        {
+          name: 'layout',
+          type: 'blocks',
+          label: 'Layout',
+          required: false,
+          blocks: [
+            {
+              slug: 'hero',
+              labels: { singular: 'Hero', plural: 'Heroes' },
+              fields: [
+                {
+                  name: 'image',
+                  type: 'upload',
+                  label: 'Image',
+                  relationTo: 'media',
+                  required: false,
+                },
+                {
+                  name: 'relatedPost',
+                  type: 'relationship',
+                  label: 'Post',
+                  relationTo: 'posts',
+                  required: false,
+                },
+              ],
+            },
+          ],
+        },
+      ]
+
+      const populatedDoc = {
+        seo: {
+          ogImage: { id: 10, filename: 'og.jpg', url: '/uploads/og.jpg' },
+          author: { id: 1, name: 'Alice' },
+        },
+        gallery: [
+          {
+            id: 'row-1',
+            photo: { id: 20, filename: 'photo.jpg' },
+            tags: [
+              { id: 100, name: 'Tech' },
+              { id: 200, name: 'Design' },
+            ],
+          },
+        ],
+        layout: [
+          {
+            id: 'row-b1',
+            blockType: 'hero',
+            image: { id: 30, filename: 'hero.jpg' },
+            relatedPost: { id: 301, title: 'My Post' },
+          },
+        ],
+      }
+
+      const formDoc = formatDocForForm(nestedFields, populatedDoc)
+      expect(formDoc).toEqual({
+        seo: {
+          ogImage: 10,
+          author: 1,
+        },
+        gallery: [
+          {
+            id: 'row-1',
+            photo: 20,
+            tags: [100, 200],
+          },
+        ],
+        layout: [
+          {
+            id: 'row-b1',
+            blockType: 'hero',
+            image: 30,
+            relatedPost: 301,
+          },
+        ],
+      })
+
+      const submitDoc = formatDocForSubmit(nestedFields, formDoc)
+      expect(submitDoc).toEqual({
+        seo: {
+          ogImage: 10,
+          author: 1,
+        },
+        gallery: [
+          {
+            id: 'row-1',
+            photo: 20,
+            tags: [100, 200],
+          },
+        ],
+        layout: [
+          {
+            id: 'row-b1',
+            blockType: 'hero',
+            image: 30,
+            relatedPost: 301,
+          },
+        ],
+      })
+    })
   })
 })

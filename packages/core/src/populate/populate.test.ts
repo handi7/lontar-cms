@@ -87,6 +87,7 @@ describe('populateDocs', () => {
 
   const postsCollection: CollectionConfig = {
     slug: 'posts',
+    access: { read: () => true },
     fields: {
       title: { type: 'text', required: true },
       author: { type: 'relationship', relationTo: 'users' },
@@ -432,5 +433,301 @@ describe('populateDocs', () => {
     })
 
     expect(result.author).toEqual(mockUsers[0])
+  })
+
+  describe('nested fields (group, array, blocks)', () => {
+    const mediaCol: CollectionConfig = {
+      slug: 'media',
+      upload: true,
+      access: { read: () => true },
+      fields: {
+        alt: { type: 'text' },
+      },
+    }
+
+    const tagsCol: CollectionConfig = {
+      slug: 'tags',
+      access: { read: () => true },
+      fields: {
+        name: { type: 'text' },
+      },
+    }
+
+    const complexCol: CollectionConfig = {
+      slug: 'pages',
+      fields: {
+        title: { type: 'text', required: true },
+        seo: {
+          type: 'group',
+          fields: {
+            ogImage: { type: 'upload', relationTo: 'media' },
+            author: { type: 'relationship', relationTo: 'users' },
+            tags: { type: 'relationship', relationTo: 'tags', hasMany: true },
+          },
+        },
+        gallery: {
+          type: 'array',
+          fields: {
+            image: { type: 'upload', relationTo: 'media' },
+            curator: { type: 'relationship', relationTo: 'users' },
+            tags: { type: 'relationship', relationTo: 'tags', hasMany: true },
+          },
+        },
+        layout: {
+          type: 'blocks',
+          blocks: [
+            {
+              slug: 'hero',
+              fields: {
+                headline: { type: 'text' },
+                backgroundImage: { type: 'upload', relationTo: 'media' },
+              },
+            },
+            {
+              slug: 'featuredPosts',
+              fields: {
+                heading: { type: 'text' },
+                posts: { type: 'relationship', relationTo: 'posts', hasMany: true },
+              },
+            },
+          ],
+        },
+      },
+    }
+
+    const mockMedia: StoredDoc[] = [
+      { id: 10, alt: 'Header Banner', createdAt: '2026-01-01', updatedAt: '2026-01-01' },
+      { id: 20, alt: 'Photo 1', createdAt: '2026-01-01', updatedAt: '2026-01-01' },
+      { id: 30, alt: 'Photo 2', createdAt: '2026-01-01', updatedAt: '2026-01-01' },
+    ]
+
+    const mockTags: StoredDoc[] = [
+      { id: 100, name: 'Tech', createdAt: '2026-01-01', updatedAt: '2026-01-01' },
+      { id: 200, name: 'Design', createdAt: '2026-01-01', updatedAt: '2026-01-01' },
+    ]
+
+    const mockPosts: StoredDoc[] = [
+      { id: 301, title: 'First Post', author: 1, createdAt: '2026-01-01', updatedAt: '2026-01-01' },
+      {
+        id: 302,
+        title: 'Second Post',
+        author: 2,
+        createdAt: '2026-01-01',
+        updatedAt: '2026-01-01',
+      },
+    ]
+
+    it('populates relationships and uploads inside group, array, and blocks at depth 1', async () => {
+      const db = createMockAdapter({
+        media: mockMedia,
+        users: mockUsers,
+        tags: mockTags,
+        posts: mockPosts,
+      })
+
+      const doc: DocumentData = {
+        id: 1,
+        title: 'Home Page',
+        seo: {
+          ogImage: 10,
+          author: 1,
+          tags: [200, 100],
+        },
+        gallery: [
+          { id: 'g1', image: 20, curator: 2, tags: [100] },
+          { id: 'g2', image: 30, curator: 1, tags: [200] },
+        ],
+        layout: [
+          { id: 'b1', blockType: 'hero', headline: 'Welcome', backgroundImage: 10 },
+          { id: 'b2', blockType: 'featuredPosts', heading: 'Recent', posts: [302, 301] },
+        ],
+      }
+
+      const result = await populateDocs({
+        docs: [doc],
+        collection: complexCol,
+        depth: 1,
+        collections: [complexCol, mediaCol, usersCollection, tagsCol, postsCollection],
+        db,
+      })
+
+      const populated = result[0]!
+      // Group
+      const seo = populated.seo as Record<string, unknown>
+      expect(seo.ogImage).toEqual(mockMedia[0])
+      expect(seo.author).toEqual(mockUsers[0])
+      expect(seo.tags).toEqual([mockTags[1], mockTags[0]])
+
+      // Array
+      const gallery = populated.gallery as Array<Record<string, unknown>>
+      expect(gallery[0]?.image).toEqual(mockMedia[1])
+      expect(gallery[0]?.curator).toEqual(mockUsers[1])
+      expect(gallery[0]?.tags).toEqual([mockTags[0]])
+
+      expect(gallery[1]?.image).toEqual(mockMedia[2])
+      expect(gallery[1]?.curator).toEqual(mockUsers[0])
+      expect(gallery[1]?.tags).toEqual([mockTags[1]])
+
+      // Blocks
+      const layout = populated.layout as Array<Record<string, unknown>>
+      expect(layout[0]?.backgroundImage).toEqual(mockMedia[0])
+      expect(layout[1]?.posts).toEqual([mockPosts[1], mockPosts[0]])
+    })
+
+    it('recursively populates nested references at depth 2 (e.g. block -> post -> author)', async () => {
+      const db = createMockAdapter({
+        media: mockMedia,
+        users: mockUsers,
+        tags: mockTags,
+        posts: mockPosts,
+      })
+
+      const doc: DocumentData = {
+        id: 1,
+        title: 'Home Page',
+        layout: [{ id: 'b1', blockType: 'featuredPosts', heading: 'Recent', posts: [301] }],
+      }
+
+      const result = await populateDocs({
+        docs: [doc],
+        collection: complexCol,
+        depth: 2,
+        collections: [complexCol, mediaCol, usersCollection, tagsCol, postsCollection],
+        db,
+      })
+
+      const layout = result[0]?.layout as Array<Record<string, unknown>>
+      const posts = layout[0]?.posts as Array<Record<string, unknown>>
+      expect(posts[0]?.id).toBe(301)
+      expect(posts[0]?.author).toEqual(mockUsers[0]) // User Alice populated inside post inside block!
+    })
+
+    it('handles deleted/missing referenced documents inside group, array, and blocks safely', async () => {
+      const db = createMockAdapter({
+        media: [mockMedia[0]!], // 20 and 30 are missing/deleted
+        users: [], // users deleted
+        tags: [mockTags[0]!], // 200 is missing/deleted
+        posts: [mockPosts[0]!], // 302 is missing/deleted
+      })
+
+      const doc: DocumentData = {
+        id: 1,
+        title: 'Home Page',
+        seo: {
+          ogImage: 999, // missing
+          author: 888, // missing
+          tags: [100, 200], // 200 missing
+        },
+        gallery: [
+          { id: 'g1', image: 20, curator: 2, tags: [200] }, // all missing except tags is empty
+        ],
+        layout: [
+          { id: 'b1', blockType: 'hero', headline: 'Welcome', backgroundImage: 999 }, // missing
+          { id: 'b2', blockType: 'featuredPosts', heading: 'Recent', posts: [301, 302] }, // 302 missing
+        ],
+      }
+
+      const result = await populateDocs({
+        docs: [doc],
+        collection: complexCol,
+        depth: 1,
+        collections: [complexCol, mediaCol, usersCollection, tagsCol, postsCollection],
+        db,
+      })
+
+      const populated = result[0]!
+      const seo = populated.seo as Record<string, unknown>
+      expect(seo.ogImage).toBeNull()
+      expect(seo.author).toBeNull()
+      expect(seo.tags).toEqual([mockTags[0]]) // 200 omitted
+
+      const gallery = populated.gallery as Array<Record<string, unknown>>
+      expect(gallery[0]?.image).toBeNull()
+      expect(gallery[0]?.curator).toBeNull()
+      expect(gallery[0]?.tags).toEqual([])
+
+      const layout = populated.layout as Array<Record<string, unknown>>
+      expect(layout[0]?.backgroundImage).toBeNull()
+      expect(layout[1]?.posts).toEqual([mockPosts[0]]) // 302 omitted
+    })
+
+    it('batches all target IDs across nested structures into a single query per collection', async () => {
+      const db = createMockAdapter({
+        media: mockMedia,
+        users: mockUsers,
+        tags: mockTags,
+        posts: mockPosts,
+      })
+      const findSpy = vi.spyOn(db, 'find')
+
+      const doc: DocumentData = {
+        id: 1,
+        title: 'Batched Page',
+        seo: {
+          ogImage: 10,
+        },
+        gallery: [
+          { id: 'g1', image: 20 },
+          { id: 'g2', image: 30 },
+        ],
+        layout: [{ id: 'b1', blockType: 'hero', backgroundImage: 10 }],
+      }
+
+      await populateDocs({
+        docs: [doc],
+        collection: complexCol,
+        depth: 1,
+        collections: [complexCol, mediaCol, usersCollection, tagsCol, postsCollection],
+        db,
+      })
+
+      // Media IDs 10, 20, 30 across seo, gallery, and layout should be requested in a single find() call
+      const mediaCalls = findSpy.mock.calls.filter(([args]) => args.collection.slug === 'media')
+      expect(mediaCalls).toHaveLength(1)
+      const whereId = mediaCalls[0]![0].where?.id as { in: number[] }
+      expect(whereId.in.sort((a, b) => a - b)).toEqual([10, 20, 30])
+    })
+
+    it('respects read access control inside nested fields (leaves unpopulated when denied)', async () => {
+      const restrictedMediaCol: CollectionConfig = {
+        slug: 'media',
+        upload: true,
+        access: { read: () => false }, // Denied to all
+        fields: {
+          alt: { type: 'text' },
+        },
+      }
+
+      const db = createMockAdapter({
+        media: mockMedia,
+        users: mockUsers,
+        tags: mockTags,
+        posts: mockPosts,
+      })
+
+      const doc: DocumentData = {
+        id: 1,
+        title: 'Restricted Page',
+        seo: {
+          ogImage: 10,
+        },
+        gallery: [{ id: 'g1', image: 20 }],
+        layout: [{ id: 'b1', blockType: 'hero', backgroundImage: 10 }],
+      }
+
+      const result = await populateDocs({
+        docs: [doc],
+        collection: complexCol,
+        depth: 1,
+        collections: [complexCol, restrictedMediaCol, usersCollection, tagsCol, postsCollection],
+        db,
+      })
+
+      const populated = result[0]!
+      // When access denied on media, IDs remain unpopulated
+      expect((populated.seo as Record<string, unknown>).ogImage).toBe(10)
+      expect((populated.gallery as Array<Record<string, unknown>>)[0]!.image).toBe(20)
+      expect((populated.layout as Array<Record<string, unknown>>)[0]!.backgroundImage).toBe(10)
+    })
   })
 })
