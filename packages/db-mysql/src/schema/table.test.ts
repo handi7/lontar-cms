@@ -227,4 +227,35 @@ describe('collectionToTable', () => {
     expect(col(columns, 'layout').columnType).toBe('MySqlJson')
     expect(col(columns, 'layout').notNull).toBe(true)
   })
+
+  it('treats fields with admin.condition as nullable regardless of required: true', () => {
+    const postsWithConditional: CollectionConfig = {
+      slug: 'posts',
+      fields: {
+        format: {
+          type: 'select',
+          options: ['standard', 'video'],
+          defaultValue: 'standard',
+        },
+        videoUrl: {
+          type: 'text',
+          required: true,
+          admin: { condition: { format: { equals: 'video' } } },
+        },
+        videoSettings: {
+          type: 'group',
+          admin: { condition: { format: { equals: 'video' } } },
+          fields: {
+            duration: { type: 'number', required: true },
+          },
+        },
+      },
+    }
+
+    const table = collectionToTable(postsWithConditional)
+    const columns = getTableColumns(table) as Record<string, AnyMySqlColumn>
+
+    expect(col(columns, 'videoUrl').notNull).toBe(false)
+    expect(col(columns, 'videoSettings__duration').notNull).toBe(false)
+  })
 })

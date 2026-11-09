@@ -34,22 +34,26 @@ import type {
   UploadField,
 } from '@lontar/core'
 
+function isColumnRequired(field: Field): boolean {
+  return Boolean(field.required && !field.admin?.condition)
+}
+
 function textToColumn(name: string, field: TextField) {
   const base = varchar(name, { length: field.maxLength ?? 255 })
   const withDefault = field.defaultValue !== undefined ? base.default(field.defaultValue) : base
-  return field.required ? withDefault.notNull() : withDefault
+  return isColumnRequired(field) ? withDefault.notNull() : withDefault
 }
 
 function numberToColumn(name: string, field: NumberField) {
   const base = field.integer ? int(name) : double(name)
   const withDefault = field.defaultValue !== undefined ? base.default(field.defaultValue) : base
-  return field.required ? withDefault.notNull() : withDefault
+  return isColumnRequired(field) ? withDefault.notNull() : withDefault
 }
 
 function textareaToColumn(name: string, field: TextareaField) {
   const base = text(name)
   const withDefault = field.defaultValue !== undefined ? base.default(field.defaultValue) : base
-  return field.required ? withDefault.notNull() : withDefault
+  return isColumnRequired(field) ? withDefault.notNull() : withDefault
 }
 
 function emailToColumn(name: string, field: EmailField) {
@@ -57,7 +61,7 @@ function emailToColumn(name: string, field: EmailField) {
   const withUnique = field.unique ? base.unique() : base
   const withDefault =
     field.defaultValue !== undefined ? withUnique.default(field.defaultValue) : withUnique
-  return field.required ? withDefault.notNull() : withDefault
+  return isColumnRequired(field) ? withDefault.notNull() : withDefault
 }
 
 function slugToColumn(name: string, field: SlugField) {
@@ -65,47 +69,47 @@ function slugToColumn(name: string, field: SlugField) {
   const withUnique = field.unique ? base.unique() : base
   const withDefault =
     field.defaultValue !== undefined ? withUnique.default(field.defaultValue) : withUnique
-  return field.required ? withDefault.notNull() : withDefault
+  return isColumnRequired(field) ? withDefault.notNull() : withDefault
 }
 
 function checkboxToColumn(name: string, field: CheckboxField) {
   const base = boolean(name)
   const withDefault = field.defaultValue !== undefined ? base.default(field.defaultValue) : base
-  return field.required ? withDefault.notNull() : withDefault
+  return isColumnRequired(field) ? withDefault.notNull() : withDefault
 }
 
 function selectToColumn(name: string, field: SelectField) {
   const base = varchar(name, { length: 120 })
   const withDefault = field.defaultValue !== undefined ? base.default(field.defaultValue) : base
-  return field.required ? withDefault.notNull() : withDefault
+  return isColumnRequired(field) ? withDefault.notNull() : withDefault
 }
 
 function dateToColumn(name: string, field: DateField) {
   const base = datetime(name, { mode: 'date', fsp: 3 })
   const withDefault =
     field.defaultValue !== undefined ? base.default(new Date(field.defaultValue)) : base
-  return field.required ? withDefault.notNull() : withDefault
+  return isColumnRequired(field) ? withDefault.notNull() : withDefault
 }
 
 function richTextToColumn(name: string, field: RichTextField) {
   const base = json(name)
   const withDefault = field.defaultValue !== undefined ? base.default(field.defaultValue) : base
-  return field.required ? withDefault.notNull() : withDefault
+  return isColumnRequired(field) ? withDefault.notNull() : withDefault
 }
 
 function relationshipToColumn(name: string, field: RelationshipField) {
   const base = int(name)
-  return field.required ? base.notNull() : base
+  return isColumnRequired(field) ? base.notNull() : base
 }
 
 function uploadToColumn(name: string, field: UploadField) {
   const base = int(name)
-  return field.required ? base.notNull() : base
+  return isColumnRequired(field) ? base.notNull() : base
 }
 
 function jsonFieldToColumn(name: string, field: ArrayField | BlocksField) {
   const base = json(name)
-  return field.required ? base.notNull() : base
+  return isColumnRequired(field) ? base.notNull() : base
 }
 
 function basicFieldToColumn(name: string, field: Field) {
@@ -169,19 +173,32 @@ export interface FlattenedColumnField {
   field: Field
 }
 
+function resolveFlattenedField(field: Field, isConditional: boolean): Field {
+  if (isConditional && !field.admin?.condition) {
+    return { ...field, admin: { ...field.admin, condition: {} } }
+  }
+  return field
+}
+
 export function flattenGroupFields(
   fields: Fields,
   prefix = '',
   pathPrefix: string[] = [],
+  parentConditional = false,
 ): FlattenedColumnField[] {
   const result: FlattenedColumnField[] = []
   for (const [name, field] of Object.entries(fields)) {
     const colName = prefix ? `${prefix}__${name}` : name
     const currentPath = [...pathPrefix, name]
+    const isConditional = parentConditional || Boolean(field.admin?.condition)
     if (field.type === 'group') {
-      result.push(...flattenGroupFields(field.fields, colName, currentPath))
+      result.push(...flattenGroupFields(field.fields, colName, currentPath, isConditional))
     } else {
-      result.push({ name: colName, path: currentPath, field })
+      result.push({
+        name: colName,
+        path: currentPath,
+        field: resolveFlattenedField(field, isConditional),
+      })
     }
   }
   return result

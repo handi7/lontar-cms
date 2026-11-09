@@ -129,6 +129,25 @@ const nestedCollection: CollectionConfig = {
   },
 }
 
+const conditionalPostsCollection: CollectionConfig = {
+  slug: 'conditional_posts',
+  labels: { singular: 'Conditional Post', plural: 'Conditional Posts' },
+  fields: {
+    title: { type: 'text', required: true },
+    format: {
+      type: 'select',
+      options: ['standard', 'video'],
+      defaultValue: 'standard',
+      required: true,
+    },
+    videoUrl: {
+      type: 'text',
+      required: true,
+      admin: { condition: { format: { equals: 'video' } } },
+    },
+  },
+}
+
 const headerGlobal: GlobalConfig = {
   slug: 'header',
   fields: {
@@ -158,6 +177,7 @@ describe('mysqlAdapter (integration)', () => {
         tagsCollection,
         pagesCollection,
         nestedCollection,
+        conditionalPostsCollection,
       ],
       globals: [headerGlobal],
     }
@@ -1524,5 +1544,64 @@ describe('mysqlAdapter (integration)', () => {
       where: { 'layout.text': { equals: 'Book Now Unique' } },
     })
     expect(resBlocksCtaText.docs.map((d) => d.id)).toEqual([pageA.id])
+  })
+
+  it('creates and reads documents with conditional required fields on both sides of condition', async () => {
+    // 1. Create document where condition is false (format: 'standard'), videoUrl is omitted / null
+    const standardDoc = await adapter.create({
+      collection: conditionalPostsCollection,
+      data: {
+        title: 'Standard Post',
+        format: 'standard',
+        videoUrl: null,
+      },
+    })
+    expect(standardDoc.id).toBeDefined()
+    expect(standardDoc.title).toBe('Standard Post')
+    expect(standardDoc.format).toBe('standard')
+    expect(standardDoc.videoUrl).toBeNull()
+
+    const readStandard = await adapter.findByID({
+      collection: conditionalPostsCollection,
+      id: standardDoc.id,
+    })
+    expect(readStandard?.videoUrl).toBeNull()
+
+    // 2. Create document where condition is true (format: 'video'), videoUrl is provided
+    const videoDoc = await adapter.create({
+      collection: conditionalPostsCollection,
+      data: {
+        title: 'Video Post',
+        format: 'video',
+        videoUrl: 'https://example.com/video.mp4',
+      },
+    })
+    expect(videoDoc.id).toBeDefined()
+    expect(videoDoc.videoUrl).toBe('https://example.com/video.mp4')
+
+    const readVideo = await adapter.findByID({
+      collection: conditionalPostsCollection,
+      id: videoDoc.id,
+    })
+    expect(readVideo?.videoUrl).toBe('https://example.com/video.mp4')
+
+    // 3. Update video doc to standard format: videoUrl is set to null
+    const updatedDoc = await adapter.update({
+      collection: conditionalPostsCollection,
+      id: videoDoc.id,
+      data: {
+        format: 'standard',
+        videoUrl: null,
+      },
+    })
+    expect(updatedDoc).not.toBeNull()
+    expect(updatedDoc?.format).toBe('standard')
+    expect(updatedDoc?.videoUrl).toBeNull()
+
+    const readUpdated = await adapter.findByID({
+      collection: conditionalPostsCollection,
+      id: videoDoc.id,
+    })
+    expect(readUpdated?.videoUrl).toBeNull()
   })
 })

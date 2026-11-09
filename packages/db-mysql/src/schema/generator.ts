@@ -33,13 +33,17 @@ export function slugToIdentifier(slug: string): string {
   return slug.replace(/[-_]([a-z0-9])/g, (_, char: string) => char.toUpperCase())
 }
 
+function isColumnRequired(field: Field): boolean {
+  return Boolean(field.required && !field.admin?.condition)
+}
+
 function renderTextField(name: string, field: TextField): string {
   const length = field.maxLength ?? 255
   let code = `varchar('${name}', { length: ${length} })`
   if (field.defaultValue !== undefined) {
     code += `.default(${JSON.stringify(field.defaultValue)})`
   }
-  if (field.required) {
+  if (isColumnRequired(field)) {
     code += '.notNull()'
   }
   return code
@@ -50,7 +54,7 @@ function renderNumberField(name: string, field: NumberField): string {
   if (field.defaultValue !== undefined) {
     code += `.default(${field.defaultValue})`
   }
-  if (field.required) {
+  if (isColumnRequired(field)) {
     code += '.notNull()'
   }
   return code
@@ -61,7 +65,7 @@ function renderTextareaField(name: string, field: TextareaField): string {
   if (field.defaultValue !== undefined) {
     code += `.default(${JSON.stringify(field.defaultValue)})`
   }
-  if (field.required) {
+  if (isColumnRequired(field)) {
     code += '.notNull()'
   }
   return code
@@ -75,7 +79,7 @@ function renderEmailField(name: string, field: EmailField): string {
   if (field.defaultValue !== undefined) {
     code += `.default(${JSON.stringify(field.defaultValue)})`
   }
-  if (field.required) {
+  if (isColumnRequired(field)) {
     code += '.notNull()'
   }
   return code
@@ -89,7 +93,7 @@ function renderSlugField(name: string, field: SlugField): string {
   if (field.defaultValue !== undefined) {
     code += `.default(${JSON.stringify(field.defaultValue)})`
   }
-  if (field.required) {
+  if (isColumnRequired(field)) {
     code += '.notNull()'
   }
   return code
@@ -100,7 +104,7 @@ function renderCheckboxField(name: string, field: CheckboxField): string {
   if (field.defaultValue !== undefined) {
     code += `.default(${field.defaultValue})`
   }
-  if (field.required) {
+  if (isColumnRequired(field)) {
     code += '.notNull()'
   }
   return code
@@ -111,7 +115,7 @@ function renderSelectField(name: string, field: SelectField): string {
   if (field.defaultValue !== undefined) {
     code += `.default(${JSON.stringify(field.defaultValue)})`
   }
-  if (field.required) {
+  if (isColumnRequired(field)) {
     code += '.notNull()'
   }
   return code
@@ -122,7 +126,7 @@ function renderDateField(name: string, field: DateField): string {
   if (field.defaultValue !== undefined) {
     code += `.default(new Date(${JSON.stringify(field.defaultValue)}))`
   }
-  if (field.required) {
+  if (isColumnRequired(field)) {
     code += '.notNull()'
   }
   return code
@@ -133,7 +137,7 @@ function renderRichTextField(name: string, field: RichTextField): string {
   if (field.defaultValue !== undefined) {
     code += `.default(${JSON.stringify(field.defaultValue)})`
   }
-  if (field.required) {
+  if (isColumnRequired(field)) {
     code += '.notNull()'
   }
   return code
@@ -141,7 +145,7 @@ function renderRichTextField(name: string, field: RichTextField): string {
 
 function renderRelationshipField(name: string, field: RelationshipField): string {
   let code = `int('${name}')`
-  if (field.required) {
+  if (isColumnRequired(field)) {
     code += '.notNull()'
   }
   return code
@@ -149,7 +153,7 @@ function renderRelationshipField(name: string, field: RelationshipField): string
 
 function renderUploadField(name: string, field: UploadField): string {
   let code = `int('${name}')`
-  if (field.required) {
+  if (isColumnRequired(field)) {
     code += '.notNull()'
   }
   return code
@@ -157,7 +161,7 @@ function renderUploadField(name: string, field: UploadField): string {
 
 function renderArrayField(name: string, field: ArrayField | BlocksField): string {
   let code = `json('${name}')`
-  if (field.required) {
+  if (isColumnRequired(field)) {
     code += '.notNull()'
   }
   return code

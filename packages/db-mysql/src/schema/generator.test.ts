@@ -414,4 +414,43 @@ describe('generateSchemaFile', () => {
     expect(output).toContain("title: varchar('title', { length: 255 }).notNull(),")
     expect(output).toContain("layout: json('layout').notNull(),")
   })
+
+  it('generates nullable columns for fields with admin.condition regardless of required: true', () => {
+    const posts: CollectionConfig = {
+      slug: 'posts',
+      fields: {
+        title: { type: 'text', required: true },
+        format: {
+          type: 'select',
+          options: ['standard', 'video'],
+          defaultValue: 'standard',
+        },
+        videoUrl: {
+          type: 'text',
+          required: true,
+          admin: { condition: { format: { equals: 'video' } } },
+        },
+        settings: {
+          type: 'group',
+          admin: { condition: { format: { equals: 'video' } } },
+          fields: {
+            duration: { type: 'number', required: true },
+          },
+        },
+      },
+    }
+
+    const config: Config = {
+      secret: 'test-secret',
+      db: fakeAdapter,
+      collections: [posts],
+    }
+
+    const output = generateSchemaFile(config)
+    expect(output).toContain("title: varchar('title', { length: 255 }).notNull(),")
+    expect(output).toContain("videoUrl: varchar('videoUrl', { length: 255 }),")
+    expect(output).not.toContain("videoUrl: varchar('videoUrl', { length: 255 }).notNull(),")
+    expect(output).toContain("settings__duration: double('settings__duration'),")
+    expect(output).not.toContain("settings__duration: double('settings__duration').notNull(),")
+  })
 })
