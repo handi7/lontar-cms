@@ -58,7 +58,7 @@ examples/
 
 ## Non-goals for v0.1
 
-Do not implement these unless the current milestone says so: `array`/`blocks`/`group`/conditional fields, versions/drafts/live preview, localization, GraphQL, field-level access control, non-MySQL databases, visual page builder, public plugin system, multi-tenancy. Full list in `docs/scope.md`.
+Do not implement these unless the current milestone says so: versions/drafts/live preview, localization, GraphQL, field-level access control, non-MySQL databases, visual page builder, public plugin system, multi-tenancy. Full list in `docs/scope.md`.
 
 ## Commands
 
