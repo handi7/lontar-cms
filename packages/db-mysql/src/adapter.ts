@@ -637,7 +637,7 @@ function buildBlockJsonOpCondition(
   if (op === 'not_equals') {
     const candidate = buildBlockCandidate(blockType, subSegments, rawVal)
     const jsonVal = JSON.stringify(candidate)
-    return sql`(${column} IS NULL OR JSON_CONTAINS(${column}, CAST(${jsonVal} AS JSON)) = 0)`
+    return sql`(${column} IS NULL OR COALESCE(JSON_CONTAINS(${column}, CAST(${jsonVal} AS JSON)), 0) = 0)`
   }
   if (op === 'in') {
     return buildBlockInCondition(column, blockType, subSegments, rawVal)
@@ -668,7 +668,7 @@ function buildStandardJsonOpCondition(
   }
   if (op === 'not_equals') {
     const jsonVal = JSON.stringify(rawVal)
-    return sql`(${column} IS NULL OR JSON_CONTAINS(JSON_EXTRACT(${column}, ${jsonPath}), CAST(${jsonVal} AS JSON)) = 0)`
+    return sql`(${column} IS NULL OR JSON_EXTRACT(${column}, ${jsonPath}) IS NULL OR COALESCE(JSON_CONTAINS(JSON_EXTRACT(${column}, ${jsonPath}), CAST(${jsonVal} AS JSON)), 0) = 0)`
   }
   if (op === 'in') {
     const arr = Array.isArray(rawVal) ? rawVal : [rawVal]
