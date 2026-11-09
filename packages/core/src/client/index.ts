@@ -48,5 +48,10 @@ export {
   resolveConditionTarget,
   sanitizeConditionalFields,
 } from './condition'
-export { clientFieldToZod, clientFieldsToZod, isRichTextEmpty } from './zod'
+export {
+  clientFieldToZod,
+  clientFieldsToZod,
+  isRichTextEmpty,
+  type ClientFieldsToZodOptions,
+} from './zod'
 export { generateRowId } from './id'

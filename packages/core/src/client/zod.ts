@@ -237,14 +237,16 @@ function validateSingleField(
   path: (string | number)[],
   ctx: z.RefinementCtx,
   isPartial?: boolean,
+  originalContainer?: Record<string, unknown>,
 ): void {
   if (!field.condition) return
   const isVisible = matchesCondition(field.condition, rootData, siblingData)
   if (!isVisible) return
 
-  if (isPartial && !(field.name in container)) return
+  const isAbsent = Boolean(isPartial && !(field.name in container))
+  if (isAbsent && !originalContainer) return
 
-  const val = container[field.name]
+  const val = isAbsent ? originalContainer?.[field.name] : container[field.name]
   const schema = clientFieldToZod(field, true)
   const res = schema.safeParse(val)
   if (!res.success) {
@@ -264,17 +266,25 @@ function validateNestedGroup(
   path: (string | number)[],
   ctx: z.RefinementCtx,
   isPartial?: boolean,
+  originalContainer?: Record<string, unknown>,
 ): void {
   const groupVal = container[field.name]
-  if (!groupVal || typeof groupVal !== 'object') return
+  const origGroupVal = originalContainer?.[field.name] as Record<string, unknown> | undefined
+  if (!groupVal && !origGroupVal) return
+
+  const groupContainer =
+    groupVal && typeof groupVal === 'object' ? (groupVal as Record<string, unknown>) : {}
+  const mergedGroup = origGroupVal ? { ...origGroupVal, ...groupContainer } : groupContainer
+
   validateConditionalFields({
     fields: field.fields,
-    data: groupVal,
+    data: groupContainer,
     rootData,
-    siblingData: groupVal as Record<string, unknown>,
+    siblingData: mergedGroup,
     path: [...path, field.name],
     ctx,
     isPartial,
+    originalDoc: origGroupVal,
   })
 }
 
@@ -343,6 +353,7 @@ function validateConditionalFields({
   path,
   ctx,
   isPartial,
+  originalDoc,
 }: {
   fields: readonly ClientField[]
   data: unknown
@@ -351,15 +362,25 @@ function validateConditionalFields({
   path: (string | number)[]
   ctx: z.RefinementCtx
   isPartial?: boolean
+  originalDoc?: Record<string, unknown>
 }): void {
   if (!data || typeof data !== 'object') return
   const container = data as Record<string, unknown>
   const currentSibling = siblingData ?? container
 
   for (const field of fields) {
-    validateSingleField(field, container, rootData, currentSibling, path, ctx, isPartial)
+    validateSingleField(
+      field,
+      container,
+      rootData,
+      currentSibling,
+      path,
+      ctx,
+      isPartial,
+      originalDoc,
+    )
     if (field.type === 'group') {
-      validateNestedGroup(field, container, rootData, path, ctx, isPartial)
+      validateNestedGroup(field, container, rootData, path, ctx, isPartial, originalDoc)
     } else if (field.type === 'array') {
       validateNestedArray(field, container, rootData, path, ctx)
     } else if (field.type === 'blocks') {
@@ -368,12 +389,21 @@ function validateConditionalFields({
   }
 }
 
+export interface ClientFieldsToZodOptions {
+  partial?: boolean
+  originalDoc?: Record<string, unknown>
+}
+
 /**
  * Object schema for a document's fields. Unknown keys, system fields included,
  * are stripped, so a client cannot set `id` or the timestamps.
  */
-export function clientFieldsToZod(fields: readonly ClientField[], options?: { partial?: boolean }) {
+export function clientFieldsToZod(
+  fields: readonly ClientField[],
+  options?: ClientFieldsToZodOptions,
+) {
   const isPartial = Boolean(options?.partial)
+  const originalDoc = options?.originalDoc
   const baseObj = clientFieldsToObject(fields)
   const base = isPartial ? baseObj.partial() : baseObj
 
@@ -382,18 +412,29 @@ export function clientFieldsToZod(fields: readonly ClientField[], options?: { pa
   }
 
   const effects = base.superRefine((data, ctx) => {
+    const rootData = originalDoc
+      ? { ...originalDoc, ...(data as Record<string, unknown>) }
+      : (data as Record<string, unknown>)
     validateConditionalFields({
       fields,
       data,
-      rootData: data,
+      rootData,
       path: [],
       ctx,
       isPartial,
+      originalDoc,
     })
   })
 
-  ;(effects as unknown as { partial: () => typeof effects }).partial = () =>
-    clientFieldsToZod(fields, { partial: true })
+  ;(
+    effects as unknown as {
+      partial: (opts?: ClientFieldsToZodOptions) => typeof effects
+    }
+  ).partial = (opts) =>
+    clientFieldsToZod(fields, {
+      partial: true,
+      originalDoc: opts?.originalDoc ?? originalDoc,
+    })
 
   return effects
 }

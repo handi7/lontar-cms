@@ -984,5 +984,69 @@ describe('clientFieldsToZod', () => {
       const fail = partialSchema.safeParse({ format: 'video', videoUrl: 'abc' })
       expect(fail.success).toBe(false)
     })
+
+    it('enforces required conditional fields revealed by PATCH when originalDoc is provided (#174)', () => {
+      const originalDoc = { format: 'standard', videoUrl: null }
+      const partialSchema = clientFieldsToZod(conditionalFields, { partial: true, originalDoc })
+
+      // PATCH { format: 'video' } reveals videoUrl, but it is absent from patch and null in original -> fails
+      const fail = partialSchema.safeParse({ format: 'video' })
+      expect(fail.success).toBe(false)
+      if (!fail.success) {
+        expect(fail.error.issues.some((i) => i.path[0] === 'videoUrl')).toBe(true)
+      }
+
+      // Supplying the revealed required field satisfies validation
+      const pass = partialSchema.safeParse({
+        format: 'video',
+        videoUrl: 'https://youtube.com/watch?v=123',
+      })
+      expect(pass.success).toBe(true)
+    })
+
+    it('allows PATCH of unrelated fields when required conditional field is already satisfied in originalDoc (#174)', () => {
+      const originalDoc = {
+        format: 'video',
+        videoUrl: 'https://youtube.com/watch?v=123',
+      }
+      const partialSchema = clientFieldsToZod(conditionalFields, { partial: true, originalDoc })
+
+      // Editing authorBio while format is already video and videoUrl already exists in originalDoc
+      const pass = partialSchema.safeParse({ authorBio: 'New author bio' })
+      expect(pass.success).toBe(true)
+    })
+
+    it('allows PATCH turning condition OFF without providing the conditional field (#174)', () => {
+      const originalDoc = {
+        format: 'video',
+        videoUrl: 'https://youtube.com/watch?v=123',
+      }
+      const partialSchema = clientFieldsToZod(conditionalFields, { partial: true, originalDoc })
+
+      // Switching format back to standard hides videoUrl
+      const pass = partialSchema.safeParse({ format: 'standard' })
+      expect(pass.success).toBe(true)
+    })
+
+    it('enforces required conditional fields inside group revealed by PATCH with originalDoc (#174)', () => {
+      const originalDoc = {
+        format: 'standard',
+        seo: { enabled: false, keywords: null },
+      }
+      const partialSchema = clientFieldsToZod(conditionalFields, { partial: true, originalDoc })
+
+      // Enabling seo without keywords -> fails because keywords is required when enabled is true
+      const fail = partialSchema.safeParse({ seo: { enabled: true } })
+      expect(fail.success).toBe(false)
+      if (!fail.success) {
+        expect(fail.error.issues.some((i) => i.path.join('.') === 'seo.keywords')).toBe(true)
+      }
+
+      // Enabling seo with keywords provided -> succeeds
+      const pass = partialSchema.safeParse({
+        seo: { enabled: true, keywords: 'lontar, cms' },
+      })
+      expect(pass.success).toBe(true)
+    })
   })
 })
