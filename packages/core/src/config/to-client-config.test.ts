@@ -626,4 +626,66 @@ describe('toClientConfig', () => {
       },
     ])
   })
+
+  it('serializes admin.condition onto client fields and survives JSON round trip', () => {
+    const col = clientCollection({
+      slug: 'posts',
+      fields: {
+        format: f.select({
+          options: ['standard', 'video', 'quote'],
+          defaultValue: 'standard',
+        }),
+        videoUrl: f.text({
+          required: true,
+          admin: {
+            condition: {
+              format: { equals: 'video' },
+            },
+          },
+        }),
+        gallery: f.array({
+          fields: {
+            type: f.select({ options: ['photo', 'video'] }),
+            caption: f.text({
+              admin: {
+                condition: {
+                  type: { equals: 'photo' },
+                },
+              },
+            }),
+          },
+        }),
+      },
+    })
+
+    expect(col).toBeDefined()
+    expect(col?.fields[1]).toMatchObject({
+      name: 'videoUrl',
+      condition: {
+        format: { equals: 'video' },
+      },
+    })
+    const galleryField = col?.fields[2] as { fields: { condition?: unknown }[] }
+    expect(galleryField.fields[1]?.condition).toEqual({
+      type: { equals: 'photo' },
+    })
+
+    const config = defineConfig({
+      secret: SECRET,
+      db: fakeAdapter,
+      collections: [
+        {
+          slug: 'posts',
+          fields: {
+            format: f.select({ options: ['standard', 'video'] }),
+            videoUrl: f.text({
+              admin: { condition: { format: { equals: 'video' } } },
+            }),
+          },
+        },
+      ],
+    })
+    const serialized = toClientConfig(config)
+    expect(JSON.parse(JSON.stringify(serialized))).toStrictEqual(serialized)
+  })
 })

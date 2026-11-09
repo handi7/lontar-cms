@@ -1,4 +1,4 @@
-import type { ClientField } from '@lontar/core/client'
+import { sanitizeConditionalFields, type ClientField } from '@lontar/core/client'
 
 /**
  * Format a stored date (ISO string, timestamp, or Date) to local YYYY-MM-DDTHH:mm
@@ -155,7 +155,7 @@ export function formatDocForSubmit(
       formatted[f.name] = formatFieldValueForSubmit(f, formatted[f.name])
     }
   }
-  return formatted
+  return sanitizeConditionalFields(fields, formatted)
 }
 
 function getExplicitDefault(f: ClientField): unknown {

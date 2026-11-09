@@ -1,8 +1,11 @@
 import { useState, useEffect } from 'react'
-import { Controller, useFieldArray } from 'react-hook-form'
+import { Controller, useFieldArray, useWatch } from 'react-hook-form'
 import type { Control, UseFormRegister, UseFormSetValue, UseFormWatch } from 'react-hook-form'
 import {
   generateRowId,
+  getValueByPath,
+  matchesCondition,
+  type FieldCondition,
   type ClientArrayField,
   type ClientBlock,
   type ClientBlocksField,
@@ -1296,7 +1299,7 @@ function StandardFieldRenderer({
   )
 }
 
-export function FieldRenderer({
+function UnconditionalFieldRenderer({
   field,
   control,
   register,
@@ -1368,4 +1371,27 @@ export function FieldRenderer({
       mode={mode}
     />
   )
+}
+
+function ConditionalFieldRenderer(props: FieldRendererProps & { condition: FieldCondition }) {
+  const watchedValues = useWatch<Record<string, unknown>>({ control: props.control })
+  const rootValues = watchedValues ?? (props.watch ? props.watch() : {})
+
+  const siblingData = props.pathPrefix
+    ? (getValueByPath(rootValues, props.pathPrefix) as Record<string, unknown> | undefined)
+    : rootValues
+
+  const isVisible = matchesCondition(props.condition, rootValues, siblingData)
+  if (!isVisible) {
+    return null
+  }
+
+  return <UnconditionalFieldRenderer {...props} />
+}
+
+export function FieldRenderer(props: FieldRendererProps) {
+  if (props.field.condition) {
+    return <ConditionalFieldRenderer {...props} condition={props.field.condition} />
+  }
+  return <UnconditionalFieldRenderer {...props} />
 }

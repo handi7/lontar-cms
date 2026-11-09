@@ -1,3 +1,5 @@
+import { sanitizeConditionalFields } from '../client/condition'
+import { toClientCollection, toClientGlobal } from '../config/to-client-config'
 import type { CollectionConfig, GlobalConfig } from '../config/types'
 import type { DatabaseAdapter, DocumentData, StoredDoc } from '../database/adapter'
 import { formatUniqueConstraintError, UniqueConstraintError } from '../database/errors'
@@ -26,14 +28,17 @@ export async function executeCreate(args: {
   data: DocumentData
   req?: Request
 }): Promise<MutationExecutionResult> {
+  const clientCol = toClientCollection(args.collection)
   const run = async (txDb: DatabaseAdapter): Promise<MutationExecutionResult> => {
+    const initialData = sanitizeConditionalFields(clientCol.fields, args.data)
     const data = await runBeforeChangeHooks({
       collection: args.collection,
-      data: args.data,
+      data: initialData,
       operation: 'create',
       req: args.req,
     })
-    const created = await txDb.create({ collection: args.collection, data })
+    const finalData = sanitizeConditionalFields(clientCol.fields, data)
+    const created = await txDb.create({ collection: args.collection, data: finalData })
     try {
       const doc = await runAfterChangeHooks({
         collection: args.collection,
@@ -75,15 +80,18 @@ export async function executeUpdate(args: {
   data: DocumentData
   req?: Request
 }): Promise<MutationExecutionResult> {
+  const clientCol = toClientCollection(args.collection)
   const run = async (txDb: DatabaseAdapter): Promise<MutationExecutionResult> => {
+    const initialData = sanitizeConditionalFields(clientCol.fields, args.data, args.originalDoc)
     const data = await runBeforeChangeHooks({
       collection: args.collection,
-      data: args.data,
+      data: initialData,
       operation: 'update',
       originalDoc: args.originalDoc,
       req: args.req,
     })
-    const updated = await txDb.update({ collection: args.collection, id: args.id, data })
+    const finalData = sanitizeConditionalFields(clientCol.fields, data, args.originalDoc)
+    const updated = await txDb.update({ collection: args.collection, id: args.id, data: finalData })
     if (!updated) {
       return {
         success: false,
@@ -136,16 +144,27 @@ export async function executeGlobalUpdate(args: {
   data: DocumentData
   req?: Request
 }): Promise<MutationExecutionResult> {
+  const clientGlobal = toClientGlobal(args.global)
   const run = async (txDb: DatabaseAdapter): Promise<MutationExecutionResult> => {
     const operation = args.existing ? 'update' : 'create'
+    const initialData = sanitizeConditionalFields(
+      clientGlobal.fields,
+      args.data,
+      args.existing ?? undefined,
+    )
     const data = await runBeforeChangeHooks({
       global: args.global,
-      data: args.data,
+      data: initialData,
       operation,
       originalDoc: args.existing ?? undefined,
       req: args.req,
     })
-    const saved = await txDb.updateGlobal({ global: args.global, data })
+    const finalData = sanitizeConditionalFields(
+      clientGlobal.fields,
+      data,
+      args.existing ?? undefined,
+    )
+    const saved = await txDb.updateGlobal({ global: args.global, data: finalData })
     const doc = await runAfterChangeHooks({
       global: args.global,
       doc: saved,

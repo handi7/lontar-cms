@@ -49,6 +49,19 @@ export {
   validateWhere,
 } from './query'
 export type {
+  ConditionField,
+  ConditionFilter,
+  ConditionOperator,
+  FieldCondition,
+} from './client/condition'
+export {
+  evaluateFieldFilter,
+  getValueByPath,
+  matchesCondition,
+  resolveConditionTarget,
+  sanitizeConditionalFields,
+} from './client/condition'
+export type {
   FieldFilter,
   FilterOperator,
   QueryValidationIssue,
@@ -123,6 +136,7 @@ export type {
   DateField,
   EmailField,
   Field,
+  FieldAdminOptions,
   Fields,
   FieldType,
   GroupField,

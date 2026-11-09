@@ -1,3 +1,5 @@
+import type { FieldCondition } from './condition'
+
 /** Bumped whenever the shape below changes incompatibly. */
 export const CLIENT_CONFIG_VERSION = 2
 
@@ -39,10 +41,11 @@ export interface ClientCollection {
   fields: ClientField[]
 }
 
-interface ClientFieldBase {
+export interface ClientFieldBase {
   name: string
   label: string
   required: boolean
+  condition?: FieldCondition
 }
 
 export interface ClientTextField extends ClientFieldBase {

@@ -1,4 +1,5 @@
 import { z } from 'zod'
+import { matchesCondition } from './condition'
 import type {
   ClientArrayField,
   ClientBlocksField,
@@ -147,10 +148,10 @@ const zodByType = {
     return z.number().int().positive().max(MAX_INT_32)
   },
   group: (field: ClientGroupField) => {
-    return clientFieldsToZod(field.fields)
+    return clientFieldsToObject(field.fields)
   },
   array: (field: ClientArrayField) => {
-    const rowSchema = clientFieldsToZod(field.fields).extend({
+    const rowSchema = clientFieldsToObject(field.fields).extend({
       id: z
         .string()
         .optional()
@@ -167,7 +168,7 @@ const zodByType = {
   },
   blocks: (field: ClientBlocksField) => {
     const blockSchemas = field.blocks.map((b) => {
-      return clientFieldsToZod(b.fields).extend({
+      return clientFieldsToObject(b.fields).extend({
         id: z
           .string()
           .optional()
@@ -199,7 +200,10 @@ const zodByType = {
 } satisfies { [K in ClientField['type']]: (field: Extract<ClientField, { type: K }>) => z.ZodType }
 
 /** Optional fields accept `null` and `undefined`, since their column is nullable. */
-export function clientFieldToZod(field: ClientField): z.ZodType {
+export function clientFieldToZod(field: ClientField, forceValidation = false): z.ZodType {
+  if (!forceValidation && field.condition) {
+    return z.unknown().optional()
+  }
   // TypeScript cannot match `field.type` to its converter's parameter, hence the cast.
   const toZod = zodByType[field.type] as (field: ClientField) => z.ZodType
   const schema = toZod(field)
@@ -207,9 +211,189 @@ export function clientFieldToZod(field: ClientField): z.ZodType {
 }
 
 /**
+ * Returns a plain ZodObject for an array of fields without superRefine wrapper.
+ */
+export function clientFieldsToObject(fields: readonly ClientField[]) {
+  return z.object(Object.fromEntries(fields.map((field) => [field.name, clientFieldToZod(field)])))
+}
+
+function hasConditionalFields(fields: readonly ClientField[]): boolean {
+  return fields.some((f) => {
+    if (f.condition) return true
+    if (f.type === 'group') return hasConditionalFields(f.fields)
+    if (f.type === 'array') return hasConditionalFields(f.fields)
+    if (f.type === 'blocks') {
+      return f.blocks.some((b) => hasConditionalFields(b.fields))
+    }
+    return false
+  })
+}
+
+function validateSingleField(
+  field: ClientField,
+  container: Record<string, unknown>,
+  rootData: Record<string, unknown>,
+  siblingData: Record<string, unknown>,
+  path: (string | number)[],
+  ctx: z.RefinementCtx,
+  isPartial?: boolean,
+): void {
+  if (!field.condition) return
+  const isVisible = matchesCondition(field.condition, rootData, siblingData)
+  if (!isVisible) return
+
+  if (isPartial && !(field.name in container)) return
+
+  const val = container[field.name]
+  const schema = clientFieldToZod(field, true)
+  const res = schema.safeParse(val)
+  if (!res.success) {
+    for (const issue of res.error.issues) {
+      ctx.addIssue({
+        ...issue,
+        path: [...path, field.name, ...issue.path],
+      })
+    }
+  }
+}
+
+function validateNestedGroup(
+  field: ClientGroupField,
+  container: Record<string, unknown>,
+  rootData: Record<string, unknown>,
+  path: (string | number)[],
+  ctx: z.RefinementCtx,
+  isPartial?: boolean,
+): void {
+  const groupVal = container[field.name]
+  if (!groupVal || typeof groupVal !== 'object') return
+  validateConditionalFields({
+    fields: field.fields,
+    data: groupVal,
+    rootData,
+    siblingData: groupVal as Record<string, unknown>,
+    path: [...path, field.name],
+    ctx,
+    isPartial,
+  })
+}
+
+function validateNestedArray(
+  field: ClientArrayField,
+  container: Record<string, unknown>,
+  rootData: Record<string, unknown>,
+  path: (string | number)[],
+  ctx: z.RefinementCtx,
+): void {
+  const raw = container[field.name]
+  if (!Array.isArray(raw)) return
+  const arr = raw as readonly unknown[]
+  for (let index = 0; index < arr.length; index++) {
+    const row = arr[index]
+    if (row && typeof row === 'object') {
+      validateConditionalFields({
+        fields: field.fields,
+        data: row,
+        rootData,
+        siblingData: row as Record<string, unknown>,
+        path: [...path, field.name, index],
+        ctx,
+        isPartial: false,
+      })
+    }
+  }
+}
+
+function validateNestedBlocks(
+  field: ClientBlocksField,
+  container: Record<string, unknown>,
+  rootData: Record<string, unknown>,
+  path: (string | number)[],
+  ctx: z.RefinementCtx,
+): void {
+  const raw = container[field.name]
+  if (!Array.isArray(raw)) return
+  const arr = raw as readonly unknown[]
+  for (let index = 0; index < arr.length; index++) {
+    const row = arr[index]
+    if (row && typeof row === 'object') {
+      const record = row as Record<string, unknown>
+      const blockType = record.blockType
+      const blockDef = field.blocks.find((b) => b.slug === blockType)
+      if (blockDef) {
+        validateConditionalFields({
+          fields: blockDef.fields,
+          data: record,
+          rootData,
+          siblingData: record,
+          path: [...path, field.name, index],
+          ctx,
+          isPartial: false,
+        })
+      }
+    }
+  }
+}
+
+function validateConditionalFields({
+  fields,
+  data,
+  rootData,
+  siblingData,
+  path,
+  ctx,
+  isPartial,
+}: {
+  fields: readonly ClientField[]
+  data: unknown
+  rootData: Record<string, unknown>
+  siblingData?: Record<string, unknown>
+  path: (string | number)[]
+  ctx: z.RefinementCtx
+  isPartial?: boolean
+}): void {
+  if (!data || typeof data !== 'object') return
+  const container = data as Record<string, unknown>
+  const currentSibling = siblingData ?? container
+
+  for (const field of fields) {
+    validateSingleField(field, container, rootData, currentSibling, path, ctx, isPartial)
+    if (field.type === 'group') {
+      validateNestedGroup(field, container, rootData, path, ctx, isPartial)
+    } else if (field.type === 'array') {
+      validateNestedArray(field, container, rootData, path, ctx)
+    } else if (field.type === 'blocks') {
+      validateNestedBlocks(field, container, rootData, path, ctx)
+    }
+  }
+}
+
+/**
  * Object schema for a document's fields. Unknown keys, system fields included,
  * are stripped, so a client cannot set `id` or the timestamps.
  */
-export function clientFieldsToZod(fields: readonly ClientField[]) {
-  return z.object(Object.fromEntries(fields.map((field) => [field.name, clientFieldToZod(field)])))
+export function clientFieldsToZod(fields: readonly ClientField[], options?: { partial?: boolean }) {
+  const isPartial = Boolean(options?.partial)
+  const baseObj = clientFieldsToObject(fields)
+  const base = isPartial ? baseObj.partial() : baseObj
+
+  if (!hasConditionalFields(fields)) {
+    return base
+  }
+
+  const effects = base.superRefine((data, ctx) => {
+    validateConditionalFields({
+      fields,
+      data,
+      rootData: data,
+      path: [],
+      ctx,
+      isPartial,
+    })
+  })
+
+  ;(effects as unknown as { partial: () => typeof effects }).partial = () =>
+    clientFieldsToZod(fields, { partial: true })
+
+  return effects
 }

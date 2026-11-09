@@ -5,6 +5,7 @@ import type {
   ClientCheckboxField,
   ClientDateField,
   ClientEmailField,
+  ClientField,
   ClientNumberField,
   ClientRelationshipField,
   ClientRichTextField,
@@ -705,5 +706,231 @@ describe('clientFieldsToZod', () => {
   it('strips unknown keys and system fields', () => {
     const input = { title: 'Hello', id: 1, createdAt: '2026-10-31T00:00:00.000Z', extra: true }
     expect(posts.parse(input)).toEqual({ title: 'Hello' })
+  })
+
+  describe('conditional fields via admin.condition', () => {
+    const conditionalFields: ClientField[] = [
+      {
+        name: 'format',
+        type: 'select',
+        label: 'Format',
+        required: true,
+        options: [
+          { label: 'Standard', value: 'standard' },
+          { label: 'Video', value: 'video' },
+        ],
+      },
+      {
+        name: 'videoUrl',
+        type: 'text',
+        label: 'Video URL',
+        required: true,
+        minLength: 5,
+        condition: { format: { equals: 'video' } },
+      },
+      {
+        name: 'authorBio',
+        type: 'text',
+        label: 'Author Bio',
+        required: false,
+        minLength: 10,
+        condition: { format: { equals: 'standard' } },
+      },
+      {
+        name: 'seo',
+        type: 'group',
+        label: 'SEO',
+        required: false,
+        fields: [
+          { name: 'enabled', type: 'checkbox', label: 'Enabled', required: false },
+          {
+            name: 'keywords',
+            type: 'text',
+            label: 'Keywords',
+            required: true,
+            condition: { enabled: { equals: true } },
+          },
+          {
+            name: 'featuredNote',
+            type: 'text',
+            label: 'Featured Note',
+            required: true,
+            condition: { '$root.format': { equals: 'video' } },
+          },
+        ],
+      },
+      {
+        name: 'gallery',
+        type: 'array',
+        label: 'Gallery',
+        required: false,
+        fields: [
+          {
+            name: 'mediaType',
+            type: 'select',
+            label: 'Media Type',
+            required: true,
+            options: [
+              { label: 'Image', value: 'image' },
+              { label: 'Embed', value: 'embed' },
+            ],
+          },
+          {
+            name: 'embedCode',
+            type: 'text',
+            label: 'Embed Code',
+            required: true,
+            condition: { mediaType: { equals: 'embed' } },
+          },
+        ],
+      },
+      {
+        name: 'sections',
+        type: 'blocks',
+        label: 'Sections',
+        required: false,
+        blocks: [
+          {
+            slug: 'cta',
+            labels: { singular: 'CTA', plural: 'CTAs' },
+            fields: [
+              { name: 'hasButton', type: 'checkbox', label: 'Has Button', required: false },
+              {
+                name: 'buttonUrl',
+                type: 'text',
+                label: 'Button URL',
+                required: true,
+                condition: { hasButton: { equals: true } },
+              },
+            ],
+          },
+        ],
+      },
+    ]
+
+    const schema = clientFieldsToZod(conditionalFields)
+
+    it('enforces required rule when condition matches', () => {
+      // format is video, so videoUrl is required
+      const result = schema.safeParse({ format: 'video' })
+      expect(result.success).toBe(false)
+      if (!result.success) {
+        expect(result.error.issues.some((i) => i.path[0] === 'videoUrl')).toBe(true)
+      }
+    })
+
+    it('skips required rule when condition does not match', () => {
+      // format is standard, videoUrl condition is false -> videoUrl is not required
+      const result = schema.safeParse({ format: 'standard' })
+      expect(result.success).toBe(true)
+    })
+
+    it('skips format checks when condition does not match even if value is invalid', () => {
+      // videoUrl minLength is 5, but format is standard (condition false) -> videoUrl ignored
+      const result = schema.safeParse({ format: 'standard', videoUrl: 'abc' })
+      expect(result.success).toBe(true)
+    })
+
+    it('enforces format checks when condition matches', () => {
+      // format is video, videoUrl has 'abc' (< minLength 5) -> fails minLength!
+      const result = schema.safeParse({ format: 'video', videoUrl: 'abc' })
+      expect(result.success).toBe(false)
+      if (!result.success) {
+        expect(result.error.issues.some((i) => i.path[0] === 'videoUrl')).toBe(true)
+      }
+    })
+
+    it('passes when active conditional field satisfies validation', () => {
+      const result = schema.safeParse({
+        format: 'video',
+        videoUrl: 'https://youtube.com/watch?v=123',
+      })
+      expect(result.success).toBe(true)
+    })
+
+    it('validates conditional fields inside group with sibling and root scoping', () => {
+      // seo.enabled is true -> seo.keywords is required
+      const invalidSeo = schema.safeParse({
+        format: 'standard',
+        seo: { enabled: true },
+      })
+      expect(invalidSeo.success).toBe(false)
+      if (!invalidSeo.success) {
+        expect(invalidSeo.error.issues.some((i) => i.path.join('.') === 'seo.keywords')).toBe(true)
+      }
+
+      // seo.enabled is false -> seo.keywords is skipped
+      const validSeo = schema.safeParse({
+        format: 'standard',
+        seo: { enabled: false },
+      })
+      expect(validSeo.success).toBe(true)
+
+      // $root.format is video -> seo.featuredNote is required!
+      const rootConditionFail = schema.safeParse({
+        format: 'video',
+        videoUrl: 'https://example.com/video',
+        seo: { enabled: false },
+      })
+      expect(rootConditionFail.success).toBe(false)
+      if (!rootConditionFail.success) {
+        expect(
+          rootConditionFail.error.issues.some((i) => i.path.join('.') === 'seo.featuredNote'),
+        ).toBe(true)
+      }
+    })
+
+    it('validates conditional fields inside array rows with sibling scoping', () => {
+      // Row 0 has embed -> embedCode is required!
+      const fail = schema.safeParse({
+        format: 'standard',
+        gallery: [{ mediaType: 'embed' }],
+      })
+      expect(fail.success).toBe(false)
+      if (!fail.success) {
+        expect(fail.error.issues.some((i) => i.path.join('.') === 'gallery.0.embedCode')).toBe(true)
+      }
+
+      // Row 0 has image -> embedCode skipped
+      const pass = schema.safeParse({
+        format: 'standard',
+        gallery: [{ mediaType: 'image' }],
+      })
+      expect(pass.success).toBe(true)
+    })
+
+    it('validates conditional fields inside blocks items with sibling scoping', () => {
+      // Block hasButton is true -> buttonUrl required
+      const fail = schema.safeParse({
+        format: 'standard',
+        sections: [{ blockType: 'cta', hasButton: true }],
+      })
+      expect(fail.success).toBe(false)
+      if (!fail.success) {
+        expect(fail.error.issues.some((i) => i.path.join('.') === 'sections.0.buttonUrl')).toBe(
+          true,
+        )
+      }
+
+      // Block hasButton is false -> buttonUrl skipped
+      const pass = schema.safeParse({
+        format: 'standard',
+        sections: [{ blockType: 'cta', hasButton: false }],
+      })
+      expect(pass.success).toBe(true)
+    })
+
+    it('supports schema.partial() without throwing and respects partial semantics', () => {
+      const partialSchema = schema.partial()
+      expect(typeof partialSchema.safeParse).toBe('function')
+
+      // In partial update, omitted format or videoUrl does not fail required
+      const pass = partialSchema.safeParse({ authorBio: 'Experienced technical writer' })
+      expect(pass.success).toBe(true)
+
+      // If format is video and videoUrl is provided but invalid (< minLength 5), it fails
+      const fail = partialSchema.safeParse({ format: 'video', videoUrl: 'abc' })
+      expect(fail.success).toBe(false)
+    })
   })
 })

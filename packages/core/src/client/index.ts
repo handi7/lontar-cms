@@ -35,5 +35,18 @@ export type {
   UploadSystemFields,
 } from './system-fields'
 export type { FieldFilter, FilterOperator, SortItem, Where, WhereClause, WhereField } from './query'
+export type {
+  ConditionField,
+  ConditionFilter,
+  ConditionOperator,
+  FieldCondition,
+} from './condition'
+export {
+  evaluateFieldFilter,
+  getValueByPath,
+  matchesCondition,
+  resolveConditionTarget,
+  sanitizeConditionalFields,
+} from './condition'
 export { clientFieldToZod, clientFieldsToZod, isRichTextEmpty } from './zod'
 export { generateRowId } from './id'
