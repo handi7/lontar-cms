@@ -8,6 +8,8 @@ import { toClientCollection } from '../../config/to-client-config'
 import type { AccessArgs, AccessFunction, CollectionConfig, Config } from '../../config/types'
 import type { DatabaseAdapter, DocumentData } from '../../database/adapter'
 import type { Field } from '../../fields/types'
+import { runBeforeValidateHooks } from '../../hooks'
+import { resolveCreateStatus, resolveUpdateStatus } from '../../operations/mutation'
 import { parseDepth, populateDoc } from '../../populate'
 import {
   DEFAULT_MAX_FILE_SIZE,
@@ -415,12 +417,57 @@ async function cleanupReplacedMedia(
   await cleanupOldSizes(config.storage, originalDoc.sizes, newUploadDoc.sizes, originalDoc.filename)
 }
 
-function parseAndValidateFields(
+async function applyBeforeValidateOnFormData(
+  collection: CollectionConfig,
+  parsedFields: DocumentData,
+  hookArgs: {
+    operation: 'create' | 'update'
+    originalDoc?: DocumentData
+    req?: Request
+    draft?: boolean
+  },
+): Promise<DocumentData> {
+  const isCreate = hookArgs.operation === 'create'
+  const createInfo = isCreate
+    ? resolveCreateStatus(collection, parsedFields, hookArgs.draft)
+    : undefined
+  const updateInfo = !isCreate
+    ? resolveUpdateStatus({
+        collection,
+        data: parsedFields,
+        originalDoc: hookArgs.originalDoc ?? {},
+        draft: hookArgs.draft,
+      })
+    : undefined
+
+  return runBeforeValidateHooks({
+    collection,
+    data: parsedFields,
+    operation: hookArgs.operation,
+    originalDoc: hookArgs.originalDoc,
+    status: createInfo ? createInfo.status : updateInfo?.status,
+    previousStatus: updateInfo?.previousStatus,
+    statusTransition: createInfo ? createInfo.statusTransition : updateInfo?.statusTransition,
+    req: hookArgs.req,
+  })
+}
+
+async function parseAndValidateFields(
   rawBody: Record<string, unknown>,
   collection: CollectionConfig,
   schema: z.ZodType,
-): { success: true; data: DocumentData } | { success: false; issues: z.ZodIssue[] } {
-  const parsedFields = parseFormDataFields(rawBody, collection.fields)
+  hookArgs?: {
+    operation: 'create' | 'update'
+    originalDoc?: DocumentData
+    req?: Request
+    draft?: boolean
+  },
+): Promise<{ success: true; data: DocumentData } | { success: false; issues: z.ZodIssue[] }> {
+  let parsedFields = parseFormDataFields(rawBody, collection.fields)
+  if (hookArgs) {
+    parsedFields = await applyBeforeValidateOnFormData(collection, parsedFields, hookArgs)
+  }
+
   const parsed = schema.safeParse(parsedFields)
   if (!parsed.success) {
     return { success: false, issues: parsed.error.issues }
@@ -494,7 +541,11 @@ export async function handleUploadCreate(ctx: UploadCreateContext): Promise<Resp
     return c.json({ error: processed.error }, processed.status)
   }
 
-  const validation = parseAndValidateFields(rawBody, collection, schema)
+  const validation = await parseAndValidateFields(rawBody, collection, schema, {
+    operation: 'create',
+    req: c.req.raw,
+    draft: c.req.query('draft') === 'true',
+  })
   if (!validation.success) {
     await safeDeleteMedia(config, processed.uploadDoc)
     return c.json({ error: 'Validation failed', issues: validation.issues }, 400)
@@ -625,7 +676,12 @@ export async function handleUploadUpdate(ctx: UploadUpdateContext): Promise<Resp
     partial: true,
     originalDoc,
   })
-  const validation = parseAndValidateFields(rawBody, collection, schema)
+  const validation = await parseAndValidateFields(rawBody, collection, schema, {
+    operation: 'update',
+    originalDoc,
+    req: c.req.raw,
+    draft: c.req.query('draft') === 'true',
+  })
   if (!validation.success) {
     await rollbackNewMedia(config, uploadResult.doc)
     return c.json({ error: 'Validation failed', issues: validation.issues }, 400)

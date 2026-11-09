@@ -95,15 +95,28 @@ export type {
   Where,
   WhereClause,
 } from './query'
-export { runAfterChangeHooks, runAfterReadHooks, runBeforeChangeHooks } from './hooks'
+export {
+  runAfterChangeHooks,
+  runAfterDeleteHooks,
+  runAfterReadHooks,
+  runBeforeChangeHooks,
+  runBeforeDeleteHooks,
+  runBeforeValidateHooks,
+} from './hooks'
 export { parseDepth, populateDoc, populateDocs, type PopulateOptions } from './populate'
 export type {
   AfterChangeHook,
   AfterChangeHookArgs,
+  AfterDeleteHook,
+  AfterDeleteHookArgs,
   AfterReadHook,
   AfterReadHookArgs,
   BeforeChangeHook,
   BeforeChangeHookArgs,
+  BeforeDeleteHook,
+  BeforeDeleteHookArgs,
+  BeforeValidateHook,
+  BeforeValidateHookArgs,
   CollectionHooks,
   DocStatusTransition,
 } from './hooks'

@@ -364,6 +364,7 @@ async function handleDelete(c: Context<LontarEnv>, collection: CollectionConfig,
       id,
       overrideAccess: false,
       user,
+      req: c.req.raw,
     })
     if (!doc) {
       return c.json({ error: `Document with ID ${id} not found` }, 404)

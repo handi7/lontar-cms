@@ -1,8 +1,22 @@
 import { describe, expect, it, vi } from 'vitest'
 import { collection } from '../config/collection'
 import { fields } from '../fields'
-import { runAfterChangeHooks, runAfterReadHooks, runBeforeChangeHooks } from './runner'
-import type { AfterChangeHook, AfterReadHook, BeforeChangeHook } from './types'
+import {
+  runAfterChangeHooks,
+  runAfterDeleteHooks,
+  runAfterReadHooks,
+  runBeforeChangeHooks,
+  runBeforeDeleteHooks,
+  runBeforeValidateHooks,
+} from './runner'
+import type {
+  AfterChangeHook,
+  AfterDeleteHook,
+  AfterReadHook,
+  BeforeChangeHook,
+  BeforeDeleteHook,
+  BeforeValidateHook,
+} from './types'
 
 describe('runBeforeChangeHooks', () => {
   it('returns original data if no hooks defined', async () => {
@@ -225,6 +239,158 @@ describe('runAfterReadHooks', () => {
       id: 1,
       title: 'My Post',
       computedField: 'Post: My Post',
+    })
+  })
+})
+
+describe('runBeforeValidateHooks', () => {
+  it('returns original data if no hooks defined', async () => {
+    const col = collection({
+      slug: 'posts',
+      fields: { title: fields.text() },
+    })
+
+    const data = { title: 'Raw Input' }
+    const result = await runBeforeValidateHooks({
+      collection: col,
+      data,
+      operation: 'create',
+    })
+
+    expect(result).toBe(data)
+  })
+
+  it('passes all arguments correctly to hook function and mutates data', async () => {
+    const hookFn = vi.fn<BeforeValidateHook>(({ data }) => ({
+      ...data,
+      title: (data.title as string).trim(),
+    }))
+
+    const col = collection({
+      slug: 'posts',
+      fields: { title: fields.text() },
+      hooks: {
+        beforeValidate: [hookFn],
+      },
+    })
+
+    const fakeReq = new Request('http://localhost/api/posts')
+    const originalDoc = { id: 1, title: 'Old' }
+    const data = { title: '  Trimmed Post  ' }
+
+    const result = await runBeforeValidateHooks({
+      collection: col,
+      data,
+      operation: 'update',
+      originalDoc,
+      status: 'published',
+      previousStatus: 'draft',
+      statusTransition: 'publish',
+      req: fakeReq,
+    })
+
+    expect(hookFn).toHaveBeenCalledWith({
+      data,
+      operation: 'update',
+      originalDoc,
+      status: 'published',
+      previousStatus: 'draft',
+      statusTransition: 'publish',
+      req: fakeReq,
+    })
+    expect(result).toEqual({ title: 'Trimmed Post' })
+  })
+})
+
+describe('runBeforeDeleteHooks', () => {
+  it('calls beforeDelete hook with id, doc, status, and req', async () => {
+    const hookFn = vi.fn<BeforeDeleteHook>()
+    const col = collection({
+      slug: 'posts',
+      fields: { title: fields.text() },
+      hooks: {
+        beforeDelete: [hookFn],
+      },
+    })
+
+    const fakeReq = new Request('http://localhost/api/posts/1')
+    const doc = { id: 1, title: 'To Delete', _status: 'draft' }
+
+    await runBeforeDeleteHooks({
+      collection: col,
+      id: 1,
+      doc,
+      status: 'draft',
+      req: fakeReq,
+    })
+
+    expect(hookFn).toHaveBeenCalledWith({
+      id: 1,
+      doc,
+      status: 'draft',
+      req: fakeReq,
+    })
+  })
+
+  it('aborts and bubbles error when beforeDelete throws', async () => {
+    const hookFn: BeforeDeleteHook = () => {
+      throw new Error('Delete forbidden by hook')
+    }
+
+    const col = collection({
+      slug: 'posts',
+      fields: { title: fields.text() },
+      hooks: {
+        beforeDelete: [hookFn],
+      },
+    })
+
+    await expect(
+      runBeforeDeleteHooks({
+        collection: col,
+        id: 1,
+        doc: { id: 1, title: 'Cannot Delete' },
+      }),
+    ).rejects.toThrow('Delete forbidden by hook')
+  })
+})
+
+describe('runAfterDeleteHooks', () => {
+  it('passes arguments to afterDelete hooks and returns transformed doc if returned', async () => {
+    const hookFn = vi.fn<AfterDeleteHook>(({ doc }) => ({
+      ...doc,
+      deletedAt: '2026-11-09T00:00:00.000Z',
+    }))
+
+    const col = collection({
+      slug: 'posts',
+      fields: { title: fields.text() },
+      hooks: {
+        afterDelete: [hookFn],
+      },
+    })
+
+    const fakeReq = new Request('http://localhost/api/posts/1')
+    const doc = { id: 1, title: 'Deleted Post' }
+
+    const result = await runAfterDeleteHooks({
+      collection: col,
+      id: 1,
+      doc,
+      status: 'published',
+      req: fakeReq,
+    })
+
+    expect(hookFn).toHaveBeenCalledWith({
+      id: 1,
+      doc,
+      status: 'published',
+      req: fakeReq,
+    })
+    expect(result).toEqual({
+      id: 1,
+      title: 'Deleted Post',
+      deletedAt: '2026-11-09T00:00:00.000Z',
     })
   })
 })

@@ -267,6 +267,58 @@ export default defineConfig({
 
 Webhook deliveries run asynchronously after database transactions commit, signed with HMAC-SHA256 (`x-lontar-signature-256`) and timestamped (`x-lontar-timestamp`).
 
+### Lifecycle hooks
+
+Collections and globals support lifecycle hooks for input normalization, validation, audit logging, side effects, and cleanup:
+
+| Hook             | When it runs                   | Can mutate data               | Can abort        | Transactional context                          |
+| ---------------- | ------------------------------ | ----------------------------- | ---------------- | ---------------------------------------------- |
+| `beforeValidate` | Before Zod schema validation   | Yes (returns modified data)   | Yes (throws)     | Pre-validation                                 |
+| `beforeChange`   | Before writing to the database | Yes (returns modified data)   | Yes (throws)     | Inside write transaction                       |
+| `afterChange`    | After writing to the database  | Yes (returns modified doc)    | Yes (throws)     | Inside write transaction (rolls back on throw) |
+| `beforeDelete`   | Before deleting from database  | No                            | Yes (throws)     | Inside delete transaction                      |
+| `afterDelete`    | After deleting from database   | Yes (returns modified doc)    | No (post-commit) | After transaction commit                       |
+| `afterRead`      | After reading a document       | Yes (returns transformed doc) | Yes (throws)     | Read operation                                 |
+
+#### Hook arguments
+
+- **`beforeValidate` / `beforeChange`**: `({ data, req, operation, originalDoc, status, previousStatus, statusTransition })`
+- **`afterChange`**: `({ doc, previousDoc, req, operation, status, previousStatus, statusTransition })`
+- **`beforeDelete`**: `({ id, doc, req, status })`
+- **`afterDelete`**: `({ id, doc, req, status })`
+- **`afterRead`**: `({ doc, req })`
+
+When `versions: { drafts: true }` is enabled, `beforeChange` and `afterChange` run on both draft saves and publishes. Use `statusTransition === 'publish'` to guard external side effects like sending emails or triggering external builds.
+
+```ts
+const Posts = collection({
+  slug: 'posts',
+  fields: { title: f.text({ required: true }) },
+  hooks: {
+    beforeValidate: [
+      ({ data }) => {
+        if (typeof data.title === 'string') {
+          data.title = data.title.trim()
+        }
+        return data
+      },
+    ],
+    beforeDelete: [
+      ({ doc }) => {
+        if (doc.locked) {
+          throw new Error('Cannot delete locked document')
+        }
+      },
+    ],
+    afterDelete: [
+      async ({ doc }) => {
+        await purgeExternalCache(doc.id)
+      },
+    ],
+  },
+})
+```
+
 ## Migrations and type generation
 
 ```bash

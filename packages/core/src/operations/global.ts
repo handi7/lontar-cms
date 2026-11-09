@@ -4,7 +4,7 @@ import { clientFieldsToZod } from '../client/zod'
 import { toClientGlobal } from '../config/to-client-config'
 import type { GlobalConfig } from '../config/types'
 import type { DocumentData } from '../database/adapter'
-import { runAfterReadHooks } from '../hooks'
+import { runAfterReadHooks, runBeforeValidateHooks } from '../hooks'
 import { AccessDeniedError, ValidationError } from './errors'
 import { executeGlobalUpdate } from './mutation'
 import type { FindGlobalOperationArgs, UpdateGlobalOperationArgs } from './types'
@@ -67,7 +67,14 @@ export async function updateGlobalOperation<T = DocumentData>(
   }
 
   const existing = await args.config.db.findGlobal({ global: args.global })
-  const validatedData = validateGlobalData(args.global, args.data, existing ?? undefined)
+  const hookData = await runBeforeValidateHooks({
+    global: args.global,
+    data: args.data,
+    operation: 'update',
+    originalDoc: existing ?? undefined,
+    req: args.req,
+  })
+  const validatedData = validateGlobalData(args.global, hookData, existing ?? undefined)
 
   const result = await executeGlobalUpdate({
     global: args.global,

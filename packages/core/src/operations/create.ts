@@ -6,7 +6,8 @@ import type { CollectionConfig } from '../config/types'
 import type { DocumentData } from '../database/adapter'
 import { populateDoc } from '../populate'
 import { AccessDeniedError, ValidationError } from './errors'
-import { executeCreate } from './mutation'
+import { executeCreate, resolveCreateStatus } from './mutation'
+import { runBeforeValidateHooks } from '../hooks'
 import type { CreateOperationArgs } from './types'
 
 async function assertCreateAccess(
@@ -35,7 +36,18 @@ export async function createOperation<T = DocumentData>(args: CreateOperationArg
     await assertCreateAccess(args.collection, args.data, args.user)
   }
 
-  const validatedData = validateCreateData(args.collection, args.data)
+  const { status, statusTransition } = resolveCreateStatus(args.collection, args.data, args.draft)
+  const hookData = await runBeforeValidateHooks({
+    collection: args.collection,
+    data: args.data,
+    operation: 'create',
+    status,
+    previousStatus: undefined,
+    statusTransition,
+    req: args.req,
+  })
+
+  const validatedData = validateCreateData(args.collection, hookData)
 
   const result = await executeCreate({
     collection: args.collection,

@@ -3,7 +3,14 @@ import { collection } from '../../config/collection'
 import { defineConfig } from '../../config/define-config'
 import type { DatabaseAdapter, StoredDoc } from '../../database/adapter'
 import { fields as f } from '../../fields'
-import type { AfterChangeHook, AfterReadHook, BeforeChangeHook } from '../../hooks'
+import type {
+  AfterChangeHook,
+  AfterDeleteHook,
+  AfterReadHook,
+  BeforeChangeHook,
+  BeforeDeleteHook,
+  BeforeValidateHook,
+} from '../../hooks'
 import { createLontar } from '../create-lontar'
 
 function createMockAdapter() {
@@ -362,5 +369,290 @@ describe('Collection Lifecycle Hooks', () => {
     expect(mockTransaction).toHaveBeenCalledTimes(1)
     expect(res.status).toBe(500)
     expect(await res.json()).toEqual({ error: 'Internal Server Error' })
+  })
+
+  it('runs beforeValidate to normalize data before Zod validation runs', async () => {
+    const beforeValidateHook: BeforeValidateHook = ({ data }) => {
+      // Normalize missing or untrimmed title
+      if (typeof data.title === 'string') {
+        data.title = data.title.trim()
+      }
+      return data
+    }
+
+    const postsCol = collection({
+      slug: 'posts',
+      access: publicAccess,
+      fields: {
+        // Requires title with minLength 3
+        title: f.text({ required: true }),
+      },
+      hooks: {
+        beforeValidate: [beforeValidateHook],
+      },
+    })
+
+    const { db, mockCreate } = createMockAdapter()
+    const lontar = createLontar(
+      defineConfig({
+        secret: 'test-secret',
+        db,
+        collections: [postsCol],
+      }),
+    )
+
+    // Sending title with surrounding whitespace
+    const res = await lontar.fetch(
+      new Request('http://localhost/api/posts', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ title: '   Clean Title   ' }),
+      }),
+    )
+
+    expect(res.status).toBe(201)
+    const callArgs = mockCreate.mock.calls[0]?.[0] as { data: { title: string } }
+    expect(callArgs.data.title).toBe('Clean Title')
+  })
+
+  it('executes hooks in the exact lifecycle order: beforeValidate -> beforeChange -> DB write -> afterChange', async () => {
+    const order: string[] = []
+
+    const beforeValidateHook: BeforeValidateHook = () => {
+      order.push('beforeValidate')
+    }
+    const beforeChangeHook: BeforeChangeHook = () => {
+      order.push('beforeChange')
+    }
+    const afterChangeHook: AfterChangeHook = () => {
+      order.push('afterChange')
+    }
+
+    const postsCol = collection({
+      slug: 'posts',
+      access: publicAccess,
+      fields: {
+        title: f.text({ required: true }),
+      },
+      hooks: {
+        beforeValidate: [beforeValidateHook],
+        beforeChange: [beforeChangeHook],
+        afterChange: [afterChangeHook],
+      },
+    })
+
+    const { db, mockCreate } = createMockAdapter()
+    mockCreate.mockImplementation(({ data }: { data: Record<string, unknown> }) => {
+      order.push('dbWrite')
+      return Promise.resolve({
+        id: 10,
+        ...data,
+        createdAt: '2026-11-09T00:00:00.000Z',
+        updatedAt: '2026-11-09T00:00:00.000Z',
+      } as StoredDoc)
+    })
+
+    const lontar = createLontar(
+      defineConfig({
+        secret: 'test-secret',
+        db,
+        collections: [postsCol],
+      }),
+    )
+
+    const res = await lontar.fetch(
+      new Request('http://localhost/api/posts', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ title: 'Order Test' }),
+      }),
+    )
+
+    expect(res.status).toBe(201)
+    expect(order).toEqual(['beforeValidate', 'beforeChange', 'dbWrite', 'afterChange'])
+  })
+
+  it('runs beforeDelete inside the delete transaction and aborts delete when it throws', async () => {
+    const beforeDeleteHook = vi.fn<BeforeDeleteHook>(() => {
+      throw new Error('Deletion rejected by beforeDelete hook')
+    })
+    const afterDeleteHook = vi.fn<AfterDeleteHook>()
+
+    const postsCol = collection({
+      slug: 'posts',
+      access: publicAccess,
+      fields: {
+        title: f.text({ required: true }),
+      },
+      hooks: {
+        beforeDelete: [beforeDeleteHook],
+        afterDelete: [afterDeleteHook],
+      },
+    })
+
+    const { db, mockDelete, mockFindByID, mockTransaction } = createMockAdapter()
+    mockFindByID.mockResolvedValue({
+      id: 1,
+      title: 'Protected Post',
+      createdAt: '2026-11-09T00:00:00.000Z',
+      updatedAt: '2026-11-09T00:00:00.000Z',
+    })
+
+    const lontar = createLontar(
+      defineConfig({
+        secret: 'test-secret',
+        db,
+        collections: [postsCol],
+      }),
+    )
+
+    const res = await lontar.fetch(
+      new Request('http://localhost/api/posts/1', {
+        method: 'DELETE',
+      }),
+    )
+
+    expect(mockTransaction).toHaveBeenCalledTimes(1)
+    expect(beforeDeleteHook).toHaveBeenCalledWith(
+      expect.objectContaining({
+        id: 1,
+      }),
+    )
+    expect(beforeDeleteHook.mock.calls[0]?.[0]?.doc.title).toBe('Protected Post')
+    // mockDelete and afterDelete MUST NOT have been called because beforeDelete aborted
+    expect(mockDelete).not.toHaveBeenCalled()
+    expect(afterDeleteHook).not.toHaveBeenCalled()
+    expect(res.status).toBe(500)
+  })
+
+  it('runs afterDelete after transaction commits on successful delete', async () => {
+    const beforeDeleteHook = vi.fn<BeforeDeleteHook>()
+    const afterDeleteHook = vi.fn<AfterDeleteHook>(({ doc }) => ({
+      ...doc,
+      deletedCleanly: true,
+    }))
+
+    const postsCol = collection({
+      slug: 'posts',
+      access: publicAccess,
+      fields: {
+        title: f.text({ required: true }),
+      },
+      hooks: {
+        beforeDelete: [beforeDeleteHook],
+        afterDelete: [afterDeleteHook],
+      },
+    })
+
+    const { db, mockDelete, mockFindByID } = createMockAdapter()
+    mockFindByID.mockResolvedValue({
+      id: 1,
+      title: 'Deleting Post',
+      createdAt: '2026-11-09T00:00:00.000Z',
+      updatedAt: '2026-11-09T00:00:00.000Z',
+    })
+    mockDelete.mockResolvedValue({
+      id: 1,
+      title: 'Deleting Post',
+    })
+
+    const lontar = createLontar(
+      defineConfig({
+        secret: 'test-secret',
+        db,
+        collections: [postsCol],
+      }),
+    )
+
+    const res = await lontar.fetch(
+      new Request('http://localhost/api/posts/1', {
+        method: 'DELETE',
+      }),
+    )
+
+    expect(res.status).toBe(200)
+    expect(beforeDeleteHook).toHaveBeenCalledWith(
+      expect.objectContaining({
+        id: 1,
+      }),
+    )
+    expect(beforeDeleteHook.mock.calls[0]?.[0]?.doc.title).toBe('Deleting Post')
+    expect(mockDelete).toHaveBeenCalledWith(
+      expect.objectContaining({
+        id: 1,
+      }),
+    )
+    expect(afterDeleteHook).toHaveBeenCalledWith(
+      expect.objectContaining({
+        id: 1,
+      }),
+    )
+    expect(afterDeleteHook.mock.calls[0]?.[0]?.doc.title).toBe('Deleting Post')
+    const json = (await res.json()) as Record<string, unknown>
+    expect(json.id).toBe(1)
+    expect(json.deletedCleanly).toBe(true)
+  })
+
+  it('passes status and statusTransition to beforeValidate and mutation hooks when drafts are enabled', async () => {
+    const beforeValidateHook = vi.fn<BeforeValidateHook>()
+    const beforeChangeHook = vi.fn<BeforeChangeHook>()
+    const afterChangeHook = vi.fn<AfterChangeHook>()
+
+    const postsCol = collection({
+      slug: 'posts',
+      access: publicAccess,
+      versions: {
+        drafts: true,
+      },
+      fields: {
+        title: f.text({ required: true }),
+      },
+      hooks: {
+        beforeValidate: [beforeValidateHook],
+        beforeChange: [beforeChangeHook],
+        afterChange: [afterChangeHook],
+      },
+    })
+
+    const { db } = createMockAdapter()
+    const lontar = createLontar(
+      defineConfig({
+        secret: 'test-secret',
+        db,
+        collections: [postsCol],
+      }),
+    )
+
+    // Save as draft
+    const resDraft = await lontar.fetch(
+      new Request('http://localhost/api/posts?draft=true', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ title: 'Draft Post' }),
+      }),
+    )
+    expect(resDraft.status).toBe(201)
+
+    expect(beforeValidateHook).toHaveBeenCalledWith(
+      expect.objectContaining({
+        status: 'draft',
+        statusTransition: 'draft',
+        operation: 'create',
+      }),
+    )
+    expect(beforeChangeHook).toHaveBeenCalledWith(
+      expect.objectContaining({
+        status: 'draft',
+        statusTransition: 'draft',
+        operation: 'create',
+      }),
+    )
+    expect(afterChangeHook).toHaveBeenCalledWith(
+      expect.objectContaining({
+        status: 'draft',
+        statusTransition: 'draft',
+        operation: 'create',
+      }),
+    )
   })
 })

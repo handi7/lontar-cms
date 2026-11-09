@@ -4,8 +4,11 @@ import type { DatabaseAdapter } from '../database/adapter'
 import type { Fields } from '../fields/types'
 import type {
   AfterChangeHook,
+  AfterDeleteHook,
   AfterReadHook,
   BeforeChangeHook,
+  BeforeDeleteHook,
+  BeforeValidateHook,
   CollectionHooks,
 } from '../hooks/types'
 import type { StorageAdapter } from '../storage/adapter'
@@ -34,9 +37,12 @@ export interface GlobalAccess {
 }
 
 export interface GlobalHooks {
+  beforeValidate?: BeforeValidateHook[]
   beforeChange?: BeforeChangeHook[]
   afterChange?: AfterChangeHook[]
   afterRead?: AfterReadHook[]
+  beforeDelete?: BeforeDeleteHook[]
+  afterDelete?: AfterDeleteHook[]
 }
 
 export interface VersionsConfig {

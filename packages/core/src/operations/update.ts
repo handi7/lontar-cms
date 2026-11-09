@@ -6,7 +6,8 @@ import type { CollectionConfig } from '../config/types'
 import type { DatabaseAdapter, DocumentData } from '../database/adapter'
 import { populateDoc } from '../populate'
 import { AccessDeniedError, NotFoundError, ValidationError } from './errors'
-import { executeUpdate } from './mutation'
+import { executeUpdate, resolveUpdateStatus } from './mutation'
+import { runBeforeValidateHooks } from '../hooks'
 import type { UpdateOperationArgs } from './types'
 
 async function assertUpdateAccess(
@@ -78,7 +79,25 @@ export async function updateOperation<T = DocumentData>(args: UpdateOperationArg
     throw new NotFoundError(`Document with ID ${args.id} not found`)
   }
 
-  const validatedData = validateUpdateData(args.collection, args.data, originalDoc)
+  const { status, previousStatus, statusTransition } = resolveUpdateStatus({
+    collection: args.collection,
+    data: args.data,
+    originalDoc,
+    draft: args.draft,
+  })
+
+  const hookData = await runBeforeValidateHooks({
+    collection: args.collection,
+    data: args.data,
+    operation: 'update',
+    originalDoc,
+    status,
+    previousStatus,
+    statusTransition,
+    req: args.req,
+  })
+
+  const validatedData = validateUpdateData(args.collection, hookData, originalDoc)
 
   const result = await executeUpdate({
     collection: args.collection,
