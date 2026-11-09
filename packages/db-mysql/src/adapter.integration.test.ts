@@ -102,6 +102,12 @@ const nestedCollection: CollectionConfig = {
       fields: {
         caption: { type: 'text' },
         featuredPost: { type: 'relationship', relationTo: 'posts' },
+        tags: {
+          type: 'array',
+          fields: {
+            name: { type: 'text' },
+          },
+        },
       },
     },
     layout: {
@@ -122,6 +128,18 @@ const nestedCollection: CollectionConfig = {
             text: { type: 'text', required: true },
             buttonUrl: { type: 'text', required: true },
             relatedPosts: { type: 'relationship', relationTo: 'posts', hasMany: true },
+          },
+        },
+        {
+          slug: 'galleryBlock',
+          labels: { singular: 'Gallery Block', plural: 'Gallery Blocks' },
+          fields: {
+            images: {
+              type: 'array',
+              fields: {
+                caption: { type: 'text' },
+              },
+            },
           },
         },
       ],
@@ -1738,5 +1756,87 @@ describe('mysqlAdapter (integration)', () => {
       where: { 'layout.hero.heading': { not_equals: 'Alpha' } },
     })
     expect(heroNotEquals.docs.map((d) => d.id).sort()).toEqual([doc2.id, doc3.id].sort())
+  })
+
+  it('generates row ids recursively for nested array and block items (#176)', async () => {
+    // Create with NO row ids anywhere
+    const created = await adapter.create({
+      collection: nestedCollection,
+      data: {
+        title: 'Nested Array Test',
+        gallery: [
+          {
+            caption: 'First photo',
+            tags: [{ name: 'nature' }, { name: 'landscape' }],
+          },
+        ],
+        layout: [
+          {
+            blockType: 'galleryBlock',
+            images: [{ caption: 'Image 1' }, { caption: 'Image 2' }],
+          },
+        ],
+      },
+    })
+
+    type LayoutItem = {
+      id: string
+      blockType: string
+      images: Array<{ id: string; caption: string }>
+    }
+    type GalleryItem = {
+      id: string
+      caption: string
+      tags: Array<{ id: string; name: string }>
+    }
+
+    const createdLayout = created.layout as LayoutItem[]
+    const firstBlock = createdLayout[0]!
+    const img1 = firstBlock.images[0]!
+    const img2 = firstBlock.images[1]!
+    expect(firstBlock.id).toBeDefined()
+    expect(firstBlock.images).toHaveLength(2)
+    expect(img1.id).toBeDefined()
+    expect(img2.id).toBeDefined()
+    expect(img1.id).not.toBe(img2.id)
+
+    const createdGallery = created.gallery as GalleryItem[]
+    const firstGallery = createdGallery[0]!
+    const tag1 = firstGallery.tags[0]!
+    const tag2 = firstGallery.tags[1]!
+    expect(firstGallery.id).toBeDefined()
+    expect(firstGallery.tags).toHaveLength(2)
+    expect(tag1.id).toBeDefined()
+    expect(tag2.id).toBeDefined()
+    expect(tag1.id).not.toBe(tag2.id)
+
+    // Update: add a new image without an id, keep the first image with its existing id
+    const existingImage0Id = img1.id
+    const updated = await adapter.update({
+      collection: nestedCollection,
+      id: created.id,
+      data: {
+        layout: [
+          {
+            id: firstBlock.id,
+            blockType: 'galleryBlock',
+            images: [
+              { id: existingImage0Id, caption: 'Image 1 Updated' },
+              { caption: 'Image 3 New' },
+            ],
+          },
+        ],
+      },
+    })
+
+    const updatedLayout = (updated?.layout ?? []) as LayoutItem[]
+    const updatedFirstBlock = updatedLayout[0]!
+    const updImg1 = updatedFirstBlock.images[0]!
+    const updImg2 = updatedFirstBlock.images[1]!
+    expect(updatedFirstBlock.id).toBe(firstBlock.id)
+    expect(updatedFirstBlock.images).toHaveLength(2)
+    expect(updImg1.id).toBe(existingImage0Id)
+    expect(updImg2.id).toBeDefined()
+    expect(updImg2.id).not.toBe(existingImage0Id)
   })
 })

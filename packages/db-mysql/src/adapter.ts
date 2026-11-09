@@ -22,7 +22,9 @@ import mysql from 'mysql2/promise'
 import {
   generateRowId,
   parseSort,
+  type ArrayField,
   type Block,
+  type BlocksField,
   type CollectionConfig,
   type Config,
   type DatabaseAdapter,
@@ -159,13 +161,22 @@ function sanitizeRichText(value: unknown): unknown {
   return value
 }
 
-function sanitizeRelationship(value: unknown): unknown {
+function sanitizeRelationship(
+  field: CollectionConfig['fields'][string] | undefined,
+  value: unknown,
+): unknown {
   if (value === '' || value === null || value === undefined) return null
+  if (field?.type === 'relationship' && field.hasMany) {
+    if (Array.isArray(value)) {
+      return value.map((v) => Number(v)).filter((n) => !Number.isNaN(n))
+    }
+    return []
+  }
   const num = Number(value)
   return Number.isNaN(num) ? null : num
 }
 
-function sanitizeArray(value: unknown): unknown {
+function parseJsonArray(value: unknown): unknown[] | null {
   if (value === '' || value === null || value === undefined) return null
   let arr: unknown = value
   if (typeof arr === 'string') {
@@ -175,17 +186,57 @@ function sanitizeArray(value: unknown): unknown {
       return null
     }
   }
-  if (!Array.isArray(arr)) return null
+  return Array.isArray(arr) ? arr : null
+}
+
+function sanitizeArrayField(field: ArrayField, value: unknown): unknown {
+  const arr = parseJsonArray(value)
+  if (!arr) return null
   return arr.map((item: unknown): unknown => {
-    if (item && typeof item === 'object' && !Array.isArray(item)) {
-      const record = item as Record<string, unknown>
-      if (!('id' in record) || !record.id) {
-        return { ...record, id: generateRowId() }
-      }
-      return record
+    if (!item || typeof item !== 'object' || Array.isArray(item)) return item
+    const record = { ...(item as Record<string, unknown>) }
+    if (!record.id) {
+      record.id = generateRowId()
     }
-    return item
+    for (const [subKey, subField] of Object.entries(field.fields)) {
+      if (subKey in record) {
+        record[subKey] = sanitizeFieldValue(subField, record[subKey])
+      }
+    }
+    return record
   })
+}
+
+function sanitizeBlocksField(field: BlocksField, value: unknown): unknown {
+  const arr = parseJsonArray(value)
+  if (!arr) return null
+  return arr.map((item: unknown): unknown => {
+    if (!item || typeof item !== 'object' || Array.isArray(item)) return item
+    const record = { ...(item as Record<string, unknown>) }
+    if (!record.id) {
+      record.id = generateRowId()
+    }
+    const blockDef = field.blocks.find((b) => b.slug === record.blockType)
+    if (blockDef) {
+      for (const [subKey, subField] of Object.entries(blockDef.fields)) {
+        if (subKey in record) {
+          record[subKey] = sanitizeFieldValue(subField, record[subKey])
+        }
+      }
+    }
+    return record
+  })
+}
+
+function sanitizeGroupField(field: GroupField, value: unknown): unknown {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return value
+  const record = { ...(value as Record<string, unknown>) }
+  for (const [subKey, subField] of Object.entries(field.fields)) {
+    if (subKey in record) {
+      record[subKey] = sanitizeFieldValue(subField, record[subKey])
+    }
+  }
+  return record
 }
 
 function sanitizeFieldValue(
@@ -199,10 +250,13 @@ function sanitizeFieldValue(
     case 'richText':
       return sanitizeRichText(value)
     case 'relationship':
-      return sanitizeRelationship(value)
+      return sanitizeRelationship(field, value)
     case 'array':
+      return sanitizeArrayField(field, value)
     case 'blocks':
-      return sanitizeArray(value)
+      return sanitizeBlocksField(field, value)
+    case 'group':
+      return sanitizeGroupField(field, value)
     default:
       return value
   }

@@ -163,7 +163,7 @@ approval on the `npm` environment. Don't run `pnpm publish` by hand; see `docs/r
   - [x] #160 `examples/next-blog` pages built from blocks, with e2e (done)
   - [ ] Code review fixes from `main` @ 0a3d5dd, in fix order
     - [ ] Correctness: #170 (done), #171 (done), #172 (done)
-    - [ ] Needed before M8: #173 (done), #176
+    - [ ] Needed before M8: #173 (done), #176 (done)
     - [ ] Conditional fields: #174, #175
     - [ ] Admin styling: #183
     - [ ] Minor: #177, #178, #179, #180

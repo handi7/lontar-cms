@@ -686,6 +686,58 @@ describe('clientFieldToZod', () => {
         ]).success,
       ).toBe(false)
     })
+
+    it('generates row ids recursively for nested arrays inside blocks (#176)', () => {
+      const schema = clientFieldToZod({
+        name: 'layout',
+        type: 'blocks',
+        label: 'Layout',
+        required: false,
+        blocks: [
+          {
+            slug: 'gallery',
+            labels: { singular: 'Gallery', plural: 'Galleries' },
+            fields: [
+              {
+                name: 'images',
+                type: 'array',
+                label: 'Images',
+                required: false,
+                fields: [
+                  {
+                    name: 'caption',
+                    type: 'text',
+                    label: 'Caption',
+                    required: true,
+                    maxLength: 50,
+                  },
+                ],
+              },
+            ],
+          },
+        ],
+      })
+
+      const parsed = schema.parse([
+        {
+          blockType: 'gallery',
+          images: [{ caption: 'Photo 1' }, { caption: 'Photo 2' }],
+        },
+      ]) as Array<{
+        id: string
+        blockType: string
+        images: Array<{ id: string; caption: string }>
+      }>
+
+      const firstBlock = parsed[0]!
+      const img1 = firstBlock.images[0]!
+      const img2 = firstBlock.images[1]!
+      expect(firstBlock.id).toMatch(/^[0-9a-f]{16}$/)
+      expect(firstBlock.images).toHaveLength(2)
+      expect(img1.id).toMatch(/^[0-9a-f]{16}$/)
+      expect(img2.id).toMatch(/^[0-9a-f]{16}$/)
+      expect(img1.id).not.toBe(img2.id)
+    })
   })
 })
 
