@@ -102,6 +102,7 @@ approval on the `npm` environment. Don't run `pnpm publish` by hand; see `docs/r
 - Prefer small, focused PRs per milestone task.
 - ESLint caps `complexity` at 10 and `sonarjs/cognitive-complexity` at 15. Split the function instead of disabling the rule; if a disable is truly needed, say why in a comment next to it.
 - React components declare props as a named `interface <Component>Props`, never as an inline type on the destructured parameter. Where a component only forwards its props onward, take `props` whole, destructure what it reads in the body, and forward the rest with `{...props}`. Existing inline annotations are being converted in #181.
+- Admin styling goes through the theme utilities that `packages/admin/src/styles.css` maps in `@theme inline` — `lt:border-border`, `lt:text-muted-foreground`, `lt:bg-card`. Never write `lt:*-[var(--lontar-…)]`: an arbitrary value accepts any name, so a token that doesn't exist produces a `var()` that silently resolves to nothing. Reach for a raw token only when it has no `@theme` mapping, and then use the v4 shorthand `lt:border-(--lontar-border)`. See #183 for what the arbitrary form cost us.
 - Record significant decisions as a new ADR in `docs/adr/NNNN-title.md` (context, decision, consequences).
 
 ## Milestones roadmap to MVP (v0.1)
@@ -161,9 +162,10 @@ approval on the `npm` environment. Don't run `pnpm publish` by hand; see `docs/r
   - [x] #159 Conditional fields via `admin.condition` (done)
   - [x] #160 `examples/next-blog` pages built from blocks, with e2e (done)
   - [ ] Code review fixes from `main` @ 0a3d5dd, in fix order
-    - [ ] Correctness: #170 (done), #171, #172
+    - [ ] Correctness: #170 (done), #171 (done), #172
     - [ ] Needed before M8: #173, #176
     - [ ] Conditional fields: #174, #175
+    - [ ] Admin styling: #183
     - [ ] Minor: #177, #178, #179, #180
 - [ ] **M8: Drafts, versions & publishing** (tracking in #146; broken into issues when it starts)
 - [ ] **M9: Second database adapter** (tracking in #147)

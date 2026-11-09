@@ -501,13 +501,112 @@ function parseObjectFilterConditions(
   return conditions
 }
 
-function buildJsonOpCondition(
+interface JsonPathInfo {
+  jsonPath: string
+  blockType?: string
+  subSegments?: string[]
+}
+
+function resolveJsonPathInfo(field: Field, fieldName: string, topKey: string): JsonPathInfo {
+  const prefixLength = fieldName.startsWith(topKey + '__') ? topKey.length + 2 : topKey.length + 1
+  const subPath = fieldName.slice(prefixLength)
+
+  if (field.type === 'blocks') {
+    for (const block of field.blocks) {
+      const dotPrefix = `${block.slug}.`
+      const underPrefix = `${block.slug}__`
+      if (subPath.startsWith(dotPrefix) || subPath.startsWith(underPrefix)) {
+        const sepLength = subPath.startsWith(dotPrefix) ? dotPrefix.length : underPrefix.length
+        const remaining = subPath.slice(sepLength)
+        const subSegments = remaining.split(/\.|__/).filter(Boolean)
+        const jsonPath = '$[*].' + remaining.replace(/__/g, '.')
+        return { jsonPath, blockType: block.slug, subSegments }
+      }
+    }
+  }
+
+  const subSegments = subPath.split(/\.|__/).filter(Boolean)
+  const jsonPath = '$[*].' + subPath.replace(/__/g, '.')
+  return { jsonPath, subSegments }
+}
+
+function buildNestedCandidate(segments: string[], value: unknown): Record<string, unknown> {
+  const result: Record<string, unknown> = {}
+  let current = result
+  for (let i = 0; i < segments.length - 1; i++) {
+    const next: Record<string, unknown> = {}
+    current[segments[i]!] = next
+    current = next
+  }
+  current[segments[segments.length - 1]!] = value
+  return result
+}
+
+function buildBlockCandidate(
+  blockType: string,
+  subSegments: string[],
+  value: unknown,
+): Record<string, unknown> {
+  const nested = buildNestedCandidate(subSegments, value)
+  return { blockType, ...nested }
+}
+
+function buildBlockInCondition(
+  column: AnyMySqlColumn,
+  blockType: string,
+  subSegments: string[],
+  rawVal: unknown,
+): SQL | undefined {
+  const arr = Array.isArray(rawVal) ? rawVal : [rawVal]
+  if (arr.length === 0) return undefined
+  const items = arr.map((v) => {
+    const candidate = buildBlockCandidate(blockType, subSegments, v)
+    const jsonVal = JSON.stringify(candidate)
+    return sql`JSON_CONTAINS(${column}, CAST(${jsonVal} AS JSON)) = 1`
+  })
+  return sql`(${column} IS NOT NULL AND (${sql.join(items, sql` OR `)}))`
+}
+
+function buildBlockJsonOpCondition(
+  column: AnyMySqlColumn,
+  blockType: string,
+  subSegments: string[],
+  op: string,
+  rawVal: unknown,
+): SQL | undefined {
+  if (op === 'equals') {
+    const candidate = buildBlockCandidate(blockType, subSegments, rawVal)
+    const jsonVal = JSON.stringify(candidate)
+    return sql`(${column} IS NOT NULL AND JSON_CONTAINS(${column}, CAST(${jsonVal} AS JSON)) = 1)`
+  }
+  if (op === 'not_equals') {
+    const candidate = buildBlockCandidate(blockType, subSegments, rawVal)
+    const jsonVal = JSON.stringify(candidate)
+    return sql`(${column} IS NULL OR JSON_CONTAINS(${column}, CAST(${jsonVal} AS JSON)) = 0)`
+  }
+  if (op === 'in') {
+    return buildBlockInCondition(column, blockType, subSegments, rawVal)
+  }
+  if (op === 'contains') {
+    const strVal =
+      typeof rawVal === 'string'
+        ? rawVal
+        : typeof rawVal === 'number' || typeof rawVal === 'boolean'
+          ? String(rawVal)
+          : ''
+    const pattern = `%${strVal}%`
+    const safePath = `'$.${subSegments.join('.').replace(/[^a-zA-Z0-9_.]/g, '')}'`
+    return sql`(${column} IS NOT NULL AND (SELECT COUNT(*) FROM JSON_TABLE(${column}, '$[*]' COLUMNS (blockType VARCHAR(255) PATH '$.blockType', val TEXT PATH ${sql.raw(safePath)})) AS jt WHERE jt.blockType = ${blockType} AND jt.val LIKE ${pattern}) > 0)`
+  }
+  return undefined
+}
+
+function buildStandardJsonOpCondition(
   column: AnyMySqlColumn,
   jsonPath: string,
   op: string,
   rawVal: unknown,
 ): SQL | undefined {
-  if (rawVal === undefined) return undefined
   if (op === 'equals') {
     const jsonVal = JSON.stringify(rawVal)
     return sql`(${column} IS NOT NULL AND JSON_CONTAINS(JSON_EXTRACT(${column}, ${jsonPath}), CAST(${jsonVal} AS JSON)) = 1)`
@@ -534,18 +633,31 @@ function buildJsonOpCondition(
   return undefined
 }
 
+function buildJsonOpCondition(
+  column: AnyMySqlColumn,
+  pathInfo: JsonPathInfo,
+  op: string,
+  rawVal: unknown,
+): SQL | undefined {
+  if (rawVal === undefined) return undefined
+  if (pathInfo.blockType && pathInfo.subSegments && pathInfo.subSegments.length > 0) {
+    return buildBlockJsonOpCondition(column, pathInfo.blockType, pathInfo.subSegments, op, rawVal)
+  }
+  return buildStandardJsonOpCondition(column, pathInfo.jsonPath, op, rawVal)
+}
+
 function parseJsonArrayConditions(
   column: AnyMySqlColumn,
-  jsonPath: string,
+  pathInfo: JsonPathInfo,
   filter: unknown,
 ): SQL[] {
   if (filter === null || typeof filter !== 'object') {
-    const cond = buildJsonOpCondition(column, jsonPath, 'equals', filter)
+    const cond = buildJsonOpCondition(column, pathInfo, 'equals', filter)
     return cond ? [cond] : []
   }
   const conditions: SQL[] = []
   for (const [op, rawVal] of Object.entries(filter as Record<string, unknown>)) {
-    const cond = buildJsonOpCondition(column, jsonPath, op, rawVal)
+    const cond = buildJsonOpCondition(column, pathInfo, op, rawVal)
     if (cond) conditions.push(cond)
   }
   return conditions
@@ -572,9 +684,8 @@ function parseJsonFieldConditions(
   const column = table[topKey]
   if (!column) return []
 
-  const subPath = fieldName.slice(topKey.length + 1)
-  const jsonPath = '$[*].' + subPath.replace(/__/g, '.')
-  return parseJsonArrayConditions(column, jsonPath, filter)
+  const pathInfo = resolveJsonPathInfo(topField, fieldName, topKey)
+  return parseJsonArrayConditions(column, pathInfo, filter)
 }
 
 function isContainerFilterObject(
