@@ -1,6 +1,16 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { cleanup, fireEvent, render, screen } from '@testing-library/react'
+import { PortalContainerProvider } from '../context/PortalContainer'
+import { openDropdownMenu } from '../test/radix'
 import { DocumentSidebar } from './DocumentSidebar'
+
+function renderWithPortal(ui: React.ReactElement) {
+  return render(
+    <div className="lontar-admin">
+      <PortalContainerProvider>{ui}</PortalContainerProvider>
+    </div>,
+  )
+}
 
 describe('DocumentSidebar', () => {
   afterEach(cleanup)
@@ -17,6 +27,54 @@ describe('DocumentSidebar', () => {
     rerender(<DocumentSidebar mode="create" submitLabel="Saving..." isPending={true} />)
     const pendingButton = screen.getByRole('button', { name: 'Saving...' })
     expect(pendingButton.getAttribute('disabled')).not.toBeNull()
+  })
+
+  it('renders status badge and draft/publish split button when hasDrafts is true', () => {
+    const onPublish = vi.fn()
+    const onSaveDraft = vi.fn()
+    const onUnpublish = vi.fn()
+
+    renderWithPortal(
+      <DocumentSidebar
+        mode="edit"
+        submitLabel="Save Changes"
+        isPending={false}
+        hasDrafts={true}
+        status="changed"
+        doc={{ id: 1, _status: 'draft', _isPublished: true }}
+        onPublish={onPublish}
+        onSaveDraft={onSaveDraft}
+        onUnpublish={onUnpublish}
+      />,
+    )
+
+    // Status badge is rendered
+    expect(screen.getByText('Status')).toBeTruthy()
+    expect(screen.getByText('Changed')).toBeTruthy()
+
+    // Publish button is rendered
+    const publishBtn = screen.getByRole('button', { name: 'Publish' })
+    expect(publishBtn).toBeTruthy()
+    fireEvent.click(publishBtn)
+    expect(onPublish).toHaveBeenCalledTimes(1)
+
+    // Dropdown trigger
+    const optionsBtn = screen.getByRole('button', { name: 'Publishing options' })
+    expect(optionsBtn).toBeTruthy()
+    openDropdownMenu(optionsBtn)
+
+    // Dropdown options
+    const saveDraftItem = screen.getByText('Save draft')
+    expect(saveDraftItem).toBeTruthy()
+    fireEvent.click(saveDraftItem)
+    expect(onSaveDraft).toHaveBeenCalledTimes(1)
+
+    // Unpublish is rendered since doc is changed / published
+    openDropdownMenu(optionsBtn)
+    const unpublishItem = screen.getByText('Unpublish')
+    expect(unpublishItem).toBeTruthy()
+    fireEvent.click(unpublishItem)
+    expect(onUnpublish).toHaveBeenCalledTimes(1)
   })
 
   it('renders delete button in edit mode when enabled, and calls onDelete when clicked', () => {

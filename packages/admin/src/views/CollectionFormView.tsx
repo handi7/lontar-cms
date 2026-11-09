@@ -8,12 +8,20 @@ import {
   type UseFormSetValue,
   type UseFormWatch,
   type UseFormSetError,
+  type UseFormHandleSubmit,
   type FieldErrors,
 } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
 import { clientFieldsToZod, type ClientCollection } from '@lontar/core/client'
 import { useAdmin, useCollection } from '../context/AdminContext'
-import { fetchDoc, createDoc, updateDoc, deleteDoc, ApiClientError } from '../api/client'
+import {
+  fetchDoc,
+  createDoc,
+  updateDoc,
+  deleteDoc,
+  unpublishDoc,
+  ApiClientError,
+} from '../api/client'
 import { FieldRenderer } from '../fields/FieldRenderer'
 import { FileUploadZone, formatFilesize } from '../fields/FileUploadZone'
 import { computeDefaultValues, formatDocForForm, formatDocForSubmit } from '../utils/form-utils'
@@ -156,6 +164,11 @@ export interface UseDocMutationsOptions {
   onSaveSuccess?: () => void
 }
 
+export interface SaveDocArgs {
+  data: Record<string, unknown> | FormData
+  draft?: boolean
+}
+
 function useDocMutations({
   apiBase,
   slug,
@@ -172,20 +185,24 @@ function useDocMutations({
   const navigate = useNavigate()
 
   const saveMutation = useMutation({
-    mutationFn: async (values: Record<string, unknown> | FormData) => {
+    mutationFn: async ({ data, draft }: SaveDocArgs) => {
       setApiError(null)
       setSuccessMsg(null)
-      if (mode === 'create') return createDoc(apiBase, slug, values)
+      if (mode === 'create') return createDoc(apiBase, slug, data, { draft })
       if (!id) throw new Error('Missing document id')
-      return updateDoc(apiBase, slug, id, values)
+      return updateDoc(apiBase, slug, id, data, { draft })
     },
-    onSuccess: (savedDoc) => {
+    onSuccess: (savedDoc, variables) => {
       void queryClient.invalidateQueries({ queryKey: [slug] })
       onSaveSuccess?.()
       if (mode === 'create') {
         void navigate({ to: '/$collection', params: { collection: slug } })
       } else {
-        setSuccessMsg('Saved successfully!')
+        if (collection.versions?.drafts) {
+          setSuccessMsg(variables.draft ? 'Draft saved!' : 'Published successfully!')
+        } else {
+          setSuccessMsg('Saved successfully!')
+        }
         reset(formatDocForForm(collection.fields, savedDoc))
       }
     },
@@ -198,6 +215,23 @@ function useDocMutations({
           }
         }
       }
+      setApiError(err.message)
+    },
+  })
+
+  const unpublishMutation = useMutation({
+    mutationFn: async () => {
+      setApiError(null)
+      setSuccessMsg(null)
+      if (!id) throw new Error('Missing collection or id')
+      return unpublishDoc(apiBase, slug, id)
+    },
+    onSuccess: (unpublishedDoc) => {
+      void queryClient.invalidateQueries({ queryKey: [slug] })
+      setSuccessMsg('Unpublished successfully!')
+      reset(formatDocForForm(collection.fields, unpublishedDoc))
+    },
+    onError: (err: Error) => {
       setApiError(err.message)
     },
   })
@@ -216,14 +250,20 @@ function useDocMutations({
     },
   })
 
-  return { saveMutation, deleteMutation }
+  return { saveMutation, deleteMutation, unpublishMutation }
 }
 
-function useDocumentQuery(mode: 'create' | 'edit', apiBase: string, slug?: string, id?: string) {
+function useDocumentQuery(
+  mode: 'create' | 'edit',
+  apiBase: string,
+  slug?: string,
+  id?: string,
+  hasDrafts?: boolean,
+) {
   const isEdit = mode === 'edit' && Boolean(slug) && Boolean(id)
   return useQuery({
-    queryKey: [slug, id],
-    queryFn: () => (slug && id ? fetchDoc(apiBase, slug, id) : null),
+    queryKey: [slug, id, hasDrafts ? 'draft' : 'published'],
+    queryFn: () => (slug && id ? fetchDoc(apiBase, slug, id, { draft: hasDrafts }) : null),
     enabled: isEdit,
     refetchOnWindowFocus: false,
   })
@@ -287,6 +327,77 @@ function CollectionStatusAlerts({ apiError, successMsg }: CollectionStatusAlerts
   return null
 }
 
+function shouldShowQueryState(
+  mode: 'create' | 'edit',
+  isLoading: boolean,
+  error: unknown,
+): boolean {
+  return mode === 'edit' && (isLoading || Boolean(error))
+}
+
+function resolveBreadcrumbTitle(
+  mode: 'create' | 'edit',
+  doc: Record<string, unknown> | null | undefined,
+  singular: string,
+  id?: string,
+): string {
+  if (mode === 'create') return `New ${singular}`
+  return getBreadcrumbTitle(doc ?? undefined, singular, id)
+}
+
+interface UseCollectionFormSubmitOptions {
+  collection: ClientCollection
+  mode: 'create' | 'edit'
+  hasDrafts: boolean
+  selectedFile: File | null
+  setFileError: (err: string | null) => void
+  saveMutation: {
+    mutate: (args: { data: Record<string, unknown> | FormData; draft?: boolean }) => void
+    isPending: boolean
+    variables: { data: Record<string, unknown> | FormData; draft?: boolean } | undefined
+  }
+  handleSubmit: UseFormHandleSubmit<Record<string, unknown>>
+}
+
+function useCollectionFormSubmit({
+  collection,
+  mode,
+  hasDrafts,
+  selectedFile,
+  setFileError,
+  saveMutation,
+  handleSubmit,
+}: UseCollectionFormSubmitOptions) {
+  const submitWithDraft = (draft: boolean) => {
+    void handleSubmit((v) => {
+      const payload = formatDocForSubmit(collection.fields, v)
+      if (!collection.upload) {
+        saveMutation.mutate({ data: payload, draft: hasDrafts ? draft : undefined })
+        return
+      }
+      const uploadErr = validateUpload(selectedFile, collection.upload, mode === 'create')
+      if (uploadErr) {
+        setFileError(uploadErr)
+        return
+      }
+      saveMutation.mutate({
+        data: buildUploadFormData(payload, selectedFile),
+        draft: hasDrafts ? draft : undefined,
+      })
+    })()
+  }
+
+  const isPublishing = saveMutation.isPending && !saveMutation.variables?.draft
+  const isSavingDraft = saveMutation.isPending && Boolean(saveMutation.variables?.draft)
+
+  return {
+    onPublish: () => submitWithDraft(false),
+    onSaveDraft: () => submitWithDraft(true),
+    isPublishing,
+    isSavingDraft,
+  }
+}
+
 export interface CollectionEditorProps {
   collection: ClientCollection
   mode: 'create' | 'edit'
@@ -301,7 +412,8 @@ function CollectionEditor({ collection, mode, id }: CollectionEditorProps) {
   const [fileError, setFileError] = useState<string | null>(null)
   const [confirmOpen, setConfirmOpen] = useState(false)
 
-  const docQuery = useDocumentQuery(mode, apiBase, collection.slug, id)
+  const hasDrafts = Boolean(collection.versions?.drafts)
+  const docQuery = useDocumentQuery(mode, apiBase, collection.slug, id, hasDrafts)
   const schema = useMemo(() => clientFieldsToZod(collection.fields), [collection])
   const defaultValues = useMemo(() => computeDefaultValues(collection.fields), [collection])
 
@@ -327,7 +439,7 @@ function CollectionEditor({ collection, mode, id }: CollectionEditorProps) {
     }
   }, [docQuery.data, collection, reset, isDirty])
 
-  const { saveMutation, deleteMutation } = useDocMutations({
+  const { saveMutation, deleteMutation, unpublishMutation } = useDocMutations({
     apiBase,
     slug: collection.slug,
     id,
@@ -343,34 +455,32 @@ function CollectionEditor({ collection, mode, id }: CollectionEditorProps) {
     },
   })
 
-  if (mode === 'edit' && (docQuery.isLoading || docQuery.error)) {
+  const { onPublish, onSaveDraft, isPublishing, isSavingDraft } = useCollectionFormSubmit({
+    collection,
+    mode,
+    hasDrafts,
+    selectedFile,
+    setFileError,
+    saveMutation,
+    handleSubmit,
+  })
+
+  if (shouldShowQueryState(mode, docQuery.isLoading, docQuery.error)) {
     return <CollectionQueryState isLoading={docQuery.isLoading} error={docQuery.error} />
   }
 
   const title = getFormTitle(mode, collection.labels.singular, id)
-  const breadcrumbTitle =
-    mode === 'create'
-      ? `New ${collection.labels.singular}`
-      : getBreadcrumbTitle(docQuery.data, collection.labels.singular, id)
+  const breadcrumbTitle = resolveBreadcrumbTitle(
+    mode,
+    docQuery.data,
+    collection.labels.singular,
+    id,
+  )
   const submitLabel = getSubmitLabel(
     isSubmitting || saveMutation.isPending,
     mode,
     collection.labels.singular,
   )
-
-  const handleFormSubmit = (v: Record<string, unknown>) => {
-    const payload = formatDocForSubmit(collection.fields, v)
-    if (!collection.upload) {
-      saveMutation.mutate(payload)
-      return
-    }
-    const uploadErr = validateUpload(selectedFile, collection.upload, mode === 'create')
-    if (uploadErr) {
-      setFileError(uploadErr)
-      return
-    }
-    saveMutation.mutate(buildUploadFormData(payload, selectedFile))
-  }
 
   return (
     <div>
@@ -398,7 +508,8 @@ function CollectionEditor({ collection, mode, id }: CollectionEditorProps) {
 
       <form
         onSubmit={(e) => {
-          void handleSubmit(handleFormSubmit)(e)
+          e.preventDefault()
+          onPublish()
         }}
         className="lt:flex lt:flex-col lg:lt:flex-row lt:gap-8 lt:items-start"
       >
@@ -422,11 +533,18 @@ function CollectionEditor({ collection, mode, id }: CollectionEditorProps) {
         <DocumentSidebar
           mode={mode}
           submitLabel={submitLabel}
-          isPending={isSubmitting || saveMutation.isPending}
+          isPending={isSubmitting || saveMutation.isPending || unpublishMutation.isPending}
           isDeleting={deleteMutation.isPending}
           onDelete={() => setConfirmOpen(true)}
           showDelete={mode === 'edit'}
           doc={docQuery.data}
+          hasDrafts={hasDrafts}
+          onPublish={onPublish}
+          onSaveDraft={onSaveDraft}
+          onUnpublish={() => unpublishMutation.mutate()}
+          isPublishing={isPublishing}
+          isSavingDraft={isSavingDraft}
+          isUnpublishing={unpublishMutation.isPending}
         />
       </form>
     </div>

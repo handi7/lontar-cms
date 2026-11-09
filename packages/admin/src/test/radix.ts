@@ -26,3 +26,15 @@ export function chooseSelectOption(trigger: HTMLElement, option: string | RegExp
   fireEvent.pointerDown(item, mouse)
   fireEvent.pointerUp(item, mouse)
 }
+
+export function openDropdownMenu(trigger: HTMLElement): void {
+  const mouse = { button: 0, ctrlKey: false, pointerType: 'mouse' }
+  fireEvent.pointerDown(trigger, mouse)
+  fireEvent.pointerUp(trigger, mouse)
+}
+
+export function chooseDropdownMenuItem(trigger: HTMLElement, itemText: string | RegExp): void {
+  openDropdownMenu(trigger)
+  const item = screen.getByText(itemText)
+  fireEvent.click(item)
+}

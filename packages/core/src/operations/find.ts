@@ -101,16 +101,23 @@ async function hydrateDraftDocs(
   docs: DocumentData[],
   draft?: boolean,
 ): Promise<DocumentData[]> {
-  if (!draft || !collection.versions || !db.findLatestDraftVersion) {
+  if (!collection.versions?.drafts) {
     return docs
   }
   return Promise.all(
     docs.map(async (doc) => {
-      const latestDraft = await db.findLatestDraftVersion!({
+      const isPublished = doc._status === 'published'
+      if (!draft || !db.findLatestDraftVersion) {
+        return { ...doc, _isPublished: isPublished }
+      }
+      const latestDraft = await db.findLatestDraftVersion({
         collection,
         parentId: Number(doc.id),
       })
-      return latestDraft ? latestDraft.snapshot : doc
+      if (latestDraft) {
+        return { ...latestDraft.snapshot, _isPublished: isPublished }
+      }
+      return { ...doc, _isPublished: isPublished }
     }),
   )
 }

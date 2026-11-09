@@ -86,6 +86,7 @@
     "zod": "^4.6.7"
   },
   "dependencies": {
+    "@radix-ui/react-dropdown-menu": "^2.2.1",
     "@tanstack/history": "^1.162.5"
   },
   "engines": {

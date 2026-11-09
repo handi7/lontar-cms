@@ -44,11 +44,18 @@ async function hydrateDraftDoc(
   baseDoc: DocumentData,
   draft?: boolean,
 ): Promise<DocumentData> {
-  if (!draft || !collection.versions || !db.findLatestDraftVersion) {
+  if (!collection.versions?.drafts) {
     return baseDoc
   }
+  const isPublished = baseDoc._status === 'published'
+  if (!draft || !db.findLatestDraftVersion) {
+    return { ...baseDoc, _isPublished: isPublished }
+  }
   const latestDraft = await db.findLatestDraftVersion({ collection, parentId })
-  return latestDraft ? latestDraft.snapshot : baseDoc
+  if (latestDraft) {
+    return { ...latestDraft.snapshot, _isPublished: isPublished }
+  }
+  return { ...baseDoc, _isPublished: isPublished }
 }
 
 export async function findByIDOperation<T = DocumentData>(
