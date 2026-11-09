@@ -3,7 +3,7 @@ import { collection } from '../config/collection'
 import { defineConfig } from '../config/define-config'
 import { global } from '../config/global'
 import type { DatabaseAdapter, DocumentData, StoredDoc } from '../database/adapter'
-import { fields as f } from '../fields'
+import { block, fields as f } from '../fields'
 import { AccessDeniedError, NotFoundError, ValidationError } from '../operations'
 import type { SortItem } from '../query/types'
 import { getLontar } from './index'
@@ -197,13 +197,44 @@ describe('Local API (getLontar)', () => {
     },
   })
 
+  const pagesCol = collection({
+    slug: 'pages',
+    fields: {
+      title: f.text({ required: true }),
+      gallery: f.array({
+        fields: {
+          caption: f.text(),
+          tags: f.array({
+            fields: {
+              name: f.text(),
+            },
+          }),
+        },
+      }),
+      layout: f.blocks({
+        blocks: [
+          block({
+            slug: 'galleryBlock',
+            fields: {
+              images: f.array({
+                fields: {
+                  caption: f.text(),
+                },
+              }),
+            },
+          }),
+        ],
+      }),
+    },
+  })
+
   function createTestConfig(initialDocs = {}, initialGlobals = {}) {
     const db = createMockDb(initialDocs, initialGlobals)
     return {
       config: defineConfig({
         secret: 'test-secret',
         db,
-        collections: [authorsCol, postsCol],
+        collections: [authorsCol, postsCol, pagesCol],
         globals: [settingsGlobal],
       }),
       db,
@@ -350,5 +381,79 @@ describe('Local API (getLontar)', () => {
 
     await expect(lontar.findByID('posts', -1)).rejects.toThrow(ValidationError)
     await expect(lontar.findByID('posts', 'abc')).rejects.toThrow(ValidationError)
+  })
+
+  it('lontar.create and lontar.update recursively generate row ids for nested array and block items (#176)', async () => {
+    const { config } = createTestConfig()
+    const lontar = await getLontar(config)
+
+    const created = await lontar.create('pages', {
+      title: 'Home Page',
+      gallery: [
+        {
+          caption: 'Hero Image',
+          tags: [{ name: 'featured' }, { name: 'landscape' }],
+        },
+      ],
+      layout: [
+        {
+          blockType: 'galleryBlock',
+          images: [{ caption: 'Photo 1' }, { caption: 'Photo 2' }],
+        },
+      ],
+    })
+
+    type LayoutItem = {
+      id: string
+      blockType: string
+      images: Array<{ id: string; caption: string }>
+    }
+    type GalleryItem = {
+      id: string
+      caption: string
+      tags: Array<{ id: string; name: string }>
+    }
+
+    const firstBlock = (created.layout as LayoutItem[])[0]!
+    const img1 = firstBlock.images[0]!
+    const img2 = firstBlock.images[1]!
+    expect(firstBlock.id).toMatch(/^[0-9a-f]{16}$/)
+    expect(firstBlock.images).toHaveLength(2)
+    expect(img1.id).toMatch(/^[0-9a-f]{16}$/)
+    expect(img2.id).toMatch(/^[0-9a-f]{16}$/)
+    expect(img1.id).not.toBe(img2.id)
+
+    const firstGallery = (created.gallery as GalleryItem[])[0]!
+    const tag1 = firstGallery.tags[0]!
+    const tag2 = firstGallery.tags[1]!
+    expect(firstGallery.id).toMatch(/^[0-9a-f]{16}$/)
+    expect(firstGallery.tags).toHaveLength(2)
+    expect(tag1.id).toMatch(/^[0-9a-f]{16}$/)
+    expect(tag2.id).toMatch(/^[0-9a-f]{16}$/)
+    expect(tag1.id).not.toBe(tag2.id)
+
+    // Update: preserve first image id, append new image without id
+    const existingImage0Id = img1.id
+    const updated = await lontar.update('pages', Number(created.id), {
+      layout: [
+        {
+          id: firstBlock.id,
+          blockType: 'galleryBlock',
+          images: [
+            { id: existingImage0Id, caption: 'Photo 1 Updated' },
+            { caption: 'Photo 3 New' },
+          ],
+        },
+      ],
+    })
+
+    const updatedLayout = (updated.layout ?? []) as LayoutItem[]
+    const updatedFirstBlock = updatedLayout[0]!
+    const updImg1 = updatedFirstBlock.images[0]!
+    const updImg2 = updatedFirstBlock.images[1]!
+    expect(updatedFirstBlock.id).toBe(firstBlock.id)
+    expect(updImg1.id).toBe(existingImage0Id)
+    expect(updImg2.id).toMatch(/^[0-9a-f]{16}$/)
+    expect(updImg2.id).not.toBe(existingImage0Id)
   })
 })

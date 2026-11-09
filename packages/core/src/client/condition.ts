@@ -240,6 +240,8 @@ function sanitizeArrayRows(
     for (const field of fields) {
       if (field.condition && !matchesCondition(field.condition, rootContext, row)) {
         delete item[field.name]
+      } else {
+        sanitizeFieldContainer(field, item, rootContext)
       }
     }
     return item
@@ -259,6 +261,8 @@ function sanitizeBlocksRows(
       for (const field of blockDef.fields) {
         if (field.condition && !matchesCondition(field.condition, rootContext, row)) {
           delete item[field.name]
+        } else {
+          sanitizeFieldContainer(field, item, rootContext)
         }
       }
     }
