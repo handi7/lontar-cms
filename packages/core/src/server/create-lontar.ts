@@ -11,10 +11,55 @@ export interface CreateLontarOptions {
   basePath?: string
   baseURL?: string
   trustedOrigins?: string[]
+  rateLimit?: {
+    enabled?: boolean
+    window?: number
+    max?: number
+  }
 }
 
 export type LontarApp = Hono<{ Variables: LontarVariables }> & {
   readonly auth: Auth
+}
+
+function buildTrustedOrigins(options: CreateLontarOptions): string[] {
+  const defaultOrigins =
+    process.env.NODE_ENV === 'production' ? [] : ['http://localhost:3000', 'http://127.0.0.1:3000']
+  const envOrigins = (process.env.BETTER_AUTH_TRUSTED_ORIGINS ?? process.env.TRUSTED_ORIGINS ?? '')
+    .split(',')
+    .map((s) => s.trim())
+    .filter(Boolean)
+  return Array.from(new Set([...defaultOrigins, ...envOrigins, ...(options.trustedOrigins ?? [])]))
+}
+
+function resolveRateLimitEnabled(options: CreateLontarOptions): boolean {
+  if (options.rateLimit?.enabled !== undefined) return options.rateLimit.enabled
+  return (
+    process.env.NODE_ENV !== 'test' &&
+    process.env.PLAYWRIGHT !== 'true' &&
+    process.env.DISABLE_AUTH_RATE_LIMIT !== 'true'
+  )
+}
+
+function buildAuthInstance(config: Config, basePath: string, options: CreateLontarOptions): Auth {
+  const trustedOrigins = buildTrustedOrigins(options)
+  const rateLimitEnabled = resolveRateLimitEnabled(options)
+  return betterAuth({
+    secret: config.secret,
+    basePath: `${basePath}/auth`,
+    ...(options.baseURL ? { baseURL: options.baseURL } : {}),
+    ...(trustedOrigins.length > 0 ? { trustedOrigins } : {}),
+    ...(config.db.authAdapter ? { database: config.db.authAdapter } : {}),
+    emailAndPassword: {
+      enabled: true,
+      disableSignUp: true,
+    },
+    rateLimit: {
+      enabled: rateLimitEnabled,
+      ...(options.rateLimit?.window !== undefined ? { window: options.rateLimit.window } : {}),
+      ...(options.rateLimit?.max !== undefined ? { max: options.rateLimit.max } : {}),
+    },
+  })
 }
 
 export function createLontar(config: Config, options: CreateLontarOptions = {}): LontarApp {
@@ -33,27 +78,7 @@ export function createLontar(config: Config, options: CreateLontarOptions = {}):
   app.onError(defaultErrorHandler)
   router.onError(defaultErrorHandler)
 
-  const defaultOrigins =
-    process.env.NODE_ENV === 'production' ? [] : ['http://localhost:3000', 'http://127.0.0.1:3000']
-  const envOrigins = (process.env.BETTER_AUTH_TRUSTED_ORIGINS ?? process.env.TRUSTED_ORIGINS ?? '')
-    .split(',')
-    .map((s) => s.trim())
-    .filter(Boolean)
-  const trustedOrigins = Array.from(
-    new Set([...defaultOrigins, ...envOrigins, ...(options.trustedOrigins ?? [])]),
-  )
-
-  const auth = betterAuth({
-    secret: config.secret,
-    basePath: `${basePath}/auth`,
-    ...(options.baseURL ? { baseURL: options.baseURL } : {}),
-    ...(trustedOrigins.length > 0 ? { trustedOrigins } : {}),
-    ...(config.db.authAdapter ? { database: config.db.authAdapter } : {}),
-    emailAndPassword: {
-      enabled: true,
-      disableSignUp: true,
-    },
-  })
+  const auth = buildAuthInstance(config, basePath, options)
 
   // Mount Better Auth handler routes at /auth/*
   router.all('/auth/*', (c) => auth.handler(c.req.raw))

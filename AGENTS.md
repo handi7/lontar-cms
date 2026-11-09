@@ -149,7 +149,7 @@ approval on the `npm` environment. Don't run `pnpm publish` by hand; see `docs/r
   - [x] #122 Theming token documentation and Stack correction (done)
   - [x] #136 Dialog, Popover and Tooltip where they replace existing behaviour (done)
 
-- [ ] **M7: Complex fields** (tracking in #151)
+- [x] **M7: Complex fields** (Done; tracking in #151)
   - [x] #152 ADR: nested field storage and querying (done)
   - [x] #153 ADR: declarative conditional fields (done)
   - [x] #154 `group` field (done)
@@ -158,7 +158,7 @@ approval on the `npm` environment. Don't run `pnpm publish` by hand; see `docs/r
   - [x] #157 Relationship and upload fields inside nested fields (done)
   - [x] #158 Filter and sort on nested field paths (done)
   - [x] #159 Conditional fields via `admin.condition` (done)
-  - [ ] #160 `examples/next-blog` pages built from blocks, with e2e
+  - [x] #160 `examples/next-blog` pages built from blocks, with e2e (done)
 - [ ] **M8: Drafts, versions & publishing** (tracking in #146; broken into issues when it starts)
 - [ ] **M9: Second database adapter** (tracking in #147)
 - [ ] **M10: Users, roles & field-level access** (tracking in #148)
