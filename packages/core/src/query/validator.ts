@@ -274,8 +274,17 @@ function collectSortableFields(collection: CollectionConfig): Set<string> {
   return sortable
 }
 
+export function getTopKey(fieldName: string): string {
+  const dot = fieldName.indexOf('.')
+  const dunder = fieldName.indexOf('__')
+  if (dot === -1 && dunder === -1) return fieldName
+  if (dot === -1) return fieldName.slice(0, dunder)
+  if (dunder === -1) return fieldName.slice(0, dot)
+  return fieldName.slice(0, Math.min(dot, dunder))
+}
+
 function isArrayOrBlocksPath(collection: CollectionConfig, fieldPath: string): boolean {
-  const topKey = fieldPath.split(/[._]/)[0] ?? ''
+  const topKey = getTopKey(fieldPath)
   const field = collection.fields[topKey]
   return field?.type === 'array' || field?.type === 'blocks'
 }
@@ -301,7 +310,7 @@ function checkDisallowedSortField(
       message: `Cannot sort on container field "${field}"`,
     }
   }
-  const topKey = field.split(/[._]/)[0] ?? ''
+  const topKey = getTopKey(field)
   const topField = collection.fields[topKey]
   if (topField?.type === 'richText' && topKey === field) {
     return {
