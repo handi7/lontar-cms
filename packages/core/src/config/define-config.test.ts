@@ -51,6 +51,44 @@ describe('defineConfig', () => {
     ])
   })
 
+  it('rejects field names containing "__" (reserved as group-column separator)', () => {
+    expect(issuesOf([notes({ fields: { weird__name: f.text() } })])).toEqual([
+      'Collection "notes": field name "weird__name" cannot contain "__" (reserved as the group-column separator).',
+    ])
+  })
+
+  it('rejects nested field names containing "__" in groups, arrays, and blocks', () => {
+    const collection = notes({
+      fields: {
+        seo: f.group({
+          fields: {
+            bad__subfield: f.text(),
+          },
+        }),
+        gallery: f.array({
+          fields: {
+            img__alt: f.text(),
+          },
+        }),
+        layout: f.blocks({
+          blocks: [
+            block({
+              slug: 'hero',
+              fields: {
+                hero__title: f.text(),
+              },
+            }),
+          ],
+        }),
+      },
+    })
+    expect(issuesOf([collection])).toEqual([
+      'Collection "notes" -> group "seo": field name "bad__subfield" cannot contain "__" (reserved as the group-column separator).',
+      'Collection "notes" -> array "gallery": field name "img__alt" cannot contain "__" (reserved as the group-column separator).',
+      'Collection "notes" -> blocks "layout" -> block "hero": field name "hero__title" cannot contain "__" (reserved as the group-column separator).',
+    ])
+  })
+
   it.each(['id', 'createdAt', 'updatedAt'])('rejects the system field name %j', (name) => {
     expect(issuesOf([notes({ fields: { [name]: f.text() } })])).toEqual([
       `Collection "notes": field name "${name}" is reserved for a system field.`,
