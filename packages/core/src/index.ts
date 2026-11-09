@@ -42,6 +42,7 @@ export type {
   UpdateOperationArgs,
 } from './operations'
 export {
+  getTopKey,
   parseSort,
   parseWhere,
   parseWhereFromSearchParams,

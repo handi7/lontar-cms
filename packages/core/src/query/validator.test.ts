@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import type { CollectionConfig } from '../config/types'
-import { validateSort, validateWhere } from './validator'
+import { getTopKey, validateSort, validateWhere } from './validator'
 
 const testCollection: CollectionConfig = {
   slug: 'posts',
@@ -394,5 +394,69 @@ describe('validateSort', () => {
         message: 'Unknown field "unknown"',
       },
     ])
+  })
+
+  it('allows sorting on underscore-containing groups when sibling array field exists (#178)', () => {
+    const colWithUnderscores: CollectionConfig = {
+      slug: 'articles',
+      labels: { singular: 'Article', plural: 'Articles' },
+      fields: {
+        title: { type: 'text' },
+        author: {
+          type: 'array',
+          fields: { name: { type: 'text' } },
+        },
+        author_info: {
+          type: 'group',
+          fields: {
+            name: { type: 'text' },
+            bio_text: { type: 'text' },
+          },
+        },
+      },
+    }
+
+    // Sorting by author_info__name or author_info.name should pass and not be confused with author
+    expect(validateSort('author_info__name', colWithUnderscores)).toEqual([])
+    expect(validateSort('-author_info__name', colWithUnderscores)).toEqual([])
+    expect(validateSort('author_info.name', colWithUnderscores)).toEqual([])
+    expect(validateSort('author_info__bio_text', colWithUnderscores)).toEqual([])
+
+    // Sorting by the array field author should still be correctly rejected
+    expect(validateSort('author.name', colWithUnderscores)).toEqual([
+      {
+        path: 'author.name',
+        message: 'Sorting on array or blocks field "author.name" is not supported',
+      },
+    ])
+    expect(validateSort('author__name', colWithUnderscores)).toEqual([
+      {
+        path: 'author__name',
+        message: 'Sorting on array or blocks field "author__name" is not supported',
+      },
+    ])
+  })
+})
+
+describe('getTopKey', () => {
+  it('returns field name when no delimiter is present', () => {
+    expect(getTopKey('title')).toBe('title')
+    expect(getTopKey('author_info')).toBe('author_info')
+    expect(getTopKey('')).toBe('')
+  })
+
+  it('splits on dot delimiter', () => {
+    expect(getTopKey('author_info.name')).toBe('author_info')
+    expect(getTopKey('author.name')).toBe('author')
+  })
+
+  it('splits on double underscore delimiter without cutting single underscores', () => {
+    expect(getTopKey('author_info__name')).toBe('author_info')
+    expect(getTopKey('user_profile_data__display_name')).toBe('user_profile_data')
+  })
+
+  it('splits on whichever delimiter occurs first', () => {
+    expect(getTopKey('author_info.sub__field')).toBe('author_info')
+    expect(getTopKey('author_info__sub.field')).toBe('author_info')
   })
 })

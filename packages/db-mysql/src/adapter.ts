@@ -21,6 +21,7 @@ import { migrate } from 'drizzle-orm/mysql2/migrator'
 import mysql from 'mysql2/promise'
 import {
   generateRowId,
+  getTopKey,
   parseSort,
   type ArrayField,
   type Block,
@@ -715,12 +716,6 @@ function parseJsonArrayConditions(
     if (cond) conditions.push(cond)
   }
   return conditions
-}
-
-function getTopKey(fieldName: string): string {
-  if (fieldName.includes('.')) return fieldName.slice(0, fieldName.indexOf('.'))
-  if (fieldName.includes('__')) return fieldName.slice(0, fieldName.indexOf('__'))
-  return fieldName
 }
 
 function parseJsonFieldConditions(
