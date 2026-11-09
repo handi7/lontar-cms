@@ -56,10 +56,12 @@ export type {
 } from './client/condition'
 export {
   evaluateFieldFilter,
+  extractConditionPaths,
   getValueByPath,
   matchesCondition,
   resolveConditionTarget,
   sanitizeConditionalFields,
+  setValueByPath,
 } from './client/condition'
 export type {
   FieldFilter,

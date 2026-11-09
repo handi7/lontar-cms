@@ -43,10 +43,12 @@ export type {
 } from './condition'
 export {
   evaluateFieldFilter,
+  extractConditionPaths,
   getValueByPath,
   matchesCondition,
   resolveConditionTarget,
   sanitizeConditionalFields,
+  setValueByPath,
 } from './condition'
 export {
   clientFieldToZod,

@@ -1,14 +1,112 @@
 import { describe, expect, it } from 'vitest'
 import {
   evaluateFieldFilter,
+  extractConditionPaths,
   getValueByPath,
   matchesCondition,
   resolveConditionTarget,
   sanitizeConditionalFields,
+  setValueByPath,
 } from './condition'
 import type { ClientField } from './client-config'
 
 describe('condition evaluator', () => {
+  describe('setValueByPath', () => {
+    it('sets top-level and nested properties on empty objects', () => {
+      const data: Record<string, unknown> = {}
+      setValueByPath(data, 'status', 'published')
+      setValueByPath(data, 'seo.title', 'My SEO Title')
+      expect(data).toEqual({
+        status: 'published',
+        seo: { title: 'My SEO Title' },
+      })
+    })
+
+    it('sets array index properties when path segment is numeric', () => {
+      const data: Record<string, unknown> = {}
+      setValueByPath(data, 'items.0.name', 'Item 1')
+      setValueByPath(data, 'items.1.name', 'Item 2')
+      expect(data).toEqual({
+        items: [{ name: 'Item 1' }, { name: 'Item 2' }],
+      })
+    })
+
+    it('preserves existing properties in target objects', () => {
+      const data: Record<string, unknown> = {
+        title: 'Original Title',
+        author: { name: 'Alice' },
+      }
+      setValueByPath(data, 'author.email', 'alice@example.com')
+      expect(data).toEqual({
+        title: 'Original Title',
+        author: { name: 'Alice', email: 'alice@example.com' },
+      })
+    })
+
+    it('rejects forbidden prototype pollution keys', () => {
+      const data: Record<string, unknown> = {}
+      setValueByPath(data, '__proto__.polluted', true)
+      setValueByPath(data, 'constructor.prototype.polluted', true)
+      expect(data).toEqual({})
+      expect((Object.prototype as { polluted?: unknown }).polluted).toBeUndefined()
+    })
+  })
+
+  describe('extractConditionPaths (#177)', () => {
+    it('returns empty array for undefined, null, or empty condition', () => {
+      expect(extractConditionPaths(undefined)).toEqual([])
+      expect(extractConditionPaths({})).toEqual([])
+    })
+
+    it('extracts top-level condition field paths', () => {
+      expect(extractConditionPaths({ format: { equals: 'video' } })).toEqual(['format'])
+      expect(extractConditionPaths({ format: 'video' })).toEqual(['format'])
+    })
+
+    it('resolves sibling paths with pathPrefix and leaves $root. paths at root level', () => {
+      expect(extractConditionPaths({ format: { equals: 'video' } }, 'items.0')).toEqual([
+        'items.0.format',
+      ])
+      expect(extractConditionPaths({ '$root.status': { equals: 'published' } }, 'items.0')).toEqual(
+        ['status'],
+      )
+      expect(
+        extractConditionPaths({ '$root.author.role': { equals: 'admin' } }, 'layout.2'),
+      ).toEqual(['author.role'])
+    })
+
+    it('extracts paths recursively from compound and/or conditions and deduplicates', () => {
+      const compound = {
+        and: [
+          { format: { equals: 'video' } },
+          {
+            or: [
+              { duration: { greater_than: 60 } },
+              { format: { equals: 'long-video' } },
+              { '$root.status': { equals: 'published' } },
+            ],
+          },
+        ],
+      }
+      expect(extractConditionPaths(compound, 'gallery.1')).toEqual([
+        'gallery.1.format',
+        'gallery.1.duration',
+        'status',
+      ])
+    })
+
+    it('ignores forbidden keys in condition paths', () => {
+      expect(
+        extractConditionPaths({
+          __proto__: { equals: 'bad' },
+          '$root.__proto__': { equals: 'bad' },
+          'constructor.prototype': { equals: 'bad' },
+          valid: { equals: true },
+        }),
+      ).toEqual(['valid'])
+    })
+  })
+
   describe('getValueByPath', () => {
     it('retrieves top-level and nested properties', () => {
       const data = { a: 1, b: { c: 'hello', d: { e: true } } }
