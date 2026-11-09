@@ -95,6 +95,26 @@ function resolveFindWhere(
   return where
 }
 
+async function hydrateDraftDocs(
+  db: Config['db'],
+  collection: CollectionConfig,
+  docs: DocumentData[],
+  draft?: boolean,
+): Promise<DocumentData[]> {
+  if (!draft || !collection.versions || !db.findLatestDraftVersion) {
+    return docs
+  }
+  return Promise.all(
+    docs.map(async (doc) => {
+      const latestDraft = await db.findLatestDraftVersion!({
+        collection,
+        parentId: Number(doc.id),
+      })
+      return latestDraft ? latestDraft.snapshot : doc
+    }),
+  )
+}
+
 export async function findOperation<T = DocumentData>(
   args: FindOperationArgs,
 ): Promise<PaginatedDocs<T>> {
@@ -116,10 +136,10 @@ export async function findOperation<T = DocumentData>(
     limit,
   })
 
+  const rawDocs = await hydrateDraftDocs(args.config.db, args.collection, result.docs, args.draft)
+
   const docs = await Promise.all(
-    result.docs.map((doc) =>
-      runAfterReadHooks({ collection: args.collection, doc, req: args.req }),
-    ),
+    rawDocs.map((doc) => runAfterReadHooks({ collection: args.collection, doc, req: args.req })),
   )
 
   const populated = await populateDocs({

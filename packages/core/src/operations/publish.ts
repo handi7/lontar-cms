@@ -44,6 +44,22 @@ function handleMutationResult(result: MutationFailure, id: number, action: strin
   throw new Error(result.body.error ?? `${action} failed`)
 }
 
+async function resolvePublishPayload(
+  db: Config['db'],
+  collection: CollectionConfig,
+  id: number,
+  originalDoc: DocumentData,
+  statusTransition: DocStatusTransition,
+): Promise<DocumentData> {
+  if (statusTransition === 'publish' && collection.versions && db.findLatestDraftVersion) {
+    const latestDraft = await db.findLatestDraftVersion({ collection, parentId: id })
+    if (latestDraft) {
+      return latestDraft.snapshot
+    }
+  }
+  return originalDoc
+}
+
 async function transitionDocumentStatus<T = DocumentData>(
   args: PublishOperationArgs,
   status: DocStatus,
@@ -66,15 +82,24 @@ async function transitionDocumentStatus<T = DocumentData>(
     throw new NotFoundError(`Document with ID ${args.id} not found`)
   }
 
+  const publishPayload = await resolvePublishPayload(
+    args.config.db,
+    args.collection,
+    args.id,
+    originalDoc,
+    statusTransition,
+  )
+
   const result = await executeUpdate({
     collection: args.collection,
     id: args.id,
-    data: { ...originalDoc, _status: status },
+    data: { ...publishPayload, _status: status },
     originalDoc,
     db: args.config.db,
     req: args.req,
     status,
     statusTransition,
+    userId: args.user?.id,
   })
 
   if (!result.success) {

@@ -32,6 +32,7 @@ export interface CreateOperationArgs extends OperationContext {
   data: DocumentData
   depth?: number
   draft?: boolean
+  autosave?: boolean
 }
 
 export interface UpdateOperationArgs extends OperationContext {
@@ -40,6 +41,7 @@ export interface UpdateOperationArgs extends OperationContext {
   data: DocumentData
   depth?: number
   draft?: boolean
+  autosave?: boolean
 }
 
 export interface DeleteOperationArgs extends OperationContext {

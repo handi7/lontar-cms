@@ -3,7 +3,7 @@ import type { AuthUser } from '../auth/types'
 import { clientFieldsToZod } from '../client/zod'
 import { toClientCollection } from '../config/to-client-config'
 import type { CollectionConfig } from '../config/types'
-import type { DocumentData } from '../database/adapter'
+import type { DatabaseAdapter, DocumentData } from '../database/adapter'
 import { populateDoc } from '../populate'
 import { AccessDeniedError, NotFoundError, ValidationError } from './errors'
 import { executeUpdate } from './mutation'
@@ -51,15 +51,29 @@ function handleUpdateError(
   throw new Error(fallback)
 }
 
+async function resolveOriginalDoc(
+  db: DatabaseAdapter,
+  collection: CollectionConfig,
+  id: number,
+  draft?: boolean,
+): Promise<DocumentData | null> {
+  const baseDoc = await db.findByID({ collection, id })
+  if (!baseDoc) return null
+  if (draft && collection.versions && db.findLatestDraftVersion) {
+    const draftVersion = await db.findLatestDraftVersion({ collection, parentId: id })
+    if (draftVersion) {
+      return draftVersion.snapshot
+    }
+  }
+  return baseDoc
+}
+
 export async function updateOperation<T = DocumentData>(args: UpdateOperationArgs): Promise<T> {
   if (!args.overrideAccess) {
     await assertUpdateAccess(args.collection, args.id, args.data, args.user)
   }
 
-  const originalDoc = await args.config.db.findByID({
-    collection: args.collection,
-    id: args.id,
-  })
+  const originalDoc = await resolveOriginalDoc(args.config.db, args.collection, args.id, args.draft)
   if (!originalDoc) {
     throw new NotFoundError(`Document with ID ${args.id} not found`)
   }
@@ -74,6 +88,8 @@ export async function updateOperation<T = DocumentData>(args: UpdateOperationArg
     db: args.config.db,
     req: args.req,
     draft: args.draft,
+    autosave: args.autosave,
+    userId: args.user?.id,
   })
 
   if (!result.success) {

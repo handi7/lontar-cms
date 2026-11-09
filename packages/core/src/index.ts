@@ -16,6 +16,10 @@ export type {
   LocalFindByIDOptions,
   LocalFindGlobalOptions,
   LocalFindOptions,
+  LocalFindVersionByIDOptions,
+  LocalFindVersionsOptions,
+  LocalPublishOptions,
+  LocalRestoreVersionOptions,
   LocalUpdateGlobalOptions,
   LocalUpdateOptions,
 } from './local'
@@ -25,22 +29,38 @@ export {
   ValidationError,
   createOperation,
   deleteOperation,
+  diffFields,
+  diffSnapshots,
   findByIDOperation,
   findGlobalOperation,
   findOperation,
+  findVersionByIDOperation,
+  findVersionsOperation,
   publishOperation,
+  restoreVersionOperation,
   unpublishOperation,
   updateGlobalOperation,
   updateOperation,
 } from './operations'
 export type {
+  ArrayFieldDiff,
+  ArrayItemDiff,
+  BlocksFieldDiff,
+  ChangeType,
   CreateOperationArgs,
   DeleteOperationArgs,
+  DocumentDiff,
+  FieldDiff,
   FindByIDOperationArgs,
   FindGlobalOperationArgs,
   FindOperationArgs,
+  FindVersionByIDOperationArgs,
+  FindVersionsOperationArgs,
+  GroupFieldDiff,
   OperationContext,
+  PrimitiveFieldDiff,
   PublishOperationArgs,
+  RestoreVersionOperationArgs,
   UpdateGlobalOperationArgs,
   UpdateOperationArgs,
 } from './operations'
@@ -109,7 +129,7 @@ export type {
   PaginationConfig,
   VersionsConfig,
 } from './config/types'
-export { DEFAULT_LIMIT, MAX_LIMIT } from './config/types'
+export { DEFAULT_LIMIT, MAX_LIMIT, DEFAULT_MAX_PER_DOC } from './config/types'
 export {
   DatabaseError,
   UniqueConstraintError,
@@ -120,8 +140,12 @@ export type {
   DatabaseAdapter,
   DocumentData,
   FindArgs,
+  FindVersionsArgs,
   PaginatedDocs,
+  PaginatedVersions,
+  SaveVersionArgs,
   StoredDoc,
+  StoredVersion,
 } from './database/adapter'
 export type { InferArrayRow, InferBlockRow, InferDoc } from './fields/infer'
 export {

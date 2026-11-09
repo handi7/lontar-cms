@@ -201,6 +201,16 @@ const headerGlobal: GlobalConfig = {
   },
 }
 
+const versionedPostsCollection: CollectionConfig = {
+  slug: 'versioned_posts',
+  labels: { singular: 'Versioned Post', plural: 'Versioned Posts' },
+  versions: { drafts: true, maxPerDoc: 2 },
+  fields: {
+    title: { type: 'text', required: true },
+    content: { type: 'textarea' },
+  },
+}
+
 describe('mysqlAdapter (integration)', () => {
   let testDb: TestDatabase
   let testDatabaseUrl: string
@@ -224,6 +234,7 @@ describe('mysqlAdapter (integration)', () => {
         nestedCollection,
         conditionalPostsCollection,
         sharedBlocksCollection,
+        versionedPostsCollection,
       ],
       globals: [headerGlobal],
     }
@@ -1969,5 +1980,102 @@ describe('mysqlAdapter (integration)', () => {
     expect(resUnqualified.docs.map((d) => d.id).sort()).toEqual(
       [blockDiff.id, blockKeyAbsent.id, blockEmpty.id, blockNull.id].sort(),
     )
+  })
+
+  it('manages version history, autosave in-place updates, pruning, and cascade deletes', async () => {
+    // 1. Create parent doc
+    const parentDoc = await adapter.create({
+      collection: versionedPostsCollection,
+      data: {
+        title: 'Initial Versioned Post',
+        content: 'Original content',
+        _status: 'published',
+      },
+    })
+
+    // 2. Save version 1
+    const v1 = await adapter.saveVersion!({
+      collection: versionedPostsCollection,
+      parentId: parentDoc.id,
+      snapshot: { ...parentDoc },
+      status: 'published',
+      userId: 'user-1',
+    })
+    expect(v1.versionNumber).toBe(1)
+    expect(v1.snapshot.title).toBe('Initial Versioned Post')
+    expect(v1._status).toBe('published')
+    expect(v1.autosave).toBe(false)
+    expect(v1.createdBy).toBe('user-1')
+
+    // 3. Save draft with autosave: true
+    const v2 = await adapter.saveVersion!({
+      collection: versionedPostsCollection,
+      parentId: parentDoc.id,
+      snapshot: { ...parentDoc, title: 'Draft v1' },
+      status: 'draft',
+      autosave: true,
+      userId: 'user-1',
+    })
+    expect(v2.versionNumber).toBe(2)
+    expect(v2.snapshot.title).toBe('Draft v1')
+    expect(v2.autosave).toBe(true)
+
+    // 4. Continuous autosave updates the row in place
+    const v2Updated = await adapter.saveVersion!({
+      collection: versionedPostsCollection,
+      parentId: parentDoc.id,
+      snapshot: { ...parentDoc, title: 'Draft v2 (autosaved)' },
+      status: 'draft',
+      autosave: true,
+      userId: 'user-2',
+    })
+    expect(v2Updated.id).toBe(v2.id)
+    expect(v2Updated.snapshot.title).toBe('Draft v2 (autosaved)')
+    expect(v2Updated.createdBy).toBe('user-2')
+
+    // 5. Query latest draft version
+    const latestDraft = await adapter.findLatestDraftVersion!({
+      collection: versionedPostsCollection,
+      parentId: parentDoc.id,
+    })
+    expect(latestDraft).not.toBeNull()
+    expect(latestDraft?.snapshot.title).toBe('Draft v2 (autosaved)')
+
+    // 6. Test retention pruning (maxPerDoc: 2). Adding version 3 should prune v1.
+    const v3 = await adapter.saveVersion!({
+      collection: versionedPostsCollection,
+      parentId: parentDoc.id,
+      snapshot: { ...parentDoc, title: 'Published v3' },
+      status: 'published',
+    })
+    expect(v3.versionNumber).toBe(3)
+
+    const history = await adapter.findVersions!({
+      collection: versionedPostsCollection,
+      parentId: parentDoc.id,
+    })
+    expect(history.totalDocs).toBe(2)
+    expect(history.docs.map((d) => d.id)).not.toContain(v1.id)
+
+    // 7. Find version by ID
+    const foundV3 = await adapter.findVersionByID!({
+      collection: versionedPostsCollection,
+      parentId: parentDoc.id,
+      versionId: v3.id,
+    })
+    expect(foundV3).not.toBeNull()
+    expect(foundV3?.snapshot.title).toBe('Published v3')
+
+    // 8. Test database cascade delete (ON DELETE CASCADE)
+    await adapter.delete({
+      collection: versionedPostsCollection,
+      id: parentDoc.id,
+    })
+
+    const remainingVersions = await adapter.findVersions!({
+      collection: versionedPostsCollection,
+      parentId: parentDoc.id,
+    })
+    expect(remainingVersions.totalDocs).toBe(0)
   })
 })

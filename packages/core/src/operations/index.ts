@@ -23,3 +23,23 @@ export type {
 } from './types'
 export { updateOperation } from './update'
 export { publishOperation, unpublishOperation, type PublishOperationArgs } from './publish'
+export {
+  findVersionsOperation,
+  findVersionByIDOperation,
+  restoreVersionOperation,
+  type FindVersionsOperationArgs,
+  type FindVersionByIDOperationArgs,
+  type RestoreVersionOperationArgs,
+} from './versions'
+export {
+  diffSnapshots,
+  diffFields,
+  type ArrayFieldDiff,
+  type ArrayItemDiff,
+  type BlocksFieldDiff,
+  type ChangeType,
+  type DocumentDiff,
+  type FieldDiff,
+  type GroupFieldDiff,
+  type PrimitiveFieldDiff,
+} from './diff'

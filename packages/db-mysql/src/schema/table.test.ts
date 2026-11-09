@@ -2,7 +2,13 @@ import { describe, expect, it } from 'vitest'
 import { getTableConfig, type AnyMySqlColumn } from 'drizzle-orm/mysql-core'
 import { getTableColumns } from 'drizzle-orm'
 import type { CollectionConfig, GlobalConfig } from '@lontar/core'
-import { collectionToTable, getCollectionJunctionTables, globalToTable } from './table'
+import {
+  collectionToTable,
+  createVersionsTable,
+  getCollectionJunctionTables,
+  getCollectionVersionsTable,
+  globalToTable,
+} from './table'
 
 function col(columns: Record<string, AnyMySqlColumn>, name: string): AnyMySqlColumn {
   const column = columns[name]
@@ -286,5 +292,32 @@ describe('collectionToTable', () => {
 
     const config = getTableConfig(table)
     expect(config.indexes.map((i) => i.config.name)).toContain('site_settings__status_idx')
+  })
+
+  it('creates versions table schema with parent FK, indexes, and columns', () => {
+    const parentTable = collectionToTable({
+      slug: 'posts',
+      fields: { title: { type: 'text', required: true } },
+    })
+    const vTable = createVersionsTable('posts', parentTable)
+    const columns = getTableColumns(vTable) as Record<string, AnyMySqlColumn>
+
+    expect(col(columns, 'id').columnType).toBe('MySqlInt')
+    expect(col(columns, 'parentId').columnType).toBe('MySqlInt')
+    expect(col(columns, 'versionNumber').columnType).toBe('MySqlInt')
+    expect(col(columns, 'snapshot').columnType).toBe('MySqlJson')
+    expect(col(columns, '_status').columnType).toBe('MySqlVarChar')
+    expect(col(columns, 'autosave').columnType).toBe('MySqlBoolean')
+    expect(col(columns, 'createdAt').columnType).toBe('MySqlTimestamp')
+    expect(col(columns, 'createdBy').columnType).toBe('MySqlVarChar')
+
+    const config = getTableConfig(vTable)
+    expect(config.name).toBe('posts_versions')
+    expect(config.indexes.map((i) => i.config.name)).toContain('posts_versions_parent_id_idx')
+    expect(config.indexes.map((i) => i.config.name)).toContain('posts_versions_parent_status_idx')
+  })
+
+  it('getCollectionVersionsTable returns null when versions is not configured', () => {
+    expect(getCollectionVersionsTable({ slug: 'posts', fields: {} })).toBeNull()
   })
 })
