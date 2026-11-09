@@ -354,5 +354,298 @@ describe('condition evaluator', () => {
         { blockType: 'hero', hasButton: false },
       ])
     })
+
+    it('sanitizes group -> array nested conditional fields (#175)', () => {
+      const nestedFields: ClientField[] = [
+        {
+          name: 'settings',
+          type: 'group',
+          label: 'Settings',
+          required: false,
+          fields: [
+            { name: 'mode', type: 'text', label: 'Mode', required: false },
+            {
+              name: 'items',
+              type: 'array',
+              label: 'Items',
+              required: false,
+              fields: [
+                { name: 'kind', type: 'select', label: 'Kind', required: true, options: [] },
+                {
+                  name: 'url',
+                  type: 'text',
+                  label: 'URL',
+                  required: false,
+                  condition: { kind: { equals: 'link' } },
+                },
+              ],
+            },
+          ],
+        },
+      ]
+
+      const sanitized = sanitizeConditionalFields(nestedFields, {
+        settings: {
+          mode: 'a',
+          items: [
+            { id: 'r1', kind: 'text', url: 'http://zombie' },
+            { id: 'r2', kind: 'link', url: 'https://example.com' },
+          ],
+        },
+      })
+
+      expect(sanitized.settings).toEqual({
+        mode: 'a',
+        items: [
+          { id: 'r1', kind: 'text' },
+          { id: 'r2', kind: 'link', url: 'https://example.com' },
+        ],
+      })
+    })
+
+    it('sanitizes array -> group nested conditional fields (#175)', () => {
+      const nestedFields: ClientField[] = [
+        {
+          name: 'items',
+          type: 'array',
+          label: 'Items',
+          required: false,
+          fields: [
+            {
+              name: 'meta',
+              type: 'group',
+              label: 'Meta',
+              required: false,
+              fields: [
+                { name: 'featured', type: 'checkbox', label: 'Featured', required: false },
+                {
+                  name: 'badge',
+                  type: 'text',
+                  label: 'Badge',
+                  required: false,
+                  condition: { featured: { equals: true } },
+                },
+              ],
+            },
+          ],
+        },
+      ]
+
+      const sanitized = sanitizeConditionalFields(nestedFields, {
+        items: [
+          { id: 'r1', meta: { featured: false, badge: 'Zombie' } },
+          { id: 'r2', meta: { featured: true, badge: 'Active' } },
+        ],
+      })
+
+      expect(sanitized.items).toEqual([
+        { id: 'r1', meta: { featured: false, badge: null } },
+        { id: 'r2', meta: { featured: true, badge: 'Active' } },
+      ])
+    })
+
+    it('sanitizes blocks -> group nested conditional fields (#175)', () => {
+      const nestedFields: ClientField[] = [
+        {
+          name: 'layout',
+          type: 'blocks',
+          label: 'Layout',
+          required: false,
+          blocks: [
+            {
+              slug: 'hero',
+              labels: { singular: 'Hero', plural: 'Heroes' },
+              fields: [
+                {
+                  name: 'cta',
+                  type: 'group',
+                  label: 'CTA',
+                  required: false,
+                  fields: [
+                    { name: 'hasButton', type: 'checkbox', label: 'Has Button', required: false },
+                    {
+                      name: 'buttonText',
+                      type: 'text',
+                      label: 'Button Text',
+                      required: false,
+                      condition: { hasButton: { equals: true } },
+                    },
+                  ],
+                },
+              ],
+            },
+          ],
+        },
+      ]
+
+      const sanitized = sanitizeConditionalFields(nestedFields, {
+        layout: [
+          { blockType: 'hero', id: 'b1', cta: { hasButton: false, buttonText: 'Hidden' } },
+          { blockType: 'hero', id: 'b2', cta: { hasButton: true, buttonText: 'Shown' } },
+        ],
+      })
+
+      expect(sanitized.layout).toEqual([
+        { blockType: 'hero', id: 'b1', cta: { hasButton: false, buttonText: null } },
+        { blockType: 'hero', id: 'b2', cta: { hasButton: true, buttonText: 'Shown' } },
+      ])
+    })
+
+    it('sanitizes array -> array nested conditional fields (#175)', () => {
+      const nestedFields: ClientField[] = [
+        {
+          name: 'tables',
+          type: 'array',
+          label: 'Tables',
+          required: false,
+          fields: [
+            {
+              name: 'columns',
+              type: 'array',
+              label: 'Columns',
+              required: false,
+              fields: [
+                { name: 'sortable', type: 'checkbox', label: 'Sortable', required: false },
+                {
+                  name: 'direction',
+                  type: 'text',
+                  label: 'Direction',
+                  required: false,
+                  condition: { sortable: { equals: true } },
+                },
+              ],
+            },
+          ],
+        },
+      ]
+
+      const sanitized = sanitizeConditionalFields(nestedFields, {
+        tables: [
+          {
+            id: 't1',
+            columns: [
+              { id: 'c1', sortable: false, direction: 'asc' },
+              { id: 'c2', sortable: true, direction: 'desc' },
+            ],
+          },
+        ],
+      })
+
+      expect(sanitized.tables).toEqual([
+        {
+          id: 't1',
+          columns: [
+            { id: 'c1', sortable: false },
+            { id: 'c2', sortable: true, direction: 'desc' },
+          ],
+        },
+      ])
+    })
+
+    it('sanitizes group -> blocks nested conditional fields (#175)', () => {
+      const nestedFields: ClientField[] = [
+        {
+          name: 'page',
+          type: 'group',
+          label: 'Page',
+          required: false,
+          fields: [
+            {
+              name: 'sections',
+              type: 'blocks',
+              label: 'Sections',
+              required: false,
+              blocks: [
+                {
+                  slug: 'banner',
+                  labels: { singular: 'Banner', plural: 'Banners' },
+                  fields: [
+                    {
+                      name: 'dismissible',
+                      type: 'checkbox',
+                      label: 'Dismissible',
+                      required: false,
+                    },
+                    {
+                      name: 'storageKey',
+                      type: 'text',
+                      label: 'Storage Key',
+                      required: false,
+                      condition: { dismissible: { equals: true } },
+                    },
+                  ],
+                },
+              ],
+            },
+          ],
+        },
+      ]
+
+      const sanitized = sanitizeConditionalFields(nestedFields, {
+        page: {
+          sections: [
+            { blockType: 'banner', id: 's1', dismissible: false, storageKey: 'cookie-banner' },
+            { blockType: 'banner', id: 's2', dismissible: true, storageKey: 'promo-banner' },
+          ],
+        },
+      })
+
+      expect(sanitized.page).toEqual({
+        sections: [
+          { blockType: 'banner', id: 's1', dismissible: false },
+          { blockType: 'banner', id: 's2', dismissible: true, storageKey: 'promo-banner' },
+        ],
+      })
+    })
+
+    it('sanitizes nested fields referencing $root conditions (#175)', () => {
+      const nestedFields: ClientField[] = [
+        { name: 'showAdvanced', type: 'checkbox', label: 'Show Advanced', required: false },
+        {
+          name: 'settings',
+          type: 'group',
+          label: 'Settings',
+          required: false,
+          fields: [
+            {
+              name: 'items',
+              type: 'array',
+              label: 'Items',
+              required: false,
+              fields: [
+                { name: 'label', type: 'text', label: 'Label', required: true },
+                {
+                  name: 'advancedConfig',
+                  type: 'text',
+                  label: 'Advanced Config',
+                  required: false,
+                  condition: { '$root.showAdvanced': { equals: true } },
+                },
+              ],
+            },
+          ],
+        },
+      ]
+
+      const hidden = sanitizeConditionalFields(nestedFields, {
+        showAdvanced: false,
+        settings: {
+          items: [{ id: 'i1', label: 'Item 1', advancedConfig: 'secret-val' }],
+        },
+      })
+      expect(hidden.settings).toEqual({
+        items: [{ id: 'i1', label: 'Item 1' }],
+      })
+
+      const visible = sanitizeConditionalFields(nestedFields, {
+        showAdvanced: true,
+        settings: {
+          items: [{ id: 'i1', label: 'Item 1', advancedConfig: 'secret-val' }],
+        },
+      })
+      expect(visible.settings).toEqual({
+        items: [{ id: 'i1', label: 'Item 1', advancedConfig: 'secret-val' }],
+      })
+    })
   })
 })

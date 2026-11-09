@@ -214,16 +214,8 @@ function sanitizeGroupFields(
   for (const field of fields) {
     if (field.condition && !matchesCondition(field.condition, rootContext, groupData)) {
       result[field.name] = null
-    } else if (
-      field.type === 'group' &&
-      result[field.name] &&
-      typeof result[field.name] === 'object'
-    ) {
-      result[field.name] = sanitizeGroupFields(
-        field.fields,
-        result[field.name] as Record<string, unknown>,
-        rootContext,
-      )
+    } else {
+      sanitizeFieldContainer(field, result, rootContext)
     }
   }
   return result
