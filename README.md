@@ -315,6 +315,13 @@ const { docs, totalDocs } = await lontar.find('posts', {
   depth: 1, // populate author, categories, cover
 })
 // docs: Post[] with generated types
+
+// Query modular pages with populated nested relationships and blocks
+const { docs: pages } = await lontar.find('pages', {
+  where: { slug: { equals: 'about' } },
+  depth: 1, // populates hero.backgroundImage, gallery.images[].image, etc.
+})
+// pages: Page[] with generated layout blocks union
 ```
 
 The Local API runs with `overrideAccess: true` by default, making server queries straightforward. To enforce access control based on an authenticated user or role, pass `{ overrideAccess: false, user }`. The client also exposes `findByID`, `create`, `update`, `delete`, `findGlobal`, and `updateGlobal`.

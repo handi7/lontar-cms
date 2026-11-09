@@ -1,4 +1,4 @@
-import { collection, defineConfig, fields as f, global } from '@lontar/core'
+import { block, collection, defineConfig, fields as f, global } from '@lontar/core'
 import { mysqlAdapter } from '@lontar/db-mysql'
 import { localStorage } from '@lontar/storage-local'
 
@@ -105,6 +105,93 @@ const posts = collection({
   },
 })
 
+const heroBlock = block({
+  slug: 'hero',
+  labels: { singular: 'Hero', plural: 'Heroes' },
+  fields: {
+    heading: f.text({ required: true }),
+    subheading: f.textarea(),
+    backgroundImage: f.upload({ relationTo: 'media' }),
+  },
+})
+
+const richTextBlock = block({
+  slug: 'richText',
+  labels: { singular: 'Rich Text', plural: 'Rich Texts' },
+  fields: {
+    content: f.richText(),
+  },
+})
+
+const galleryBlock = block({
+  slug: 'gallery',
+  labels: { singular: 'Gallery', plural: 'Galleries' },
+  fields: {
+    images: f.array({
+      fields: {
+        image: f.upload({ relationTo: 'media', required: true }),
+        caption: f.text(),
+      },
+    }),
+  },
+})
+
+const callToActionBlock = block({
+  slug: 'callToAction',
+  labels: { singular: 'Call to Action', plural: 'Calls to Action' },
+  fields: {
+    headline: f.text({ required: true }),
+    linkType: f.select({
+      options: ['internal', 'external'],
+      defaultValue: 'internal',
+    }),
+    internalPage: f.relationship({
+      relationTo: 'pages',
+      admin: {
+        condition: {
+          linkType: { equals: 'internal' },
+        },
+      },
+    }),
+    externalUrl: f.text({
+      admin: {
+        condition: {
+          linkType: { equals: 'external' },
+        },
+      },
+    }),
+    buttonLabel: f.text({ required: true }),
+  },
+})
+
+const pages = collection({
+  slug: 'pages',
+  labels: { singular: 'Page', plural: 'Pages' },
+  admin: {
+    useAsTitle: 'title',
+    defaultColumns: ['title', 'slug', 'createdAt'],
+  },
+  access: {
+    read: () => true,
+    create: ({ user }) => Boolean(user),
+    update: ({ user }) => Boolean(user),
+    delete: ({ user }) => Boolean(user),
+  },
+  fields: {
+    title: f.text({ required: true, maxLength: 120 }),
+    slug: f.slug({ from: 'title', unique: true }),
+    seo: f.group({
+      fields: {
+        metaTitle: f.text(),
+        metaDescription: f.textarea(),
+      },
+    }),
+    layout: f.blocks({
+      blocks: [heroBlock, richTextBlock, galleryBlock, callToActionBlock],
+    }),
+  },
+})
+
 const siteSettings = global({
   slug: 'site-settings',
   label: 'Site Settings',
@@ -124,6 +211,6 @@ export default defineConfig({
     url: process.env.DATABASE_URL || 'mysql://lontar:lontar@127.0.0.1:3306/lontar',
   }),
   storage: localStorage(),
-  collections: [posts, categories, authors, media],
+  collections: [posts, pages, categories, authors, media],
   globals: [siteSettings],
 })

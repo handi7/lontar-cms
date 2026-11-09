@@ -27,6 +27,8 @@ export default defineConfig({
     env: {
       LONTAR_URL: `http://127.0.0.1:${port}`,
       BETTER_AUTH_TRUSTED_ORIGINS: `http://127.0.0.1:${port},http://localhost:${port}`,
+      PLAYWRIGHT: 'true',
+      DISABLE_AUTH_RATE_LIMIT: 'true',
     },
   },
 })

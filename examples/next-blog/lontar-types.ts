@@ -15,6 +15,59 @@ export interface Post {
   publishedAt?: string | null
 }
 
+export interface PageLayoutHeroBlock {
+  id: string
+  blockType: 'hero'
+  heading: string
+  subheading?: string | null
+  backgroundImage?: number | Media | null
+}
+
+export interface PageLayoutRichTextBlock {
+  id: string
+  blockType: 'richText'
+  content?: Record<string, unknown> | null
+}
+
+export interface PageLayoutGalleryBlock {
+  id: string
+  blockType: 'gallery'
+  images?: Array<{
+    id: string
+    image: number | Media
+    caption?: string | null
+  }> | null
+}
+
+export interface PageLayoutCallToActionBlock {
+  id: string
+  blockType: 'callToAction'
+  headline: string
+  linkType?: 'internal' | 'external' | null
+  internalPage?: number | Page | null
+  externalUrl?: string | null
+  buttonLabel: string
+}
+
+export type PageLayoutBlock =
+  | PageLayoutHeroBlock
+  | PageLayoutRichTextBlock
+  | PageLayoutGalleryBlock
+  | PageLayoutCallToActionBlock
+
+export interface Page {
+  id: number
+  createdAt: string
+  updatedAt: string
+  title: string
+  slug?: string | null
+  seo?: {
+    metaTitle?: string | null
+    metaDescription?: string | null
+  } | null
+  layout?: Array<PageLayoutBlock> | null
+}
+
 export interface Category {
   id: number
   createdAt: string
@@ -73,6 +126,7 @@ export interface SiteSettings {
 export interface Config {
   collections: {
     posts: Post
+    pages: Page
     categories: Category
     authors: Author
     media: Media
@@ -85,6 +139,7 @@ export interface Config {
 declare module '@lontar/core' {
   interface LontarCollections {
     posts: Post
+    pages: Page
     categories: Category
     authors: Author
     media: Media
