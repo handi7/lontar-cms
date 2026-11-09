@@ -1839,4 +1839,135 @@ describe('mysqlAdapter (integration)', () => {
     expect(updImg2.id).toBeDefined()
     expect(updImg2.id).not.toBe(existingImage0Id)
   })
+
+  it('filters array and blocks with not_equals without dropping documents missing the key or with empty/null arrays (#179)', async () => {
+    // 1. Array path filtering with not_equals
+    const docMatch = await adapter.create({
+      collection: pagesCollection,
+      data: {
+        title: 'Sunset Page Match',
+        gallery: [{ caption: 'sunset', year: 2021 }],
+      },
+    })
+    const docDiff = await adapter.create({
+      collection: pagesCollection,
+      data: {
+        title: 'Sunrise Page Diff',
+        gallery: [{ caption: 'sunrise', year: 2022 }],
+      },
+    })
+    const docKeyAbsent = await adapter.create({
+      collection: pagesCollection,
+      data: {
+        title: 'No Caption Page',
+        gallery: [{ year: 2023 }],
+      },
+    })
+    const docEmptyArray = await adapter.create({
+      collection: pagesCollection,
+      data: {
+        title: 'Empty Gallery Page',
+        gallery: [],
+      },
+    })
+    const docNullArray = await adapter.create({
+      collection: pagesCollection,
+      data: {
+        title: 'Null Gallery Page',
+        gallery: null,
+      },
+    })
+
+    const allTestDocIds = [
+      docMatch.id,
+      docDiff.id,
+      docKeyAbsent.id,
+      docEmptyArray.id,
+      docNullArray.id,
+    ]
+
+    const resArrayNotEquals = await adapter.find({
+      collection: pagesCollection,
+      page: 1,
+      limit: 10,
+      where: {
+        and: [{ id: { in: allTestDocIds } }, { 'gallery.caption': { not_equals: 'sunset' } }],
+      },
+    })
+
+    const returnedIds = resArrayNotEquals.docs.map((d) => d.id).sort()
+    const expectedIds = [docDiff.id, docKeyAbsent.id, docEmptyArray.id, docNullArray.id].sort()
+    expect(returnedIds).toEqual(expectedIds)
+
+    // 2. Blocks path filtering with not_equals (both unqualified and block-qualified)
+    const blockMatch = await adapter.create({
+      collection: pagesCollection,
+      data: {
+        title: 'Block Hero Match',
+        layout: [{ blockType: 'hero', heading: 'Alpha' }],
+      },
+    })
+    const blockDiff = await adapter.create({
+      collection: pagesCollection,
+      data: {
+        title: 'Block Hero Diff',
+        layout: [{ blockType: 'hero', heading: 'Beta' }],
+      },
+    })
+    const blockKeyAbsent = await adapter.create({
+      collection: pagesCollection,
+      data: {
+        title: 'Block Key Absent',
+        layout: [{ blockType: 'cta', text: 'Click Here' }],
+      },
+    })
+    const blockEmpty = await adapter.create({
+      collection: pagesCollection,
+      data: {
+        title: 'Block Empty',
+        layout: [],
+      },
+    })
+    const blockNull = await adapter.create({
+      collection: pagesCollection,
+      data: {
+        title: 'Block Null',
+        layout: null,
+      },
+    })
+
+    const allBlockDocIds = [
+      blockMatch.id,
+      blockDiff.id,
+      blockKeyAbsent.id,
+      blockEmpty.id,
+      blockNull.id,
+    ]
+
+    // Block-qualified path (layout.hero.heading)
+    const resQualified = await adapter.find({
+      collection: pagesCollection,
+      page: 1,
+      limit: 10,
+      where: {
+        and: [{ id: { in: allBlockDocIds } }, { 'layout.hero.heading': { not_equals: 'Alpha' } }],
+      },
+    })
+    expect(resQualified.docs.map((d) => d.id).sort()).toEqual(
+      [blockDiff.id, blockKeyAbsent.id, blockEmpty.id, blockNull.id].sort(),
+    )
+
+    // Unqualified path (layout.heading)
+    const resUnqualified = await adapter.find({
+      collection: pagesCollection,
+      page: 1,
+      limit: 10,
+      where: {
+        and: [{ id: { in: allBlockDocIds } }, { 'layout.heading': { not_equals: 'Alpha' } }],
+      },
+    })
+    expect(resUnqualified.docs.map((d) => d.id).sort()).toEqual(
+      [blockDiff.id, blockKeyAbsent.id, blockEmpty.id, blockNull.id].sort(),
+    )
+  })
 })
