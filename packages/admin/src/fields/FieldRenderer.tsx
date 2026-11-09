@@ -519,14 +519,12 @@ function GroupFieldRenderer({
 }: GroupFieldRendererProps) {
   return (
     <fieldset
-      className="lontar-field-group lt:rounded-lg lt:border lt:border-[var(--lontar-border)] lt:p-4 lt:flex lt:flex-col lt:gap-4"
+      className="lontar-field-group lt:rounded-lg lt:border lt:border-border lt:p-4 lt:flex lt:flex-col lt:gap-4"
       data-group={fullName}
     >
-      <legend className="lt:text-sm lt:font-semibold lt:text-[var(--lontar-text)] lt:px-1">
+      <legend className="lt:text-sm lt:font-semibold lt:text-foreground lt:px-1">
         <span>{field.label}</span>
-        {field.required && (
-          <span className="lontar-required lt:ml-1 lt:text-[var(--lontar-destructive)]">*</span>
-        )}
+        {field.required && <span className="lontar-required lt:ml-1 lt:text-destructive">*</span>}
       </legend>
       {field.fields.map((subField) => {
         const subError =
@@ -656,21 +654,21 @@ function ArrayRowRenderer({
 
   return (
     <div
-      className="lontar-array-row lt:rounded-md lt:border lt:border-[var(--lontar-border)] lt:bg-[var(--lontar-card)] lt:overflow-hidden"
+      className="lontar-array-row lt:rounded-md lt:border lt:border-border lt:bg-card lt:overflow-hidden"
       data-array-row={index}
     >
-      <div className="lt:flex lt:items-center lt:justify-between lt:gap-2 lt:px-3 lt:py-2 lt:bg-[var(--lontar-muted)]/50 lt:border-b lt:border-[var(--lontar-border)]">
+      <div className="lt:flex lt:items-center lt:justify-between lt:gap-2 lt:px-3 lt:py-2 lt:bg-muted/50 lt:border-b lt:border-border">
         <button
           type="button"
           onClick={() => setCollapsed(!collapsed)}
-          className="lt:flex lt:items-center lt:gap-2 lt:text-sm lt:font-medium lt:text-[var(--lontar-text)] lt:hover:text-[var(--lontar-text-primary)] lt:focus-visible:outline-none lt:cursor-pointer"
+          className="lt:flex lt:items-center lt:gap-2 lt:text-sm lt:font-medium lt:text-foreground lt:hover:text-primary lt:focus-visible:outline-none lt:cursor-pointer"
           aria-expanded={!collapsed}
           aria-label={`${collapsed ? 'Expand' : 'Collapse'} ${label}`}
         >
           {collapsed ? (
-            <ChevronRight className="lt:size-4 lt:text-[var(--lontar-muted-foreground)]" />
+            <ChevronRight className="lt:size-4 lt:text-muted-foreground" />
           ) : (
-            <ChevronDown className="lt:size-4 lt:text-[var(--lontar-muted-foreground)]" />
+            <ChevronDown className="lt:size-4 lt:text-muted-foreground" />
           )}
           <span>{label}</span>
         </button>
@@ -725,7 +723,7 @@ function ArrayRowRenderer({
             type="button"
             variant="ghost"
             size="icon"
-            className="lt:size-7 lt:text-[var(--lontar-destructive)] lt:hover:bg-[var(--lontar-destructive)]/10"
+            className="lt:size-7 lt:text-destructive lt:hover:bg-destructive/10"
             disabled={totalRows <= minRows}
             onClick={(e) => {
               e.stopPropagation()
@@ -784,20 +782,16 @@ function ArrayHeader({
   return (
     <div className="lt:flex lt:items-center lt:justify-between lt:gap-2">
       <div>
-        <legend className="lt:text-sm lt:font-semibold lt:text-[var(--lontar-text)] lt:px-1">
+        <legend className="lt:text-sm lt:font-semibold lt:text-foreground lt:px-1">
           <span>{label}</span>
-          {required && (
-            <span className="lontar-required lt:ml-1 lt:text-[var(--lontar-destructive)]">*</span>
-          )}
+          {required && <span className="lontar-required lt:ml-1 lt:text-destructive">*</span>}
         </legend>
         {description && (
-          <p className="lt:text-xs lt:text-[var(--lontar-muted-foreground)] lt:px-1 lt:mt-0.5">
-            {description}
-          </p>
+          <p className="lt:text-xs lt:text-muted-foreground lt:px-1 lt:mt-0.5">{description}</p>
         )}
       </div>
       {hasBounds && (
-        <span className="lt:text-xs lt:text-[var(--lontar-muted-foreground)]">
+        <span className="lt:text-xs lt:text-muted-foreground">
           {rowCount} / {maxRows}
         </span>
       )}
@@ -839,7 +833,7 @@ function ArrayFieldRenderer({
 
   return (
     <fieldset
-      className="lontar-field-array lt:rounded-lg lt:border lt:border-[var(--lontar-border)] lt:p-4 lt:flex lt:flex-col lt:gap-4"
+      className="lontar-field-array lt:rounded-lg lt:border lt:border-border lt:p-4 lt:flex lt:flex-col lt:gap-4"
       data-array={fullName}
     >
       <ArrayHeader
@@ -979,22 +973,22 @@ function BlockRowRenderer({
 
   return (
     <div
-      className="lontar-block-row lt:rounded-md lt:border lt:border-[var(--lontar-border)] lt:bg-[var(--lontar-card)] lt:overflow-hidden"
+      className="lontar-block-row lt:rounded-md lt:border lt:border-border lt:bg-card lt:overflow-hidden"
       data-block-row={index}
       data-block-type={block.slug}
     >
-      <div className="lt:flex lt:items-center lt:justify-between lt:gap-2 lt:px-3 lt:py-2 lt:bg-[var(--lontar-muted)]/50 lt:border-b lt:border-[var(--lontar-border)]">
+      <div className="lt:flex lt:items-center lt:justify-between lt:gap-2 lt:px-3 lt:py-2 lt:bg-muted/50 lt:border-b lt:border-border">
         <button
           type="button"
           onClick={() => setCollapsed(!collapsed)}
-          className="lt:flex lt:items-center lt:gap-2 lt:text-sm lt:font-medium lt:text-[var(--lontar-text)] lt:hover:text-[var(--lontar-text-primary)] lt:focus-visible:outline-none lt:cursor-pointer"
+          className="lt:flex lt:items-center lt:gap-2 lt:text-sm lt:font-medium lt:text-foreground lt:hover:text-primary lt:focus-visible:outline-none lt:cursor-pointer"
           aria-expanded={!collapsed}
           aria-label={`${collapsed ? 'Expand' : 'Collapse'} ${label}`}
         >
           {collapsed ? (
-            <ChevronRight className="lt:size-4 lt:text-[var(--lontar-muted-foreground)]" />
+            <ChevronRight className="lt:size-4 lt:text-muted-foreground" />
           ) : (
-            <ChevronDown className="lt:size-4 lt:text-[var(--lontar-muted-foreground)]" />
+            <ChevronDown className="lt:size-4 lt:text-muted-foreground" />
           )}
           <span>{label}</span>
         </button>
@@ -1049,7 +1043,7 @@ function BlockRowRenderer({
             type="button"
             variant="ghost"
             size="icon"
-            className="lt:size-7 lt:text-[var(--lontar-destructive)] lt:hover:bg-[var(--lontar-destructive)]/10"
+            className="lt:size-7 lt:text-destructive lt:hover:bg-destructive/10"
             disabled={totalRows <= minRows}
             onClick={(e) => {
               e.stopPropagation()
@@ -1122,7 +1116,7 @@ function AddBlockPicker({
           <button
             key={block.slug}
             type="button"
-            className="lt:w-full lt:flex lt:items-center lt:justify-between lt:px-3 lt:py-2 lt:text-sm lt:rounded-sm lt:hover:bg-[var(--lontar-accent)] lt:text-left lt:cursor-pointer lt:text-[var(--lontar-text)]"
+            className="lt:w-full lt:flex lt:items-center lt:justify-between lt:px-3 lt:py-2 lt:text-sm lt:rounded-sm lt:hover:bg-accent lt:text-left lt:cursor-pointer lt:text-foreground"
             onClick={() => {
               onSelectBlock(block)
               setOpen(false)
@@ -1169,7 +1163,7 @@ function BlocksFieldRenderer({
 
   return (
     <fieldset
-      className="lontar-field-blocks lt:rounded-lg lt:border lt:border-[var(--lontar-border)] lt:p-4 lt:flex lt:flex-col lt:gap-4"
+      className="lontar-field-blocks lt:rounded-lg lt:border lt:border-border lt:p-4 lt:flex lt:flex-col lt:gap-4"
       data-blocks={fullName}
     >
       <ArrayHeader

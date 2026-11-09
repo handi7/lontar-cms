@@ -165,7 +165,7 @@ approval on the `npm` environment. Don't run `pnpm publish` by hand; see `docs/r
     - [ ] Correctness: #170 (done), #171 (done), #172 (done)
     - [ ] Needed before M8: #173 (done), #176 (done)
     - [x] Conditional fields: #174 (done), #175 (done)
-    - [ ] Admin styling: #183
+    - [x] Admin styling: #183 (done)
     - [ ] Minor: #177, #178, #179, #180
 - [ ] **M8: Drafts, versions & publishing** (tracking in #146; broken into issues when it starts)
 - [ ] **M9: Second database adapter** (tracking in #147)
