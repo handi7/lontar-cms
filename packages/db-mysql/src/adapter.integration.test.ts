@@ -148,6 +148,33 @@ const conditionalPostsCollection: CollectionConfig = {
   },
 }
 
+const sharedBlocksCollection: CollectionConfig = {
+  slug: 'shared_blocks_pages',
+  labels: { singular: 'Shared Blocks Page', plural: 'Shared Blocks Pages' },
+  fields: {
+    title: { type: 'text', required: true },
+    layout: {
+      type: 'blocks',
+      blocks: [
+        {
+          slug: 'hero',
+          labels: { singular: 'Hero', plural: 'Heroes' },
+          fields: {
+            heading: { type: 'text', required: true },
+          },
+        },
+        {
+          slug: 'section',
+          labels: { singular: 'Section', plural: 'Sections' },
+          fields: {
+            heading: { type: 'text', required: true },
+          },
+        },
+      ],
+    },
+  },
+}
+
 const headerGlobal: GlobalConfig = {
   slug: 'header',
   fields: {
@@ -178,6 +205,7 @@ describe('mysqlAdapter (integration)', () => {
         pagesCollection,
         nestedCollection,
         conditionalPostsCollection,
+        sharedBlocksCollection,
       ],
       globals: [headerGlobal],
     }
@@ -1603,5 +1631,102 @@ describe('mysqlAdapter (integration)', () => {
       id: videoDoc.id,
     })
     expect(readUpdated?.videoUrl).toBeNull()
+  })
+
+  it('filters by block-qualified paths when multiple block types share field names (#171)', async () => {
+    // Doc 1: has hero with heading "Alpha"
+    const doc1 = await adapter.create({
+      collection: sharedBlocksCollection,
+      data: {
+        title: 'Doc 1 - Hero Alpha',
+        layout: [{ blockType: 'hero', heading: 'Alpha' }],
+      },
+    })
+
+    // Doc 2: has section with heading "Alpha"
+    const doc2 = await adapter.create({
+      collection: sharedBlocksCollection,
+      data: {
+        title: 'Doc 2 - Section Alpha',
+        layout: [{ blockType: 'section', heading: 'Alpha' }],
+      },
+    })
+
+    // Doc 3: has hero with heading "Beta" and section with heading "Alpha"
+    const doc3 = await adapter.create({
+      collection: sharedBlocksCollection,
+      data: {
+        title: 'Doc 3 - Hero Beta & Section Alpha',
+        layout: [
+          { blockType: 'hero', heading: 'Beta' },
+          { blockType: 'section', heading: 'Alpha' },
+        ],
+      },
+    })
+
+    // 1. Unqualified filter matches any block with heading = 'Alpha' (Doc 1, Doc 2, Doc 3)
+    const unqualified = await adapter.find({
+      collection: sharedBlocksCollection,
+      page: 1,
+      limit: 10,
+      where: { 'layout.heading': { equals: 'Alpha' } },
+    })
+    expect(unqualified.docs.map((d) => d.id).sort()).toEqual([doc1.id, doc2.id, doc3.id].sort())
+
+    // 2. Block-qualified filter with dot notation: layout.hero.heading = 'Alpha'
+    // Matches ONLY Doc 1 (Doc 2 has no hero, Doc 3 hero heading is 'Beta')
+    const heroDot = await adapter.find({
+      collection: sharedBlocksCollection,
+      page: 1,
+      limit: 10,
+      where: { 'layout.hero.heading': { equals: 'Alpha' } },
+    })
+    expect(heroDot.docs.map((d) => d.id)).toEqual([doc1.id])
+
+    // 3. Block-qualified filter with double-underscore notation: layout__hero__heading = 'Alpha'
+    const heroUnder = await adapter.find({
+      collection: sharedBlocksCollection,
+      page: 1,
+      limit: 10,
+      where: { layout__hero__heading: { equals: 'Alpha' } },
+    })
+    expect(heroUnder.docs.map((d) => d.id)).toEqual([doc1.id])
+
+    // 4. Block-qualified filter on section: layout.section.heading = 'Alpha'
+    // Matches Doc 2 and Doc 3
+    const sectionDot = await adapter.find({
+      collection: sharedBlocksCollection,
+      page: 1,
+      limit: 10,
+      where: { 'layout.section.heading': { equals: 'Alpha' } },
+    })
+    expect(sectionDot.docs.map((d) => d.id).sort()).toEqual([doc2.id, doc3.id].sort())
+
+    // 5. Block-qualified filter with in operator
+    const heroIn = await adapter.find({
+      collection: sharedBlocksCollection,
+      page: 1,
+      limit: 10,
+      where: { 'layout.hero.heading': { in: ['Alpha', 'Beta'] } },
+    })
+    expect(heroIn.docs.map((d) => d.id).sort()).toEqual([doc1.id, doc3.id].sort())
+
+    // 6. Block-qualified filter with contains operator
+    const heroContains = await adapter.find({
+      collection: sharedBlocksCollection,
+      page: 1,
+      limit: 10,
+      where: { 'layout.hero.heading': { contains: 'Alph' } },
+    })
+    expect(heroContains.docs.map((d) => d.id)).toEqual([doc1.id])
+
+    // 7. Block-qualified filter with not_equals operator
+    const heroNotEquals = await adapter.find({
+      collection: sharedBlocksCollection,
+      page: 1,
+      limit: 10,
+      where: { 'layout.hero.heading': { not_equals: 'Alpha' } },
+    })
+    expect(heroNotEquals.docs.map((d) => d.id).sort()).toEqual([doc2.id, doc3.id].sort())
   })
 })
