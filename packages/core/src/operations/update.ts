@@ -21,9 +21,13 @@ async function assertUpdateAccess(
   }
 }
 
-function validateUpdateData(collection: CollectionConfig, data: DocumentData): DocumentData {
+function validateUpdateData(
+  collection: CollectionConfig,
+  data: DocumentData,
+  originalDoc?: DocumentData,
+): DocumentData {
   const clientCol = toClientCollection(collection)
-  const partialSchema = clientFieldsToZod(clientCol.fields).partial()
+  const partialSchema = clientFieldsToZod(clientCol.fields, { partial: true, originalDoc })
   const parsed = partialSchema.safeParse(data)
   if (!parsed.success) {
     throw new ValidationError('Validation failed', { issues: parsed.error.issues })
@@ -52,8 +56,6 @@ export async function updateOperation<T = DocumentData>(args: UpdateOperationArg
     await assertUpdateAccess(args.collection, args.id, args.data, args.user)
   }
 
-  const validatedData = validateUpdateData(args.collection, args.data)
-
   const originalDoc = await args.config.db.findByID({
     collection: args.collection,
     id: args.id,
@@ -61,6 +63,8 @@ export async function updateOperation<T = DocumentData>(args: UpdateOperationArg
   if (!originalDoc) {
     throw new NotFoundError(`Document with ID ${args.id} not found`)
   }
+
+  const validatedData = validateUpdateData(args.collection, args.data, originalDoc)
 
   const result = await executeUpdate({
     collection: args.collection,

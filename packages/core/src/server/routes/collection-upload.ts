@@ -3,6 +3,8 @@ import { fileTypeFromBuffer } from 'file-type'
 import type { z } from 'zod'
 import { accessDenied, checkAccess } from '../../access'
 import type { AuthUser, LontarVariables } from '../../auth/types'
+import { clientFieldsToZod } from '../../client'
+import { toClientCollection } from '../../config/to-client-config'
 import type { AccessArgs, AccessFunction, CollectionConfig, Config } from '../../config/types'
 import type { DatabaseAdapter, DocumentData } from '../../database/adapter'
 import type { Field } from '../../fields/types'
@@ -522,7 +524,6 @@ interface UploadUpdateContext {
   id: number
   collection: CollectionConfig
   config: Config
-  partialSchema: z.ZodType
   user: AuthUser | null
   checkAccess: (fn: AccessFunction | undefined, args: AccessArgs) => Promise<boolean>
   accessDenied: (c: Context<LontarEnv>, user: AuthUser | null) => Response
@@ -591,7 +592,7 @@ async function applyValidatedUpdate(args: {
 }
 
 export async function handleUploadUpdate(ctx: UploadUpdateContext): Promise<Response> {
-  const { c, id, collection, config, partialSchema, user, checkAccess, accessDenied } = ctx
+  const { c, id, collection, config, user, checkAccess, accessDenied } = ctx
 
   const preliminaryAllowed = await checkAccess(collection.access?.update, { user, id })
   if (!preliminaryAllowed) {
@@ -614,7 +615,11 @@ export async function handleUploadUpdate(ctx: UploadUpdateContext): Promise<Resp
     return c.json({ error: uploadResult.error }, uploadResult.status)
   }
 
-  const validation = parseAndValidateFields(rawBody, collection, partialSchema)
+  const schema = clientFieldsToZod(toClientCollection(collection).fields, {
+    partial: true,
+    originalDoc,
+  })
+  const validation = parseAndValidateFields(rawBody, collection, schema)
   if (!validation.success) {
     await rollbackNewMedia(config, uploadResult.doc)
     return c.json({ error: 'Validation failed', issues: validation.issues }, 400)

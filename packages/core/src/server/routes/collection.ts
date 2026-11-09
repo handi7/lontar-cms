@@ -249,12 +249,7 @@ async function handleJsonUpdate(
   }
 }
 
-async function handleUpdate(
-  c: Context<LontarEnv>,
-  collection: CollectionConfig,
-  config: Config,
-  partialSchema: z.ZodType,
-) {
+async function handleUpdate(c: Context<LontarEnv>, collection: CollectionConfig, config: Config) {
   const user = c.get('user') ?? null
   const id = parseId(c.req.param('id'))
 
@@ -267,7 +262,6 @@ async function handleUpdate(
       id,
       collection,
       config,
-      partialSchema,
       user,
       checkAccess,
       accessDenied,
@@ -394,8 +388,7 @@ export function registerCollectionRoutes(router: Hono<LontarEnv>, config: Config
   router.patch('/:collection/:id', patchLimit, (c) => {
     const col = findCol(c)
     if (!col) return c.json({ error: `Collection "${c.req.param('collection')}" not found` }, 404)
-    const partialSchema = clientFieldsToZod(toClientCollection(col).fields).partial()
-    return handleUpdate(c, col, config, partialSchema)
+    return handleUpdate(c, col, config)
   })
 
   router.delete('/:collection/:id', (c) => {

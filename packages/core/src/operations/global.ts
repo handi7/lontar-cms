@@ -27,9 +27,13 @@ async function assertGlobalUpdateAccess(
   }
 }
 
-function validateGlobalData(global: GlobalConfig, data: DocumentData): DocumentData {
+function validateGlobalData(
+  global: GlobalConfig,
+  data: DocumentData,
+  originalDoc?: DocumentData,
+): DocumentData {
   const clientGlobal = toClientGlobal(global)
-  const schema = clientFieldsToZod(clientGlobal.fields).partial()
+  const schema = clientFieldsToZod(clientGlobal.fields, { partial: true, originalDoc })
   const parsed = schema.safeParse(data)
   if (!parsed.success) {
     throw new ValidationError('Validation failed', { issues: parsed.error.issues })
@@ -62,8 +66,8 @@ export async function updateGlobalOperation<T = DocumentData>(
     await assertGlobalUpdateAccess(args.global, args.data, args.user)
   }
 
-  const validatedData = validateGlobalData(args.global, args.data)
   const existing = await args.config.db.findGlobal({ global: args.global })
+  const validatedData = validateGlobalData(args.global, args.data, existing ?? undefined)
 
   const result = await executeGlobalUpdate({
     global: args.global,

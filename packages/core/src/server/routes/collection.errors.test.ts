@@ -85,6 +85,26 @@ describe('API Error Handling and SQL Leak Prevention', () => {
     },
   })
 
+  const conditionalCol = collection({
+    slug: 'media-posts',
+    access: publicAccess,
+    fields: {
+      title: f.text({ required: true }),
+      format: f.select({
+        options: [
+          { label: 'Standard', value: 'standard' },
+          { label: 'Video', value: 'video' },
+        ],
+      }),
+      videoUrl: f.text({
+        required: true,
+        admin: {
+          condition: { format: { equals: 'video' } },
+        },
+      }),
+    },
+  })
+
   it('maps UniqueConstraintError on create to 400 validation error with field issue', async () => {
     const { db, mockCreate } = createErrorMockAdapter()
     mockCreate.mockRejectedValue(
@@ -381,5 +401,84 @@ describe('API Error Handling and SQL Leak Prevention', () => {
         sort: 'seo.metaTitle',
       }),
     )
+  })
+
+  it('rejects PATCH that switches condition on without supplying newly visible required field (#174)', async () => {
+    const { db, mockFindByID } = createErrorMockAdapter()
+    mockFindByID.mockResolvedValue({
+      id: 1,
+      title: 'Post 1',
+      format: 'standard',
+      videoUrl: null,
+      createdAt: '2026-11-01T00:00:00.000Z',
+      updatedAt: '2026-11-01T00:00:00.000Z',
+    })
+
+    const lontar = createLontar(
+      defineConfig({
+        secret: 'test-secret',
+        db,
+        collections: [conditionalCol],
+      }),
+    )
+
+    const res = await lontar.fetch(
+      new Request('http://localhost/api/media-posts/1', {
+        method: 'PATCH',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ format: 'video' }),
+      }),
+    )
+
+    expect(res.status).toBe(400)
+    const json = (await res.json()) as {
+      error: string
+      issues: Array<{ path: string[]; message: string }>
+    }
+    expect(json.error).toBe('Validation failed')
+    expect(json.issues.some((i) => i.path[0] === 'videoUrl')).toBe(true)
+  })
+
+  it('accepts PATCH that switches condition off and clears conditional field (#174)', async () => {
+    const { db, mockFindByID, mockUpdate } = createErrorMockAdapter()
+    mockFindByID.mockResolvedValue({
+      id: 1,
+      title: 'Post 1',
+      format: 'video',
+      videoUrl: 'https://youtube.com/watch?v=123',
+      createdAt: '2026-11-01T00:00:00.000Z',
+      updatedAt: '2026-11-01T00:00:00.000Z',
+    })
+    mockUpdate.mockResolvedValue({
+      id: 1,
+      title: 'Post 1',
+      format: 'standard',
+      videoUrl: null,
+      createdAt: '2026-11-01T00:00:00.000Z',
+      updatedAt: '2026-11-02T00:00:00.000Z',
+    })
+
+    const lontar = createLontar(
+      defineConfig({
+        secret: 'test-secret',
+        db,
+        collections: [conditionalCol],
+      }),
+    )
+
+    const res = await lontar.fetch(
+      new Request('http://localhost/api/media-posts/1', {
+        method: 'PATCH',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ format: 'standard' }),
+      }),
+    )
+
+    expect(res.status).toBe(200)
+    const json = (await res.json()) as { format: string; videoUrl: string | null }
+    expect(json.format).toBe('standard')
+    const updateCall = mockUpdate.mock.calls[0] as [{ data: { format: string; videoUrl: null } }]
+    expect(updateCall[0].data.format).toBe('standard')
+    expect(updateCall[0].data.videoUrl).toBeNull()
   })
 })
