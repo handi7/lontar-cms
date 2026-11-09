@@ -2,22 +2,25 @@ import { Profiler } from 'react'
 import { describe, expect, it, afterEach, vi } from 'vitest'
 import { render, screen, fireEvent, waitFor, cleanup, act } from '@testing-library/react'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
+import { zodResolver } from '@hookform/resolvers/zod'
 import { useForm, type UseFormSetValue } from 'react-hook-form'
-import type {
-  ClientArrayField,
-  ClientBlocksField,
-  ClientCheckboxField,
-  ClientDateField,
-  ClientEmailField,
-  ClientNumberField,
-  ClientRelationshipField,
-  ClientRichTextField,
-  ClientSelectField,
-  ClientSlugField,
-  ClientTextareaField,
-  ClientTextField,
-  ClientUploadField,
+import {
+  clientFieldsToZod,
+  type ClientArrayField,
+  type ClientBlocksField,
+  type ClientCheckboxField,
+  type ClientDateField,
+  type ClientEmailField,
+  type ClientNumberField,
+  type ClientRelationshipField,
+  type ClientRichTextField,
+  type ClientSelectField,
+  type ClientSlugField,
+  type ClientTextareaField,
+  type ClientTextField,
+  type ClientUploadField,
 } from '@lontar/core/client'
+import { computeDefaultValues } from '../utils/form-utils'
 import { PortalContainerProvider } from '../context/PortalContainer'
 import { chooseSelectOption } from '../test/radix'
 import { FieldRenderer, slugify } from './FieldRenderer'
@@ -1046,6 +1049,85 @@ describe('group field rendering and binding', () => {
 
       expect(screen.getByText('Must have at least 2 items')).toBeTruthy()
       expect(screen.getByText('Caption is required')).toBeTruthy()
+    })
+
+    it('renders seeded minRows rows in a create form and validates without edits (#180)', async () => {
+      const arrayWithMinRows: ClientArrayField = {
+        name: 'tags',
+        type: 'array',
+        label: 'Tags',
+        required: false,
+        minRows: 2,
+        fields: [
+          {
+            name: 'name',
+            type: 'text',
+            label: 'Tag Name',
+            required: false,
+            defaultValue: 'General',
+          },
+        ],
+      }
+      const allFields = [arrayWithMinRows]
+      const defaultValues = computeDefaultValues(allFields)
+      const schema = clientFieldsToZod(allFields)
+
+      let submittedData: unknown = null
+      let validationErrors: unknown = null
+
+      function CreateFormWrapper() {
+        const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+        const methods = useForm<Record<string, unknown>>({
+          defaultValues,
+          resolver: zodResolver(schema),
+        })
+
+        return (
+          <QueryClientProvider client={queryClient}>
+            <PortalContainerProvider>
+              <form
+                onSubmit={(e) => {
+                  void methods.handleSubmit(
+                    (data) => {
+                      submittedData = data
+                    },
+                    (errors) => {
+                      validationErrors = errors
+                    },
+                  )(e)
+                }}
+              >
+                <FieldRenderer
+                  field={arrayWithMinRows}
+                  control={methods.control}
+                  register={methods.register}
+                  watch={methods.watch}
+                />
+                <button type="submit">Submit Form</button>
+              </form>
+            </PortalContainerProvider>
+          </QueryClientProvider>
+        )
+      }
+
+      render(<CreateFormWrapper />)
+
+      // Renders two rows initially without clicking Add
+      const removeButtons = screen.getAllByRole('button', { name: 'Remove row' })
+      expect(removeButtons).toHaveLength(2)
+
+      // Both remove buttons are disabled because totalRows (2) <= minRows (2)
+      expect((removeButtons[0] as HTMLButtonElement).disabled).toBe(true)
+      expect((removeButtons[1] as HTMLButtonElement).disabled).toBe(true)
+
+      // Submitting passes validation without edits
+      fireEvent.click(screen.getByRole('button', { name: 'Submit Form' }))
+      await waitFor(() => {
+        expect(validationErrors).toBeNull()
+        expect(submittedData).toMatchObject({
+          tags: [{ name: 'General' }, { name: 'General' }],
+        })
+      })
     })
 
     it('renders relationship and upload pickers inside array rows', () => {
