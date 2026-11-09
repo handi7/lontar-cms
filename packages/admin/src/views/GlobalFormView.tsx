@@ -11,58 +11,39 @@ import {
   type FieldErrors,
 } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
-import { clientFieldsToZod, type ClientField } from '@lontar/core/client'
+import { clientFieldsToZod, type ClientField, type ClientGlobal } from '@lontar/core/client'
 import { useAdmin, useGlobal } from '../context/AdminContext'
 import { fetchGlobal, saveGlobal, ApiClientError } from '../api/client'
 import { FieldRenderer } from '../fields/FieldRenderer'
 import { computeDefaultValues, formatDocForForm, formatDocForSubmit } from '../utils/form-utils'
 import { NotFoundView } from './NotFoundView'
 import { Alert } from '../components/ui/alert'
-import { Button } from '../components/ui/button'
 import { Card } from '../components/ui/card'
 import { EmptyCard } from './EmptyCard'
 import { ViewHeader } from './ViewHeader'
+import { GlobalBreadcrumbs } from './FormBreadcrumbs'
+import { DocumentSidebar } from './DocumentSidebar'
 
-function GlobalMeta({ doc }: { doc?: Record<string, unknown> | null }) {
-  if (!doc || (!doc.createdAt && !doc.updatedAt)) return null
-  return (
-    <div className="lt:mt-1.5 lt:flex lt:gap-4 lt:text-[0.8125rem] lt:text-muted-foreground">
-      {typeof doc.createdAt === 'string' && (
-        <span>
-          <strong>Created:</strong> {new Date(doc.createdAt).toLocaleString()}
-        </span>
-      )}
-      {typeof doc.updatedAt === 'string' && (
-        <span>
-          <strong>Updated:</strong> {new Date(doc.updatedAt).toLocaleString()}
-        </span>
-      )}
-    </div>
-  )
-}
-
-function GlobalFormBody({
-  fields,
-  control,
-  register,
-  setValue,
-  watch,
-  errors,
-  isPending,
-  onSubmit,
-}: {
+export interface GlobalFormFieldsProps {
   fields: ClientField[]
   control: Control<Record<string, unknown>>
   register: UseFormRegister<Record<string, unknown>>
   setValue: UseFormSetValue<Record<string, unknown>>
   watch: UseFormWatch<Record<string, unknown>>
   errors: FieldErrors<Record<string, unknown>>
-  isPending: boolean
-  onSubmit: (e: React.FormEvent) => void
-}) {
+}
+
+function GlobalFormFields({
+  fields,
+  control,
+  register,
+  setValue,
+  watch,
+  errors,
+}: GlobalFormFieldsProps) {
   return (
-    <Card className="lt:block lt:p-8 lt:shadow-none">
-      <form onSubmit={onSubmit}>
+    <div className="lt:w-full lg:lt:max-w-[760px] lt:min-w-0 lt:flex-1">
+      <Card className="lt:block lt:p-8 lt:shadow-none">
         <div className="lt:flex lt:flex-col lt:gap-6">
           {fields.map((field) => (
             <FieldRenderer
@@ -77,15 +58,19 @@ function GlobalFormBody({
             />
           ))}
         </div>
-
-        <div className="lt:mt-8 lt:flex lt:gap-3 lt:border-t lt:pt-6">
-          <Button type="submit" disabled={isPending}>
-            {isPending ? 'Saving...' : 'Save Changes'}
-          </Button>
-        </div>
-      </form>
-    </Card>
+      </Card>
+    </div>
   )
+}
+
+export interface UseGlobalSaveMutationOptions {
+  apiBase: string
+  slug: string
+  fields: ClientField[]
+  reset: (values?: Record<string, unknown>) => void
+  setError?: UseFormSetError<Record<string, unknown>>
+  setApiError: (msg: string | null) => void
+  setSuccessMsg: (msg: string | null) => void
 }
 
 function useGlobalSaveMutation({
@@ -96,15 +81,7 @@ function useGlobalSaveMutation({
   setError,
   setApiError,
   setSuccessMsg,
-}: {
-  apiBase: string
-  slug: string
-  fields: ClientField[]
-  reset: (values?: Record<string, unknown>) => void
-  setError?: UseFormSetError<Record<string, unknown>>
-  setApiError: (msg: string | null) => void
-  setSuccessMsg: (msg: string | null) => void
-}) {
+}: UseGlobalSaveMutationOptions) {
   const queryClient = useQueryClient()
 
   return useMutation({
@@ -132,13 +109,12 @@ function useGlobalSaveMutation({
   })
 }
 
-function GlobalStatusAlerts({
-  apiError,
-  successMsg,
-}: {
+export interface GlobalStatusAlertsProps {
   apiError: string | null
   successMsg: string | null
-}) {
+}
+
+function GlobalStatusAlerts({ apiError, successMsg }: GlobalStatusAlertsProps) {
   if (apiError) {
     return (
       <Alert variant="destructive" className="lt:mb-5">
@@ -156,34 +132,35 @@ function GlobalStatusAlerts({
   return null
 }
 
-function GlobalQueryState({ isLoading, error }: { isLoading: boolean; error: Error | null }) {
+export interface GlobalQueryStateProps {
+  isLoading: boolean
+  error: Error | null
+}
+
+function GlobalQueryState({ isLoading, error }: GlobalQueryStateProps) {
   if (isLoading) return <EmptyCard>Loading global...</EmptyCard>
   if (error) return <Alert variant="destructive">{error.message}</Alert>
   return null
 }
 
-export function GlobalFormView() {
-  const { apiBase } = useAdmin()
-  const { slug } = useParams({ strict: false })
-  const global = useGlobal(slug)
+export interface GlobalEditorProps {
+  global: ClientGlobal
+  slug: string
+  apiBase: string
+}
 
+function GlobalEditor({ global, slug, apiBase }: GlobalEditorProps) {
   const [apiError, setApiError] = useState<string | null>(null)
   const [successMsg, setSuccessMsg] = useState<string | null>(null)
 
   const globalQuery = useQuery({
     queryKey: ['globals', slug],
-    queryFn: () => (slug ? fetchGlobal(apiBase, slug) : null),
-    enabled: Boolean(slug && global),
+    queryFn: () => fetchGlobal(apiBase, slug),
     refetchOnWindowFocus: false,
   })
 
-  const schema = useMemo(() => {
-    return global ? clientFieldsToZod(global.fields) : undefined
-  }, [global])
-
-  const defaultValues = useMemo(() => {
-    return global ? computeDefaultValues(global.fields) : {}
-  }, [global])
+  const schema = useMemo(() => clientFieldsToZod(global.fields), [global])
+  const defaultValues = useMemo(() => computeDefaultValues(global.fields), [global])
 
   const {
     control,
@@ -195,53 +172,75 @@ export function GlobalFormView() {
     setError,
     formState: { errors, isSubmitting, isDirty },
   } = useForm<Record<string, unknown>>({
-    resolver: schema ? zodResolver(schema) : undefined,
+    resolver: zodResolver(schema),
     defaultValues,
   })
 
   useEffect(() => {
-    if (globalQuery.data && global && !isDirty) {
+    if (globalQuery.data && !isDirty) {
       reset(formatDocForForm(global.fields, globalQuery.data))
     }
   }, [globalQuery.data, global, reset, isDirty])
 
   const saveMutation = useGlobalSaveMutation({
     apiBase,
-    slug: slug ?? '',
-    fields: global?.fields ?? [],
+    slug,
+    fields: global.fields,
     reset,
     setError,
     setApiError,
     setSuccessMsg,
   })
 
-  if (!global) return <NotFoundView />
   if (globalQuery.isLoading || globalQuery.error) {
     return <GlobalQueryState isLoading={globalQuery.isLoading} error={globalQuery.error} />
   }
 
+  const isSaving = isSubmitting || saveMutation.isPending
+  const submitLabel = isSaving ? 'Saving...' : 'Save Changes'
+
   return (
     <div>
-      <ViewHeader title={global.label}>
-        <GlobalMeta doc={globalQuery.data} />
-      </ViewHeader>
+      <ViewHeader title={global.label} breadcrumbs={<GlobalBreadcrumbs label={global.label} />} />
 
       <GlobalStatusAlerts apiError={apiError} successMsg={successMsg} />
 
-      <GlobalFormBody
-        fields={global.fields}
-        control={control}
-        register={register}
-        setValue={setValue}
-        watch={watch}
-        errors={errors}
-        isPending={isSubmitting || saveMutation.isPending}
+      <form
         onSubmit={(e) => {
           void handleSubmit((v) => {
             saveMutation.mutate(v)
           })(e)
         }}
-      />
+        className="lt:flex lt:flex-col lg:lt:flex-row lt:gap-8 lt:items-start"
+      >
+        <GlobalFormFields
+          fields={global.fields}
+          control={control}
+          register={register}
+          setValue={setValue}
+          watch={watch}
+          errors={errors}
+        />
+
+        <DocumentSidebar
+          mode="edit"
+          submitLabel={submitLabel}
+          isPending={isSaving}
+          showDelete={false}
+          showId={false}
+          doc={globalQuery.data}
+        />
+      </form>
     </div>
   )
+}
+
+export function GlobalFormView() {
+  const { apiBase } = useAdmin()
+  const { slug } = useParams({ strict: false })
+  const global = useGlobal(slug)
+
+  if (!global || !slug) return <NotFoundView />
+
+  return <GlobalEditor global={global} slug={slug} apiBase={apiBase} />
 }
