@@ -185,4 +185,44 @@ describe('DocumentSidebar', () => {
     expect(aside.className).toContain('lg:lt:sticky')
     expect(aside.className).toContain('lg:lt:top-8')
   })
+
+  it('renders version history button in edit mode when enabled, and calls onOpenHistory when clicked', () => {
+    const onOpenHistory = vi.fn()
+    render(
+      <DocumentSidebar
+        mode="edit"
+        submitLabel="Save Changes"
+        isPending={false}
+        hasVersions={true}
+        onOpenHistory={onOpenHistory}
+      />,
+    )
+
+    const btn = screen.getByRole('button', { name: 'Version History' })
+    expect(btn).toBeTruthy()
+    fireEvent.click(btn)
+    expect(onOpenHistory).toHaveBeenCalledTimes(1)
+  })
+
+  it('does not render version history button in create mode or when hasVersions is false', () => {
+    const { rerender } = render(
+      <DocumentSidebar
+        mode="create"
+        submitLabel="Create Post"
+        isPending={false}
+        hasVersions={true}
+      />,
+    )
+    expect(screen.queryByRole('button', { name: 'Version History' })).toBeNull()
+
+    rerender(
+      <DocumentSidebar
+        mode="edit"
+        submitLabel="Save Changes"
+        isPending={false}
+        hasVersions={false}
+      />,
+    )
+    expect(screen.queryByRole('button', { name: 'Version History' })).toBeNull()
+  })
 })

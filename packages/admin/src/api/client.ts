@@ -1,4 +1,9 @@
-import type { ClientConfig, Where } from '@lontar/core/client'
+import type {
+  ClientConfig,
+  ClientPaginatedVersions,
+  ClientVersion,
+  Where,
+} from '@lontar/core/client'
 
 export interface AdminUser {
   id: string
@@ -303,6 +308,54 @@ export async function deleteDoc(
     credentials: 'include',
   })
   return handleResponse<{ success: boolean }>(res)
+}
+
+export interface FetchDocVersionsOptions {
+  page?: number
+  limit?: number
+  sort?: string
+}
+
+export async function fetchDocVersions(
+  apiBase: string,
+  slug: string,
+  id: number | string,
+  options?: FetchDocVersionsOptions,
+): Promise<ClientPaginatedVersions> {
+  const base = apiBase.replace(/\/+$/, '')
+  const params = new URLSearchParams()
+  if (options?.page) params.set('page', String(options.page))
+  if (options?.limit) params.set('limit', String(options.limit))
+  if (options?.sort) params.set('sort', options.sort)
+  const query = params.toString() ? `?${params.toString()}` : ''
+  const res = await fetch(`${base}/${slug}/${id}/versions${query}`, { credentials: 'include' })
+  return handleResponse<ClientPaginatedVersions>(res)
+}
+
+export async function fetchDocVersionByID(
+  apiBase: string,
+  slug: string,
+  id: number | string,
+  versionId: number | string,
+): Promise<ClientVersion> {
+  const base = apiBase.replace(/\/+$/, '')
+  const res = await fetch(`${base}/${slug}/${id}/versions/${versionId}`, { credentials: 'include' })
+  return handleResponse<ClientVersion>(res)
+}
+
+export async function restoreDocVersion(
+  apiBase: string,
+  slug: string,
+  id: number | string,
+  versionId: number | string,
+): Promise<Record<string, unknown>> {
+  const base = apiBase.replace(/\/+$/, '')
+  const res = await fetch(`${base}/${slug}/${id}/versions/${versionId}/restore`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    credentials: 'include',
+  })
+  return handleResponse<Record<string, unknown>>(res)
 }
 
 export async function fetchGlobal(apiBase: string, slug: string): Promise<Record<string, unknown>> {

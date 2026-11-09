@@ -45,3 +45,22 @@ export interface UploadSystemFields {
   height?: number | null
   sizes?: Record<string, unknown> | null
 }
+
+export interface ClientVersion {
+  id: number
+  parentId: number
+  versionNumber: number
+  snapshot: Record<string, unknown>
+  _status: DocStatus
+  autosave: boolean
+  createdAt: string
+  createdBy: string | null
+}
+
+export interface ClientPaginatedVersions {
+  docs: ClientVersion[]
+  totalDocs: number
+  limit: number
+  page: number
+  totalPages: number
+}
