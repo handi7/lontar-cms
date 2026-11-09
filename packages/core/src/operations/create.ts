@@ -42,6 +42,7 @@ export async function createOperation<T = DocumentData>(args: CreateOperationArg
     data: validatedData,
     db: args.config.db,
     req: args.req,
+    draft: args.draft,
   })
 
   if (!result.success) {
@@ -59,6 +60,7 @@ export async function createOperation<T = DocumentData>(args: CreateOperationArg
     user: args.user ?? null,
     req: args.req,
     overrideAccess: args.overrideAccess,
+    draft: args.draft,
   })
 
   return populated as T

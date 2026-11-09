@@ -258,4 +258,33 @@ describe('collectionToTable', () => {
     expect(col(columns, 'videoUrl').notNull).toBe(false)
     expect(col(columns, 'videoSettings__duration').notNull).toBe(false)
   })
+
+  it('creates _status column and index when versions.drafts is enabled', () => {
+    const table = collectionToTable({
+      slug: 'articles',
+      versions: { drafts: true },
+      fields: { title: { type: 'text', required: true } },
+    })
+    const columns = getTableColumns(table) as Record<string, AnyMySqlColumn>
+    expect(col(columns, '_status').columnType).toBe('MySqlVarChar')
+    expect(col(columns, '_status').notNull).toBe(true)
+    expect(col(columns, '_status').hasDefault).toBe(true)
+
+    const config = getTableConfig(table)
+    expect(config.indexes.map((i) => i.config.name)).toContain('articles__status_idx')
+  })
+
+  it('creates _status column and index on globals when versions.drafts is enabled', () => {
+    const table = globalToTable({
+      slug: 'site_settings',
+      versions: { drafts: true },
+      fields: { siteTitle: { type: 'text', required: true } },
+    })
+    const columns = getTableColumns(table) as Record<string, AnyMySqlColumn>
+    expect(col(columns, '_status').columnType).toBe('MySqlVarChar')
+    expect(col(columns, '_status').notNull).toBe(true)
+
+    const config = getTableConfig(table)
+    expect(config.indexes.map((i) => i.config.name)).toContain('site_settings__status_idx')
+  })
 })

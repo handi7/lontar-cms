@@ -29,6 +29,7 @@ export interface PopulateOptions {
   req?: Request
   seen?: ReadonlySet<string>
   overrideAccess?: boolean
+  draft?: boolean
 }
 
 interface SingleRefSlot {
@@ -221,16 +222,22 @@ async function fetchTargetDocs(
   targetIds: number[],
   db: DatabaseAdapter,
   req?: Request,
+  draft?: boolean,
 ): Promise<Map<number, DocumentData>> {
   if (targetIds.length === 0) return new Map()
   const docs: DocumentData[] = []
   for (let i = 0; i < targetIds.length; i += MAX_POPULATE_BATCH_SIZE) {
     const chunk = targetIds.slice(i, i + MAX_POPULATE_BATCH_SIZE)
+    const baseWhere = { id: { in: chunk } }
+    const where =
+      targetCol.versions?.drafts && !draft
+        ? { and: [baseWhere, { _status: { equals: 'published' } }] }
+        : baseWhere
     const result = await db.find({
       collection: targetCol,
       limit: chunk.length,
       page: 1,
-      where: { id: { in: chunk } },
+      where,
       overrideLimit: true,
     })
     docs.push(...result.docs)
@@ -276,6 +283,7 @@ async function populateChildren(
   req?: Request,
   seen: ReadonlySet<string> = new Set(),
   overrideAccess?: boolean,
+  draft?: boolean,
 ): Promise<void> {
   const nextSeen = new Set(seen)
   for (const d of parentDocs) {
@@ -294,6 +302,7 @@ async function populateChildren(
     req,
     seen: nextSeen,
     overrideAccess,
+    draft,
   })
   for (const child of populatedChildren) {
     if (typeof child.id === 'number') {
@@ -314,6 +323,7 @@ interface PopulateTargetArgs {
   req?: Request
   seen: ReadonlySet<string>
   overrideAccess?: boolean
+  draft?: boolean
 }
 
 async function populateTargetCollection(args: PopulateTargetArgs): Promise<void> {
@@ -329,13 +339,14 @@ async function populateTargetCollection(args: PopulateTargetArgs): Promise<void>
     req,
     seen,
     overrideAccess,
+    draft,
   } = args
 
   const canRead = overrideAccess ? true : await checkAccess(targetCol.access?.read, { user })
   if (!canRead) return
 
   const targetIds = extractTargetIds(targetSlots, targetCol.slug, seen)
-  const docsById = await fetchTargetDocs(targetCol, targetIds, db, req)
+  const docsById = await fetchTargetDocs(targetCol, targetIds, db, req, draft)
 
   if (depth > 1 && docsById.size > 0) {
     await populateChildren(
@@ -350,6 +361,7 @@ async function populateTargetCollection(args: PopulateTargetArgs): Promise<void>
       req,
       seen,
       overrideAccess,
+      draft,
     )
   }
 
@@ -392,6 +404,7 @@ interface PopulateAllTargetsArgs {
   req?: Request
   seen: ReadonlySet<string>
   overrideAccess?: boolean
+  draft?: boolean
 }
 
 async function populateAllTargets(args: PopulateAllTargetsArgs): Promise<void> {
@@ -406,6 +419,7 @@ async function populateAllTargets(args: PopulateAllTargetsArgs): Promise<void> {
     req,
     seen,
     overrideAccess,
+    draft,
   } = args
 
   const slotsByTarget = groupSlotsByTarget(slots)
@@ -425,12 +439,13 @@ async function populateAllTargets(args: PopulateAllTargetsArgs): Promise<void> {
       req,
       seen,
       overrideAccess,
+      draft,
     })
   }
 }
 
 export async function populateDocs(options: PopulateOptions): Promise<DocumentData[]> {
-  const { docs, collection, depth, collections, db, req, overrideAccess } = options
+  const { docs, collection, depth, collections, db, req, overrideAccess, draft } = options
   const user = options.user ?? null
   const seen = options.seen ?? new Set<string>()
 
@@ -457,6 +472,7 @@ export async function populateDocs(options: PopulateOptions): Promise<DocumentDa
     req,
     seen,
     overrideAccess,
+    draft,
   })
 
   return docs

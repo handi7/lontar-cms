@@ -17,8 +17,14 @@ export interface ClientConfig {
 export interface ClientGlobal {
   slug: string
   label: string
+  versions?: ClientVersionsConfig
   /** In config order. System fields are not listed. */
   fields: ClientField[]
+}
+
+export interface ClientVersionsConfig {
+  drafts?: boolean
+  maxPerDoc?: number
 }
 
 export interface ClientUploadConfig {
@@ -37,6 +43,7 @@ export interface ClientCollection {
   admin: { useAsTitle: string; defaultColumns: string[] }
   upload?: boolean | ClientUploadConfig
   pagination?: ClientPaginationConfig
+  versions?: ClientVersionsConfig
   /** In config order. System fields are not listed: every document has them. */
   fields: ClientField[]
 }

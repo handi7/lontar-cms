@@ -259,9 +259,14 @@ function renderTableDefinition(
   slug: string,
   fields: Record<string, Field>,
   isUpload = false,
+  hasDrafts = false,
 ): string {
   const identifier = slugToIdentifier(slug)
   const lines: string[] = ["  id: int('id').autoincrement().primaryKey(),"]
+
+  if (hasDrafts) {
+    lines.push("  _status: varchar('_status', { length: 20 }).default('draft').notNull(),")
+  }
 
   if (isUpload) {
     lines.push("  filename: varchar('filename', { length: 255 }).notNull(),")
@@ -284,15 +289,24 @@ function renderTableDefinition(
   lines.push("  createdAt: timestamp('createdAt').defaultNow().notNull(),")
   lines.push("  updatedAt: timestamp('updatedAt').defaultNow().onUpdateNow().notNull(),")
 
+  if (hasDrafts) {
+    return `export const ${identifier} = mysqlTable(\n  '${slug}',\n  {\n${lines.join('\n')}\n  },\n  (t) => [index('${slug}__status_idx').on(t._status)],\n)`
+  }
+
   return `export const ${identifier} = mysqlTable('${slug}', {\n${lines.join('\n')}\n})`
 }
 
 function renderCollection(collection: CollectionConfig): string {
-  return renderTableDefinition(collection.slug, collection.fields, Boolean(collection.upload))
+  return renderTableDefinition(
+    collection.slug,
+    collection.fields,
+    Boolean(collection.upload),
+    Boolean(collection.versions?.drafts),
+  )
 }
 
 function renderGlobal(global: GlobalConfig): string {
-  return renderTableDefinition(global.slug, global.fields)
+  return renderTableDefinition(global.slug, global.fields, false, Boolean(global.versions?.drafts))
 }
 
 function renderAuthTables(): string {

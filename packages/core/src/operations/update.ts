@@ -73,6 +73,7 @@ export async function updateOperation<T = DocumentData>(args: UpdateOperationArg
     originalDoc,
     db: args.config.db,
     req: args.req,
+    draft: args.draft,
   })
 
   if (!result.success) {
@@ -87,6 +88,7 @@ export async function updateOperation<T = DocumentData>(args: UpdateOperationArg
     user: args.user ?? null,
     req: args.req,
     overrideAccess: args.overrideAccess,
+    draft: args.draft,
   })
 
   return populated as T

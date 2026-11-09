@@ -1,4 +1,4 @@
-import type { SystemFields, UploadSystemFields } from '../client/system-fields'
+import type { DraftSystemFields, SystemFields, UploadSystemFields } from '../client/system-fields'
 import type { Block, Field, Fields } from './types'
 
 /** The value each field type stores. Every new field type needs an entry here. */
@@ -70,8 +70,11 @@ type FieldValue<F extends Field> = F extends {
 type Simplify<T> = { [K in keyof T]: T[K] }
 
 /** The document type of a collection, as the API returns it. */
-export type InferDoc<C extends { fields: Fields; upload?: unknown }> = Simplify<
+export type InferDoc<
+  C extends { fields: Fields; upload?: unknown; versions?: { drafts?: boolean } },
+> = Simplify<
   SystemFields &
+    (C extends { versions: { drafts: true } } ? DraftSystemFields : unknown) &
     (C extends { upload: true | object } ? UploadSystemFields : unknown) & {
       -readonly [K in keyof C['fields']]: FieldValue<C['fields'][K]>
     }

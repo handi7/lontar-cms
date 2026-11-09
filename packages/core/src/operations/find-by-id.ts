@@ -18,15 +18,34 @@ async function assertReadAccess(
   }
 }
 
+async function assertFindByIDAccess(
+  collection: CollectionConfig,
+  id: number,
+  user: AuthUser | null,
+  draft?: boolean,
+): Promise<void> {
+  await assertReadAccess(collection, id, user)
+  if (draft) {
+    const allowed = await checkAccess(collection.access?.update, { user, id })
+    if (!allowed) {
+      throw new AccessDeniedError('Access denied', { user })
+    }
+  }
+}
+
+function isDraftHidden(collection: CollectionConfig, doc: DocumentData, draft?: boolean): boolean {
+  return Boolean(collection.versions?.drafts && !draft && doc._status !== 'published')
+}
+
 export async function findByIDOperation<T = DocumentData>(
   args: FindByIDOperationArgs,
 ): Promise<T | null> {
   if (!args.overrideAccess) {
-    await assertReadAccess(args.collection, args.id, args.user)
+    await assertFindByIDAccess(args.collection, args.id, args.user ?? null, args.draft)
   }
 
   const doc = await args.config.db.findByID({ collection: args.collection, id: args.id })
-  if (!doc) {
+  if (!doc || isDraftHidden(args.collection, doc, args.draft)) {
     return null
   }
 
@@ -44,6 +63,7 @@ export async function findByIDOperation<T = DocumentData>(
     user: args.user ?? null,
     req: args.req,
     overrideAccess: args.overrideAccess,
+    draft: args.draft,
   })
 
   return populated as T

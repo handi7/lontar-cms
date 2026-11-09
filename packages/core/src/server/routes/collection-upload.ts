@@ -437,6 +437,7 @@ async function respondPopulatedDoc(
   status: 200 | 201,
 ): Promise<Response> {
   const depth = parseDepth(c.req.query('depth'))
+  const draft = c.req.query('draft') === 'true'
   const populated = await populateDoc(doc, {
     collection,
     depth,
@@ -444,6 +445,7 @@ async function respondPopulatedDoc(
     db: config.db,
     user,
     req: c.req.raw,
+    draft,
   })
   return c.json(populated, status)
 }
@@ -465,6 +467,7 @@ interface UploadCreateContext {
     db: DatabaseAdapter
     data: DocumentData
     req: Request
+    draft?: boolean
   }) => Promise<MutationExecutionResult>
 }
 
@@ -505,6 +508,7 @@ export async function handleUploadCreate(ctx: UploadCreateContext): Promise<Resp
       data: payload,
       db: config.db,
       req: c.req.raw,
+      draft: c.req.query('draft') === 'true',
     })
   } catch (err) {
     await safeDeleteMedia(config, processed.uploadDoc)
@@ -534,6 +538,7 @@ interface UploadUpdateContext {
     originalDoc: DocumentData
     data: DocumentData
     req: Request
+    draft?: boolean
   }) => Promise<MutationExecutionResult>
 }
 
@@ -576,6 +581,7 @@ async function applyValidatedUpdate(args: {
       id,
       originalDoc: args.originalDoc,
       req: c.req.raw,
+      draft: c.req.query('draft') === 'true',
     })
   } catch (err) {
     await rollbackNewMedia(config, args.newUploadDoc)

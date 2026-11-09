@@ -1,6 +1,7 @@
 import type { AuthUser } from '../auth/types'
 import type { CollectionConfig, Config, GlobalConfig } from '../config/types'
 import type { DocumentData, PaginatedDocs } from '../database/adapter'
+import type { Where } from '../query/types'
 import {
   createOperation,
   deleteOperation,
@@ -8,11 +9,12 @@ import {
   findGlobalOperation,
   findOperation,
   NotFoundError,
+  publishOperation,
+  unpublishOperation,
   updateGlobalOperation,
   updateOperation,
   ValidationError,
 } from '../operations'
-import type { Where } from '../query/types'
 
 export interface LocalFindOptions {
   where?: Where
@@ -22,6 +24,7 @@ export interface LocalFindOptions {
   depth?: number
   overrideAccess?: boolean
   user?: AuthUser | null
+  draft?: boolean
 }
 
 export interface LocalFindByIDOptions {
@@ -29,6 +32,7 @@ export interface LocalFindByIDOptions {
   depth?: number
   overrideAccess?: boolean
   user?: AuthUser | null
+  draft?: boolean
 }
 
 export interface LocalCreateOptions {
@@ -36,11 +40,20 @@ export interface LocalCreateOptions {
   depth?: number
   overrideAccess?: boolean
   user?: AuthUser | null
+  draft?: boolean
 }
 
 export interface LocalUpdateOptions {
   id?: number | string
   data?: DocumentData
+  depth?: number
+  overrideAccess?: boolean
+  user?: AuthUser | null
+  draft?: boolean
+}
+
+export interface LocalPublishOptions {
+  id?: number | string
   depth?: number
   overrideAccess?: boolean
   user?: AuthUser | null
@@ -125,6 +138,28 @@ export interface LontarClient {
     idOrOptions: number | string | LocalDeleteOptions,
     maybeOptions?: Omit<LocalDeleteOptions, 'id'>,
   ): Promise<T | null>
+
+  publish<K extends keyof LontarCollections>(
+    collectionSlug: K,
+    idOrOptions: number | string | LocalPublishOptions,
+    maybeOptions?: Omit<LocalPublishOptions, 'id'>,
+  ): Promise<LontarCollections[K]>
+  publish<T = DocumentData>(
+    collectionSlug: string,
+    idOrOptions: number | string | LocalPublishOptions,
+    maybeOptions?: Omit<LocalPublishOptions, 'id'>,
+  ): Promise<T>
+
+  unpublish<K extends keyof LontarCollections>(
+    collectionSlug: K,
+    idOrOptions: number | string | LocalPublishOptions,
+    maybeOptions?: Omit<LocalPublishOptions, 'id'>,
+  ): Promise<LontarCollections[K]>
+  unpublish<T = DocumentData>(
+    collectionSlug: string,
+    idOrOptions: number | string | LocalPublishOptions,
+    maybeOptions?: Omit<LocalPublishOptions, 'id'>,
+  ): Promise<T>
 
   findGlobal<K extends keyof LontarGlobals>(
     globalSlug: K,
@@ -252,6 +287,7 @@ export function getLontar(config: Config): Promise<LontarClient> {
         page: options.page,
         limit: options.limit,
         depth: options.depth,
+        draft: options.draft,
         overrideAccess: options.overrideAccess ?? true,
         user: options.user,
       })
@@ -275,6 +311,7 @@ export function getLontar(config: Config): Promise<LontarClient> {
         collection,
         id,
         depth: options.depth,
+        draft: options.draft,
         overrideAccess: options.overrideAccess ?? true,
         user: options.user,
       })
@@ -291,6 +328,7 @@ export function getLontar(config: Config): Promise<LontarClient> {
         collection,
         data,
         depth: options.depth,
+        draft: options.draft,
         overrideAccess: options.overrideAccess ?? true,
         user: options.user,
       })
@@ -309,6 +347,7 @@ export function getLontar(config: Config): Promise<LontarClient> {
         id,
         data,
         depth: options.depth,
+        draft: options.draft,
         overrideAccess: options.overrideAccess ?? true,
         user: options.user,
       })
@@ -325,6 +364,52 @@ export function getLontar(config: Config): Promise<LontarClient> {
         config,
         collection,
         id,
+        overrideAccess: options.overrideAccess ?? true,
+        user: options.user,
+      })
+    },
+
+    async publish<T = DocumentData>(
+      slug: string,
+      idOrOptions: number | string | LocalPublishOptions,
+      maybeOptions?: Omit<LocalPublishOptions, 'id'>,
+    ): Promise<T> {
+      const collection = resolveCollection(config, slug)
+      const options: LocalPublishOptions =
+        typeof idOrOptions === 'object' && idOrOptions !== null
+          ? idOrOptions
+          : { id: idOrOptions, ...maybeOptions }
+      const id = parseId(options.id)
+      assertValidId(id)
+
+      return publishOperation<T>({
+        config,
+        collection,
+        id,
+        depth: options.depth,
+        overrideAccess: options.overrideAccess ?? true,
+        user: options.user,
+      })
+    },
+
+    async unpublish<T = DocumentData>(
+      slug: string,
+      idOrOptions: number | string | LocalPublishOptions,
+      maybeOptions?: Omit<LocalPublishOptions, 'id'>,
+    ): Promise<T> {
+      const collection = resolveCollection(config, slug)
+      const options: LocalPublishOptions =
+        typeof idOrOptions === 'object' && idOrOptions !== null
+          ? idOrOptions
+          : { id: idOrOptions, ...maybeOptions }
+      const id = parseId(options.id)
+      assertValidId(id)
+
+      return unpublishOperation<T>({
+        config,
+        collection,
+        id,
+        depth: options.depth,
         overrideAccess: options.overrideAccess ?? true,
         user: options.user,
       })

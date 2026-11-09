@@ -1,6 +1,12 @@
+import type { DocStatus } from '../client/system-fields'
 import type { CollectionConfig, GlobalConfig } from '../config/types'
 import type { DocumentData } from '../database/adapter'
-import type { AfterChangeHookArgs, AfterReadHookArgs, BeforeChangeHookArgs } from './types'
+import type {
+  AfterChangeHookArgs,
+  AfterReadHookArgs,
+  BeforeChangeHookArgs,
+  DocStatusTransition,
+} from './types'
 
 function isRecord(val: unknown): val is DocumentData {
   return typeof val === 'object' && val !== null
@@ -16,6 +22,9 @@ export async function runBeforeChangeHooks(args: {
   data: DocumentData
   operation: 'create' | 'update'
   originalDoc?: DocumentData
+  status?: DocStatus
+  previousStatus?: DocStatus
+  statusTransition?: DocStatusTransition
   req?: Request
 }): Promise<DocumentData> {
   const hooks = getHooks(args.collection?.hooks?.beforeChange, args.global?.hooks?.beforeChange)
@@ -25,6 +34,9 @@ export async function runBeforeChangeHooks(args: {
       data: currentData,
       operation: args.operation,
       originalDoc: args.originalDoc,
+      status: args.status,
+      previousStatus: args.previousStatus,
+      statusTransition: args.statusTransition,
       req: args.req,
     }
     const result = await hook(hookArgs)
@@ -42,6 +54,9 @@ export async function runAfterChangeHooks(args: {
   doc: DocumentData
   operation: 'create' | 'update'
   previousDoc?: DocumentData
+  status?: DocStatus
+  previousStatus?: DocStatus
+  statusTransition?: DocStatusTransition
   req?: Request
 }): Promise<DocumentData> {
   const hooks = getHooks(args.collection?.hooks?.afterChange, args.global?.hooks?.afterChange)
@@ -51,6 +66,9 @@ export async function runAfterChangeHooks(args: {
       doc: currentDoc,
       operation: args.operation,
       previousDoc: args.previousDoc,
+      status: args.status,
+      previousStatus: args.previousStatus,
+      statusTransition: args.statusTransition,
       req: args.req,
     }
     const result = await hook(hookArgs)

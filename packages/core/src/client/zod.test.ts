@@ -1048,5 +1048,14 @@ describe('clientFieldsToZod', () => {
       })
       expect(pass.success).toBe(true)
     })
+
+    it('strips _status if provided in input', () => {
+      const schema = clientFieldsToZod([
+        { name: 'title', type: 'text', label: 'Title', required: true },
+      ])
+      const result = schema.parse({ title: 'Hello', _status: 'published' })
+      expect(result).toEqual({ title: 'Hello' })
+      expect(result).not.toHaveProperty('_status')
+    })
   })
 })
