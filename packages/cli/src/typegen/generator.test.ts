@@ -505,4 +505,52 @@ describe('generateTypes', () => {
     })
     expect(transpileResult.outputText).toBeDefined()
   })
+
+  it('marks conditional fields as optional and nullable even when required: true', () => {
+    const config: Config = {
+      secret: 'test-secret',
+      db: { name: 'mock' } as unknown as Config['db'],
+      collections: [
+        {
+          slug: 'posts',
+          fields: {
+            title: { type: 'text', required: true },
+            format: {
+              type: 'select',
+              options: ['standard', 'video'],
+              defaultValue: 'standard',
+            },
+            videoUrl: {
+              type: 'text',
+              required: true,
+              admin: { condition: { format: { equals: 'video' } } },
+            },
+            settings: {
+              type: 'group',
+              admin: { condition: { format: { equals: 'video' } } },
+              fields: {
+                duration: { type: 'number', required: true },
+              },
+            },
+          },
+        },
+      ],
+    }
+
+    const output = generateTypes(config)
+    expect(output).toContain('  title: string')
+    expect(output).toContain('  videoUrl?: string | null')
+    expect(output).not.toContain('  videoUrl: string')
+    expect(output).toContain('  settings?: {')
+    expect(output).toContain('    duration?: number | null')
+    expect(output).not.toContain('    duration: number')
+
+    const transpileResult = ts.transpileModule(output, {
+      compilerOptions: {
+        module: ts.ModuleKind.ESNext,
+        target: ts.ScriptTarget.ES2022,
+      },
+    })
+    expect(transpileResult.outputText).toBeDefined()
+  })
 })

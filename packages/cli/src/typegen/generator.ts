@@ -119,11 +119,15 @@ function renderGroupType(
   collectionMap: Map<string, string>,
   parentPrefix: string,
   indent: number,
+  parentConditional = false,
 ): string {
   const pad = ' '.repeat(indent)
   const lines: string[] = ['{']
+  const isConditional = parentConditional || Boolean(field.admin?.condition)
   for (const [subName, subField] of Object.entries(field.fields)) {
-    lines.push(renderFieldLine(subName, subField, collectionMap, parentPrefix, indent + 2))
+    lines.push(
+      renderFieldLine(subName, subField, collectionMap, parentPrefix, indent + 2, isConditional),
+    )
   }
   lines.push(`${pad}}`)
   return lines.join('\n')
@@ -214,12 +218,40 @@ function collectBlockDefinitions(
   return defs
 }
 
+function renderContainerFieldType(
+  name: string,
+  field: Field,
+  collectionMap: Map<string, string>,
+  parentPrefix: string,
+  indent: number,
+  parentConditional: boolean,
+): string | null {
+  if (field.type === 'group') {
+    return renderGroupType(
+      field,
+      collectionMap,
+      `${parentPrefix}${toPascalCase(name)}`,
+      indent,
+      parentConditional,
+    )
+  }
+  if (field.type === 'array') {
+    return renderArrayType(field, collectionMap, `${parentPrefix}${toPascalCase(name)}`, indent)
+  }
+  if (field.type === 'blocks') {
+    const unionName = resolveBlocksUnionTypeName(parentPrefix, name)
+    return `Array<${unionName}>`
+  }
+  return null
+}
+
 function renderFieldType(
   name: string,
   field: Field,
   collectionMap: Map<string, string>,
   parentPrefix = '',
   indent = 2,
+  parentConditional = false,
 ): string {
   const primitive = renderPrimitiveFieldType(field.type)
   if (primitive) {
@@ -234,15 +266,16 @@ function renderFieldType(
   if (field.type === 'upload') {
     return buildUploadFieldType(field, collectionMap)
   }
-  if (field.type === 'group') {
-    return renderGroupType(field, collectionMap, `${parentPrefix}${toPascalCase(name)}`, indent)
-  }
-  if (field.type === 'array') {
-    return renderArrayType(field, collectionMap, `${parentPrefix}${toPascalCase(name)}`, indent)
-  }
-  if (field.type === 'blocks') {
-    const unionName = resolveBlocksUnionTypeName(parentPrefix, name)
-    return `Array<${unionName}>`
+  const container = renderContainerFieldType(
+    name,
+    field,
+    collectionMap,
+    parentPrefix,
+    indent,
+    parentConditional,
+  )
+  if (container) {
+    return container
   }
   return 'unknown'
 }
@@ -253,11 +286,13 @@ function renderFieldLine(
   collectionMap: Map<string, string>,
   parentPrefix = '',
   indent = 2,
+  parentConditional = false,
 ): string {
   const pad = ' '.repeat(indent)
   const prop = formatFieldName(name)
-  const typeStr = renderFieldType(name, field, collectionMap, parentPrefix, indent)
-  if (field.required) {
+  const isConditional = parentConditional || Boolean(field.admin?.condition)
+  const typeStr = renderFieldType(name, field, collectionMap, parentPrefix, indent, isConditional)
+  if (field.required && !isConditional) {
     return `${pad}${prop}: ${typeStr}`
   }
   return `${pad}${prop}?: ${typeStr} | null`

@@ -86,6 +86,7 @@ A conditionally hidden field must not trigger validation failures if omitted:
      - If the condition evaluates to `true` and the field value is missing, empty, or `null`, a Zod issue is registered at that field's path (`This field is required`).
      - If the condition evaluates to `false`, the field is valid regardless of whether it is absent or present.
 2. **Deterministic Validation**: Because Zod runs identically on the server route handlers and in the admin SPA form runner (Rule 5), form validation and API mutation validation are always in perfect agreement.
+3. **Database Column Nullability**: Any database column for a field with `admin.condition` (or nested inside a conditional group) is created nullable regardless of `required: true`. In conditional fields, `required: true` means "required while visible", enforced by application validation rather than a database-level `NOT NULL` column. Because the mutation pipeline clears inactive values to `null` before persistence (§4), a `NOT NULL` column would trigger a database constraint failure whenever the field is hidden.
 
 ### 4. Storage of Inactive Values: Clear on Mutation
 

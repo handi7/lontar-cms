@@ -101,6 +101,7 @@ approval on the `npm` environment. Don't run `pnpm publish` by hand; see `docs/r
 - Every new field type needs: definition, Zod schema, DB column mapping, `ClientConfig` serialization, admin input component, and tests.
 - Prefer small, focused PRs per milestone task.
 - ESLint caps `complexity` at 10 and `sonarjs/cognitive-complexity` at 15. Split the function instead of disabling the rule; if a disable is truly needed, say why in a comment next to it.
+- React components declare props as a named `interface <Component>Props`, never as an inline type on the destructured parameter. Where a component only forwards its props onward, take `props` whole, destructure what it reads in the body, and forward the rest with `{...props}`. Existing inline annotations are being converted in #181.
 - Record significant decisions as a new ADR in `docs/adr/NNNN-title.md` (context, decision, consequences).
 
 ## Milestones roadmap to MVP (v0.1)
@@ -149,7 +150,7 @@ approval on the `npm` environment. Don't run `pnpm publish` by hand; see `docs/r
   - [x] #122 Theming token documentation and Stack correction (done)
   - [x] #136 Dialog, Popover and Tooltip where they replace existing behaviour (done)
 
-- [x] **M7: Complex fields** (Done; tracking in #151)
+- [ ] **M7: Complex fields** (feature work done, tracking in #151; code review fixes open)
   - [x] #152 ADR: nested field storage and querying (done)
   - [x] #153 ADR: declarative conditional fields (done)
   - [x] #154 `group` field (done)
@@ -159,6 +160,11 @@ approval on the `npm` environment. Don't run `pnpm publish` by hand; see `docs/r
   - [x] #158 Filter and sort on nested field paths (done)
   - [x] #159 Conditional fields via `admin.condition` (done)
   - [x] #160 `examples/next-blog` pages built from blocks, with e2e (done)
+  - [ ] Code review fixes from `main` @ 0a3d5dd, in fix order
+    - [ ] Correctness: #170 (done), #171, #172
+    - [ ] Needed before M8: #173, #176
+    - [ ] Conditional fields: #174, #175
+    - [ ] Minor: #177, #178, #179, #180
 - [ ] **M8: Drafts, versions & publishing** (tracking in #146; broken into issues when it starts)
 - [ ] **M9: Second database adapter** (tracking in #147)
 - [ ] **M10: Users, roles & field-level access** (tracking in #148)
