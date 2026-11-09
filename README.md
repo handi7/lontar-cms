@@ -181,6 +181,31 @@ const Posts = collection({
 
 Inside `array` or `blocks` rows, conditions resolve against sibling fields by default, or against top-level document fields using the `$root.` prefix (e.g. `{ '$root.status': { equals: 'published' } }`). Inactive fields are automatically omitted from required validation and cleared on save.
 
+### Drafts and versions
+
+Collections and globals can enable version history and draft publishing workflows:
+
+```ts
+const Posts = collection({
+  slug: 'posts',
+  versions: {
+    drafts: true,
+    maxPerDoc: 50, // default 50, set 0 for unlimited
+  },
+  fields: {
+    title: f.text({ required: true }),
+    content: f.richText(),
+  },
+})
+```
+
+When drafts are enabled:
+
+- Documents gain an engine-managed `_status` system field (`'draft' | 'published'`).
+- The parent table always stores the published document (or initial draft if never published), ensuring public reads remain fast single-table queries without version joins.
+- Draft edits to an already-published document are stored as version snapshots in `${collection}_versions` until published.
+- Queries default to published documents. Pass `draft: true` (requires update access) to read the latest draft state.
+
 ## Migrations and type generation
 
 ```bash
@@ -324,18 +349,24 @@ const { docs: pages } = await lontar.find('pages', {
 // pages: Page[] with generated layout blocks union
 ```
 
-The Local API runs with `overrideAccess: true` by default, making server queries straightforward. To enforce access control based on an authenticated user or role, pass `{ overrideAccess: false, user }`. The client also exposes `findByID`, `create`, `update`, `delete`, `findGlobal`, and `updateGlobal`.
+The Local API runs with `overrideAccess: true` by default, making server queries straightforward. To enforce access control based on an authenticated user or role, pass `{ overrideAccess: false, user }`. The client also exposes `findByID`, `create`, `update`, `delete`, `publish`, `unpublish`, `findVersions`, `restoreVersion`, `findGlobal`, and `updateGlobal`. Pass `{ draft: true }` to read or modify drafts.
 
 From the browser or other apps, use REST:
 
 ```http
-GET /api/posts?where[status][equals]=published&sort=-publishedAt&limit=10&depth=1
+GET /api/posts?sort=-publishedAt&limit=10&depth=1
+GET /api/posts?draft=true
 GET /api/pages?where[seo.metaTitle][equals]=Home&depth=1
 GET /api/posts/:id
 POST /api/posts
 PATCH /api/posts/:id
+POST /api/posts/:id/publish
+POST /api/posts/:id/unpublish
+GET /api/posts/:id/versions
+POST /api/posts/:id/versions/:versionId/restore
 DELETE /api/posts/:id
 GET /api/globals/site-settings
+POST /api/globals/site-settings/publish
 ```
 
 ## License
