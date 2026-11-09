@@ -240,6 +240,81 @@ describe('form-utils', () => {
       ])
     })
 
+    it('seeds minRows rows with ids and subfield defaults for array fields (#180)', () => {
+      const arrayFields: ClientField[] = [
+        {
+          name: 'items',
+          type: 'array',
+          label: 'Items',
+          required: false,
+          minRows: 2,
+          fields: [
+            {
+              name: 'name',
+              type: 'text',
+              label: 'Name',
+              required: false,
+              defaultValue: 'Untitled',
+            },
+            { name: 'enabled', type: 'checkbox', label: 'Enabled', required: false },
+          ],
+        },
+      ]
+
+      const defaults = computeDefaultValues(arrayFields)
+      const rows = defaults.items as Array<Record<string, unknown>>
+      expect(rows).toHaveLength(2)
+      expect(rows[0]!.id).toBeDefined()
+      expect(typeof rows[0]!.id).toBe('string')
+      expect(rows[1]!.id).toBeDefined()
+      expect(typeof rows[1]!.id).toBe('string')
+      expect(rows[0]!.id).not.toBe(rows[1]!.id)
+      expect(rows[0]!.name).toBe('Untitled')
+      expect(rows[0]!.enabled).toBe(false)
+      expect(rows[1]!.name).toBe('Untitled')
+      expect(rows[1]!.enabled).toBe(false)
+    })
+
+    it('seeds 1 row when array field is required without explicit minRows (#180)', () => {
+      const arrayFields: ClientField[] = [
+        {
+          name: 'items',
+          type: 'array',
+          label: 'Items',
+          required: true,
+          fields: [{ name: 'name', type: 'text', label: 'Name', required: false }],
+        },
+      ]
+
+      const defaults = computeDefaultValues(arrayFields)
+      const rows = defaults.items as Array<Record<string, unknown>>
+      expect(rows).toHaveLength(1)
+      expect(rows[0]!.id).toBeDefined()
+      expect(typeof rows[0]!.id).toBe('string')
+    })
+
+    it('does not seed rows for blocks field even if minRows is set (#180)', () => {
+      const blocksFields: ClientField[] = [
+        {
+          name: 'layout',
+          type: 'blocks',
+          label: 'Layout',
+          required: false,
+          minRows: 2,
+          blocks: [
+            {
+              slug: 'hero',
+              labels: { singular: 'Hero', plural: 'Heroes' },
+              fields: [{ name: 'title', type: 'text', label: 'Title', required: true }],
+            },
+          ],
+        },
+      ]
+
+      const defaults = computeDefaultValues(blocksFields)
+      expect(defaults.layout).toEqual([])
+    })
+
     it('handles blocks fields for defaults, formatDocForForm, and formatDocForSubmit', () => {
       const blocksFields: ClientField[] = [
         {

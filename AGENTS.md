@@ -151,7 +151,7 @@ approval on the `npm` environment. Don't run `pnpm publish` by hand; see `docs/r
   - [x] #122 Theming token documentation and Stack correction (done)
   - [x] #136 Dialog, Popover and Tooltip where they replace existing behaviour (done)
 
-- [ ] **M7: Complex fields** (feature work done, tracking in #151; code review fixes open)
+- [x] **M7: Complex fields** (Done; tracking in #151)
   - [x] #152 ADR: nested field storage and querying (done)
   - [x] #153 ADR: declarative conditional fields (done)
   - [x] #154 `group` field (done)
@@ -161,12 +161,12 @@ approval on the `npm` environment. Don't run `pnpm publish` by hand; see `docs/r
   - [x] #158 Filter and sort on nested field paths (done)
   - [x] #159 Conditional fields via `admin.condition` (done)
   - [x] #160 `examples/next-blog` pages built from blocks, with e2e (done)
-  - [ ] Code review fixes from `main` @ 0a3d5dd, in fix order
-    - [ ] Correctness: #170 (done), #171 (done), #172 (done)
-    - [ ] Needed before M8: #173 (done), #176 (done)
+  - [x] Code review fixes from `main` @ 0a3d5dd, in fix order
+    - [x] Correctness: #170 (done), #171 (done), #172 (done)
+    - [x] Needed before M8: #173 (done), #176 (done)
     - [x] Conditional fields: #174 (done), #175 (done)
     - [x] Admin styling: #183 (done)
-    - [ ] Minor: #177 (done), #178 (done), #179 (done), #180
+    - [x] Minor: #177 (done), #178 (done), #179 (done), #180 (done)
 - [ ] **M8: Drafts, versions & publishing** (tracking in #146; broken into issues when it starts)
 - [ ] **M9: Second database adapter** (tracking in #147)
 - [ ] **M10: Users, roles & field-level access** (tracking in #148)

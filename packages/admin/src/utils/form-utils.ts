@@ -1,4 +1,9 @@
-import { sanitizeConditionalFields, type ClientField } from '@lontar/core/client'
+import {
+  generateRowId,
+  sanitizeConditionalFields,
+  type ClientArrayField,
+  type ClientField,
+} from '@lontar/core/client'
 
 /**
  * Format a stored date (ISO string, timestamp, or Date) to local YYYY-MM-DDTHH:mm
@@ -165,13 +170,29 @@ function getExplicitDefault(f: ClientField): unknown {
   return undefined
 }
 
+function getArrayFieldDefault(f: ClientArrayField): Array<Record<string, unknown>> {
+  const minRows = f.minRows ?? (f.required ? 1 : 0)
+  if (minRows <= 0) return []
+  const rows: Array<Record<string, unknown>> = []
+  for (let i = 0; i < minRows; i++) {
+    rows.push({
+      ...computeDefaultValues(f.fields),
+      id: generateRowId(),
+    })
+  }
+  return rows
+}
+
 export function getFieldDefault(f: ClientField): unknown {
   if (f.type === 'group') {
     const subDefaults = computeDefaultValues(f.fields)
     return Object.keys(subDefaults).length > 0 ? subDefaults : undefined
   }
-  if (f.type === 'array' || f.type === 'blocks') {
+  if (f.type === 'blocks') {
     return []
+  }
+  if (f.type === 'array') {
+    return getArrayFieldDefault(f)
   }
   const explicit = getExplicitDefault(f)
   if (explicit !== undefined) {
