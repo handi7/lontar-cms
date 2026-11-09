@@ -8,21 +8,46 @@ import type {
   StoredDoc,
 } from '../../database/adapter'
 import { fields as f } from '../../fields'
+import type { Where } from '../../query/types'
 import { createLontar } from '../create-lontar'
+
+function extractStoreInIds(where?: Where): unknown[] | null {
+  if (!where?.id || typeof where.id !== 'object' || !('in' in where.id)) return null
+  const inCond = where.id as { in?: unknown }
+  return Array.isArray(inCond.in) ? inCond.in : null
+}
+
+function filterStoreItems(items: StoredDoc[], where?: Where): StoredDoc[] {
+  const inIds = extractStoreInIds(where)
+  if (!inIds) return items
+  return items.filter((item) => inIds.includes(item.id))
+}
+
+function resolveStoreLimit(
+  limit: number,
+  maxLimit: number | undefined,
+  overrideLimit: boolean | undefined,
+): number {
+  if (overrideLimit || maxLimit === undefined) return limit
+  return Math.min(limit, maxLimit)
+}
 
 function createDepthMockAdapter(store: Record<string, StoredDoc[]>): DatabaseAdapter {
   return {
     name: 'mock',
-    find({ collection, where }): Promise<PaginatedDocs> {
-      let items = (store[collection.slug] ?? []).map((d) => ({ ...d }))
-      if (where?.id && typeof where.id === 'object' && 'in' in where.id) {
-        const inIds = Array.isArray(where.id.in) ? (where.id.in as unknown[]) : []
-        items = items.filter((item) => inIds.includes(item.id))
-      }
+    find({ collection, where, limit, overrideLimit }): Promise<PaginatedDocs> {
+      const all = (store[collection.slug] ?? []).map((d) => ({ ...d }))
+      const filtered = filterStoreItems(all, where)
+      const effectiveLimit = resolveStoreLimit(
+        limit,
+        collection.pagination?.maxLimit,
+        overrideLimit,
+      )
+      const docs = effectiveLimit >= 0 ? filtered.slice(0, effectiveLimit) : filtered
       return Promise.resolve({
-        docs: items,
-        totalDocs: items.length,
-        limit: 10,
+        docs,
+        totalDocs: docs.length,
+        limit: effectiveLimit,
         page: 1,
         totalPages: 1,
       })
@@ -306,6 +331,64 @@ describe('REST API depth query param', () => {
         createdAt: '2026-01-01T00:00:00.000Z',
         updatedAt: '2026-01-01T00:00:00.000Z',
       },
+    ])
+  })
+
+  it('GET /api/:collection/:id?depth=1 resolves all references despite target collection maxLimit', async () => {
+    const cappedCategoriesCol = collection({
+      slug: 'capped-categories',
+      fields: {
+        name: f.text({ required: true }),
+      },
+      pagination: { maxLimit: 1 },
+      access: { read: () => true },
+    })
+
+    const postsWithCappedCategories = collection({
+      slug: 'capped-posts',
+      fields: {
+        title: f.text({ required: true }),
+        categories: f.relationship({
+          relationTo: 'capped-categories',
+          hasMany: true,
+        }),
+      },
+      access: { read: () => true },
+    })
+
+    const initialStore: Record<string, StoredDoc[]> = {
+      'capped-categories': [
+        { id: 1, name: 'Cat 1', createdAt: '2026-01-01', updatedAt: '2026-01-01' },
+        { id: 2, name: 'Cat 2', createdAt: '2026-01-01', updatedAt: '2026-01-01' },
+        { id: 3, name: 'Cat 3', createdAt: '2026-01-01', updatedAt: '2026-01-01' },
+      ],
+      'capped-posts': [
+        {
+          id: 1,
+          title: 'Post with 3 categories',
+          categories: [1, 2, 3],
+          createdAt: '2026-01-01',
+          updatedAt: '2026-01-01',
+        },
+      ],
+    }
+
+    const app = createLontar(
+      defineConfig({
+        secret: 'test-secret-at-least-32-characters-long',
+        db: createDepthMockAdapter(initialStore),
+        collections: [cappedCategoriesCol, postsWithCappedCategories],
+      }),
+    )
+
+    const res = await app.request('/api/capped-posts/1?depth=1')
+    expect(res.status).toBe(200)
+
+    const body = (await res.json()) as DocumentData
+    expect(body.categories).toEqual([
+      expect.objectContaining({ id: 1, name: 'Cat 1' }),
+      expect.objectContaining({ id: 2, name: 'Cat 2' }),
+      expect.objectContaining({ id: 3, name: 'Cat 3' }),
     ])
   })
 })

@@ -366,6 +366,16 @@ describe('mysqlAdapter (integration)', () => {
     })
     expect(capped.limit).toBe(1)
     expect(capped.docs).toHaveLength(1)
+
+    const overridden = await adapter.find({
+      collection: cappedCol,
+      limit: 10,
+      page: 1,
+      sort: 'id',
+      overrideLimit: true,
+    })
+    expect(overridden.limit).toBe(10)
+    expect(overridden.docs.length).toBeGreaterThanOrEqual(2)
   })
 
   it('filters documents with operators: equals, not_equals, contains, in, greater_than, less_than', async () => {

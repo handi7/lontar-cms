@@ -1101,9 +1101,10 @@ async function removeDoc(
   }
 }
 
-function computeSafeLimit(limit: number, maxLimit?: number): number {
+function computeSafeLimit(limit: number, maxLimit?: number, overrideLimit = false): number {
   if (limit === 0) return 0
   const positive = Math.max(1, limit)
+  if (overrideLimit) return positive
   return maxLimit !== undefined ? Math.min(positive, maxLimit) : positive
 }
 
@@ -1145,12 +1146,12 @@ function buildFindDocsQuery(
 async function findDocs(
   executor: DbExecutor,
   caches: AdapterCaches,
-  { collection, limit, page, sort, where }: FindArgs,
+  { collection, limit, page, sort, where, overrideLimit }: FindArgs,
 ): Promise<PaginatedDocs> {
   try {
     const table = getTable(caches, collection)
     const junctionTables = getJunctionTables(caches, collection)
-    const safeLimit = computeSafeLimit(limit, collection.pagination?.maxLimit)
+    const safeLimit = computeSafeLimit(limit, collection.pagination?.maxLimit, overrideLimit)
     const safePage = Math.max(1, page)
     const offset = (safePage - 1) * safeLimit
     const whereSql = resolveWhere(collection, table, junctionTables, where)

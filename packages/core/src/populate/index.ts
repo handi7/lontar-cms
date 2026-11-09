@@ -214,6 +214,8 @@ function extractTargetIds(
   return Array.from(ids)
 }
 
+export const MAX_POPULATE_BATCH_SIZE = 500
+
 async function fetchTargetDocs(
   targetCol: CollectionConfig,
   targetIds: number[],
@@ -221,14 +223,20 @@ async function fetchTargetDocs(
   req?: Request,
 ): Promise<Map<number, DocumentData>> {
   if (targetIds.length === 0) return new Map()
-  const result = await db.find({
-    collection: targetCol,
-    limit: targetIds.length,
-    page: 1,
-    where: { id: { in: targetIds } },
-  })
+  const docs: DocumentData[] = []
+  for (let i = 0; i < targetIds.length; i += MAX_POPULATE_BATCH_SIZE) {
+    const chunk = targetIds.slice(i, i + MAX_POPULATE_BATCH_SIZE)
+    const result = await db.find({
+      collection: targetCol,
+      limit: chunk.length,
+      page: 1,
+      where: { id: { in: chunk } },
+      overrideLimit: true,
+    })
+    docs.push(...result.docs)
+  }
   const transformed = await Promise.all(
-    result.docs.map((doc) => runAfterReadHooks({ collection: targetCol, doc, req })),
+    docs.map((doc) => runAfterReadHooks({ collection: targetCol, doc, req })),
   )
   return new Map(transformed.map((d) => [d.id as number, d]))
 }

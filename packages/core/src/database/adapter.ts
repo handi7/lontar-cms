@@ -26,6 +26,11 @@ export interface FindArgs {
   sort?: string | SortItem[]
   /** Filter conditions */
   where?: Where
+  /**
+   * If true, ignores the collection's `pagination.maxLimit` ceiling.
+   * Used for internal engine queries such as depth population batch fetching.
+   */
+  overrideLimit?: boolean
 }
 
 export interface PaginatedDocs<T = StoredDoc> {
