@@ -5,6 +5,39 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.3.0] - 2026-11-09
+
+Complex fields: `group`, `array` and `blocks`, with conditional fields on top of them (M7, tracked in #151). Documents can hold nested and repeating content, and the REST API filters, sorts and populates inside it. Configs written against 0.2.0 keep working, with one exception: a field name can no longer contain `__`. `@lontar/storage-local` and `@lontar/storage-s3` have no changes of their own; they are published so their `@lontar/core` peer range moves with the rest.
+
+### Added
+
+- `f.group()`: 1:1 nested fields. A top-level group is stored as flattened columns on the parent table (`seo__meta_title`), so its subfields keep their native types and stay indexable, filterable and sortable ([ADR 0021](docs/adr/0021-nested-field-storage.md)) (#154).
+- `f.array()`: ordered rows of the same fields, with `minRows` and `maxRows`. Stored in one `json` column, and every row gets a stable `id` for React keys and for version diffing later (#155).
+- `f.blocks()` and `block()`: ordered rows chosen from a list of declared block types, stored in one `json` column with a `blockType` on each row. `generate:types` emits the rows as a discriminated union (#156).
+- `relationship` and `upload` fields work inside `group`, `array` and `blocks`, and `depth` populates them recursively (#157).
+- `where` and `sort` take nested paths: `where[seo.metaTitle][equals]=…`, `where[gallery.caption][contains]=…`, `sort=seo.metaTitle`. A path into a blocks field can name the block (`layout.hero.heading`) or leave it out to match every block that declares the field. An unknown path returns the same structured 400 as any other invalid filter (#158).
+- Conditional fields through `admin.condition`, written in the query filter syntax instead of a function so it survives serialization into `ClientConfig`. Inside `array` and `blocks` rows a condition resolves against sibling fields, or against the document with a `$root.` prefix. A hidden field is not required and is cleared on save ([ADR 0022](docs/adr/0022-conditional-fields.md)) (#159).
+- `examples/next-blog` has a `pages` collection built from blocks, covered by e2e (#160).
+
+### Changed
+
+- A field name can no longer contain `__`, at any depth. It is the separator for group columns, so a field called `weird__name` collided with them and was dropped on read. `defineConfig` now rejects it and names the collection and field (#172).
+- `CLIENT_CONFIG_VERSION` is 2, because `ClientField` is recursive. `@lontar/admin` and `@lontar/core` have to be on the same version, which their peer range already requires (#154).
+- `depth` population is no longer cut off by the target collection's `pagination.maxLimit`. A document with more related rows than that limit used to come back with the rest missing (#173).
+- A conditional field in the admin subscribes only to the paths its condition names, instead of watching the whole form and re-rendering on every keystroke (#177).
+
+### Fixed
+
+- A required field with an `admin.condition` got a `NOT NULL` column, and saving a document where the condition was false returned a 500. Conditional fields are nullable in the generated schema and in `generate:types` (#170).
+- A filter path that named a block, such as `layout.hero.heading`, matched nothing instead of filtering (#171).
+- `PATCH` did not enforce a required conditional field that the patch itself revealed (#174).
+- Values of inactive conditional fields survived inside groups, arrays and blocks. They are cleared recursively now (#175).
+- An array or blocks row written through the API got no row `id` when it sat inside another row (#176).
+- `sort` validation split a nested path on a single underscore, so sorting on a field whose name contains one failed validation. It splits on `.` and `__` only (#178).
+- `not_equals` on an array or blocks path dropped documents that were missing the key or held an empty or null array (#179).
+- `array` and `blocks` fields in the admin started empty even with `minRows` set. They seed that many rows, each field at its default (#180).
+- Admin field rows pointed at CSS variables that do not exist instead of the theme utilities, so some borders and muted text came out uncolored (#183).
+
 ## [0.2.0] - 2026-11-08
 
 The admin moves to shadcn/ui on a scoped Tailwind v4 build, with Radix primitives and a dark theme (M6, tracked in #123). Nothing changes outside `@lontar/admin`: the API, the database, the config and the values the admin sends are the same as in 0.1.2. The other packages are bumped to keep every `@lontar/*` version in step.
