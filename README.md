@@ -249,23 +249,93 @@ export function PostView({ post: initialPost }: { post: Post }) {
 
 ### Outgoing webhooks
 
-Notify frontend hosts or external services when content changes:
+Notify frontend hosts or external services when content is published, unpublished, changed, or deleted:
 
 ```ts
+import { collection, defineConfig } from '@lontar/core'
+
 export default defineConfig({
-  // Global or per-collection outgoing webhooks
+  // Root webhooks matching collections and/or globals
   webhooks: [
     {
       url: 'https://mysite.com/api/revalidate',
-      collections: ['posts', 'pages'],
+      collections: ['posts', 'pages'], // or '*' for all collections
+      globals: ['site-settings'], // or '*' for all globals
       events: ['publish', 'unpublish', 'delete'],
       secret: process.env.WEBHOOK_SECRET,
     },
   ],
+  collections: [
+    collection({
+      slug: 'posts',
+      // Webhooks can also be configured directly on a collection
+      webhooks: [
+        {
+          url: 'https://mysite.com/api/revalidate',
+          events: ['publish', 'unpublish'],
+          secret: process.env.WEBHOOK_SECRET,
+        },
+      ],
+      fields: { ... },
+    }),
+  ],
 })
 ```
 
-Webhook deliveries run asynchronously after database transactions commit, signed with HMAC-SHA256 (`x-lontar-signature-256`) and timestamped (`x-lontar-timestamp`).
+#### Event payload & signing
+
+Webhook requests are sent as HTTP `POST` requests with JSON payloads containing event metadata:
+
+```json
+{
+  "event": "publish",
+  "collection": "posts",
+  "id": 123,
+  "status": "published",
+  "previousStatus": "draft",
+  "timestamp": "2026-11-10T12:00:00.000Z"
+}
+```
+
+- **Payload minimalism**: By default, only structured metadata is sent. Set `includeDoc: true` on the webhook config if your receiver requires the full document snapshot.
+- **Draft isolation**: Draft saves do not trigger `publish` webhooks. They trigger `update` or `change` webhooks with `status: "draft"`.
+- **Post-commit delivery**: Webhooks fire asynchronously in the background strictly after database transactions commit.
+- **Failure isolation**: Dead endpoints or network errors retry up to 3 times with exponential backoff and never fail an editor's save.
+- **Cryptographic signing**: Requests include `x-lontar-timestamp` (epoch in seconds) and `x-lontar-signature-256` (`sha256=<hex_digest>`).
+
+#### Next.js revalidation receiver example
+
+```ts
+// app/api/revalidate/route.ts
+import { revalidateTag } from 'next/cache'
+import { verifyWebhookSignature, type WebhookPayload } from '@lontar/core'
+
+export async function POST(request: Request) {
+  const rawBody = await request.text()
+  const signature = request.headers.get('x-lontar-signature-256') ?? ''
+
+  const isValid = verifyWebhookSignature({
+    payload: rawBody,
+    signature,
+    secret: process.env.WEBHOOK_SECRET ?? '',
+  })
+
+  if (!isValid) {
+    return Response.json({ error: 'Invalid signature' }, { status: 401 })
+  }
+
+  const payload = JSON.parse(rawBody) as WebhookPayload
+
+  if (payload.collection && payload.id) {
+    revalidateTag(`${payload.collection}-${payload.id}`)
+    revalidateTag(payload.collection)
+  } else if (payload.global) {
+    revalidateTag(payload.global)
+  }
+
+  return Response.json({ revalidated: true, now: Date.now() })
+}
+```
 
 ### Lifecycle hooks
 

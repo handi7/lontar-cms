@@ -57,6 +57,7 @@ export async function createOperation<T = DocumentData>(args: CreateOperationArg
     draft: args.draft,
     autosave: args.autosave,
     userId: args.user?.id,
+    config: args.config,
   })
 
   if (!result.success) {

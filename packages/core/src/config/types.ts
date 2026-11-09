@@ -59,6 +59,45 @@ export interface VersionsConfig {
   maxPerDoc?: number
 }
 
+export type WebhookEvent = 'publish' | 'unpublish' | 'create' | 'update' | 'delete' | 'change'
+
+export interface WebhookConfig {
+  /** Target URL to send HTTP POST webhook request. */
+  url: string
+  /** Collection slugs to receive webhooks for, or '*' for all collections. */
+  collections?: readonly string[] | '*'
+  /** Global slugs to receive webhooks for, or '*' for all globals. */
+  globals?: readonly string[] | '*'
+  /** Events that trigger this webhook. */
+  events: readonly WebhookEvent[]
+  /** Secret used for HMAC-SHA256 signature in `x-lontar-signature-256`. */
+  secret?: string
+  /** Whether to include the full document snapshot in the payload. Defaults to false. */
+  includeDoc?: boolean
+}
+
+export interface CollectionWebhookConfig {
+  /** Target URL to send HTTP POST webhook request. */
+  url: string
+  /** Events that trigger this webhook. */
+  events: readonly WebhookEvent[]
+  /** Secret used for HMAC-SHA256 signature in `x-lontar-signature-256`. */
+  secret?: string
+  /** Whether to include the full document snapshot in the payload. Defaults to false. */
+  includeDoc?: boolean
+}
+
+export interface GlobalWebhookConfig {
+  /** Target URL to send HTTP POST webhook request. */
+  url: string
+  /** Events that trigger this webhook. */
+  events: readonly WebhookEvent[]
+  /** Secret used for HMAC-SHA256 signature in `x-lontar-signature-256`. */
+  secret?: string
+  /** Whether to include the full document snapshot in the payload. Defaults to false. */
+  includeDoc?: boolean
+}
+
 export interface PreviewConfig {
   /** URL template for live preview, e.g. 'https://mysite.com/posts/{slug}?preview=1'. */
   url: string
@@ -75,6 +114,8 @@ export interface GlobalConfig<F extends Fields = Fields> {
   access?: GlobalAccess
   hooks?: GlobalHooks
   versions?: VersionsConfig
+  /** Outgoing webhooks triggered by global events. */
+  webhooks?: readonly GlobalWebhookConfig[]
   fields: F
 }
 
@@ -121,6 +162,8 @@ export interface CollectionConfig<F extends Fields = Fields> {
   pagination?: PaginationConfig
   /** Optional versioning and draft settings. */
   versions?: VersionsConfig
+  /** Outgoing webhooks triggered by collection events. */
+  webhooks?: readonly CollectionWebhookConfig[]
   /** Authored as an object for type inference; order is preserved in ClientConfig. */
   fields: F
 }
@@ -134,6 +177,8 @@ export interface Config {
   storage?: StorageAdapter
   /** Optional global pagination settings. */
   pagination?: PaginationConfig
+  /** Outgoing webhooks triggered by collection and global events. */
+  webhooks?: readonly WebhookConfig[]
   collections: readonly CollectionConfig[]
   globals?: readonly GlobalConfig[]
 }

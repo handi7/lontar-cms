@@ -48,6 +48,7 @@ function validateConfig(config: Config): string[] {
   issues.push(...collectionIssues)
   issues.push(...validateGlobals(config.globals, collectionMap))
   issues.push(...validateStorage(config))
+  issues.push(...validateRootWebhooks(config.webhooks, collectionMap, config.globals))
   return issues
 }
 
@@ -176,6 +177,7 @@ function validateCollection(collection: CollectionConfig): string[] {
     ...validateVersions(where, collection.versions),
     ...validateAdmin(where, collection),
     ...validateAccess(where, collection),
+    ...validateScopedWebhooks(where, collection.webhooks),
   ]
 }
 
@@ -270,6 +272,7 @@ function validateGlobal(global: GlobalConfig): string[] {
     ...validateVersions(where, global.versions),
     ...validatePreview(where, global.admin?.preview),
     ...validateGlobalAccess(where, global),
+    ...validateScopedWebhooks(where, global.webhooks),
   ]
 }
 
@@ -605,6 +608,148 @@ function validateGlobalAccess(where: string, global: GlobalConfig): string[] {
     const fn = global.access[op]
     if (fn !== undefined && typeof fn !== 'function') {
       issues.push(`${where}: access.${op} must be a function.`)
+    }
+  }
+  return issues
+}
+
+const VALID_WEBHOOK_EVENTS = new Set([
+  'publish',
+  'unpublish',
+  'create',
+  'update',
+  'delete',
+  'change',
+])
+
+function isValidHttpUrl(str: string): boolean {
+  try {
+    const parsed = new URL(str)
+    return parsed.protocol === 'http:' || parsed.protocol === 'https:'
+  } catch {
+    return false
+  }
+}
+
+function validateWebhookEvents(where: string, idx: number, events: unknown): string[] {
+  if (!Array.isArray(events) || events.length === 0) {
+    return [`${where}: webhooks[${idx}].events must be a non-empty array.`]
+  }
+  const issues: string[] = []
+  for (const evt of events) {
+    if (typeof evt !== 'string' || !VALID_WEBHOOK_EVENTS.has(evt)) {
+      issues.push(`${where}: webhooks[${idx}].events contains invalid event "${String(evt)}".`)
+    }
+  }
+  return issues
+}
+
+function validateWebhookCommon(where: string, idx: number, item: unknown): string[] {
+  if (typeof item !== 'object' || item === null || Array.isArray(item)) {
+    return [`${where}: webhooks[${idx}] must be an object.`]
+  }
+  const obj = item as Record<string, unknown>
+  const issues: string[] = []
+
+  if (typeof obj.url !== 'string' || !isValidHttpUrl(obj.url)) {
+    issues.push(`${where}: webhooks[${idx}].url must be a valid http or https URL.`)
+  }
+
+  issues.push(...validateWebhookEvents(where, idx, obj.events))
+
+  if (obj.secret !== undefined && typeof obj.secret !== 'string') {
+    issues.push(`${where}: webhooks[${idx}].secret must be a string.`)
+  }
+
+  if (obj.includeDoc !== undefined && typeof obj.includeDoc !== 'boolean') {
+    issues.push(`${where}: webhooks[${idx}].includeDoc must be a boolean.`)
+  }
+
+  return issues
+}
+
+function validateRootWebhookCollections(
+  idx: number,
+  collections: unknown,
+  collectionMap: Map<string, CollectionConfig>,
+): string[] {
+  if (collections === undefined || collections === '*') return []
+  if (!Array.isArray(collections) || collections.length === 0) {
+    return [
+      `Config: webhooks[${idx}].collections must be '*' or a non-empty array of collection slugs.`,
+    ]
+  }
+  const issues: string[] = []
+  for (const slug of collections) {
+    if (typeof slug !== 'string' || !collectionMap.has(slug)) {
+      issues.push(
+        `Config: webhooks[${idx}].collections refers to unknown collection "${String(slug)}".`,
+      )
+    }
+  }
+  return issues
+}
+
+function validateRootWebhookGlobals(
+  idx: number,
+  globalsOption: unknown,
+  globals?: readonly GlobalConfig[],
+): string[] {
+  if (globalsOption === undefined || globalsOption === '*') return []
+  const globalMap = new Set((globals ?? []).map((g) => g.slug))
+  if (!Array.isArray(globalsOption) || globalsOption.length === 0) {
+    return [`Config: webhooks[${idx}].globals must be '*' or a non-empty array of global slugs.`]
+  }
+  const issues: string[] = []
+  for (const slug of globalsOption) {
+    if (typeof slug !== 'string' || !globalMap.has(slug)) {
+      issues.push(`Config: webhooks[${idx}].globals refers to unknown global "${String(slug)}".`)
+    }
+  }
+  return issues
+}
+
+function validateRootWebhooks(
+  webhooks: unknown,
+  collectionMap: Map<string, CollectionConfig>,
+  globals?: readonly GlobalConfig[],
+): string[] {
+  if (webhooks === undefined) return []
+  if (!Array.isArray(webhooks)) {
+    return ['Config: webhooks must be an array.']
+  }
+  const list = webhooks as readonly unknown[]
+  const issues: string[] = []
+  for (let i = 0; i < list.length; i++) {
+    const item = list[i]
+    issues.push(...validateWebhookCommon('Config', i, item))
+    if (typeof item === 'object' && item !== null && !Array.isArray(item)) {
+      const obj = item as Record<string, unknown>
+      issues.push(...validateRootWebhookCollections(i, obj.collections, collectionMap))
+      issues.push(...validateRootWebhookGlobals(i, obj.globals, globals))
+    }
+  }
+  return issues
+}
+
+function validateScopedWebhooks(where: string, webhooks: unknown): string[] {
+  if (webhooks === undefined) return []
+  if (!Array.isArray(webhooks)) {
+    return [`${where}: webhooks must be an array.`]
+  }
+  const list = webhooks as readonly unknown[]
+  const issues: string[] = []
+  for (let i = 0; i < list.length; i++) {
+    const item = list[i]
+    issues.push(...validateWebhookCommon(where, i, item))
+    if (typeof item === 'object' && item !== null && !Array.isArray(item)) {
+      const obj = item as Record<string, unknown>
+      if (obj.collections !== undefined) {
+        issues.push(`${where}: webhooks[${i}] cannot specify "collections".`)
+      }
+      if (obj.globals !== undefined) {
+        issues.push(`${where}: webhooks[${i}] cannot specify "globals".`)
+      }
     }
   }
   return issues

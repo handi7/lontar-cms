@@ -109,6 +109,7 @@ export async function updateOperation<T = DocumentData>(args: UpdateOperationArg
     draft: args.draft,
     autosave: args.autosave,
     userId: args.user?.id,
+    config: args.config,
   })
 
   if (!result.success) {

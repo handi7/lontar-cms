@@ -2,7 +2,12 @@ import { describe, expect, it } from 'vitest'
 import { fakeAdapter, Posts, SECRET } from '../__fixtures__/posts'
 import { block, fields as f } from '../fields'
 import { defineConfig, LontarConfigError } from './define-config'
-import type { CollectionConfig } from './types'
+import type {
+  CollectionConfig,
+  CollectionWebhookConfig,
+  WebhookConfig,
+  WebhookEvent,
+} from './types'
 
 function notes(overrides: Partial<CollectionConfig> = {}): CollectionConfig {
   return { slug: 'notes', fields: { title: f.text() }, ...overrides }
@@ -976,6 +981,145 @@ describe('defineConfig', () => {
             slug: 'site-settings',
             admin: { preview: { url: '/api/preview/settings' } },
             fields: { siteName: f.text() },
+          },
+        ],
+      }),
+    ).not.toThrow()
+  })
+
+  it('validates webhooks configurations on root, collections, and globals', () => {
+    // Non-array webhooks
+    expect(() =>
+      defineConfig({
+        secret: SECRET,
+        db: fakeAdapter,
+        collections: [notes()],
+        webhooks: 'invalid' as unknown as readonly WebhookConfig[],
+      }),
+    ).toThrow('Config: webhooks must be an array')
+
+    // Invalid URL
+    expect(() =>
+      defineConfig({
+        secret: SECRET,
+        db: fakeAdapter,
+        collections: [notes()],
+        webhooks: [{ url: 'not-a-valid-url', events: ['publish'] }],
+      }),
+    ).toThrow('webhooks[0].url must be a valid http or https URL')
+
+    // Empty events
+    expect(() =>
+      defineConfig({
+        secret: SECRET,
+        db: fakeAdapter,
+        collections: [notes()],
+        webhooks: [{ url: 'https://example.com/webhook', events: [] }],
+      }),
+    ).toThrow('webhooks[0].events must be a non-empty array')
+
+    // Invalid event name
+    expect(() =>
+      defineConfig({
+        secret: SECRET,
+        db: fakeAdapter,
+        collections: [notes()],
+        webhooks: [
+          {
+            url: 'https://example.com/webhook',
+            events: ['invalid-event' as unknown as WebhookEvent],
+          },
+        ],
+      }),
+    ).toThrow('webhooks[0].events contains invalid event "invalid-event"')
+
+    // Unknown collection target on root
+    expect(() =>
+      defineConfig({
+        secret: SECRET,
+        db: fakeAdapter,
+        collections: [notes()],
+        webhooks: [
+          {
+            url: 'https://example.com/webhook',
+            collections: ['unknown-collection'],
+            events: ['publish'],
+          },
+        ],
+      }),
+    ).toThrow('webhooks[0].collections refers to unknown collection "unknown-collection"')
+
+    // Unknown global target on root
+    expect(() =>
+      defineConfig({
+        secret: SECRET,
+        db: fakeAdapter,
+        collections: [notes()],
+        webhooks: [
+          {
+            url: 'https://example.com/webhook',
+            globals: ['unknown-global'],
+            events: ['update'],
+          },
+        ],
+      }),
+    ).toThrow('webhooks[0].globals refers to unknown global "unknown-global"')
+
+    // Collection webhook specifying collections target
+    expect(() =>
+      defineConfig({
+        secret: SECRET,
+        db: fakeAdapter,
+        collections: [
+          notes({
+            webhooks: [
+              {
+                url: 'https://example.com/webhook',
+                collections: ['notes'],
+                events: ['publish'],
+              } as unknown as CollectionWebhookConfig,
+            ],
+          }),
+        ],
+      }),
+    ).toThrow('Collection "notes": webhooks[0] cannot specify "collections"')
+
+    // Valid configurations
+    expect(() =>
+      defineConfig({
+        secret: SECRET,
+        db: fakeAdapter,
+        collections: [
+          notes({
+            webhooks: [
+              {
+                url: 'https://example.com/collection-webhook',
+                events: ['publish', 'unpublish'],
+                secret: 'col-secret',
+                includeDoc: true,
+              },
+            ],
+          }),
+        ],
+        globals: [
+          {
+            slug: 'site-settings',
+            fields: { name: f.text() },
+            webhooks: [
+              {
+                url: 'https://example.com/global-webhook',
+                events: ['update'],
+              },
+            ],
+          },
+        ],
+        webhooks: [
+          {
+            url: 'https://example.com/root-webhook',
+            collections: ['notes'],
+            globals: '*',
+            events: ['publish', 'change', 'delete'],
+            secret: 'root-secret',
           },
         ],
       }),

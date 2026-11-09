@@ -82,6 +82,7 @@ export async function updateGlobalOperation<T = DocumentData>(
     existing,
     data: validatedData,
     req: args.req,
+    config: args.config,
   })
 
   if (!result.success) {
