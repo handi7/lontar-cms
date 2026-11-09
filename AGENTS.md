@@ -156,7 +156,7 @@ approval on the `npm` environment. Don't run `pnpm publish` by hand; see `docs/r
   - [x] #155 `array` field (done)
   - [x] #156 `blocks` field (done)
   - [x] #157 Relationship and upload fields inside nested fields (done)
-  - [ ] #158 Filter and sort on nested field paths
+  - [x] #158 Filter and sort on nested field paths (done)
   - [ ] #159 Conditional fields via `admin.condition`
   - [ ] #160 `examples/next-blog` pages built from blocks, with e2e
 - [ ] **M8: Drafts, versions & publishing** (tracking in #146; broken into issues when it starts)

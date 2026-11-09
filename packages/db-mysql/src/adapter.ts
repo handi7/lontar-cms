@@ -22,6 +22,7 @@ import mysql from 'mysql2/promise'
 import {
   generateRowId,
   parseSort,
+  type Block,
   type CollectionConfig,
   type Config,
   type DatabaseAdapter,
@@ -294,6 +295,65 @@ function castConfigField(
   return value
 }
 
+function findFieldInBlocks(blocks: readonly Block[], name: string): Field | undefined {
+  for (const b of blocks) {
+    if (b.fields[name]) return b.fields[name]
+  }
+  return undefined
+}
+
+function resolveBlocksNext(
+  field: Field,
+  parts: string[],
+  currentIndex: number,
+): { nextFields?: Fields; foundField?: Field; skipCount: number } | null {
+  if (field.type !== 'blocks') return null
+  const nextPart = parts[currentIndex + 1] ?? ''
+  if (nextPart === 'id' || nextPart === 'blockType') {
+    return { foundField: { type: 'text', required: true }, skipCount: 1 }
+  }
+  const block = field.blocks.find((b) => b.slug === nextPart)
+  if (block) {
+    return { nextFields: block.fields, skipCount: 1 }
+  }
+  const found = findFieldInBlocks(field.blocks, nextPart)
+  if (!found) return null
+  if (currentIndex + 1 === parts.length - 1) {
+    return { foundField: found, skipCount: 1 }
+  }
+  if (found.type === 'group' || found.type === 'array') {
+    return { nextFields: found.fields, skipCount: 1 }
+  }
+  return null
+}
+
+interface ResolveStepResult {
+  done?: boolean
+  field?: Field
+  nextFields?: Fields
+  skipCount?: number
+}
+
+function resolveStep(f: Field, parts: string[], i: number): ResolveStepResult {
+  if (i === parts.length - 1) {
+    return { done: true, field: f }
+  }
+  if (f.type === 'group' || f.type === 'array') {
+    if (parts[i + 1] === 'id') {
+      return { done: true, field: { type: 'text', required: true } }
+    }
+    return { nextFields: f.fields, skipCount: 0 }
+  }
+  const blocksResult = resolveBlocksNext(f, parts, i)
+  if (!blocksResult) {
+    return { done: true, field: undefined }
+  }
+  if (blocksResult.foundField) {
+    return { done: true, field: blocksResult.foundField }
+  }
+  return { nextFields: blocksResult.nextFields, skipCount: blocksResult.skipCount }
+}
+
 function resolveField(fields: Fields, fieldPath: string): Field | undefined {
   const parts = fieldPath.includes('.') ? fieldPath.split('.') : fieldPath.split('__')
   let currentFields: Fields = fields
@@ -303,13 +363,12 @@ function resolveField(fields: Fields, fieldPath: string): Field | undefined {
     if (!part) return undefined
     const f: Field | undefined = currentFields[part]
     if (!f) return undefined
-    if (i === parts.length - 1) {
-      return f
-    }
-    if (f.type === 'group') {
-      currentFields = f.fields
-    } else {
-      return undefined
+
+    const step = resolveStep(f, parts, i)
+    if (step.done) return step.field
+    if (step.nextFields) {
+      currentFields = step.nextFields
+      i += step.skipCount ?? 0
     }
   }
   return undefined
@@ -442,12 +501,89 @@ function parseObjectFilterConditions(
   return conditions
 }
 
-function isGroupFilterObject(
+function buildJsonOpCondition(
+  column: AnyMySqlColumn,
+  jsonPath: string,
+  op: string,
+  rawVal: unknown,
+): SQL | undefined {
+  if (rawVal === undefined) return undefined
+  if (op === 'equals') {
+    const jsonVal = JSON.stringify(rawVal)
+    return sql`(${column} IS NOT NULL AND JSON_CONTAINS(JSON_EXTRACT(${column}, ${jsonPath}), CAST(${jsonVal} AS JSON)) = 1)`
+  }
+  if (op === 'not_equals') {
+    const jsonVal = JSON.stringify(rawVal)
+    return sql`(${column} IS NULL OR JSON_CONTAINS(JSON_EXTRACT(${column}, ${jsonPath}), CAST(${jsonVal} AS JSON)) = 0)`
+  }
+  if (op === 'in') {
+    const arr = Array.isArray(rawVal) ? rawVal : [rawVal]
+    const jsonVal = JSON.stringify(arr)
+    return sql`(${column} IS NOT NULL AND JSON_OVERLAPS(JSON_EXTRACT(${column}, ${jsonPath}), CAST(${jsonVal} AS JSON)) = 1)`
+  }
+  if (op === 'contains') {
+    const strVal =
+      typeof rawVal === 'string'
+        ? rawVal
+        : typeof rawVal === 'number' || typeof rawVal === 'boolean'
+          ? String(rawVal)
+          : ''
+    const pattern = `%${strVal}%`
+    return sql`(${column} IS NOT NULL AND JSON_SEARCH(${column}, 'one', ${pattern}, NULL, ${jsonPath}) IS NOT NULL)`
+  }
+  return undefined
+}
+
+function parseJsonArrayConditions(
+  column: AnyMySqlColumn,
+  jsonPath: string,
+  filter: unknown,
+): SQL[] {
+  if (filter === null || typeof filter !== 'object') {
+    const cond = buildJsonOpCondition(column, jsonPath, 'equals', filter)
+    return cond ? [cond] : []
+  }
+  const conditions: SQL[] = []
+  for (const [op, rawVal] of Object.entries(filter as Record<string, unknown>)) {
+    const cond = buildJsonOpCondition(column, jsonPath, op, rawVal)
+    if (cond) conditions.push(cond)
+  }
+  return conditions
+}
+
+function getTopKey(fieldName: string): string {
+  if (fieldName.includes('.')) return fieldName.slice(0, fieldName.indexOf('.'))
+  if (fieldName.includes('__')) return fieldName.slice(0, fieldName.indexOf('__'))
+  return fieldName
+}
+
+function parseJsonFieldConditions(
+  collection: CollectionConfig,
+  table: DynamicTable,
+  fieldName: string,
+  filter: unknown,
+): SQL[] | null {
+  const topKey = getTopKey(fieldName)
+  if (topKey === fieldName) return null
+  const topField = collection.fields[topKey]
+  if (topField?.type !== 'array' && topField?.type !== 'blocks') return null
+
+  if (!Object.hasOwn(table, topKey)) return []
+  const column = table[topKey]
+  if (!column) return []
+
+  const subPath = fieldName.slice(topKey.length + 1)
+  const jsonPath = '$[*].' + subPath.replace(/__/g, '.')
+  return parseJsonArrayConditions(column, jsonPath, filter)
+}
+
+function isContainerFilterObject(
   field: Field | undefined,
   filter: unknown,
 ): filter is Record<string, unknown> {
+  const isContainer = field?.type === 'group' || field?.type === 'array' || field?.type === 'blocks'
   return (
-    field?.type === 'group' &&
+    Boolean(isContainer) &&
     filter !== null &&
     typeof filter === 'object' &&
     !Array.isArray(filter) &&
@@ -471,6 +607,25 @@ function parseGroupConditions(
   return conditions
 }
 
+function parseStandardColumnConditions(
+  collection: CollectionConfig,
+  column: AnyMySqlColumn,
+  fieldName: string,
+  filter: unknown,
+): SQL[] {
+  if (filter === null || typeof filter !== 'object') {
+    const val = castFieldValue(collection, fieldName, filter)
+    return [eq(column, val)]
+  }
+
+  return parseObjectFilterConditions(
+    collection,
+    column,
+    fieldName,
+    filter as Record<string, unknown>,
+  )
+}
+
 function parseFieldConditions(
   collection: CollectionConfig,
   table: DynamicTable,
@@ -479,8 +634,13 @@ function parseFieldConditions(
   filter: unknown,
 ): SQL[] {
   const field = resolveField(collection.fields, fieldName)
-  if (isGroupFilterObject(field, filter)) {
+  if (isContainerFilterObject(field, filter)) {
     return parseGroupConditions(collection, table, junctionTables, fieldName, filter)
+  }
+
+  const jsonConds = parseJsonFieldConditions(collection, table, fieldName, filter)
+  if (jsonConds !== null) {
+    return jsonConds
   }
 
   const colName = fieldName.replace(/\./g, '__')
@@ -493,17 +653,7 @@ function parseFieldConditions(
   const column = table[colName]
   if (!column) return []
 
-  if (filter === null || typeof filter !== 'object') {
-    const val = castFieldValue(collection, fieldName, filter)
-    return [eq(column, val)]
-  }
-
-  return parseObjectFilterConditions(
-    collection,
-    column,
-    fieldName,
-    filter as Record<string, unknown>,
-  )
+  return parseStandardColumnConditions(collection, column, fieldName, filter)
 }
 
 function resolveLogicalGroup(

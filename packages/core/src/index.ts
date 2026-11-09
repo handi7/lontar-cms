@@ -41,7 +41,13 @@ export type {
   UpdateGlobalOperationArgs,
   UpdateOperationArgs,
 } from './operations'
-export { parseSort, parseWhere, parseWhereFromSearchParams, validateWhere } from './query'
+export {
+  parseSort,
+  parseWhere,
+  parseWhereFromSearchParams,
+  validateSort,
+  validateWhere,
+} from './query'
 export type {
   FieldFilter,
   FilterOperator,

@@ -29,6 +29,13 @@ describe('parseSort', () => {
     ])
   })
 
+  it('parses nested dotted paths in sort', () => {
+    expect(parseSort('-seo.metaTitle, title')).toEqual([
+      { field: 'seo.metaTitle', direction: 'desc' },
+      { field: 'title', direction: 'asc' },
+    ])
+  })
+
   it('returns empty array on empty or undefined input', () => {
     expect(parseSort(undefined)).toEqual([])
     expect(parseSort('')).toEqual([])
@@ -49,6 +56,27 @@ describe('parseWhere', () => {
     const where = parseWhereFromSearchParams(params)
     expect(where).toEqual({
       status: { equals: 'published' },
+    })
+  })
+
+  it('parses dotted nested paths in where bracket notation', () => {
+    const params = new URLSearchParams(
+      'where[seo.metaTitle][equals]=Hello&where[gallery.caption][contains]=sunset',
+    )
+    const where = parseWhereFromSearchParams(params)
+    expect(where).toEqual({
+      'seo.metaTitle': { equals: 'Hello' },
+      'gallery.caption': { contains: 'sunset' },
+    })
+  })
+
+  it('parses nested brackets in where', () => {
+    const params = new URLSearchParams('where[seo][metaTitle][equals]=Hello')
+    const where = parseWhereFromSearchParams(params)
+    expect(where).toEqual({
+      seo: {
+        metaTitle: { equals: 'Hello' },
+      },
     })
   })
 

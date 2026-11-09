@@ -21,7 +21,7 @@ import {
 } from '../../operations'
 import { parseDepth } from '../../populate'
 import { parseWhereFromSearchParams } from '../../query/parser'
-import { validateWhere } from '../../query/validator'
+import { validateSort, validateWhere } from '../../query/validator'
 import { DEFAULT_MAX_FILE_SIZE } from '../../storage'
 import {
   handleServeFile,
@@ -90,6 +90,13 @@ async function handleFind(c: Context<LontarEnv>, collection: CollectionConfig, c
   const whereResult = resolveWhereFilter(c.req.raw.url, collection)
   if ('issues' in whereResult && whereResult.issues) {
     return c.json({ error: 'Validation failed', issues: whereResult.issues }, 400)
+  }
+
+  if (sort) {
+    const sortIssues = validateSort(sort, collection)
+    if (sortIssues.length > 0) {
+      return c.json({ error: 'Validation failed', issues: sortIssues }, 400)
+    }
   }
 
   try {
