@@ -239,24 +239,11 @@ function sanitizeGroupField(field: GroupField, value: unknown): unknown {
   return record
 }
 
-function sanitizeArrayShallow(value: unknown): unknown {
-  const arr = parseJsonArray(value)
-  if (!arr) return null
-  return arr.map((item: unknown): unknown => {
-    if (!item || typeof item !== 'object' || Array.isArray(item)) return item
-    const record = { ...(item as Record<string, unknown>) }
-    if (!record.id) {
-      record.id = generateRowId()
-    }
-    return record
-  })
-}
-
 function sanitizeFieldValue(
   field: CollectionConfig['fields'][string] | undefined,
   value: unknown,
 ): unknown {
-  if (!field) return sanitizeArrayShallow(value)
+  if (!field) return value
   switch (field.type) {
     case 'date':
       return sanitizeDate(value)
