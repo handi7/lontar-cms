@@ -168,7 +168,7 @@ approval on the `npm` environment. Don't run `pnpm publish` by hand; see `docs/r
     - [x] Admin styling: #183 (done)
     - [x] Minor: #177 (done), #178 (done), #179 (done), #180 (done)
 - [ ] **M8: Drafts, versions & publishing** (tracking in #146)
-  - [ ] #196 ADR: version storage and the draft/publish lifecycle
+  - [x] #196 ADR: version storage and the draft/publish lifecycle (done)
   - [ ] #197 ADR: live preview and outgoing webhooks
   - [ ] #198 `versions: { drafts: true }`, `_status` field and draft-aware reads
   - [ ] #199 Snapshot writes, version history API and retention
