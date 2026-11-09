@@ -1,7 +1,8 @@
+import { Profiler } from 'react'
 import { describe, expect, it, afterEach, vi } from 'vitest'
 import { render, screen, fireEvent, waitFor, cleanup, act } from '@testing-library/react'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
-import { useForm } from 'react-hook-form'
+import { useForm, type UseFormSetValue } from 'react-hook-form'
 import type {
   ClientArrayField,
   ClientBlocksField,
@@ -1640,6 +1641,141 @@ describe('group field rendering and binding', () => {
 
       // Banner Text should now be rendered
       expect(screen.getByLabelText(/banner text/i)).toBeTruthy()
+    })
+
+    it('does not re-render conditional fields when typing in unrelated inputs (#177)', () => {
+      const titleField: ClientTextField = {
+        name: 'title',
+        type: 'text',
+        label: 'Title',
+        required: true,
+      }
+
+      const formatField: ClientSelectField = {
+        name: 'format',
+        type: 'select',
+        label: 'Format',
+        required: true,
+        options: [
+          { label: 'Standard', value: 'standard' },
+          { label: 'Video', value: 'video' },
+        ],
+      }
+
+      const videoUrlField: ClientTextField = {
+        name: 'videoUrl',
+        type: 'text',
+        label: 'Video URL',
+        required: false,
+        condition: { format: { equals: 'video' } },
+      }
+
+      const showBioField: ClientCheckboxField = {
+        name: 'showBio',
+        type: 'checkbox',
+        label: 'Show Bio',
+        required: false,
+      }
+
+      const bioField: ClientTextareaField = {
+        name: 'bio',
+        type: 'textarea',
+        label: 'Bio',
+        required: false,
+        condition: { '$root.showBio': { equals: true } },
+      }
+
+      const onVideoUrlRender = vi.fn()
+      const onBioRender = vi.fn()
+      let formSetValue: UseFormSetValue<Record<string, unknown>> | undefined
+
+      render(
+        <FormWrapper defaultValues={{ title: '', format: 'standard', showBio: false }}>
+          {({ control, register, setValue, watch }) => {
+            formSetValue = setValue
+            return (
+              <>
+                <FieldRenderer
+                  field={titleField}
+                  control={control}
+                  register={register}
+                  setValue={setValue}
+                  watch={watch}
+                />
+                <FieldRenderer
+                  field={formatField}
+                  control={control}
+                  register={register}
+                  setValue={setValue}
+                  watch={watch}
+                />
+                <FieldRenderer
+                  field={showBioField}
+                  control={control}
+                  register={register}
+                  setValue={setValue}
+                  watch={watch}
+                />
+                <Profiler id="videoUrl" onRender={onVideoUrlRender}>
+                  <FieldRenderer
+                    field={videoUrlField}
+                    control={control}
+                    register={register}
+                    setValue={setValue}
+                    watch={watch}
+                  />
+                </Profiler>
+                <Profiler id="bio" onRender={onBioRender}>
+                  <FieldRenderer
+                    field={bioField}
+                    control={control}
+                    register={register}
+                    setValue={setValue}
+                    watch={watch}
+                  />
+                </Profiler>
+              </>
+            )
+          }}
+        </FormWrapper>,
+      )
+
+      // Both conditional fields have finished mounting
+      const initialVideoCalls = onVideoUrlRender.mock.calls.length
+      const initialBioCalls = onBioRender.mock.calls.length
+      expect(initialVideoCalls).toBeGreaterThanOrEqual(1)
+      expect(initialBioCalls).toBeGreaterThanOrEqual(1)
+
+      // Type into the unrelated "title" input
+      const titleInput = screen.getByLabelText(/title/i)
+      act(() => {
+        fireEvent.change(titleInput, { target: { value: 'My New Post' } })
+      })
+
+      // Neither conditional field should have re-rendered!
+      expect(onVideoUrlRender).toHaveBeenCalledTimes(initialVideoCalls)
+      expect(onBioRender).toHaveBeenCalledTimes(initialBioCalls)
+
+      // Now change the format field that videoUrl watches
+      act(() => {
+        formSetValue?.('format', 'video')
+      })
+
+      // videoUrl re-renders because its watched field changed
+      expect(onVideoUrlRender.mock.calls.length).toBeGreaterThan(initialVideoCalls)
+      // bio still has NOT re-rendered because showBio did not change
+      expect(onBioRender).toHaveBeenCalledTimes(initialBioCalls)
+
+      // Now toggle showBio checkbox that bio watches
+      const currentVideoCalls = onVideoUrlRender.mock.calls.length
+      act(() => {
+        formSetValue?.('showBio', true)
+      })
+
+      // bio re-renders because showBio changed
+      expect(onBioRender.mock.calls.length).toBeGreaterThan(initialBioCalls)
+      // videoUrl did NOT re-render because format did not change
+      expect(onVideoUrlRender).toHaveBeenCalledTimes(currentVideoCalls)
     })
   })
 

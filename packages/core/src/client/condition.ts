@@ -45,6 +45,73 @@ export function getValueByPath(data: unknown, path: string): unknown {
   return current
 }
 
+export function setValueByPath(
+  target: Record<string, unknown>,
+  path: string,
+  value: unknown,
+): void {
+  const segments = path.split('.')
+  let current: Record<string, unknown> = target
+  for (let i = 0; i < segments.length - 1; i++) {
+    const seg = segments[i]
+    if (!seg || FORBIDDEN_KEYS.has(seg)) return
+    const nextSeg = segments[i + 1]
+    const isNextIndex = nextSeg !== undefined && /^\d+$/.test(nextSeg)
+    if (!current[seg] || typeof current[seg] !== 'object') {
+      current[seg] = isNextIndex ? [] : {}
+    }
+    current = current[seg] as Record<string, unknown>
+  }
+  const lastSeg = segments[segments.length - 1]
+  if (lastSeg && !FORBIDDEN_KEYS.has(lastSeg)) {
+    current[lastSeg] = value
+  }
+}
+
+function resolveConditionKeyPath(key: string, pathPrefix?: string): string | null {
+  if (!key || FORBIDDEN_KEYS.has(key)) return null
+  if (key.startsWith('$root.')) {
+    const rootPath = key.slice(6)
+    if (!rootPath || rootPath.split('.').some((s) => FORBIDDEN_KEYS.has(s))) return null
+    return rootPath
+  }
+  const fullPath = pathPrefix ? `${pathPrefix}.${key}` : key
+  if (fullPath.split('.').some((s) => FORBIDDEN_KEYS.has(s))) return null
+  return fullPath
+}
+
+function collectConditionPaths(
+  condition: FieldCondition | undefined,
+  pathPrefix: string | undefined,
+  out: Set<string>,
+): void {
+  if (!condition || typeof condition !== 'object') return
+
+  for (const [key, val] of Object.entries(condition)) {
+    if (key === 'and' || key === 'or') {
+      if (Array.isArray(val)) {
+        for (const child of val) {
+          collectConditionPaths(child as FieldCondition, pathPrefix, out)
+        }
+      }
+    } else {
+      const resolved = resolveConditionKeyPath(key, pathPrefix)
+      if (resolved) {
+        out.add(resolved)
+      }
+    }
+  }
+}
+
+export function extractConditionPaths(
+  condition: FieldCondition | undefined,
+  pathPrefix?: string,
+): string[] {
+  const paths = new Set<string>()
+  collectConditionPaths(condition, pathPrefix, paths)
+  return Array.from(paths)
+}
+
 export function resolveConditionTarget(
   path: string,
   rootData: Record<string, unknown>,

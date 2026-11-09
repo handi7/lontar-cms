@@ -1,10 +1,12 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useMemo } from 'react'
 import { Controller, useFieldArray, useWatch } from 'react-hook-form'
 import type { Control, UseFormRegister, UseFormSetValue, UseFormWatch } from 'react-hook-form'
 import {
+  extractConditionPaths,
   generateRowId,
   getValueByPath,
   matchesCondition,
+  setValueByPath,
   type FieldCondition,
   type ClientArrayField,
   type ClientBlock,
@@ -1367,9 +1369,43 @@ function UnconditionalFieldRenderer({
   )
 }
 
+function buildWatchedRootValues(
+  watchedPaths: string[],
+  watchedValues: unknown,
+  fallbackWatch?: () => Record<string, unknown>,
+): Record<string, unknown> {
+  if (watchedPaths.length > 0) {
+    if (Array.isArray(watchedValues)) {
+      const root: Record<string, unknown> = {}
+      watchedPaths.forEach((path, i) => {
+        setValueByPath(root, path, watchedValues[i])
+      })
+      return root
+    }
+    return fallbackWatch ? fallbackWatch() : {}
+  }
+  if (watchedValues && typeof watchedValues === 'object' && !Array.isArray(watchedValues)) {
+    return watchedValues as Record<string, unknown>
+  }
+  return fallbackWatch ? fallbackWatch() : {}
+}
+
 function ConditionalFieldRenderer(props: FieldRendererProps & { condition: FieldCondition }) {
-  const watchedValues = useWatch<Record<string, unknown>>({ control: props.control })
-  const rootValues = watchedValues ?? (props.watch ? props.watch() : {})
+  const watchedPaths = useMemo(
+    () => extractConditionPaths(props.condition, props.pathPrefix),
+    [props.condition, props.pathPrefix],
+  )
+
+  const watchedValues: unknown = useWatch({
+    control: props.control,
+    name: (watchedPaths.length > 0 ? (watchedPaths as readonly string[]) : undefined) as never,
+  })
+
+  const rootValues = buildWatchedRootValues(
+    watchedPaths,
+    watchedValues,
+    props.watch ? () => props.watch!() : undefined,
+  )
 
   const siblingData = props.pathPrefix
     ? (getValueByPath(rootValues, props.pathPrefix) as Record<string, unknown> | undefined)
