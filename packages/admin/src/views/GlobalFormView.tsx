@@ -22,14 +22,7 @@ import { zodResolver } from '@hookform/resolvers/zod'
 import type { z } from 'zod'
 import { clientFieldsToZod, type ClientField, type ClientGlobal } from '@lontar/core/client'
 import { useAdmin, useGlobal } from '../context/AdminContext'
-import {
-  fetchGlobal,
-  saveGlobal,
-  publishGlobal,
-  unpublishGlobal,
-  ApiClientError,
-  queryKeys,
-} from '../api/client'
+import { fetchGlobal, saveGlobal, unpublishGlobal, ApiClientError, queryKeys } from '../api/client'
 import { FieldRenderer } from '../fields/FieldRenderer'
 import { computeDefaultValues, formatDocForForm, formatDocForSubmit } from '../utils/form-utils'
 import { NotFoundView } from './NotFoundView'
@@ -121,6 +114,7 @@ export interface UseGlobalMutationsOptions {
   apiBase: string
   slug: string
   fields: ClientField[]
+  hasDrafts?: boolean
   reset: (values?: Record<string, unknown>) => void
   setError?: UseFormSetError<Record<string, unknown>>
   setApiError: (msg: string | null) => void
@@ -148,6 +142,7 @@ function useGlobalMutations({
   apiBase,
   slug,
   fields,
+  hasDrafts,
   reset,
   setError,
   setApiError,
@@ -164,30 +159,17 @@ function useGlobalMutations({
     },
     onSuccess: (saved, vars) => {
       reset(formatDocForForm(fields, saved))
-      setSuccessMsg(vars.draft ? 'Draft saved successfully.' : 'Changes saved successfully.')
+      if (hasDrafts) {
+        setSuccessMsg(vars.draft ? 'Draft saved successfully.' : 'Published successfully.')
+      } else {
+        setSuccessMsg('Changes saved successfully.')
+      }
       queryClient.setQueryData(queryKeys.global(slug), saved)
       void queryClient.invalidateQueries({ queryKey: queryKeys.global(slug) })
       void queryClient.invalidateQueries({ queryKey: queryKeys.globalVersions(apiBase, slug) })
       onSaveSuccess?.()
     },
     onError: (err: Error) => handleValidationError(err, setError, setApiError),
-  })
-
-  const publishMutation = useMutation({
-    mutationFn: async () => {
-      setApiError(null)
-      setSuccessMsg(null)
-      return publishGlobal(apiBase, slug)
-    },
-    onSuccess: (published) => {
-      reset(formatDocForForm(fields, published))
-      setSuccessMsg('Published successfully.')
-      queryClient.setQueryData(queryKeys.global(slug), published)
-      void queryClient.invalidateQueries({ queryKey: queryKeys.global(slug) })
-      void queryClient.invalidateQueries({ queryKey: queryKeys.globalVersions(apiBase, slug) })
-      onSaveSuccess?.()
-    },
-    onError: (err: Error) => setApiError(err.message || 'Failed to publish.'),
   })
 
   const unpublishMutation = useMutation({
@@ -207,7 +189,7 @@ function useGlobalMutations({
     onError: (err: Error) => setApiError(err.message || 'Failed to unpublish.'),
   })
 
-  return { saveMutation, publishMutation, unpublishMutation }
+  return { saveMutation, unpublishMutation }
 }
 
 export interface GlobalStatusAlertsProps {
@@ -318,7 +300,6 @@ export interface UseGlobalEditorActionsProps {
     Error,
     { values: Record<string, unknown>; draft?: boolean }
   >
-  publishMutation: UseMutationResult<Record<string, unknown>, Error, void>
   unpublishMutation: UseMutationResult<Record<string, unknown>, Error, void>
 }
 
@@ -327,29 +308,26 @@ function useGlobalEditorActions({
   cancelAutosave,
   handleSubmit,
   saveMutation,
-  publishMutation,
   unpublishMutation,
 }: UseGlobalEditorActionsProps) {
-  const onPublish = () => {
+  const submitWithDraft = (draft: boolean) => {
     cancelAutosave()
-    if (hasDrafts) {
-      publishMutation.mutate()
-    } else {
-      void handleSubmit((v) => saveMutation.mutate({ values: v }))()
-    }
+    void handleSubmit((values) => {
+      saveMutation.mutate({ values, draft: hasDrafts ? draft : undefined })
+    })()
   }
 
-  const onSaveDraft = () => {
-    cancelAutosave()
-    void handleSubmit((v) => saveMutation.mutate({ values: v, draft: true }))()
-  }
-
+  const onPublish = () => submitWithDraft(false)
+  const onSaveDraft = () => submitWithDraft(true)
   const onUnpublish = () => {
     cancelAutosave()
     unpublishMutation.mutate()
   }
 
-  return { onPublish, onSaveDraft, onUnpublish }
+  const isPublishing = saveMutation.isPending && !saveMutation.variables?.draft
+  const isSavingDraft = saveMutation.isPending && Boolean(saveMutation.variables?.draft)
+
+  return { onPublish, onSaveDraft, onUnpublish, isPublishing, isSavingDraft }
 }
 
 export interface GlobalEditorSidebarProps {
@@ -530,10 +508,11 @@ function GlobalEditor({ global, slug, apiBase }: GlobalEditorProps) {
     reset,
   })
 
-  const { saveMutation, publishMutation, unpublishMutation } = useGlobalMutations({
+  const { saveMutation, unpublishMutation } = useGlobalMutations({
     apiBase,
     slug,
     fields: global.fields,
+    hasDrafts,
     reset,
     setError,
     setApiError,
@@ -541,20 +520,20 @@ function GlobalEditor({ global, slug, apiBase }: GlobalEditorProps) {
     onSaveSuccess: autosave.cancelAutosave,
   })
 
-  const { onPublish, onSaveDraft, onUnpublish } = useGlobalEditorActions({
-    hasDrafts,
-    cancelAutosave: autosave.cancelAutosave,
-    handleSubmit,
-    saveMutation,
-    publishMutation,
-    unpublishMutation,
-  })
+  const { onPublish, onSaveDraft, onUnpublish, isPublishing, isSavingDraft } =
+    useGlobalEditorActions({
+      hasDrafts,
+      cancelAutosave: autosave.cancelAutosave,
+      handleSubmit,
+      saveMutation,
+      unpublishMutation,
+    })
 
   if (globalQuery.isLoading || globalQuery.error) {
     return <GlobalQueryState isLoading={globalQuery.isLoading} error={globalQuery.error} />
   }
 
-  const isSaving = isSubmitting || saveMutation.isPending || publishMutation.isPending
+  const isSaving = isSubmitting || saveMutation.isPending
   const submitLabel = isSaving ? 'Saving...' : 'Save Changes'
 
   return (
@@ -595,8 +574,8 @@ function GlobalEditor({ global, slug, apiBase }: GlobalEditorProps) {
               onPublish={onPublish}
               onSaveDraft={onSaveDraft}
               onUnpublish={onUnpublish}
-              isPublishing={publishMutation.isPending}
-              isSavingDraft={saveMutation.isPending}
+              isPublishing={isPublishing}
+              isSavingDraft={isSavingDraft}
               isUnpublishing={unpublishMutation.isPending}
             />
           </form>
