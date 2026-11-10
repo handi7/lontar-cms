@@ -11,6 +11,8 @@ function createMockAdapter(storage: Map<number, StoredDoc> = new Map()) {
   let nextId = 1
   let inTx = false
 
+  let globalStore: Record<string, unknown> = { siteName: 'Default Title' }
+
   const adapter: DatabaseAdapter = {
     name: 'mock',
     toSchemaFile: vi.fn().mockReturnValue(''),
@@ -67,9 +69,10 @@ function createMockAdapter(storage: Map<number, StoredDoc> = new Map()) {
     }),
     findVersionByID: vi.fn().mockResolvedValue(null),
     findLatestDraftVersion: vi.fn().mockResolvedValue(null),
-    findGlobal: vi.fn().mockResolvedValue({ siteName: 'Default Title' }),
+    findGlobal: vi.fn().mockImplementation(() => Promise.resolve({ ...globalStore })),
     updateGlobal: vi.fn().mockImplementation(({ data }: { data: Record<string, unknown> }) => {
-      return Promise.resolve({ siteName: 'Default Title', ...data })
+      globalStore = { ...globalStore, ...data }
+      return Promise.resolve({ ...globalStore })
     }),
     transaction: vi
       .fn()
@@ -84,7 +87,14 @@ function createMockAdapter(storage: Map<number, StoredDoc> = new Map()) {
       }),
   }
 
-  return { adapter, storage, isInTransaction: () => inTx }
+  return {
+    adapter,
+    storage,
+    isInTransaction: () => inTx,
+    setGlobalDoc: (doc: Record<string, unknown>) => {
+      globalStore = doc
+    },
+  }
 }
 
 const publicAccess = {
@@ -425,5 +435,282 @@ describe('outgoing webhooks integration', () => {
     const payload = JSON.parse(d0.body) as Record<string, unknown>
     expect(payload.event).toBe('update')
     expect(payload.global).toBe('settings')
+  })
+
+  it('admin-style PATCH draft: false on a draft document emits publish with previousStatus: draft', async () => {
+    const { adapter, storage } = createMockAdapter()
+    storage.set(1, {
+      id: 1,
+      title: 'Draft Post',
+      _status: 'draft',
+      createdAt: '2026-11-10T00:00:00.000Z',
+      updatedAt: '2026-11-10T00:00:00.000Z',
+    })
+
+    const posts = collection({
+      slug: 'posts',
+      access: publicAccess,
+      versions: { drafts: true },
+      fields: { title: f.text() },
+      webhooks: [
+        {
+          url: 'https://mysite.com/revalidate',
+          events: ['publish', 'unpublish', 'delete'],
+        },
+      ],
+    })
+
+    const config = defineConfig({
+      secret: 'app-secret',
+      db: adapter,
+      collections: [posts],
+    })
+
+    const app = createLontar(config)
+    const res = await app.request('/api/posts/1', {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ title: 'Published via PATCH', draft: false }),
+    })
+
+    expect(res.status).toBe(200)
+    await drainPendingWebhooks()
+
+    expect(capturedDeliveries).toHaveLength(1)
+    const d0 = capturedDeliveries[0]
+    expect(d0).toBeDefined()
+    if (!d0) throw new Error('expected delivery')
+    const payload = JSON.parse(d0.body) as Record<string, unknown>
+    expect(payload.event).toBe('publish')
+    expect(payload.collection).toBe('posts')
+    expect(payload.id).toBe(1)
+    expect(payload.status).toBe('published')
+    expect(payload.previousStatus).toBe('draft')
+  })
+
+  it('admin-style PATCH draft: false on an already-published document emits publish with previousStatus: published', async () => {
+    const { adapter, storage } = createMockAdapter()
+    storage.set(1, {
+      id: 1,
+      title: 'Published Post',
+      _status: 'published',
+      createdAt: '2026-11-10T00:00:00.000Z',
+      updatedAt: '2026-11-10T00:00:00.000Z',
+    })
+
+    const posts = collection({
+      slug: 'posts',
+      access: publicAccess,
+      versions: { drafts: true },
+      fields: { title: f.text() },
+      webhooks: [
+        {
+          url: 'https://mysite.com/revalidate',
+          events: ['publish', 'unpublish', 'delete'],
+        },
+      ],
+    })
+
+    const config = defineConfig({
+      secret: 'app-secret',
+      db: adapter,
+      collections: [posts],
+    })
+
+    const app = createLontar(config)
+    const res = await app.request('/api/posts/1', {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ title: 'Edited Live Post', draft: false }),
+    })
+
+    expect(res.status).toBe(200)
+    await drainPendingWebhooks()
+
+    expect(capturedDeliveries).toHaveLength(1)
+    const d0 = capturedDeliveries[0]
+    expect(d0).toBeDefined()
+    if (!d0) throw new Error('expected delivery')
+    const payload = JSON.parse(d0.body) as Record<string, unknown>
+    expect(payload.event).toBe('publish')
+    expect(payload.collection).toBe('posts')
+    expect(payload.id).toBe(1)
+    expect(payload.status).toBe('published')
+    expect(payload.previousStatus).toBe('published')
+  })
+
+  it('creating a document as published in drafts collection emits publish', async () => {
+    const { adapter } = createMockAdapter()
+    const posts = collection({
+      slug: 'posts',
+      access: publicAccess,
+      versions: { drafts: true },
+      fields: { title: f.text() },
+      webhooks: [
+        {
+          url: 'https://mysite.com/revalidate',
+          events: ['publish', 'unpublish', 'delete'],
+        },
+      ],
+    })
+
+    const config = defineConfig({
+      secret: 'app-secret',
+      db: adapter,
+      collections: [posts],
+    })
+
+    const app = createLontar(config)
+    const res = await app.request('/api/posts', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ title: 'Directly Published Post', draft: false }),
+    })
+
+    expect(res.status).toBe(201)
+    await drainPendingWebhooks()
+
+    expect(capturedDeliveries).toHaveLength(1)
+    const d0 = capturedDeliveries[0]
+    expect(d0).toBeDefined()
+    if (!d0) throw new Error('expected delivery')
+    const payload = JSON.parse(d0.body) as Record<string, unknown>
+    expect(payload.event).toBe('publish')
+    expect(payload.collection).toBe('posts')
+    expect(payload.status).toBe('published')
+    expect(payload.previousStatus).toBeUndefined()
+  })
+
+  it('global unpublish emits unpublish with previousStatus: published and status: draft', async () => {
+    const { adapter, setGlobalDoc } = createMockAdapter()
+    setGlobalDoc({ siteName: 'Published Site', _status: 'published' })
+
+    const settings = global({
+      slug: 'settings',
+      access: publicAccess,
+      versions: { drafts: true },
+      fields: { siteName: f.text() },
+      webhooks: [
+        {
+          url: 'https://mysite.com/global-revalidate',
+          events: ['publish', 'unpublish', 'delete'],
+        },
+      ],
+    })
+
+    const config = defineConfig({
+      secret: 'app-secret',
+      db: adapter,
+      collections: [],
+      globals: [settings],
+    })
+
+    const app = createLontar(config)
+    const res = await app.request('/api/globals/settings/unpublish', {
+      method: 'POST',
+    })
+
+    expect(res.status).toBe(200)
+    await drainPendingWebhooks()
+
+    expect(capturedDeliveries).toHaveLength(1)
+    const d0 = capturedDeliveries[0]
+    expect(d0).toBeDefined()
+    if (!d0) throw new Error('expected delivery')
+    const payload = JSON.parse(d0.body) as Record<string, unknown>
+    expect(payload.event).toBe('unpublish')
+    expect(payload.global).toBe('settings')
+    expect(payload.status).toBe('draft')
+    expect(payload.previousStatus).toBe('published')
+  })
+
+  it('global update with draft: false on draft emits publish with previousStatus: draft', async () => {
+    const { adapter, setGlobalDoc } = createMockAdapter()
+    setGlobalDoc({ siteName: 'Draft Site', _status: 'draft' })
+
+    const settings = global({
+      slug: 'settings',
+      access: publicAccess,
+      versions: { drafts: true },
+      fields: { siteName: f.text() },
+      webhooks: [
+        {
+          url: 'https://mysite.com/global-revalidate',
+          events: ['publish', 'unpublish', 'delete'],
+        },
+      ],
+    })
+
+    const config = defineConfig({
+      secret: 'app-secret',
+      db: adapter,
+      collections: [],
+      globals: [settings],
+    })
+
+    const app = createLontar(config)
+    const res = await app.request('/api/globals/settings', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ siteName: 'Published Site', draft: false }),
+    })
+
+    expect(res.status).toBe(200)
+    await drainPendingWebhooks()
+
+    expect(capturedDeliveries).toHaveLength(1)
+    const d0 = capturedDeliveries[0]
+    expect(d0).toBeDefined()
+    if (!d0) throw new Error('expected delivery')
+    const payload = JSON.parse(d0.body) as Record<string, unknown>
+    expect(payload.event).toBe('publish')
+    expect(payload.global).toBe('settings')
+    expect(payload.status).toBe('published')
+    expect(payload.previousStatus).toBe('draft')
+  })
+
+  it('global update with draft: false on published emits publish with previousStatus: published', async () => {
+    const { adapter, setGlobalDoc } = createMockAdapter()
+    setGlobalDoc({ siteName: 'Published Site', _status: 'published' })
+
+    const settings = global({
+      slug: 'settings',
+      access: publicAccess,
+      versions: { drafts: true },
+      fields: { siteName: f.text() },
+      webhooks: [
+        {
+          url: 'https://mysite.com/global-revalidate',
+          events: ['publish', 'unpublish', 'delete'],
+        },
+      ],
+    })
+
+    const config = defineConfig({
+      secret: 'app-secret',
+      db: adapter,
+      collections: [],
+      globals: [settings],
+    })
+
+    const app = createLontar(config)
+    const res = await app.request('/api/globals/settings', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ siteName: 'Updated Published Site', draft: false }),
+    })
+
+    expect(res.status).toBe(200)
+    await drainPendingWebhooks()
+
+    expect(capturedDeliveries).toHaveLength(1)
+    const d0 = capturedDeliveries[0]
+    expect(d0).toBeDefined()
+    if (!d0) throw new Error('expected delivery')
+    const payload = JSON.parse(d0.body) as Record<string, unknown>
+    expect(payload.event).toBe('publish')
+    expect(payload.global).toBe('settings')
+    expect(payload.status).toBe('published')
+    expect(payload.previousStatus).toBe('published')
   })
 })

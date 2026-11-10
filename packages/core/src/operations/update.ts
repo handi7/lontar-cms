@@ -97,6 +97,8 @@ export async function updateOperation<T = DocumentData>(args: UpdateOperationArg
     db: args.config.db,
     req: args.req,
     draft,
+    status,
+    statusTransition,
     autosave: args.autosave,
     userId: args.user?.id,
     config: args.config,
