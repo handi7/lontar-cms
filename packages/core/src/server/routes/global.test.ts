@@ -762,3 +762,154 @@ describe('Version history access on a publicly readable global', () => {
     expect(version.snapshot.siteTitle).toBe('Unannounced')
   })
 })
+
+describe('global routes error handling and query parsing (#240)', () => {
+  it('rethrows unexpected errors to the 500 handler instead of returning 400', async () => {
+    const consoleSpy = vi.spyOn(console, 'error').mockImplementation(() => {})
+    try {
+      const { db, mockFindGlobal } = createMockAdapter()
+      mockFindGlobal.mockRejectedValueOnce(new Error('Connection lost'))
+      const lontar = createLontar(
+        defineConfig({
+          secret: 'test-secret',
+          db,
+          collections: [],
+          globals: [
+            global({
+              slug: 'header',
+              access: { read: () => true, update: () => true },
+              fields: { siteTitle: f.text() },
+            }),
+          ],
+        }),
+      )
+
+      const res = await lontar.fetch(new Request('http://localhost/api/globals/header'))
+      expect(res.status).toBe(500)
+      const json = (await res.json()) as { error: string }
+      expect(json.error).toBe('Internal Server Error')
+    } finally {
+      consoleSpy.mockRestore()
+    }
+  })
+
+  it('preserves error message for ValidationError without issues', async () => {
+    const { db } = createMockAdapter()
+    const lontar = createLontar(
+      defineConfig({
+        secret: 'test-secret',
+        db,
+        collections: [],
+        globals: [
+          global({
+            slug: 'header',
+            access: { read: () => true, update: () => true },
+            fields: { siteTitle: f.text() },
+          }),
+        ],
+      }),
+    )
+
+    const res = await lontar.fetch(
+      new Request('http://localhost/api/globals/header/publish', { method: 'POST' }),
+    )
+    expect(res.status).toBe(400)
+    const json = (await res.json()) as { error: string }
+    expect(json.error).toBe('Drafts are not enabled for global "header"')
+  })
+
+  it('reads draft and autosave only from the query, ignoring document fields named draft or autosave in the body', async () => {
+    const { db } = createMockAdapter()
+    const lontar = createLontar(
+      defineConfig({
+        secret: 'test-secret',
+        db,
+        collections: [],
+        globals: [
+          global({
+            slug: 'editorial',
+            access: { read: () => true, update: () => true },
+            versions: { drafts: true },
+            fields: {
+              draft: f.checkbox(),
+              autosave: f.checkbox(),
+            },
+          }),
+        ],
+      }),
+    )
+
+    // Send { draft: true, autosave: true } in body WITHOUT query params.
+    // It should be treated as a publish update (not a draft update).
+    const res = await lontar.fetch(
+      new Request('http://localhost/api/globals/editorial', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ draft: true, autosave: true }),
+      }),
+    )
+    expect(res.status).toBe(200)
+    const doc = (await res.json()) as Record<string, unknown>
+    expect(doc._status).toBe('published')
+    expect(doc.draft).toBe(true)
+    expect(doc.autosave).toBe(true)
+  })
+
+  it('restoreGlobalVersion reads draft only from query parameter', async () => {
+    const { db, setStoredGlobal } = createMockAdapter()
+    setStoredGlobal({
+      id: 1,
+      siteTitle: 'Live Title',
+      _status: 'published',
+      createdAt: '2026-11-01T00:00:00.000Z',
+      updatedAt: '2026-11-01T00:00:00.000Z',
+    })
+    const lontar = createLontar(
+      defineConfig({
+        secret: 'test-secret',
+        db,
+        collections: [],
+        globals: [
+          global({
+            slug: 'settings',
+            access: { read: () => true, update: () => true },
+            versions: { drafts: true },
+            fields: { siteTitle: f.text() },
+          }),
+        ],
+      }),
+    )
+
+    // Save a published version first (version 1)
+    await lontar.fetch(
+      new Request('http://localhost/api/globals/settings', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ siteTitle: 'Published V1' }),
+      }),
+    )
+
+    // Restore version 1 without ?draft query, but passing { draft: true } in body.
+    // Because draft must be read from query only, body.draft is ignored and it restores as published!
+    const restoreRes = await lontar.fetch(
+      new Request('http://localhost/api/globals/settings/versions/1/restore', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ draft: true }),
+      }),
+    )
+    expect(restoreRes.status).toBe(200)
+    const restoredDoc = (await restoreRes.json()) as Record<string, unknown>
+    expect(restoredDoc._status).toBe('published')
+
+    // Restoring with ?draft=true in query restores it as draft
+    const restoreDraftRes = await lontar.fetch(
+      new Request('http://localhost/api/globals/settings/versions/1/restore?draft=true', {
+        method: 'POST',
+      }),
+    )
+    expect(restoreDraftRes.status).toBe(200)
+    const restoredDraftDoc = (await restoreDraftRes.json()) as Record<string, unknown>
+    expect(restoredDraftDoc._status).toBe('draft')
+  })
+})
