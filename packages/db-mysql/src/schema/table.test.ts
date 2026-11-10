@@ -7,6 +7,7 @@ import {
   createVersionsTable,
   getCollectionJunctionTables,
   getCollectionVersionsTable,
+  getVersionsParentForeignKeyName,
   globalToTable,
 } from './table'
 
@@ -315,6 +316,28 @@ describe('collectionToTable', () => {
     expect(config.name).toBe('posts_versions')
     expect(config.indexes.map((i) => i.config.name)).toContain('posts_versions_parent_id_idx')
     expect(config.indexes.map((i) => i.config.name)).toContain('posts_versions_parent_status_idx')
+    expect(config.foreignKeys).toHaveLength(1)
+    expect(config.foreignKeys[0]?.getName()).toBe('posts_versions_parent_id_posts_id_fk')
+  })
+
+  it('truncates foreign key name when it exceeds MySQL 64-character identifier limit', () => {
+    const parentTable = collectionToTable({
+      slug: 'newsletter-campaigns',
+      fields: { title: { type: 'text', required: true } },
+    })
+    const vTable = createVersionsTable('newsletter-campaigns', parentTable)
+    const config = getTableConfig(vTable)
+    expect(config.foreignKeys).toHaveLength(1)
+    const fkName = config.foreignKeys[0]?.getName() ?? ''
+    expect(fkName.length).toBeLessThanOrEqual(64)
+    expect(fkName).toMatch(/^newsletter-campaigns_versions_parent_id_newsletter-c_[a-f0-9]{8}_fk$/)
+  })
+
+  it('getVersionsParentForeignKeyName returns exact name when <= 64 and hashes when > 64', () => {
+    expect(getVersionsParentForeignKeyName('posts')).toBe('posts_versions_parent_id_posts_id_fk')
+    const longName = getVersionsParentForeignKeyName('newsletter-campaigns')
+    expect(longName.length).toBeLessThanOrEqual(64)
+    expect(longName).toMatch(/_[a-f0-9]{8}_fk$/)
   })
 
   it('getCollectionVersionsTable returns null when versions is not configured', () => {

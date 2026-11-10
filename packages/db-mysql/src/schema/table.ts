@@ -1,7 +1,9 @@
+import { createHash } from 'node:crypto'
 import {
   boolean,
   datetime,
   double,
+  foreignKey,
   index,
   int,
   json,
@@ -13,6 +15,7 @@ import {
   type AnyMySqlColumn,
   type MySqlColumnBuilder,
   type MySqlTable,
+  type MySqlTableExtraConfigValue,
 } from 'drizzle-orm/mysql-core'
 import type {
   ArrayField,
@@ -157,6 +160,15 @@ export function getVersionsTableName(collectionSlug: string): string {
   return `${collectionSlug}_versions`
 }
 
+export function getVersionsParentForeignKeyName(slug: string): string {
+  const baseName = `${slug}_versions_parent_id_${slug}_id_fk`
+  if (baseName.length <= 64) {
+    return baseName
+  }
+  const hash = createHash('sha256').update(baseName).digest('hex').slice(0, 8)
+  return `${baseName.slice(0, 52)}_${hash}_fk`
+}
+
 export type VersionsTable = MySqlTable & {
   id: AnyMySqlColumn
   parentId: AnyMySqlColumn
@@ -173,15 +185,11 @@ export function createVersionsTable(
   parentTable?: DynamicTable,
 ): VersionsTable {
   const tableName = getVersionsTableName(collectionSlug)
-  const parentIdColumn = parentTable
-    ? int('parent_id')
-        .notNull()
-        .references(() => parentTable.id, { onDelete: 'cascade' })
-    : int('parent_id').notNull()
+  const fkName = getVersionsParentForeignKeyName(collectionSlug)
 
   const columns = {
     id: int('id').autoincrement().primaryKey(),
-    parentId: parentIdColumn,
+    parentId: int('parent_id').notNull(),
     versionNumber: int('version_number').notNull(),
     snapshot: json('snapshot').notNull(),
     _status: varchar('_status', { length: 20 }).default('draft').notNull(),
@@ -190,10 +198,22 @@ export function createVersionsTable(
     createdBy: varchar('created_by', { length: 36 }),
   }
 
-  return mysqlTable(tableName, columns, (t) => [
-    index(`${tableName}_parent_id_idx`).on(t.parentId, t.id),
-    index(`${tableName}_parent_status_idx`).on(t.parentId, t._status),
-  ])
+  return mysqlTable(tableName, columns, (t) => {
+    const extra: MySqlTableExtraConfigValue[] = [
+      index(`${tableName}_parent_id_idx`).on(t.parentId, t.id),
+      index(`${tableName}_parent_status_idx`).on(t.parentId, t._status),
+    ]
+    if (parentTable) {
+      extra.push(
+        foreignKey({
+          name: fkName,
+          columns: [t.parentId] as [AnyMySqlColumn],
+          foreignColumns: [parentTable.id] as [AnyMySqlColumn],
+        }).onDelete('cascade'),
+      )
+    }
+    return extra
+  })
 }
 
 export function getCollectionVersionsTable(

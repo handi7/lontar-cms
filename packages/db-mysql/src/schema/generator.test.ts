@@ -494,7 +494,11 @@ describe('generateSchemaFile', () => {
     const output = generateSchemaFile(config)
 
     expect(output).toContain("export const postsVersions = mysqlTable(\n  'posts_versions',")
-    expect(output).toContain(".references(() => posts.id, { onDelete: 'cascade' })")
+    expect(output).toContain('foreignKey({')
+    expect(output).toContain("name: 'posts_versions_parent_id_posts_id_fk'")
+    expect(output).toContain('columns: [t.parentId]')
+    expect(output).toContain('foreignColumns: [posts.id]')
+    expect(output).toContain("}).onDelete('cascade')")
     expect(output).toContain("versionNumber: int('version_number').notNull(),")
     expect(output).toContain("snapshot: json('snapshot').notNull(),")
     expect(output).toContain(
@@ -503,5 +507,26 @@ describe('generateSchemaFile', () => {
     expect(output).toContain("autosave: boolean('autosave').default(false).notNull(),")
     expect(output).toContain("index('posts_versions_parent_id_idx').on(t.parentId, t.id)")
     expect(output).toContain("index('posts_versions_parent_status_idx').on(t.parentId, t._status)")
+  })
+
+  it('truncates versions parent FK to at most 64 characters for long collection slugs', () => {
+    const longCol: CollectionConfig = {
+      slug: 'newsletter-campaigns',
+      versions: { drafts: true },
+      fields: { title: { type: 'text' } },
+    }
+
+    const config: Config = {
+      secret: 'test-secret',
+      db: fakeAdapter,
+      collections: [longCol],
+    }
+
+    const output = generateSchemaFile(config)
+    const fkMatch = output.match(/name: '([^']+)'/)
+    expect(fkMatch).not.toBeNull()
+    const fkName = fkMatch?.[1] ?? ''
+    expect(fkName.length).toBeLessThanOrEqual(64)
+    expect(fkName).toMatch(/^newsletter-campaigns_versions_parent_id_newsletter-c_[a-f0-9]{8}_fk$/)
   })
 })
