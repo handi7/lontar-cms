@@ -84,6 +84,17 @@ When `versions: { drafts: true }` is enabled on a collection or global:
 2. The TypeScript type of `_status` is `'draft' | 'published'`.
 3. In the database, the parent collection table gains a `_status varchar(20) NOT NULL DEFAULT 'draft'` column with an index `(${collection}_status_idx)`.
 4. If a collection does **not** have versions or drafts enabled, no `_status` column is created, and documents are implicitly published.
+5. **Backfilling pre-existing documents when enabling drafts**:
+   - Because existing documents created prior to enabling drafts were already live, they must remain published rather than hidden as drafts. When adding `_status` to an existing table, the migration must backfill existing rows:
+     ```sql
+     ALTER TABLE `<table>` ADD `_status` varchar(20) DEFAULT 'draft' NOT NULL;
+     UPDATE `<table>` SET `_status` = 'published';
+     ```
+   - If migrating from an existing nullable column (such as renaming an earlier custom `status` column to `_status`), any `NULL` rows must be updated before applying `MODIFY COLUMN ... NOT NULL` to avoid MySQL strict mode failures:
+     ```sql
+     UPDATE `<table>` SET `_status` = 'draft' WHERE `_status` IS NULL;
+     ALTER TABLE `<table>` MODIFY COLUMN `_status` varchar(20) NOT NULL DEFAULT 'draft';
+     ```
 
 ### 4. Storage Model: Where the Published Row Lives
 

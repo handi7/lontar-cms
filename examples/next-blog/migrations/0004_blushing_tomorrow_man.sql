@@ -23,8 +23,10 @@ CREATE TABLE `posts_versions` (
 );
 --> statement-breakpoint
 ALTER TABLE `posts` RENAME COLUMN `status` TO `_status`;--> statement-breakpoint
+UPDATE `posts` SET `_status` = 'draft' WHERE `_status` IS NULL;--> statement-breakpoint
 ALTER TABLE `posts` MODIFY COLUMN `_status` varchar(20) NOT NULL DEFAULT 'draft';--> statement-breakpoint
 ALTER TABLE `pages` ADD `_status` varchar(20) DEFAULT 'draft' NOT NULL;--> statement-breakpoint
+UPDATE `pages` SET `_status` = 'published';--> statement-breakpoint
 ALTER TABLE `pages_versions` ADD CONSTRAINT `pages_versions_parent_id_pages_id_fk` FOREIGN KEY (`parent_id`) REFERENCES `pages`(`id`) ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE `posts_versions` ADD CONSTRAINT `posts_versions_parent_id_posts_id_fk` FOREIGN KEY (`parent_id`) REFERENCES `posts`(`id`) ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
 CREATE INDEX `pages_versions_parent_id_idx` ON `pages_versions` (`parent_id`,`id`);--> statement-breakpoint
