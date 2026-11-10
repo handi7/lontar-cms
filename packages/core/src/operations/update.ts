@@ -3,10 +3,16 @@ import type { AuthUser } from '../auth/types'
 import { clientFieldsToZod } from '../client/zod'
 import { toClientCollection } from '../config/to-client-config'
 import type { CollectionConfig } from '../config/types'
-import type { DatabaseAdapter, DocumentData } from '../database/adapter'
+import type { DocumentData } from '../database/adapter'
 import { populateDoc } from '../populate'
 import { AccessDeniedError, NotFoundError, ValidationError } from './errors'
-import { executeUpdate, resolveDraftFlag, resolveUpdateStatus } from './mutation'
+import {
+  executeUpdate,
+  resolveDraftFlag,
+  resolveOriginalDoc,
+  resolveUpdateStatus,
+} from './mutation'
+import { cleanupReplacedMedia } from '../server/routes/collection-upload'
 import { runBeforeValidateHooks } from '../hooks'
 import type { UpdateOperationArgs } from './types'
 
@@ -50,23 +56,6 @@ function handleUpdateError(
   }
   const fallback = typeof result.body.error === 'string' ? result.body.error : 'Update failed'
   throw new Error(fallback)
-}
-
-async function resolveOriginalDoc(
-  db: DatabaseAdapter,
-  collection: CollectionConfig,
-  id: number,
-  draft?: boolean,
-): Promise<DocumentData | null> {
-  const baseDoc = await db.findByID({ collection, id })
-  if (!baseDoc) return null
-  if (draft && collection.versions && db.findLatestDraftVersion) {
-    const draftVersion = await db.findLatestDraftVersion({ collection, parentId: id })
-    if (draftVersion) {
-      return { ...draftVersion.snapshot, _isPublished: baseDoc._status === 'published' }
-    }
-  }
-  return baseDoc
 }
 
 export async function updateOperation<T = DocumentData>(args: UpdateOperationArgs): Promise<T> {
@@ -115,6 +104,10 @@ export async function updateOperation<T = DocumentData>(args: UpdateOperationArg
 
   if (!result.success) {
     handleUpdateError(result, args.id)
+  }
+
+  if (args.collection.upload && !result.isDraftRevision) {
+    await cleanupReplacedMedia(args.config, originalDoc, result.doc)
   }
 
   const populated = await populateDoc(result.doc, {

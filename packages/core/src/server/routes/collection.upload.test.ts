@@ -2,7 +2,15 @@ import { describe, expect, it } from 'vitest'
 import { Hono } from 'hono'
 import { fields as f } from '../../fields'
 import { defineConfig } from '../../config/define-config'
-import type { DatabaseAdapter, DocumentData, StoredDoc } from '../../database/adapter'
+import type {
+  DatabaseAdapter,
+  DocumentData,
+  FindVersionsArgs,
+  PaginatedVersions,
+  SaveVersionArgs,
+  StoredDoc,
+  StoredVersion,
+} from '../../database/adapter'
 import type { StorageAdapter, UploadFile, UploadResult } from '../../storage/adapter'
 import { registerCollectionRoutes } from './collection'
 
@@ -40,6 +48,7 @@ function createMockDb(
   }
 
   let nextId = 100
+  const versionsStore: StoredVersion[] = []
 
   return {
     name: 'mock',
@@ -101,6 +110,59 @@ function createMockDb(
       if (idx === -1) return Promise.resolve(null)
       const [removed] = all.splice(idx, 1)
       return Promise.resolve(removed ?? null)
+    },
+    saveVersion: (args: SaveVersionArgs) => {
+      const parentId = args.parentId ?? 1
+      const docVersions = versionsStore.filter((v) => v.parentId === parentId)
+      const maxVer = docVersions.reduce((max, v) => Math.max(max, v.versionNumber), 0)
+      if (args.autosave) {
+        const latest = docVersions[docVersions.length - 1]
+        if (latest && latest._status === 'draft' && latest.autosave) {
+          latest.snapshot = args.snapshot
+          latest.createdBy = args.userId ?? null
+          return Promise.resolve({ ...latest })
+        }
+      }
+      const newVersion: StoredVersion = {
+        id: versionsStore.length + 1,
+        parentId,
+        versionNumber: maxVer + 1,
+        snapshot: args.snapshot,
+        _status: args.status,
+        autosave: Boolean(args.autosave),
+        createdAt: '2026-11-01T00:00:00.000Z',
+        createdBy: args.userId ?? null,
+      }
+      versionsStore.push(newVersion)
+      return Promise.resolve({ ...newVersion })
+    },
+    findVersions: (args: FindVersionsArgs) => {
+      const docVersions = versionsStore
+        .filter((v) => v.parentId === args.parentId)
+        .sort((a, b) => b.id - a.id)
+      return Promise.resolve<PaginatedVersions>({
+        docs: docVersions,
+        totalDocs: docVersions.length,
+        limit: args.limit ?? 10,
+        page: args.page ?? 1,
+        totalPages: Math.ceil(docVersions.length / (args.limit ?? 10)) || 1,
+      })
+    },
+    findVersionByID: (args: { parentId: number; versionId: number }) => {
+      const found = versionsStore.find(
+        (v) => v.parentId === args.parentId && v.id === args.versionId,
+      )
+      return Promise.resolve(found ? { ...found } : null)
+    },
+    findLatestDraftVersion: (args: { parentId: number }) => {
+      const docVersions = versionsStore
+        .filter((v) => v.parentId === args.parentId)
+        .sort((a, b) => b.id - a.id)
+      const latest = docVersions[0]
+      if (latest && latest._status === 'draft') {
+        return Promise.resolve({ ...latest })
+      }
+      return Promise.resolve(null)
     },
     findGlobal: () => Promise.resolve(null),
     updateGlobal: () =>
@@ -1291,6 +1353,165 @@ describe('collection upload routes', () => {
       expect(res.status).toBe(400)
       const json = (await res.json()) as { error: string }
       expect(json.error).toBe('Invalid filename')
+    })
+  })
+
+  describe('Drafts and versions on upload collections (#228)', () => {
+    function setupVersionsUpload() {
+      const { storage, deleted, files } = createMockStorage({
+        'old.png': TINY_PNG,
+      })
+      const db = createMockDb({
+        media: [
+          {
+            id: 1,
+            filename: 'old.png',
+            url: '/media/old.png',
+            mimeType: 'image/png',
+            filesize: 100,
+            alt: 'Old image',
+            _status: 'published',
+          },
+        ],
+      })
+      const config = defineConfig({
+        secret: 'test-secret',
+        db,
+        storage,
+        collections: [
+          {
+            slug: 'media',
+            access: publicAccess,
+            upload: true,
+            versions: { drafts: true },
+            fields: {
+              alt: f.text(),
+            },
+          },
+        ],
+      })
+      const app = new Hono()
+      registerCollectionRoutes(app as never, config)
+      return { app, storage, deleted, files, db }
+    }
+
+    it('keeps the published file readable when replacing a file as draft, and deletes it on publish', async () => {
+      const { app, deleted, files } = setupVersionsUpload()
+
+      const formData = new FormData()
+      const newFile = new File([TINY_PNG], 'new.png', { type: 'image/png' })
+      formData.append('file', newFile)
+      formData.append('alt', 'Draft new image')
+
+      const patchRes = await app.request('/media/1?draft=true', {
+        method: 'PATCH',
+        body: formData,
+      })
+      expect(patchRes.status).toBe(200)
+
+      // The published file old.png must NOT be deleted while the update is a draft revision
+      expect(deleted).not.toContain('old.png')
+      expect(files.get('old.png')).toBeDefined()
+      expect(files.get('new.png')).toBeDefined()
+
+      // Public read returns the published document with old.png
+      const liveRes = await app.request('/media/1')
+      expect(liveRes.status).toBe(200)
+      const liveJson = (await liveRes.json()) as DocumentData
+      expect(liveJson.filename).toBe('old.png')
+      expect(liveJson._status).toBe('published')
+
+      // Serving the published file succeeds
+      const fileRes = await app.request('/media/file/old.png')
+      expect(fileRes.status).toBe(200)
+
+      // Draft read returns new.png
+      const draftRes = await app.request('/media/1?draft=true')
+      expect(draftRes.status).toBe(200)
+      const draftJson = (await draftRes.json()) as DocumentData
+      expect(draftJson.filename).toBe('new.png')
+      expect(draftJson._status).toBe('draft')
+
+      // Publishing the draft updates the live row and removes the replaced old file
+      const publishRes = await app.request('/media/1/publish', {
+        method: 'POST',
+      })
+      expect(publishRes.status).toBe(200)
+      expect(deleted).toContain('old.png')
+      expect(files.get('old.png')).toBeUndefined()
+      expect(files.get('new.png')).toBeDefined()
+
+      // Live read now returns new.png
+      const publishedRes = await app.request('/media/1')
+      expect(publishedRes.status).toBe(200)
+      const publishedJson = (await publishedRes.json()) as DocumentData
+      expect(publishedJson.filename).toBe('new.png')
+      expect(publishedJson._status).toBe('published')
+    })
+
+    it('resolves latest draft as originalDoc on consecutive draft file replacements', async () => {
+      const { app, deleted, files } = setupVersionsUpload()
+
+      // First draft update with draft1.png
+      const form1 = new FormData()
+      form1.append('file', new File([TINY_PNG], 'draft1.png', { type: 'image/png' }))
+      form1.append('alt', 'Draft 1')
+      const res1 = await app.request('/media/1?draft=true', {
+        method: 'PATCH',
+        body: form1,
+      })
+      expect(res1.status).toBe(200)
+      expect(deleted).not.toContain('old.png')
+
+      // Second draft update with draft2.png
+      const form2 = new FormData()
+      form2.append('file', new File([TINY_PNG], 'draft2.png', { type: 'image/png' }))
+      form2.append('alt', 'Draft 2')
+      const res2 = await app.request('/media/1?draft=true', {
+        method: 'PATCH',
+        body: form2,
+      })
+      expect(res2.status).toBe(200)
+      expect(deleted).not.toContain('old.png')
+
+      // Draft read sees draft2.png
+      const draftRes = await app.request('/media/1?draft=true')
+      const draftJson = (await draftRes.json()) as DocumentData
+      expect(draftJson.filename).toBe('draft2.png')
+
+      // Live read still sees old.png
+      const liveRes = await app.request('/media/1')
+      const liveJson = (await liveRes.json()) as DocumentData
+      expect(liveJson.filename).toBe('old.png')
+
+      // Publishing removes old.png
+      await app.request('/media/1/publish', { method: 'POST' })
+      expect(deleted).toContain('old.png')
+      expect(files.get('old.png')).toBeUndefined()
+    })
+
+    it('treats autosave on an upload collection as draft without deleting the live file', async () => {
+      const { app, deleted, files } = setupVersionsUpload()
+
+      const formData = new FormData()
+      formData.append('file', new File([TINY_PNG], 'autosaved.png', { type: 'image/png' }))
+      formData.append('alt', 'Autosaved')
+
+      const res = await app.request('/media/1?autosave=true', {
+        method: 'PATCH',
+        body: formData,
+      })
+      expect(res.status).toBe(200)
+
+      // Live published file must not be deleted
+      expect(deleted).not.toContain('old.png')
+      expect(files.get('old.png')).toBeDefined()
+
+      // Live document remains published
+      const liveRes = await app.request('/media/1')
+      const liveJson = (await liveRes.json()) as DocumentData
+      expect(liveJson.filename).toBe('old.png')
+      expect(liveJson._status).toBe('published')
     })
   })
 })

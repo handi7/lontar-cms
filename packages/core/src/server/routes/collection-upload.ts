@@ -9,7 +9,13 @@ import type { AccessArgs, AccessFunction, CollectionConfig, Config } from '../..
 import type { DatabaseAdapter, DocumentData } from '../../database/adapter'
 import type { Field } from '../../fields/types'
 import { runBeforeValidateHooks } from '../../hooks'
-import { resolveCreateStatus, resolveUpdateStatus } from '../../operations/mutation'
+import {
+  type MutationExecutionResult,
+  resolveCreateStatus,
+  resolveDraftFlag,
+  resolveOriginalDoc,
+  resolveUpdateStatus,
+} from '../../operations/mutation'
 import { parseDepth, populateDoc } from '../../populate'
 import {
   DEFAULT_MAX_FILE_SIZE,
@@ -399,12 +405,18 @@ async function cleanupOldSizes(
   }
 }
 
-async function cleanupReplacedMedia(
+export async function cleanupReplacedMedia(
   config: Config,
   originalDoc: DocumentData,
-  newUploadDoc?: UploadedMediaDoc,
+  newUploadDoc?: { filename?: unknown; sizes?: unknown },
 ): Promise<void> {
-  if (!newUploadDoc || typeof originalDoc.filename !== 'string') return
+  if (
+    !newUploadDoc ||
+    typeof originalDoc.filename !== 'string' ||
+    typeof newUploadDoc.filename !== 'string'
+  ) {
+    return
+  }
 
   if (originalDoc.filename !== newUploadDoc.filename) {
     await safeDeleteMedia(config, {
@@ -497,10 +509,6 @@ async function respondPopulatedDoc(
   return c.json(populated, status)
 }
 
-export type MutationExecutionResult =
-  | { success: true; doc: DocumentData }
-  | { success: false; status: 400 | 404; body: { error: string; issues?: unknown[] } }
-
 interface UploadCreateContext {
   c: Context<LontarEnv>
   collection: CollectionConfig
@@ -513,14 +521,50 @@ interface UploadCreateContext {
     collection: CollectionConfig
     db: DatabaseAdapter
     data: DocumentData
-    req: Request
+    req?: Request
     draft?: boolean
+    autosave?: boolean
+    userId?: string | null
     config?: Config
   }) => Promise<MutationExecutionResult>
 }
 
+async function applyValidatedCreate(args: {
+  ctx: UploadCreateContext
+  validationData: DocumentData
+  uploadDoc: UploadedMediaDoc
+  draft: boolean
+  autosave: boolean
+}): Promise<Response> {
+  const { c, collection, config, user, executeCreate } = args.ctx
+  const payload: DocumentData = { ...args.validationData, ...args.uploadDoc }
+  let result: MutationExecutionResult
+  try {
+    result = await executeCreate({
+      collection,
+      data: payload,
+      db: config.db,
+      req: c.req.raw,
+      draft: args.draft,
+      autosave: args.autosave,
+      userId: user?.id,
+      config,
+    })
+  } catch (err) {
+    await safeDeleteMedia(config, args.uploadDoc)
+    throw err
+  }
+
+  if (!result.success) {
+    await safeDeleteMedia(config, args.uploadDoc)
+    return c.json(result.body, result.status)
+  }
+
+  return respondPopulatedDoc(c, collection, config, result.doc, user, 201)
+}
+
 export async function handleUploadCreate(ctx: UploadCreateContext): Promise<Response> {
-  const { c, collection, config, schema, user, checkAccess, accessDenied, executeCreate } = ctx
+  const { c, collection, config, schema, user, checkAccess, accessDenied } = ctx
 
   const preliminaryAllowed = await checkAccess(collection.access?.create, { user })
   if (!preliminaryAllowed) {
@@ -542,38 +586,27 @@ export async function handleUploadCreate(ctx: UploadCreateContext): Promise<Resp
     return c.json({ error: processed.error }, processed.status)
   }
 
+  const draftQuery = c.req.query('draft') === 'true'
+  const autosaveQuery = c.req.query('autosave') === 'true'
+  const draft = resolveDraftFlag(collection, draftQuery, autosaveQuery)
+
   const validation = await parseAndValidateFields(rawBody, collection, schema, {
     operation: 'create',
     req: c.req.raw,
-    draft: c.req.query('draft') === 'true',
+    draft: Boolean(draft),
   })
   if (!validation.success) {
     await safeDeleteMedia(config, processed.uploadDoc)
     return c.json({ error: 'Validation failed', issues: validation.issues }, 400)
   }
 
-  const payload: DocumentData = { ...validation.data, ...processed.uploadDoc }
-  let result: MutationExecutionResult
-  try {
-    result = await executeCreate({
-      collection,
-      data: payload,
-      db: config.db,
-      req: c.req.raw,
-      draft: c.req.query('draft') === 'true',
-      config,
-    })
-  } catch (err) {
-    await safeDeleteMedia(config, processed.uploadDoc)
-    throw err
-  }
-
-  if (!result.success) {
-    await safeDeleteMedia(config, processed.uploadDoc)
-    return c.json(result.body, result.status)
-  }
-
-  return respondPopulatedDoc(c, collection, config, result.doc, user, 201)
+  return applyValidatedCreate({
+    ctx,
+    validationData: validation.data,
+    uploadDoc: processed.uploadDoc,
+    draft: Boolean(draft),
+    autosave: autosaveQuery,
+  })
 }
 
 interface UploadUpdateContext {
@@ -590,8 +623,10 @@ interface UploadUpdateContext {
     id: number
     originalDoc: DocumentData
     data: DocumentData
-    req: Request
+    req?: Request
     draft?: boolean
+    autosave?: boolean
+    userId?: string | null
     config?: Config
   }) => Promise<MutationExecutionResult>
 }
@@ -619,6 +654,9 @@ async function applyValidatedUpdate(args: {
   originalDoc: DocumentData
   validation: { success: true; data: DocumentData }
   newUploadDoc?: UploadedMediaDoc
+  draft?: boolean
+  autosave?: boolean
+  userId?: string | null
 }): Promise<Response> {
   const { c, id, collection, config, user, executeUpdate } = args.ctx
   const updateData: DocumentData = {
@@ -635,7 +673,9 @@ async function applyValidatedUpdate(args: {
       id,
       originalDoc: args.originalDoc,
       req: c.req.raw,
-      draft: c.req.query('draft') === 'true',
+      draft: args.draft,
+      autosave: args.autosave,
+      userId: args.userId,
       config,
     })
   } catch (err) {
@@ -648,7 +688,9 @@ async function applyValidatedUpdate(args: {
     return c.json(result.body, result.status)
   }
 
-  await cleanupReplacedMedia(config, args.originalDoc, args.newUploadDoc)
+  if (!result.isDraftRevision) {
+    await cleanupReplacedMedia(config, args.originalDoc, args.newUploadDoc)
+  }
   return respondPopulatedDoc(c, collection, config, result.doc, user, 200)
 }
 
@@ -666,7 +708,13 @@ export async function handleUploadUpdate(ctx: UploadUpdateContext): Promise<Resp
     return accessDenied(c, user)
   }
 
-  const originalDoc = await config.db.findByID({ collection, id })
+  const draftQuery = c.req.query('draft') === 'true'
+  const autosaveQuery = c.req.query('autosave') === 'true'
+  const draft = resolveDraftFlag(collection, draftQuery, autosaveQuery)
+  const autosave = autosaveQuery
+  const userId = user?.id
+
+  const originalDoc = await resolveOriginalDoc(config.db, collection, id, draft)
   if (!originalDoc) {
     return c.json({ error: `Document with ID ${id} not found` }, 404)
   }
@@ -684,7 +732,7 @@ export async function handleUploadUpdate(ctx: UploadUpdateContext): Promise<Resp
     operation: 'update',
     originalDoc,
     req: c.req.raw,
-    draft: c.req.query('draft') === 'true',
+    draft: Boolean(draft),
   })
   if (!validation.success) {
     await rollbackNewMedia(config, uploadResult.doc)
@@ -696,6 +744,9 @@ export async function handleUploadUpdate(ctx: UploadUpdateContext): Promise<Resp
     originalDoc,
     validation,
     newUploadDoc: uploadResult.doc,
+    draft: Boolean(draft),
+    autosave,
+    userId,
   })
 }
 

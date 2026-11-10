@@ -9,7 +9,7 @@ import type { DocStatusTransition } from '../hooks/types'
 import { dispatchWebhooks, type WebhookAction } from '../webhooks'
 
 export type MutationExecutionResult =
-  | { success: true; doc: DocumentData }
+  | { success: true; doc: DocumentData; isDraftRevision?: boolean }
   | { success: false; status: 400 | 404; body: { error: string; issues?: unknown[] } }
 
 export function buildRevertData(
@@ -235,6 +235,23 @@ export function resolveDraftFlag(
   return draft
 }
 
+export async function resolveOriginalDoc(
+  db: DatabaseAdapter,
+  collection: CollectionConfig,
+  id: number,
+  draft?: boolean,
+): Promise<DocumentData | null> {
+  const baseDoc = await db.findByID({ collection, id })
+  if (!baseDoc) return null
+  if (draft && collection.versions && db.findLatestDraftVersion) {
+    const draftVersion = await db.findLatestDraftVersion({ collection, parentId: id })
+    if (draftVersion) {
+      return { ...draftVersion.snapshot, _isPublished: baseDoc._status === 'published' }
+    }
+  }
+  return baseDoc
+}
+
 export function resolveUpdateStatus(args: {
   collection: CollectionConfig
   data: DocumentData
@@ -311,7 +328,7 @@ async function handleDraftRevisionUpdate(args: {
     statusTransition: args.statusTransition,
     req: args.req,
   })
-  return { success: true, doc: { ...doc, _isPublished: true } }
+  return { success: true, doc: { ...doc, _isPublished: true }, isDraftRevision: true }
 }
 
 async function prepareUpdatePayload(
@@ -407,7 +424,7 @@ async function handleParentRowUpdate(args: {
     const finalDoc = args.collection.versions?.drafts
       ? { ...doc, _isPublished: doc._status === 'published' }
       : doc
-    return { success: true, doc: finalDoc }
+    return { success: true, doc: finalDoc, isDraftRevision: false }
   } catch (hookErr) {
     if (!args.rootDb.transaction) {
       await compensateUpdate(
@@ -646,7 +663,7 @@ async function handleGlobalDraftRevisionUpdate(args: {
     statusTransition: args.statusTransition,
     req: args.req,
   })
-  return { success: true, doc: { ...doc, _isPublished: true } }
+  return { success: true, doc: { ...doc, _isPublished: true }, isDraftRevision: true }
 }
 
 async function handleGlobalParentRowUpdate(args: {
@@ -686,7 +703,7 @@ async function handleGlobalParentRowUpdate(args: {
   const finalDoc = args.global.versions?.drafts
     ? { ...doc, _isPublished: doc._status === 'published' }
     : doc
-  return { success: true, doc: finalDoc }
+  return { success: true, doc: finalDoc, isDraftRevision: false }
 }
 
 export async function executeGlobalUpdate(args: {
