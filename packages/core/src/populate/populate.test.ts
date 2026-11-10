@@ -1,19 +1,46 @@
 import { describe, expect, it, vi } from 'vitest'
 import { parseDepth, populateDoc, populateDocs } from './index'
+import type { AuthUser } from '../auth/types'
 import type { CollectionConfig } from '../config/types'
 import type { DatabaseAdapter, DocumentData, PaginatedDocs, StoredDoc } from '../database/adapter'
 import type { Where } from '../query/types'
 
 function extractInIds(where?: Where): unknown[] | null {
-  if (!where?.id || typeof where.id !== 'object' || !('in' in where.id)) return null
-  const inCond = where.id as { in?: unknown }
-  return Array.isArray(inCond.in) ? inCond.in : null
+  if (!where) return null
+  if (where.id && typeof where.id === 'object' && 'in' in where.id) {
+    const inCond = where.id as { in?: unknown }
+    return Array.isArray(inCond.in) ? inCond.in : null
+  }
+  if (Array.isArray(where.and)) {
+    for (const sub of where.and) {
+      const ids = extractInIds(sub)
+      if (ids) return ids
+    }
+  }
+  return null
 }
 
-function filterByInWhere(items: StoredDoc[], where?: Where): StoredDoc[] {
+function checkPublishedFilter(where?: Where): boolean {
+  if (!where) return false
+  if (where._status && typeof where._status === 'object' && 'equals' in where._status) {
+    return (where._status as { equals?: unknown }).equals === 'published'
+  }
+  if (Array.isArray(where.and)) {
+    return where.and.some(checkPublishedFilter)
+  }
+  return false
+}
+
+function filterByWhere(items: StoredDoc[], where?: Where): StoredDoc[] {
+  let result = items
   const inIds = extractInIds(where)
-  if (!inIds) return items
-  return items.filter((item) => inIds.includes(item.id))
+  if (inIds) {
+    result = result.filter((item) => inIds.includes(item.id))
+  }
+  if (checkPublishedFilter(where)) {
+    result = result.filter((item) => item._status === 'published')
+  }
+  return result
 }
 
 function resolveMockLimit(
@@ -30,7 +57,7 @@ function createMockAdapter(docsByCollection: Record<string, StoredDoc[]>): Datab
     name: 'mock',
     find({ collection, where, limit, overrideLimit }): Promise<PaginatedDocs> {
       const all = (docsByCollection[collection.slug] ?? []).map((d) => ({ ...d }))
-      const filtered = filterByInWhere(all, where)
+      const filtered = filterByWhere(all, where)
       const effectiveLimit = resolveMockLimit(limit, collection.pagination?.maxLimit, overrideLimit)
       const docs = effectiveLimit >= 0 ? filtered.slice(0, effectiveLimit) : filtered
       return Promise.resolve({
@@ -808,6 +835,103 @@ describe('populateDocs', () => {
         expect.objectContaining({ id: 4, filename: '4.jpg' }),
         expect.objectContaining({ id: 5, filename: '5.jpg' }),
       ])
+    })
+  })
+
+  describe('draft population access and target hydration', () => {
+    const authorsCol: CollectionConfig = {
+      slug: 'authors',
+      versions: { drafts: true },
+      access: {
+        read: () => true,
+        update: ({ user }) => user?.id === 'admin',
+      },
+      fields: {
+        name: { type: 'text', required: true },
+      },
+    }
+
+    const postsCol: CollectionConfig = {
+      slug: 'posts',
+      access: { read: () => true, update: () => true },
+      fields: {
+        title: { type: 'text', required: true },
+        author: { type: 'relationship', relationTo: 'authors' },
+      },
+    }
+
+    it('populates published target and hides draft-only target when user lacks update access on target', async () => {
+      const now = new Date().toISOString()
+      const mockAuthors: StoredDoc[] = [
+        { id: 1, name: 'Live Author', _status: 'published', createdAt: now, updatedAt: now },
+        { id: 2, name: 'Draft Only Author', _status: 'draft', createdAt: now, updatedAt: now },
+      ]
+
+      const db = createMockAdapter({ authors: mockAuthors })
+      db.findLatestDraftVersion = vi.fn().mockImplementation(({ parentId }) => {
+        if (parentId === 1) {
+          return Promise.resolve({
+            id: 99,
+            parentId: 1,
+            versionNumber: 2,
+            snapshot: { id: 1, name: 'Live Author WIP', _status: 'draft' },
+            _status: 'draft',
+            autosave: false,
+            createdAt: '2026-11-10T00:00:00.000Z',
+            createdBy: null,
+          })
+        }
+        return Promise.resolve(null)
+      })
+
+      const regularUser = { id: 'regular', email: 'regular@example.com' } as unknown as AuthUser
+
+      // 1. Regular user has draft=true on posts, but only read on authors
+      const result = await populateDocs({
+        docs: [
+          { id: 10, title: 'Post 1', author: 1 },
+          { id: 20, title: 'Post 2', author: 2 },
+        ],
+        collection: postsCol,
+        depth: 1,
+        collections: [postsCol, authorsCol],
+        db,
+        user: regularUser,
+        draft: true,
+      })
+
+      // Target with published row is populated as published, NOT the WIP draft snapshot
+      expect(result[0]!.author).toMatchObject({ id: 1, name: 'Live Author', _status: 'published' })
+      // Draft-only target resolves to null
+      expect(result[1]!.author).toBeNull()
+
+      // 2. Admin user with update access on authors gets hydrated pending draft and draft-only target
+      const adminUser = { id: 'admin', email: 'admin@example.com' } as unknown as AuthUser
+      const adminResult = await populateDocs({
+        docs: [
+          { id: 10, title: 'Post 1', author: 1 },
+          { id: 20, title: 'Post 2', author: 2 },
+        ],
+        collection: postsCol,
+        depth: 1,
+        collections: [postsCol, authorsCol],
+        db,
+        user: adminUser,
+        draft: true,
+      })
+
+      // Admin gets hydrated pending draft for author 1
+      expect(adminResult[0]!.author).toMatchObject({
+        id: 1,
+        name: 'Live Author WIP',
+        _status: 'draft',
+      })
+      // Admin gets draft-only target
+      expect(adminResult[1]!.author).toMatchObject({
+        id: 2,
+        name: 'Draft Only Author',
+        _status: 'draft',
+      })
     })
   })
 })

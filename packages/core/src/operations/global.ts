@@ -131,6 +131,8 @@ export async function findGlobalOperation<T = DocumentData>(
     depth: args.depth,
     user: args.user,
     req: args.req,
+    overrideAccess: args.overrideAccess,
+    draft: args.draft,
   })
 }
 
@@ -153,6 +155,7 @@ async function populateGlobalDoc<T>(args: {
   user?: AuthUser | null
   req?: Request
   overrideAccess?: boolean
+  draft?: boolean
 }): Promise<T> {
   if (args.depth !== undefined && args.depth > 0) {
     const populated = await populateDoc(args.doc, {
@@ -163,6 +166,7 @@ async function populateGlobalDoc<T>(args: {
       collections: args.config.collections,
       req: args.req,
       overrideAccess: args.overrideAccess,
+      draft: args.draft,
     })
     return populated as T
   }
@@ -220,5 +224,7 @@ export async function updateGlobalOperation<T = DocumentData>(
     depth: args.depth,
     user: args.user,
     req: args.req,
+    overrideAccess: args.overrideAccess,
+    draft,
   })
 }
