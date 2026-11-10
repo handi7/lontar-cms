@@ -182,16 +182,17 @@ export async function updateGlobalOperation<T = DocumentData>(
 
   const draft = resolveDraftFlag(args.global, args.draft, args.autosave)
   const existing = await resolveOriginalGlobalDoc(args.config.db, args.global, draft)
+  const { _status: _ignoredStatus, ...cleanData } = args.data
   const { status, previousStatus, statusTransition } = resolveGlobalUpdateStatus({
     global: args.global,
-    data: args.data,
+    data: cleanData,
     originalDoc: existing,
     draft,
   })
 
   const hookData = await runBeforeValidateHooks({
     global: args.global,
-    data: args.data,
+    data: cleanData,
     operation: 'update',
     originalDoc: existing ?? undefined,
     status,

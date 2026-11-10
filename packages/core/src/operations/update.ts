@@ -69,16 +69,17 @@ export async function updateOperation<T = DocumentData>(args: UpdateOperationArg
     throw new NotFoundError(`Document with ID ${args.id} not found`)
   }
 
+  const { _status: _ignoredStatus, ...cleanData } = args.data
   const { status, previousStatus, statusTransition } = resolveUpdateStatus({
     collection: args.collection,
-    data: args.data,
+    data: cleanData,
     originalDoc,
     draft,
   })
 
   const hookData = await runBeforeValidateHooks({
     collection: args.collection,
-    data: args.data,
+    data: cleanData,
     operation: 'update',
     originalDoc,
     status,

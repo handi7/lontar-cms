@@ -724,4 +724,83 @@ describe('Collection Lifecycle Hooks', () => {
     expect(publishedDoc._status).toBe('published')
     expect(publishedDoc.slug).toBe('derived-slug')
   })
+
+  it('derives hook status from draft flag and strips client-sent _status', async () => {
+    const beforeValidateHook = vi.fn(({ data }: { data: Record<string, unknown> }) => ({
+      ...data,
+      slug: 'hook-slug',
+    }))
+    const beforeChangeHook = vi.fn(({ data }: { data: Record<string, unknown> }) => data)
+
+    const postsCol = collection({
+      slug: 'posts',
+      access: publicAccess,
+      versions: { drafts: true },
+      fields: {
+        title: f.text({ required: true }),
+        slug: f.text(),
+      },
+      hooks: {
+        beforeValidate: [beforeValidateHook],
+        beforeChange: [beforeChangeHook],
+      },
+    })
+
+    const { db } = createMockAdapter()
+    const lontar = createLontar(
+      defineConfig({
+        secret: 'test-secret',
+        db,
+        collections: [postsCol],
+      }),
+    )
+
+    // 1. Client sends _status: 'published' on create draft POST
+    const createRes = await lontar.fetch(
+      new Request('http://localhost/api/posts?draft=true', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ title: 'Draft Post', _status: 'published' }),
+      }),
+    )
+    expect(createRes.status).toBe(201)
+    const created = (await createRes.json()) as { id: number; _status: string }
+    expect(created._status).toBe('draft')
+
+    // beforeValidate saw status: 'draft', statusTransition: 'draft', and data._status was stripped
+    const createHookCall = beforeValidateHook.mock.calls[0]?.[0] as {
+      status?: string
+      statusTransition?: string
+      operation?: string
+      data?: Record<string, unknown>
+    }
+    expect(createHookCall.status).toBe('draft')
+    expect(createHookCall.statusTransition).toBe('draft')
+    expect(createHookCall.operation).toBe('create')
+    expect(createHookCall.data?._status).toBeUndefined()
+
+    beforeValidateHook.mockClear()
+    beforeChangeHook.mockClear()
+
+    // 2. Client sends _status: 'published' on update PATCH ?draft=true
+    const updateRes = await lontar.fetch(
+      new Request(`http://localhost/api/posts/${created.id}?draft=true`, {
+        method: 'PATCH',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ title: 'Updated Draft', _status: 'published' }),
+      }),
+    )
+    expect(updateRes.status).toBe(200)
+
+    const updateHookCall = beforeValidateHook.mock.calls[0]?.[0] as {
+      status?: string
+      statusTransition?: string
+      operation?: string
+      data?: Record<string, unknown>
+    }
+    expect(updateHookCall.status).toBe('draft')
+    expect(updateHookCall.statusTransition).toBe('draft')
+    expect(updateHookCall.operation).toBe('update')
+    expect(updateHookCall.data?._status).toBeUndefined()
+  })
 })

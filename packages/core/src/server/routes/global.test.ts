@@ -373,6 +373,53 @@ describe('Global REST Routes', () => {
     expect(json.siteTitle).toBe('Clean Site Title')
   })
 
+  it('derives global hook status from draft flag and strips client-sent _status', async () => {
+    const beforeValidateHook = vi.fn(({ data }: { data: Record<string, unknown> }) => data)
+
+    const { db } = createMockAdapter()
+    const lontar = createLontar(
+      defineConfig({
+        secret: 'test-secret',
+        db,
+        collections: [],
+        globals: [
+          global({
+            slug: 'header',
+            access: { read: () => true, update: () => true },
+            versions: { drafts: true },
+            fields: { siteTitle: f.text({ required: true }) },
+            hooks: {
+              beforeValidate: [beforeValidateHook],
+            },
+          }),
+        ],
+      }),
+    )
+
+    const res = await lontar.fetch(
+      new Request('http://localhost/api/globals/header?draft=true', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ siteTitle: 'Draft Title', _status: 'published' }),
+      }),
+    )
+
+    expect(res.status).toBe(200)
+    const json = (await res.json()) as { siteTitle: string; _status: string }
+    expect(json._status).toBe('draft')
+
+    const hookCall = beforeValidateHook.mock.calls[0]?.[0] as {
+      status?: string
+      statusTransition?: string
+      operation?: string
+      data?: Record<string, unknown>
+    }
+    expect(hookCall.status).toBe('draft')
+    expect(hookCall.statusTransition).toBe('draft')
+    expect(hookCall.operation).toBe('update')
+    expect(hookCall.data?._status).toBeUndefined()
+  })
+
   it('supports drafts and version history endpoints for versioned global', async () => {
     const { db } = createMockAdapter()
     const lontar = createLontar(

@@ -124,15 +124,23 @@ export function formatDocForForm(
   return formatted
 }
 
+export const EXCLUDED_SUBMIT_SYSTEM_FIELDS = [
+  'createdAt',
+  'updatedAt',
+  '_status',
+  '_isPublished',
+  'latestVersionId',
+] as const
+
 function formatNestedValueForSubmit(f: ClientField, val: unknown): unknown {
   if (f.type === 'group' && val && typeof val === 'object') {
-    return formatDocForSubmit(f.fields, val as Record<string, unknown>)
+    return formatDocForSubmit(f.fields, val as Record<string, unknown>, false)
   }
   if (f.type === 'array' && Array.isArray(val)) {
     const rows = val as readonly unknown[]
     return rows.map((row) =>
       row && typeof row === 'object'
-        ? formatDocForSubmit(f.fields, row as Record<string, unknown>)
+        ? formatDocForSubmit(f.fields, row as Record<string, unknown>, false)
         : row,
     )
   }
@@ -142,7 +150,7 @@ function formatNestedValueForSubmit(f: ClientField, val: unknown): unknown {
       if (!row || typeof row !== 'object') return row
       const record = row as Record<string, unknown>
       const blockDef = f.blocks.find((b) => b.slug === record.blockType)
-      return blockDef ? formatDocForSubmit(blockDef.fields, record) : record
+      return blockDef ? formatDocForSubmit(blockDef.fields, record, false) : record
     })
   }
   return val
@@ -164,8 +172,15 @@ function formatFieldValueForSubmit(f: ClientField, val: unknown): unknown {
 export function formatDocForSubmit(
   fields: readonly ClientField[],
   data: Record<string, unknown>,
+  isRoot: boolean = true,
 ): Record<string, unknown> {
   const formatted = { ...data }
+  if (isRoot) {
+    delete formatted.id
+  }
+  for (const sysField of EXCLUDED_SUBMIT_SYSTEM_FIELDS) {
+    delete formatted[sysField]
+  }
   for (const f of fields) {
     if (f.name in formatted) {
       formatted[f.name] = formatFieldValueForSubmit(f, formatted[f.name])

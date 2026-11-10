@@ -439,14 +439,15 @@ async function applyBeforeValidateOnFormData(
     draft?: boolean
   },
 ): Promise<DocumentData> {
+  const { _status: _ignoredStatus, ...cleanFields } = parsedFields
   const isCreate = hookArgs.operation === 'create'
   const createInfo = isCreate
-    ? resolveCreateStatus(collection, parsedFields, hookArgs.draft)
+    ? resolveCreateStatus(collection, cleanFields, hookArgs.draft)
     : undefined
   const updateInfo = !isCreate
     ? resolveUpdateStatus({
         collection,
-        data: parsedFields,
+        data: cleanFields,
         originalDoc: hookArgs.originalDoc ?? {},
         draft: hookArgs.draft,
       })
@@ -454,7 +455,7 @@ async function applyBeforeValidateOnFormData(
 
   return runBeforeValidateHooks({
     collection,
-    data: parsedFields,
+    data: cleanFields,
     operation: hookArgs.operation,
     originalDoc: hookArgs.originalDoc,
     status: createInfo ? createInfo.status : updateInfo?.status,

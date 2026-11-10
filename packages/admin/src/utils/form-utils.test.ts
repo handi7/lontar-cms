@@ -94,6 +94,31 @@ describe('form-utils', () => {
       expect(formatted.optionalDate).toBeNull()
       expect(formatted.publishedAt).toBe(new Date('2024-05-01T10:00').toISOString())
     })
+
+    it('strips document-level system fields (id, createdAt, updatedAt, _status, _isPublished, latestVersionId) (#244)', () => {
+      const input = {
+        id: 123,
+        title: 'Draft Post',
+        publishedAt: '2024-05-01T10:00',
+        createdAt: '2024-01-01T00:00:00.000Z',
+        updatedAt: '2024-01-02T00:00:00.000Z',
+        _status: 'published',
+        _isPublished: true,
+        latestVersionId: 45,
+      }
+
+      const formatted = formatDocForSubmit(fields, input)
+      expect(formatted).toEqual({
+        title: 'Draft Post',
+        publishedAt: new Date('2024-05-01T10:00').toISOString(),
+      })
+      expect(formatted).not.toHaveProperty('id')
+      expect(formatted).not.toHaveProperty('createdAt')
+      expect(formatted).not.toHaveProperty('updatedAt')
+      expect(formatted).not.toHaveProperty('_status')
+      expect(formatted).not.toHaveProperty('_isPublished')
+      expect(formatted).not.toHaveProperty('latestVersionId')
+    })
   })
 
   describe('formatDocForForm and computeDefaultValues', () => {

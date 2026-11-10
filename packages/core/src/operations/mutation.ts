@@ -33,13 +33,14 @@ export function buildRevertData(
 
 export function resolveCreateStatus(
   collection: CollectionConfig,
-  data: DocumentData,
-  draft?: boolean,
+  dataOrDraft?: DocumentData | boolean,
+  draftArg?: boolean,
 ): { status: DocStatus | undefined; statusTransition: DocStatusTransition | undefined } {
   if (!collection.versions?.drafts) {
     return { status: undefined, statusTransition: undefined }
   }
-  const status = (data._status as DocStatus | undefined) ?? (draft ? 'draft' : 'published')
+  const draft = typeof dataOrDraft === 'boolean' ? dataOrDraft : draftArg
+  const status: DocStatus = draft ? 'draft' : 'published'
   const statusTransition: DocStatusTransition = status === 'published' ? 'published' : 'draft'
   return { status, statusTransition }
 }
@@ -124,7 +125,7 @@ async function prepareCreatePayload(
   statusTransition: DocStatusTransition | undefined
 }> {
   const initialData = sanitizeConditionalFields(clientCol.fields, args.data)
-  const { status, statusTransition } = resolveCreateStatus(collection, args.data, args.draft)
+  const { status, statusTransition } = resolveCreateStatus(collection, args.draft)
   if (status !== undefined) {
     initialData._status = status
   }
@@ -139,7 +140,7 @@ async function prepareCreatePayload(
   })
   const finalData = sanitizeConditionalFields(clientCol.fields, data)
   if (collection.versions?.drafts) {
-    finalData._status = data._status ?? status
+    finalData._status = status
   }
   return { finalData, status, statusTransition }
 }
@@ -272,7 +273,7 @@ export async function resolveOriginalDoc(
 
 export function resolveUpdateStatus(args: {
   collection: CollectionConfig
-  data: DocumentData
+  data?: DocumentData
   originalDoc: DocumentData
   draft?: boolean
   status?: DocStatus
@@ -287,7 +288,7 @@ export function resolveUpdateStatus(args: {
   }
   const previousStatus = (args.originalDoc._status as DocStatus | undefined) ?? 'published'
   const fallback = args.draft !== undefined ? (args.draft ? 'draft' : 'published') : previousStatus
-  const status = args.status ?? (args.data._status as DocStatus | undefined) ?? fallback
+  const status = args.status ?? fallback
   const statusTransition = resolveUpdateStatusTransition(
     previousStatus,
     status,
@@ -387,7 +388,7 @@ async function prepareUpdatePayload(
   })
   const finalData = sanitizeConditionalFields(clientCol.fields, data, args.originalDoc)
   if (collection.versions?.drafts) {
-    finalData._status = data._status ?? status
+    finalData._status = status
   }
   return { finalData, status, previousStatus, statusTransition, rawHookData: data }
 }
@@ -679,7 +680,7 @@ function isGlobalDraftRevisionOfPublished(
 
 export function resolveGlobalUpdateStatus(args: {
   global: GlobalConfig
-  data: DocumentData
+  data?: DocumentData
   originalDoc?: DocumentData | null
   draft?: boolean
   status?: DocStatus
@@ -694,7 +695,7 @@ export function resolveGlobalUpdateStatus(args: {
   }
   const previousStatus = (args.originalDoc?._status as DocStatus | undefined) ?? 'published'
   const fallback = args.draft !== undefined ? (args.draft ? 'draft' : 'published') : previousStatus
-  const status = args.status ?? (args.data._status as DocStatus | undefined) ?? fallback
+  const status = args.status ?? fallback
   const statusTransition = resolveUpdateStatusTransition(
     previousStatus,
     status,
@@ -703,14 +704,9 @@ export function resolveGlobalUpdateStatus(args: {
   return { status, previousStatus, statusTransition }
 }
 
-function applyGlobalStatus(
-  global: GlobalConfig,
-  target: DocumentData,
-  status?: DocStatus,
-  fallback?: DocStatus,
-): void {
+function applyGlobalStatus(global: GlobalConfig, target: DocumentData, status?: DocStatus): void {
   if (global.versions?.drafts && status !== undefined) {
-    target._status = fallback ?? status
+    target._status = status
   }
 }
 
@@ -743,7 +739,7 @@ async function prepareGlobalPayload(
   })
 
   const finalData = sanitizeConditionalFields(clientGlobal.fields, hookData, existing)
-  applyGlobalStatus(global, finalData, args.status, hookData._status as DocStatus | undefined)
+  applyGlobalStatus(global, finalData, args.status)
   return finalData
 }
 
