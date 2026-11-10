@@ -10,6 +10,77 @@ export interface MigrateCreateOptions {
   envFile?: string
 }
 
+export function inspectMigrationForStatusBackfills(sql: string): string[] {
+  const warnings: string[] = []
+
+  const addStatusMatches = sql.matchAll(
+    /ALTER\s+TABLE\s+[`"]?(\w+)[`"]?\s+ADD(?:\s+COLUMN)?\s+[`"]?_status[`"]?/gi,
+  )
+  for (const match of addStatusMatches) {
+    const table = match[1]
+    const hasBackfill = new RegExp(
+      `UPDATE\\s+[\`"]?${table}[\`"]?\\s+SET\\s+[\`"]?_status[\`"]?\\s*=\\s*['"]published['"]`,
+      'i',
+    ).test(sql)
+    if (!hasBackfill) {
+      warnings.push(
+        `Migration adds \`_status\` to table "${table}". Pre-existing rows will default to 'draft' and be hidden from public queries. If existing rows should remain published, add: UPDATE \`${table}\` SET \`_status\` = 'published';`,
+      )
+    }
+  }
+
+  const modifyStatusMatches = sql.matchAll(
+    /ALTER\s+TABLE\s+[`"]?(\w+)[`"]?\s+MODIFY(?:\s+COLUMN)?\s+[`"]?_status[`"]?[^;]*NOT\s+NULL/gi,
+  )
+  for (const match of modifyStatusMatches) {
+    const table = match[1]
+    const hasNullCheck = new RegExp(
+      `UPDATE\\s+[\`"]?${table}[\`"]?\\s+SET\\s+[\`"]?_status[\`"]?[^;]*WHERE\\s+[\`"]?_status[\`"]?\\s+IS\\s+NULL`,
+      'i',
+    ).test(sql)
+    if (!hasNullCheck) {
+      warnings.push(
+        `Migration modifies \`_status\` to NOT NULL on table "${table}". If existing rows contain NULL values, MySQL strict mode will fail. Add a backfill before MODIFY: UPDATE \`${table}\` SET \`_status\` = 'draft' WHERE \`_status\` IS NULL;`,
+      )
+    }
+  }
+
+  return warnings
+}
+
+function getMigrationSqlFiles(migrationsDir: string): Map<string, number> {
+  const map = new Map<string, number>()
+  if (!fs.existsSync(migrationsDir)) return map
+  for (const entry of fs.readdirSync(migrationsDir, { withFileTypes: true })) {
+    if (entry.isFile() && entry.name.endsWith('.sql')) {
+      const fullPath = path.join(migrationsDir, entry.name)
+      map.set(fullPath, fs.statSync(fullPath).mtimeMs)
+    }
+  }
+  return map
+}
+
+function warnOnMissingStatusBackfills(
+  migrationsDir: string,
+  beforeFiles: Map<string, number>,
+): void {
+  if (!fs.existsSync(migrationsDir)) return
+  for (const entry of fs.readdirSync(migrationsDir, { withFileTypes: true })) {
+    if (entry.isFile() && entry.name.endsWith('.sql')) {
+      const fullPath = path.join(migrationsDir, entry.name)
+      const prevMtime = beforeFiles.get(fullPath)
+      const curMtime = fs.statSync(fullPath).mtimeMs
+      if (prevMtime === undefined || curMtime > prevMtime) {
+        const sql = fs.readFileSync(fullPath, 'utf-8')
+        const warnings = inspectMigrationForStatusBackfills(sql)
+        for (const warn of warnings) {
+          console.warn(`[lontar:migrate] Warning: ${warn}`)
+        }
+      }
+    }
+  }
+}
+
 export async function migrateCreate(options: MigrateCreateOptions = {}): Promise<void> {
   const cwd = options.cwd ?? process.cwd()
   const config = await loadConfig(cwd, { envFile: options.envFile })
@@ -40,9 +111,13 @@ export async function migrateCreate(options: MigrateCreateOptions = {}): Promise
     args.push('--name', options.name)
   }
 
+  const beforeFiles = getMigrationSqlFiles(migrationsDir)
+
   if (bin.endsWith('.cjs') || bin.endsWith('.js')) {
     execFileSync(process.execPath, [bin, ...args], { cwd, stdio: 'inherit' })
   } else {
     execFileSync(bin, args, { cwd, stdio: 'inherit' })
   }
+
+  warnOnMissingStatusBackfills(migrationsDir, beforeFiles)
 }
