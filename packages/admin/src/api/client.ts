@@ -54,6 +54,8 @@ export class ApiClientError extends Error {
   }
 }
 
+export { queryKeys } from './query-keys'
+
 export function formatApiErrorMessage(err: unknown): string {
   if (err instanceof ApiClientError) {
     if (err.issues && err.issues.length > 0) {

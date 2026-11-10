@@ -28,6 +28,7 @@ import {
   publishGlobal,
   unpublishGlobal,
   ApiClientError,
+  queryKeys,
 } from '../api/client'
 import { FieldRenderer } from '../fields/FieldRenderer'
 import { computeDefaultValues, formatDocForForm, formatDocForSubmit } from '../utils/form-utils'
@@ -164,8 +165,9 @@ function useGlobalMutations({
     onSuccess: (saved, vars) => {
       reset(formatDocForForm(fields, saved))
       setSuccessMsg(vars.draft ? 'Draft saved successfully.' : 'Changes saved successfully.')
-      void queryClient.invalidateQueries({ queryKey: ['globals', slug] })
-      void queryClient.invalidateQueries({ queryKey: ['global-versions', apiBase, slug] })
+      queryClient.setQueryData(queryKeys.global(slug), saved)
+      void queryClient.invalidateQueries({ queryKey: queryKeys.global(slug) })
+      void queryClient.invalidateQueries({ queryKey: queryKeys.globalVersions(apiBase, slug) })
       onSaveSuccess?.()
     },
     onError: (err: Error) => handleValidationError(err, setError, setApiError),
@@ -180,8 +182,9 @@ function useGlobalMutations({
     onSuccess: (published) => {
       reset(formatDocForForm(fields, published))
       setSuccessMsg('Published successfully.')
-      void queryClient.invalidateQueries({ queryKey: ['globals', slug] })
-      void queryClient.invalidateQueries({ queryKey: ['global-versions', apiBase, slug] })
+      queryClient.setQueryData(queryKeys.global(slug), published)
+      void queryClient.invalidateQueries({ queryKey: queryKeys.global(slug) })
+      void queryClient.invalidateQueries({ queryKey: queryKeys.globalVersions(apiBase, slug) })
       onSaveSuccess?.()
     },
     onError: (err: Error) => setApiError(err.message || 'Failed to publish.'),
@@ -196,8 +199,9 @@ function useGlobalMutations({
     onSuccess: (unpublished) => {
       reset(formatDocForForm(fields, unpublished))
       setSuccessMsg('Unpublished successfully.')
-      void queryClient.invalidateQueries({ queryKey: ['globals', slug] })
-      void queryClient.invalidateQueries({ queryKey: ['global-versions', apiBase, slug] })
+      queryClient.setQueryData(queryKeys.global(slug), unpublished)
+      void queryClient.invalidateQueries({ queryKey: queryKeys.global(slug) })
+      void queryClient.invalidateQueries({ queryKey: queryKeys.globalVersions(apiBase, slug) })
       onSaveSuccess?.()
     },
     onError: (err: Error) => setApiError(err.message || 'Failed to unpublish.'),
@@ -284,9 +288,9 @@ function useGlobalEditorAutosave({
   const onAutosaveSuccess = useCallback(
     (savedDoc: Record<string, unknown>) => {
       reset(formatDocForForm(global.fields, savedDoc), { keepValues: true })
-      queryClient.setQueryData(['globals', slug], savedDoc)
+      queryClient.setQueryData(queryKeys.global(slug), savedDoc)
       void queryClient.invalidateQueries({
-        queryKey: ['global-versions', apiBase, slug],
+        queryKey: queryKeys.globalVersions(apiBase, slug),
       })
     },
     [apiBase, global.fields, slug, queryClient, reset],
@@ -475,6 +479,7 @@ export interface GlobalEditorProps {
 }
 
 function GlobalEditor({ global, slug, apiBase }: GlobalEditorProps) {
+  const queryClient = useQueryClient()
   const [apiError, setApiError] = useState<string | null>(null)
   const [successMsg, setSuccessMsg] = useState<string | null>(null)
   const [isHistoryOpen, setIsHistoryOpen] = useState(false)
@@ -486,7 +491,7 @@ function GlobalEditor({ global, slug, apiBase }: GlobalEditorProps) {
   const preview = usePreviewState(slug, hasPreview)
 
   const globalQuery = useQuery({
-    queryKey: ['globals', slug],
+    queryKey: queryKeys.global(slug),
     queryFn: () => fetchGlobal(apiBase, slug, { draft: hasDrafts }),
     refetchOnWindowFocus: false,
   })
@@ -615,6 +620,7 @@ function GlobalEditor({ global, slug, apiBase }: GlobalEditorProps) {
         global={global}
         currentDoc={globalQuery.data}
         onRestore={(restored) => {
+          queryClient.setQueryData(queryKeys.global(slug), restored)
           reset(formatDocForForm(global.fields, restored))
           setSuccessMsg('Version restored successfully.')
         }}

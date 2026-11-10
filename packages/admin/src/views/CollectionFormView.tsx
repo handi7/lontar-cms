@@ -24,6 +24,7 @@ import {
   deleteDoc,
   unpublishDoc,
   ApiClientError,
+  queryKeys,
 } from '../api/client'
 import { FieldRenderer } from '../fields/FieldRenderer'
 import { FileUploadZone, formatFilesize } from '../fields/FileUploadZone'
@@ -201,6 +202,18 @@ function useDocMutations({
     },
     onSuccess: (savedDoc, variables) => {
       void queryClient.invalidateQueries({ queryKey: [slug] })
+      if (id) {
+        queryClient.setQueryData(
+          queryKeys.document(slug, id, Boolean(collection.versions?.drafts)),
+          savedDoc,
+        )
+        void queryClient.invalidateQueries({
+          queryKey: queryKeys.documentPrefix(slug, id),
+        })
+        void queryClient.invalidateQueries({
+          queryKey: queryKeys.docVersions(apiBase, slug, id),
+        })
+      }
       onSaveSuccess?.()
       if (mode === 'create') {
         void navigate({ to: '/$collection', params: { collection: slug } })
@@ -235,6 +248,18 @@ function useDocMutations({
     },
     onSuccess: (unpublishedDoc) => {
       void queryClient.invalidateQueries({ queryKey: [slug] })
+      if (id) {
+        queryClient.setQueryData(
+          queryKeys.document(slug, id, Boolean(collection.versions?.drafts)),
+          unpublishedDoc,
+        )
+        void queryClient.invalidateQueries({
+          queryKey: queryKeys.documentPrefix(slug, id),
+        })
+        void queryClient.invalidateQueries({
+          queryKey: queryKeys.docVersions(apiBase, slug, id),
+        })
+      }
       setSuccessMsg('Unpublished successfully!')
       reset(formatDocForForm(collection.fields, unpublishedDoc))
     },
@@ -250,6 +275,14 @@ function useDocMutations({
     },
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: [slug] })
+      if (id) {
+        void queryClient.invalidateQueries({
+          queryKey: queryKeys.documentPrefix(slug, id),
+        })
+        void queryClient.invalidateQueries({
+          queryKey: queryKeys.docVersions(apiBase, slug, id),
+        })
+      }
       void navigate({ to: '/$collection', params: { collection: slug } })
     },
     onError: (err: Error) => {
@@ -269,7 +302,7 @@ function useDocumentQuery(
 ) {
   const isEdit = mode === 'edit' && Boolean(slug) && Boolean(id)
   return useQuery({
-    queryKey: [slug, id, hasDrafts ? 'draft' : 'published'],
+    queryKey: slug && id ? queryKeys.document(slug, id, Boolean(hasDrafts)) : ['document'],
     queryFn: () => (slug && id ? fetchDoc(apiBase, slug, id, { draft: hasDrafts }) : null),
     enabled: isEdit,
     refetchOnWindowFocus: false,
@@ -422,6 +455,24 @@ interface UseCollectionAutosaveOptions {
   reset: UseFormReset<Record<string, unknown>>
 }
 
+function isCollectionAutosaveEnabled(
+  mode: 'create' | 'edit',
+  versions?: ClientCollection['versions'],
+  id?: string,
+): boolean {
+  if (mode !== 'edit' || !id) return false
+  return Boolean(versions?.drafts && versions?.autosave)
+}
+
+function buildSidebarAutosaveState(enabled: boolean, autosave: ReturnType<typeof useAutosave>) {
+  if (!enabled) return undefined
+  return {
+    status: autosave.status,
+    lastSavedAt: autosave.lastSavedAt,
+    consecutiveErrors: autosave.consecutiveErrors,
+  }
+}
+
 function useCollectionAutosave({
   collection,
   mode,
@@ -436,11 +487,7 @@ function useCollectionAutosave({
   reset,
 }: UseCollectionAutosaveOptions) {
   const queryClient = useQueryClient()
-  const autosaveEnabled =
-    mode === 'edit' &&
-    Boolean(collection.versions?.drafts) &&
-    Boolean(collection.versions?.autosave) &&
-    Boolean(id)
+  const autosaveEnabled = isCollectionAutosaveEnabled(mode, collection.versions, id)
   const autosaveInterval = collection.versions?.autosave?.interval ?? 2000
 
   const isValid = useMemo(() => {
@@ -462,12 +509,25 @@ function useCollectionAutosave({
   const onSuccess = useCallback(
     (savedDoc: Record<string, unknown>) => {
       reset(formatDocForForm(collection.fields, savedDoc), { keepValues: true })
-      queryClient.setQueryData(['document', apiBase, collection.slug, String(id)], savedDoc)
-      void queryClient.invalidateQueries({
-        queryKey: ['doc-versions', apiBase, collection.slug, id],
-      })
+      if (id) {
+        queryClient.setQueryData(
+          queryKeys.document(collection.slug, id, Boolean(collection.versions?.drafts)),
+          savedDoc,
+        )
+        void queryClient.invalidateQueries({
+          queryKey: queryKeys.docVersions(apiBase, collection.slug, id),
+        })
+      }
     },
-    [apiBase, collection.fields, collection.slug, id, queryClient, reset],
+    [
+      apiBase,
+      collection.fields,
+      collection.slug,
+      collection.versions?.drafts,
+      id,
+      queryClient,
+      reset,
+    ],
   )
 
   const autosave = useAutosave({
@@ -480,13 +540,7 @@ function useCollectionAutosave({
     onSuccess,
   })
 
-  const sidebarAutosave = autosaveEnabled
-    ? {
-        status: autosave.status,
-        lastSavedAt: autosave.lastSavedAt,
-        consecutiveErrors: autosave.consecutiveErrors,
-      }
-    : undefined
+  const sidebarAutosave = buildSidebarAutosaveState(autosaveEnabled, autosave)
 
   return {
     ...autosave,
@@ -585,6 +639,7 @@ export interface CollectionEditorProps {
 
 function CollectionEditor({ collection, mode, id }: CollectionEditorProps) {
   const { apiBase } = useAdmin()
+  const queryClient = useQueryClient()
   const [apiError, setApiError] = useState<string | null>(null)
   const [successMsg, setSuccessMsg] = useState<string | null>(null)
   const [selectedFile, setSelectedFile] = useState<File | null>(null)
@@ -778,6 +833,12 @@ function CollectionEditor({ collection, mode, id }: CollectionEditorProps) {
         collection={collection}
         currentDoc={docQuery.data}
         onRestoreSuccess={(restoredDoc) => {
+          if (id) {
+            queryClient.setQueryData(
+              queryKeys.document(collection.slug, id, Boolean(hasDrafts)),
+              restoredDoc,
+            )
+          }
           reset(formatDocForForm(collection.fields, restoredDoc))
           setSuccessMsg('Version restored successfully!')
         }}
