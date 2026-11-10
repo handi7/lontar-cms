@@ -392,6 +392,59 @@ async function prepareUpdatePayload(
   return { finalData, status, previousStatus, statusTransition, rawHookData: data }
 }
 
+async function resolveUnpublishPendingDraft(
+  txDb: DatabaseAdapter,
+  collection: CollectionConfig,
+  parentId: number,
+  statusTransition?: DocStatusTransition,
+): Promise<DocumentData | null> {
+  if (
+    statusTransition !== 'unpublish' ||
+    !collection.versions?.drafts ||
+    !txDb.findLatestDraftVersion
+  ) {
+    return null
+  }
+  const latestDraft = await txDb.findLatestDraftVersion({ collection, parentId })
+  return latestDraft ? latestDraft.snapshot : null
+}
+
+function resolveHookDoc(doc: DocumentData, pendingDraft: DocumentData | null): DocumentData {
+  return pendingDraft ? { ...pendingDraft, _status: 'draft' } : doc
+}
+
+function formatMutationDoc(
+  doc: DocumentData,
+  hasDrafts: unknown,
+  statusTransition?: DocStatusTransition,
+): DocumentData {
+  if (!hasDrafts) return doc
+  const isPublished = statusTransition === 'unpublish' ? false : doc._status === 'published'
+  return { ...doc, _isPublished: isPublished }
+}
+
+async function syncParentRowVersion(args: {
+  txDb: DatabaseAdapter
+  collection: CollectionConfig
+  parentId: number
+  updated: DocumentData
+  status?: DocStatus
+  autosave?: boolean
+  userId?: string | null
+  pendingDraft: DocumentData | null
+}): Promise<void> {
+  if (args.pendingDraft) return
+  await maybeSaveVersion({
+    txDb: args.txDb,
+    collection: args.collection,
+    parentId: args.parentId,
+    snapshot: args.updated,
+    status: (args.updated._status as DocStatus | undefined) ?? args.status ?? 'published',
+    autosave: args.autosave,
+    userId: args.userId,
+  })
+}
+
 async function handleParentRowUpdate(args: {
   txDb: DatabaseAdapter
   rootDb: DatabaseAdapter
@@ -419,29 +472,38 @@ async function handleParentRowUpdate(args: {
       body: { error: `Document with ID ${args.id} not found` },
     }
   }
-  await maybeSaveVersion({
+  const pendingDraft = await resolveUnpublishPendingDraft(
+    args.txDb,
+    args.collection,
+    args.id,
+    args.statusTransition,
+  )
+
+  await syncParentRowVersion({
     txDb: args.txDb,
     collection: args.collection,
     parentId: args.id,
-    snapshot: updated,
-    status: (updated._status as DocStatus | undefined) ?? args.status ?? 'published',
+    updated,
+    status: args.status,
     autosave: args.autosave,
     userId: args.userId,
+    pendingDraft,
   })
+
+  const docToHook = resolveHookDoc(updated, pendingDraft)
+
   try {
     const doc = await runAfterChangeHooks({
       collection: args.collection,
-      doc: updated,
+      doc: docToHook,
       operation: 'update',
       previousDoc: args.originalDoc,
-      status: (updated._status as DocStatus | undefined) ?? args.status,
+      status: (docToHook._status as DocStatus | undefined) ?? args.status,
       previousStatus: args.previousStatus,
       statusTransition: args.statusTransition,
       req: args.req,
     })
-    const finalDoc = args.collection.versions?.drafts
-      ? { ...doc, _isPublished: doc._status === 'published' }
-      : doc
+    const finalDoc = formatMutationDoc(doc, args.collection.versions?.drafts, args.statusTransition)
     return { success: true, doc: finalDoc, isDraftRevision: false }
   } catch (hookErr) {
     if (!args.rootDb.transaction) {
@@ -720,6 +782,45 @@ async function handleGlobalDraftRevisionUpdate(args: {
   return { success: true, doc: { ...doc, _isPublished: true }, isDraftRevision: true }
 }
 
+async function resolveGlobalUnpublishPendingDraft(
+  txDb: DatabaseAdapter,
+  global: GlobalConfig,
+  parentId: number,
+  statusTransition?: DocStatusTransition,
+): Promise<DocumentData | null> {
+  if (
+    statusTransition !== 'unpublish' ||
+    !global.versions?.drafts ||
+    !txDb.findLatestDraftVersion
+  ) {
+    return null
+  }
+  const latestDraft = await txDb.findLatestDraftVersion({ global, parentId })
+  return latestDraft ? latestDraft.snapshot : null
+}
+
+async function syncGlobalParentRowVersion(args: {
+  txDb: DatabaseAdapter
+  global: GlobalConfig
+  parentId: number
+  saved: DocumentData
+  status?: DocStatus
+  autosave?: boolean
+  userId?: string | null
+  pendingDraft: DocumentData | null
+}): Promise<void> {
+  if (args.pendingDraft) return
+  await maybeSaveGlobalVersion({
+    txDb: args.txDb,
+    global: args.global,
+    parentId: args.parentId,
+    snapshot: args.saved,
+    status: (args.saved._status as DocStatus | undefined) ?? args.status ?? 'published',
+    autosave: args.autosave,
+    userId: args.userId,
+  })
+}
+
 async function handleGlobalParentRowUpdate(args: {
   txDb: DatabaseAdapter
   global: GlobalConfig
@@ -735,28 +836,37 @@ async function handleGlobalParentRowUpdate(args: {
   const operation = args.existing ? 'update' : 'create'
   const saved = await args.txDb.updateGlobal({ global: args.global, data: args.finalData })
   const parentId = Number(saved.id ?? 1)
-  await maybeSaveGlobalVersion({
+  const pendingDraft = await resolveGlobalUnpublishPendingDraft(
+    args.txDb,
+    args.global,
+    parentId,
+    args.statusTransition,
+  )
+
+  await syncGlobalParentRowVersion({
     txDb: args.txDb,
     global: args.global,
     parentId,
-    snapshot: saved,
-    status: (saved._status as DocStatus | undefined) ?? args.status ?? 'published',
+    saved,
+    status: args.status,
     autosave: args.autosave,
     userId: args.userId,
+    pendingDraft,
   })
+
+  const docToHook = resolveHookDoc(saved, pendingDraft)
+
   const doc = await runAfterChangeHooks({
     global: args.global,
-    doc: saved,
+    doc: docToHook,
     operation,
     previousDoc: args.existing ?? undefined,
-    status: (saved._status as DocStatus | undefined) ?? args.status,
+    status: (docToHook._status as DocStatus | undefined) ?? args.status,
     previousStatus: args.previousStatus,
     statusTransition: args.statusTransition,
     req: args.req,
   })
-  const finalDoc = args.global.versions?.drafts
-    ? { ...doc, _isPublished: doc._status === 'published' }
-    : doc
+  const finalDoc = formatMutationDoc(doc, args.global.versions?.drafts, args.statusTransition)
   return { success: true, doc: finalDoc, isDraftRevision: false }
 }
 

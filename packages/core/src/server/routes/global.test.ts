@@ -608,6 +608,36 @@ describe('Draft revisions of a published global', () => {
 
     expect(getStoredGlobal()).toMatchObject({ siteTitle: 'Live', _status: 'published' })
   })
+
+  it('unpublish with a pending draft keeps the draft values in the draft read', async () => {
+    const { lontar, save, read, getStoredGlobal, getVersions } = setup()
+
+    await save('draft=true', 'Draft A')
+    expect(await read('?draft=true')).toBe('Draft A')
+    expect(getStoredGlobal()).toMatchObject({ siteTitle: 'Live', _status: 'published' })
+
+    const unpubRes = await lontar.fetch(
+      new Request('http://localhost/api/globals/settings/unpublish', {
+        method: 'POST',
+      }),
+    )
+    expect(unpubRes.status).toBe(200)
+    const unpubDoc = (await unpubRes.json()) as { siteTitle: string; _status: string }
+    expect(unpubDoc).toMatchObject({ siteTitle: 'Draft A', _status: 'draft' })
+
+    // Stored global in DB is now unpublished (draft)
+    expect(getStoredGlobal()).toMatchObject({ siteTitle: 'Live', _status: 'draft' })
+
+    // Draft read still returns the pending draft "Draft A"
+    expect(await read('?draft=true')).toBe('Draft A')
+
+    // Pending draft was not overwritten by a new draft version of "Live"
+    expect(getVersions()).toHaveLength(1)
+    expect(getVersions()[0]!.snapshot).toMatchObject({ siteTitle: 'Draft A', _status: 'draft' })
+
+    // Public read returns empty object (hidden)
+    expect(await read()).toBeUndefined()
+  })
 })
 
 describe('Version history access on a publicly readable global', () => {

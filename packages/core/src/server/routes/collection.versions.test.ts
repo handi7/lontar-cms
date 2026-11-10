@@ -664,6 +664,33 @@ describe('Draft revisions of a published document', () => {
 
     expect(getDocs()[0]).toMatchObject({ title: 'Live', _status: 'published' })
   })
+
+  it('unpublish with a pending draft keeps the draft values in the draft read', async () => {
+    const { app, patch, getDocs, getVersions } = setup()
+
+    await patch('draft=true', 'Draft A')
+    expect(await readDraftTitle(app)).toBe('Draft A')
+    expect(getDocs()[0]).toMatchObject({ title: 'Live', _status: 'published' })
+
+    const unpublishRes = await app.request('/api/posts/1/unpublish', { method: 'POST' })
+    expect(unpublishRes.status).toBe(200)
+    const unpublishDoc = (await unpublishRes.json()) as StoredDoc
+    expect(unpublishDoc).toMatchObject({ title: 'Draft A', _status: 'draft' })
+
+    // Parent row is unpublished in DB
+    expect(getDocs()[0]).toMatchObject({ title: 'Live', _status: 'draft' })
+
+    // Draft read still returns pending draft "Draft A"
+    expect(await readDraftTitle(app)).toBe('Draft A')
+
+    // Pending draft was not overwritten by a new draft version of "Live"
+    expect(getVersions()).toHaveLength(1)
+    expect(getVersions()[0]!.snapshot).toMatchObject({ title: 'Draft A', _status: 'draft' })
+
+    // Public read returns 404
+    const publicRes = await app.request('/api/posts/1')
+    expect(publicRes.status).toBe(404)
+  })
 })
 
 describe('Version history access on a publicly readable collection', () => {
