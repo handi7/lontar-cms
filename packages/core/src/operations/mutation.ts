@@ -9,7 +9,13 @@ import type { DocStatusTransition } from '../hooks/types'
 import { dispatchWebhooks, type WebhookAction } from '../webhooks'
 
 export type MutationExecutionResult =
-  | { success: true; doc: DocumentData; isDraftRevision?: boolean }
+  | {
+      success: true
+      doc: DocumentData
+      isDraftRevision?: boolean
+      statusTransition?: DocStatusTransition
+      previousStatus?: DocStatus
+    }
   | { success: false; status: 400 | 404; body: { error: string; issues?: unknown[] } }
 
 export function buildRevertData(
@@ -138,6 +144,16 @@ async function prepareCreatePayload(
   return { finalData, status, statusTransition }
 }
 
+function resolveCreateWebhookEvent(
+  entity: CollectionConfig | GlobalConfig,
+  status?: DocStatus,
+): WebhookAction {
+  if (entity.versions?.drafts && status === 'published') {
+    return 'publish'
+  }
+  return 'create'
+}
+
 export async function executeCreate(args: {
   collection: CollectionConfig
   db: DatabaseAdapter
@@ -202,12 +218,14 @@ export async function executeCreate(args: {
   }
 
   if (result.success && !args.autosave) {
+    const docStatus = result.doc._status as DocStatus | undefined
+    const event = resolveCreateWebhookEvent(args.collection, docStatus)
     void dispatchWebhooks({
       config: args.config,
       collection: args.collection,
-      event: 'create',
+      event,
       doc: result.doc,
-      status: result.doc._status as DocStatus | undefined,
+      status: docStatus,
     })
   }
 
@@ -439,10 +457,37 @@ async function handleParentRowUpdate(args: {
   }
 }
 
-function resolveUpdateWebhookEvent(transition?: DocStatusTransition): WebhookAction {
+function resolveUpdateWebhookEvent(
+  transition?: DocStatusTransition,
+  status?: DocStatus,
+): WebhookAction {
   if (transition === 'publish') return 'publish'
   if (transition === 'unpublish') return 'unpublish'
+  if (status === 'published' && transition === 'published') return 'publish'
   return 'update'
+}
+
+function dispatchPostUpdateWebhooks(args: {
+  config?: Config
+  collection: CollectionConfig
+  result: Extract<MutationExecutionResult, { success: true }>
+  originalDoc: DocumentData
+  fallbackTransition?: DocStatusTransition
+}): void {
+  const statusTransition = args.result.statusTransition ?? args.fallbackTransition
+  const previousStatus =
+    args.result.previousStatus ?? (args.originalDoc._status as DocStatus | undefined)
+  const docStatus = args.result.doc._status as DocStatus | undefined
+  const event = resolveUpdateWebhookEvent(statusTransition, docStatus)
+  void dispatchWebhooks({
+    config: args.config,
+    collection: args.collection,
+    event,
+    doc: args.result.doc,
+    previousDoc: args.originalDoc,
+    status: docStatus,
+    previousStatus,
+  })
 }
 
 export async function executeUpdate(args: {
@@ -464,36 +509,48 @@ export async function executeUpdate(args: {
     const { finalData, status, previousStatus, statusTransition, rawHookData } =
       await prepareUpdatePayload(args.collection, clientCol, args)
 
-    if (isDraftRevisionOfPublished(args.collection, args.originalDoc, status, statusTransition)) {
-      return handleDraftRevisionUpdate({
-        txDb,
-        collection: args.collection,
-        id: args.id,
-        originalDoc: args.originalDoc,
-        finalData,
-        previousStatus,
-        statusTransition,
-        autosave: args.autosave,
-        userId: args.userId,
-        req: args.req,
-      })
-    }
-
-    return handleParentRowUpdate({
-      txDb,
-      rootDb: args.db,
-      collection: args.collection,
-      id: args.id,
-      finalData,
-      originalDoc: args.originalDoc,
-      rawHookData,
+    const execResult = isDraftRevisionOfPublished(
+      args.collection,
+      args.originalDoc,
       status,
-      previousStatus,
       statusTransition,
-      autosave: args.autosave,
-      userId: args.userId,
-      req: args.req,
-    })
+    )
+      ? await handleDraftRevisionUpdate({
+          txDb,
+          collection: args.collection,
+          id: args.id,
+          originalDoc: args.originalDoc,
+          finalData,
+          previousStatus,
+          statusTransition,
+          autosave: args.autosave,
+          userId: args.userId,
+          req: args.req,
+        })
+      : await handleParentRowUpdate({
+          txDb,
+          rootDb: args.db,
+          collection: args.collection,
+          id: args.id,
+          finalData,
+          originalDoc: args.originalDoc,
+          rawHookData,
+          status,
+          previousStatus,
+          statusTransition,
+          autosave: args.autosave,
+          userId: args.userId,
+          req: args.req,
+        })
+
+    if (execResult.success) {
+      return {
+        ...execResult,
+        statusTransition,
+        previousStatus,
+      }
+    }
+    return execResult
   }
 
   let result: MutationExecutionResult
@@ -511,15 +568,12 @@ export async function executeUpdate(args: {
   }
 
   if (result.success && !args.autosave) {
-    const event = resolveUpdateWebhookEvent(args.statusTransition)
-    void dispatchWebhooks({
+    dispatchPostUpdateWebhooks({
       config: args.config,
       collection: args.collection,
-      event,
-      doc: result.doc,
-      previousDoc: args.originalDoc,
-      status: result.doc._status as DocStatus | undefined,
-      previousStatus: args.originalDoc._status as DocStatus | undefined,
+      result,
+      originalDoc: args.originalDoc,
+      fallbackTransition: args.statusTransition,
     })
   }
 
@@ -706,6 +760,51 @@ async function handleGlobalParentRowUpdate(args: {
   return { success: true, doc: finalDoc, isDraftRevision: false }
 }
 
+function resolveGlobalWebhookEvent(
+  global: GlobalConfig,
+  isExisting: boolean,
+  transition?: DocStatusTransition,
+  status?: DocStatus,
+): WebhookAction {
+  const defaultEvent: WebhookAction = isExisting ? 'update' : 'create'
+  if (!global.versions?.drafts) {
+    return defaultEvent
+  }
+  if (!isExisting) {
+    return resolveCreateWebhookEvent(global, status)
+  }
+  return resolveUpdateWebhookEvent(transition, status)
+}
+
+function dispatchPostGlobalWebhooks(args: {
+  config?: Config
+  global: GlobalConfig
+  result: Extract<MutationExecutionResult, { success: true }>
+  existing: DocumentData | null
+  statusTransition?: DocStatusTransition
+  previousStatus?: DocStatus
+}): void {
+  const isExisting = Boolean(args.existing)
+  const statusTransition = args.result.statusTransition ?? args.statusTransition
+  const previousStatus =
+    args.result.previousStatus ??
+    args.previousStatus ??
+    (args.existing?._status as DocStatus | undefined) ??
+    (isExisting ? 'published' : undefined)
+  const docStatus = args.result.doc._status as DocStatus | undefined
+  const event = resolveGlobalWebhookEvent(args.global, isExisting, statusTransition, docStatus)
+
+  void dispatchWebhooks({
+    config: args.config,
+    global: args.global,
+    event,
+    doc: args.result.doc,
+    previousDoc: args.existing ?? undefined,
+    status: docStatus,
+    previousStatus,
+  })
+}
+
 export async function executeGlobalUpdate(args: {
   global: GlobalConfig
   db: DatabaseAdapter
@@ -739,32 +838,44 @@ export async function executeGlobalUpdate(args: {
       statusTransition,
     })
 
-    if (isGlobalDraftRevisionOfPublished(args.global, args.existing, status, statusTransition)) {
-      return handleGlobalDraftRevisionUpdate({
-        txDb,
-        global: args.global,
-        existing: args.existing,
-        finalData,
-        previousStatus,
-        statusTransition,
-        autosave: args.autosave,
-        userId: args.userId,
-        req: args.req,
-      })
-    }
-
-    return handleGlobalParentRowUpdate({
-      txDb,
-      global: args.global,
-      existing: args.existing,
-      finalData,
+    const execResult = isGlobalDraftRevisionOfPublished(
+      args.global,
+      args.existing,
       status,
-      previousStatus,
       statusTransition,
-      autosave: args.autosave,
-      userId: args.userId,
-      req: args.req,
-    })
+    )
+      ? await handleGlobalDraftRevisionUpdate({
+          txDb,
+          global: args.global,
+          existing: args.existing,
+          finalData,
+          previousStatus,
+          statusTransition,
+          autosave: args.autosave,
+          userId: args.userId,
+          req: args.req,
+        })
+      : await handleGlobalParentRowUpdate({
+          txDb,
+          global: args.global,
+          existing: args.existing,
+          finalData,
+          status,
+          previousStatus,
+          statusTransition,
+          autosave: args.autosave,
+          userId: args.userId,
+          req: args.req,
+        })
+
+    if (execResult.success) {
+      return {
+        ...execResult,
+        statusTransition,
+        previousStatus,
+      }
+    }
+    return execResult
   }
 
   let result: MutationExecutionResult
@@ -782,15 +893,13 @@ export async function executeGlobalUpdate(args: {
   }
 
   if (result.success && !args.autosave) {
-    const defaultEvent = args.existing ? 'update' : 'create'
-    const event = statusTransition === 'publish' ? 'publish' : defaultEvent
-    void dispatchWebhooks({
+    dispatchPostGlobalWebhooks({
       config: args.config,
       global: args.global,
-      event,
-      doc: result.doc,
-      previousDoc: args.existing ?? undefined,
-      status: result.doc._status as DocStatus | undefined,
+      result,
+      existing: args.existing,
+      statusTransition,
+      previousStatus,
     })
   }
 

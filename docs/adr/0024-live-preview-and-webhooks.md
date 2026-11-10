@@ -218,6 +218,12 @@ Per ADR 0023 §8, `statusTransition` is explicitly defined:
   - If the webhook is subscribed to `events: ['publish']`, **no webhook is sent**.
   - If the webhook is subscribed to `events: ['update']` or `events: ['change']`, the webhook fires with `"event": "update"` and `"status": "draft"`.
 - This ensures production static site rebuilds and public cache invalidations only trigger when content is truly published or unpublished.
+- **Create-as-published and published edits**:
+  - Creating a document or global directly as published (in collections/globals with drafts enabled when `draft: false` or omitted) emits `"event": "publish"` (`status: "published"`).
+  - Editing and saving changes to an already-published document or global (`draft: false`) emits `"event": "publish"` (`status: "published"`, `"previousStatus": "published"`).
+  - Unpublishing a document or global emits `"event": "unpublish"` (`status: "draft"`, `"previousStatus": "published"`).
+  - This ensures static site rebuilds and on-demand cache invalidation (subscribing to `events: ['publish', 'unpublish', 'delete']`) receive notifications on every change to live content, whether initially created, republished, or unpublished.
+  - In collections and globals where drafts are not enabled, creates emit `"event": "create"` and updates emit `"event": "update"`.
 
 ---
 
