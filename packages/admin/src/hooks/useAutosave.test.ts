@@ -163,12 +163,55 @@ describe('useAutosave hook', () => {
 
     act(() => {
       vi.advanceTimersByTime(500)
-      result.current.cancelAutosave()
+      void result.current.cancelAutosave()
       vi.advanceTimersByTime(1000)
     })
 
     expect(result.current.status).toBe('idle')
     expect(onSave).not.toHaveBeenCalled()
+  })
+
+  it('awaits in-flight onSave when cancelAutosave is called (#245)', async () => {
+    let resolveSave: ((val: Record<string, unknown>) => void) | null = null
+    const onSave = vi.fn().mockImplementation(
+      () =>
+        new Promise<Record<string, unknown>>((resolve) => {
+          resolveSave = resolve
+        }),
+    )
+
+    const { result } = renderHook(() =>
+      useAutosave({
+        enabled: true,
+        interval: 1000,
+        isDirty: true,
+        isValid: true,
+        onSave,
+      }),
+    )
+
+    // Trigger autosave
+    act(() => {
+      vi.advanceTimersByTime(1000)
+    })
+    expect(result.current.status).toBe('saving')
+
+    let cancelled = false
+    const cancelPromise = result.current.cancelAutosave().then(() => {
+      cancelled = true
+    })
+
+    // Before resolving save, cancelAutosave is still awaiting in-flight save
+    expect(cancelled).toBe(false)
+
+    // Resolve in-flight save
+    await act(async () => {
+      resolveSave?.({ id: 1 })
+      await cancelPromise
+    })
+
+    expect(cancelled).toBe(true)
+    expect(result.current.status).toBe('idle')
   })
 
   it('executes multiple autosave requests for successive value edits across intervals (#232)', async () => {

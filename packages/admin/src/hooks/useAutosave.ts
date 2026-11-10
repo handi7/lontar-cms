@@ -16,7 +16,7 @@ export interface UseAutosaveReturn {
   lastSavedAt: Date | null
   errorMessage: string | null
   consecutiveErrors: number
-  cancelAutosave: () => void
+  cancelAutosave: () => Promise<void>
 }
 
 function serializeValues(val: unknown): string {
@@ -74,6 +74,7 @@ export function useAutosave({
 
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const inFlightRef = useRef(false)
+  const inFlightPromiseRef = useRef<Promise<Record<string, unknown>> | null>(null)
   const pendingSaveRef = useRef(false)
   const cancelledRef = useRef(false)
   const onSaveRef = useRef(onSave)
@@ -92,10 +93,18 @@ export function useAutosave({
     }
   }, [])
 
-  const cancelAutosave = useCallback(() => {
+  const cancelAutosave = useCallback(async () => {
     clearTimer()
     cancelledRef.current = true
     pendingSaveRef.current = false
+    const promise = inFlightPromiseRef.current
+    if (promise) {
+      try {
+        await promise
+      } catch {
+        // ignore in-flight error during cancel
+      }
+    }
     lastSavedValuesRef.current = null
     setStatus('idle')
     setConsecutiveErrors(0)
@@ -124,7 +133,9 @@ export function useAutosave({
     }
 
     try {
-      const savedDoc = await onSaveRef.current()
+      const savePromise = onSaveRef.current()
+      inFlightPromiseRef.current = savePromise
+      const savedDoc = await savePromise
       if (cancelledRef.current) return
       handleSaveSuccess(savedDoc, stateRef.current.values, onSuccessRef.current, ctx)
     } catch (err) {
@@ -137,6 +148,7 @@ export function useAutosave({
       }, stateRef.current.interval)
     } finally {
       inFlightRef.current = false
+      inFlightPromiseRef.current = null
       if (pendingSaveRef.current && !cancelledRef.current) {
         pendingSaveRef.current = false
         clearTimer()

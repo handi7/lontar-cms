@@ -171,6 +171,8 @@ function createVersionsMockAdapter(initialDocs: StoredDoc[] = []) {
     adapter,
     getDocs: () => docs,
     getVersions: () => versions,
+    mockFind,
+    mockFindByID,
     mockSaveVersion,
     mockFindVersions,
     mockFindVersionByID,
@@ -639,6 +641,30 @@ describe('Draft revisions of a published document', () => {
     expect(res.status).toBe(200)
 
     expect(getDocs()[0]).toMatchObject({ title: 'Draft B', _status: 'published' })
+  })
+
+  it('locks row with forUpdate and reads latest draft within the transaction when publishing (#245)', async () => {
+    const { app, patch, mockFindByID, mockFindLatestDraftVersion } = setup()
+
+    await patch('draft=true', 'Draft to Publish')
+    mockFindByID.mockClear()
+    mockFindLatestDraftVersion.mockClear()
+
+    const res = await app.request('/api/posts/1/publish', { method: 'POST' })
+    expect(res.status).toBe(200)
+
+    expect(mockFindByID).toHaveBeenCalledWith(
+      expect.objectContaining({
+        id: 1,
+        forUpdate: true,
+      }),
+    )
+
+    expect(mockFindLatestDraftVersion).toHaveBeenCalledWith(
+      expect.objectContaining({
+        parentId: 1,
+      }),
+    )
   })
 
   it('returns 400 and leaves the parent row unchanged when publishing an invalid draft snapshot', async () => {

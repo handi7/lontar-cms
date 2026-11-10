@@ -397,7 +397,7 @@ interface UseCollectionFormSubmitOptions {
     variables: { data: Record<string, unknown> | FormData; draft?: boolean } | undefined
   }
   handleSubmit: UseFormHandleSubmit<Record<string, unknown>>
-  onBeforeSubmit?: () => void
+  onBeforeSubmit?: () => Promise<void> | void
 }
 
 function useCollectionFormSubmit({
@@ -411,8 +411,8 @@ function useCollectionFormSubmit({
   onBeforeSubmit,
 }: UseCollectionFormSubmitOptions) {
   const submitWithDraft = (draft: boolean) => {
-    onBeforeSubmit?.()
-    void handleSubmit((v) => {
+    void handleSubmit(async (v) => {
+      await onBeforeSubmit?.()
       const payload = formatDocForSubmit(collection.fields, v)
       if (!collection.upload) {
         saveMutation.mutate({ data: payload, draft: hasDrafts ? draft : undefined })
@@ -708,7 +708,7 @@ function CollectionEditor({ collection, mode, id }: CollectionEditorProps) {
     setApiError,
     setSuccessMsg,
     onSaveSuccess: () => {
-      autosave.cancelAutosave()
+      void autosave.cancelAutosave()
       setSelectedFile(null)
       setFileError(null)
     },
@@ -809,7 +809,12 @@ function CollectionEditor({ collection, mode, id }: CollectionEditorProps) {
               autosave={autosave.sidebarAutosave}
               onPublish={onPublish}
               onSaveDraft={onSaveDraft}
-              onUnpublish={() => unpublishMutation.mutate()}
+              onUnpublish={() => {
+                void (async () => {
+                  await autosave.cancelAutosave()
+                  unpublishMutation.mutate()
+                })()
+              }}
               isPublishing={isPublishing}
               isSavingDraft={isSavingDraft}
               isUnpublishing={unpublishMutation.isPending}

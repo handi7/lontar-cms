@@ -1095,12 +1095,13 @@ async function findDocByID(
   caches: AdapterCaches,
   collection: CollectionConfig,
   id: number,
+  forUpdate?: boolean,
 ): Promise<StoredDoc | null> {
   try {
     const table = getTable(caches, collection)
-    const [row] = (await executor.select().from(table).where(eq(table.id, id)).limit(1)) as [
-      Record<string, unknown> | undefined,
-    ]
+    const baseQuery = executor.select().from(table).where(eq(table.id, id)).limit(1)
+    const query = forUpdate ? baseQuery.for('update') : baseQuery
+    const [row] = (await query) as [Record<string, unknown> | undefined]
     if (!row) return null
     const doc = toStoredDoc(row, collection.fields)
     await populateHasManyRelations(executor, caches, collection, [doc])
@@ -1143,7 +1144,7 @@ async function updateDoc(
 ): Promise<StoredDoc | null> {
   try {
     return await executor.transaction(async (tx) => {
-      const existing = await findDocByID(tx, caches, collection, id)
+      const existing = await findDocByID(tx, caches, collection, id, true)
       if (!existing) return null
 
       const table = getTable(caches, collection)
@@ -1263,12 +1264,13 @@ async function findGlobalDoc(
   executor: DbExecutor,
   caches: AdapterCaches,
   global: GlobalConfig,
+  forUpdate?: boolean,
 ): Promise<StoredDoc | null> {
   try {
     const table = getGlobalTable(caches, global)
-    const [row] = (await executor.select().from(table).limit(1)) as [
-      Record<string, unknown> | undefined,
-    ]
+    const baseQuery = executor.select().from(table).limit(1)
+    const query = forUpdate ? baseQuery.for('update') : baseQuery
+    const [row] = (await query) as [Record<string, unknown> | undefined]
     return row ? toStoredDoc(row, global.fields) : null
   } catch (err) {
     handleDatabaseError(err, toErrorContext(global))
@@ -1284,7 +1286,7 @@ async function updateGlobalDoc(
   try {
     return await executor.transaction(async (tx) => {
       const table = getGlobalTable(caches, global)
-      const existing = await findGlobalDoc(tx, caches, global)
+      const existing = await findGlobalDoc(tx, caches, global, true)
       const values = sanitizeData(global, data)
 
       if (existing) {
@@ -1581,11 +1583,12 @@ function createDatabaseOperations(
     name: 'mysql',
     authAdapter,
     find: (args) => findDocs(executor, caches, args),
-    findByID: ({ collection, id }) => findDocByID(executor, caches, collection, id),
+    findByID: ({ collection, id, forUpdate }) =>
+      findDocByID(executor, caches, collection, id, forUpdate),
     create: ({ collection, data }) => createDoc(executor, caches, collection, data),
     update: ({ collection, id, data }) => updateDoc(executor, caches, collection, id, data),
     delete: ({ collection, id }) => removeDoc(executor, caches, collection, id),
-    findGlobal: ({ global }) => findGlobalDoc(executor, caches, global),
+    findGlobal: ({ global, forUpdate }) => findGlobalDoc(executor, caches, global, forUpdate),
     updateGlobal: ({ global, data }) => updateGlobalDoc(executor, caches, global, data),
     saveVersion: (args) => saveVersion(executor, caches, args),
     findVersions: (args) => findVersions(executor, caches, args),
