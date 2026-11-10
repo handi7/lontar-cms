@@ -132,6 +132,8 @@ The lifecycle proceeds as follows:
    - A new version row is recorded in `posts_versions` with `_status = 'published'`.
 5. **Unpublishing**:
    - The parent table row has its `_status` changed to `'draft'`. Public queries immediately exclude it from results.
+   - If a pending draft revision already exists in `_versions`, it remains the latest draft. Unpublishing does not overwrite or hide the pending draft behind a new draft version of the former published content. Subsequent draft reads (`?draft=true`) and the admin edit form continue to show the pending draft, while public reads (`draft: false`) exclude the document.
+   - If no pending draft exists when unpublishing, a draft version is recorded for the unpublish event so the document's draft state is tracked in version history.
 
 #### Why this model wins for read performance
 
