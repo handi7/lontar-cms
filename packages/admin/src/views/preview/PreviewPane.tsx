@@ -37,7 +37,7 @@ function PreviewHeader({ preset, onSelectPreset, onReload, onClose, url }: Previ
           title="Desktop view (100%)"
         >
           <Monitor className="lt:size-3.5" />
-          <span className="lt:hidden sm:lt:inline">Desktop</span>
+          <span className="lt:hidden lt:sm:inline">Desktop</span>
         </Button>
         <Button
           type="button"
@@ -48,7 +48,7 @@ function PreviewHeader({ preset, onSelectPreset, onReload, onClose, url }: Previ
           title="Tablet view (768px)"
         >
           <Tablet className="lt:size-3.5" />
-          <span className="lt:hidden sm:lt:inline">Tablet</span>
+          <span className="lt:hidden lt:sm:inline">Tablet</span>
         </Button>
         <Button
           type="button"
@@ -59,7 +59,7 @@ function PreviewHeader({ preset, onSelectPreset, onReload, onClose, url }: Previ
           title="Mobile view (375px)"
         >
           <Smartphone className="lt:size-3.5" />
-          <span className="lt:hidden sm:lt:inline">Mobile</span>
+          <span className="lt:hidden lt:sm:inline">Mobile</span>
         </Button>
       </div>
 

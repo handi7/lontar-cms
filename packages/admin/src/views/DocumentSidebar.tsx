@@ -295,7 +295,7 @@ export function DocumentSidebar(props: DocumentSidebarProps) {
   return (
     <aside
       aria-label="Document sidebar"
-      className="lt:w-full lg:lt:w-[300px] lt:shrink-0 lt:order-first lg:lt:order-none lg:lt:sticky lg:lt:top-8 lt:flex lt:flex-col lt:gap-4"
+      className="lt:w-full lt:lg:w-[300px] lt:shrink-0 lt:order-first lt:lg:order-none lt:lg:sticky lt:lg:top-8 lt:flex lt:flex-col lt:gap-4"
     >
       <Card className="lt:p-5 lt:shadow-none lt:flex lt:flex-col lt:gap-4">
         {props.hasDrafts && (
