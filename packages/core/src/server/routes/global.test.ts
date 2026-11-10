@@ -1,7 +1,12 @@
 import { describe, expect, it, vi } from 'vitest'
 import { defineConfig } from '../../config/define-config'
 import { global } from '../../config/global'
-import type { DatabaseAdapter, StoredDoc } from '../../database/adapter'
+import type {
+  DatabaseAdapter,
+  SaveVersionArgs,
+  StoredDoc,
+  StoredVersion,
+} from '../../database/adapter'
 import { fields as f } from '../../fields'
 import type {
   AfterChangeHook,
@@ -13,6 +18,7 @@ import { createLontar } from '../create-lontar'
 
 function createMockAdapter() {
   let storedGlobal: StoredDoc | null = null
+  const storedVersions: StoredVersion[] = []
 
   const mockFind = vi.fn().mockResolvedValue({
     docs: [],
@@ -45,6 +51,42 @@ function createMockAdapter() {
       return Promise.resolve(storedGlobal)
     })
 
+  const mockSaveVersion = vi.fn().mockImplementation((args: SaveVersionArgs) => {
+    const nextNum = storedVersions.length + 1
+    const version: StoredVersion = {
+      id: nextNum,
+      parentId: args.parentId ?? 1,
+      versionNumber: nextNum,
+      snapshot: args.snapshot,
+      _status: args.status,
+      autosave: Boolean(args.autosave),
+      createdAt: '2026-11-01T02:00:00.000Z',
+      createdBy: args.userId ?? null,
+    }
+    storedVersions.unshift(version)
+    return Promise.resolve(version)
+  })
+
+  const mockFindVersions = vi.fn().mockImplementation(() => {
+    return Promise.resolve({
+      docs: storedVersions,
+      totalDocs: storedVersions.length,
+      limit: 10,
+      page: 1,
+      totalPages: 1,
+    })
+  })
+
+  const mockFindVersionByID = vi.fn().mockImplementation(({ versionId }: { versionId: number }) => {
+    const found = storedVersions.find((v) => v.id === versionId) ?? null
+    return Promise.resolve(found)
+  })
+
+  const mockFindLatestDraftVersion = vi.fn().mockImplementation(() => {
+    const found = storedVersions.find((v) => v._status === 'draft') ?? null
+    return Promise.resolve(found)
+  })
+
   const db: DatabaseAdapter = {
     name: 'mock',
     find: mockFind,
@@ -54,6 +96,10 @@ function createMockAdapter() {
     delete: mockDelete,
     findGlobal: mockFindGlobal,
     updateGlobal: mockUpdateGlobal,
+    saveVersion: mockSaveVersion,
+    findVersions: mockFindVersions,
+    findVersionByID: mockFindVersionByID,
+    findLatestDraftVersion: mockFindLatestDraftVersion,
     toSchemaFile: mockToSchemaFile,
     migrate: mockMigrate,
   }
@@ -320,5 +366,119 @@ describe('Global REST Routes', () => {
     expect(res.status).toBe(200)
     const json = (await res.json()) as { siteTitle: string }
     expect(json.siteTitle).toBe('Clean Site Title')
+  })
+
+  it('supports drafts and version history endpoints for versioned global', async () => {
+    const { db } = createMockAdapter()
+    const lontar = createLontar(
+      defineConfig({
+        secret: 'test-secret',
+        db,
+        collections: [],
+        globals: [
+          global({
+            slug: 'settings',
+            access: { read: () => true, update: () => true },
+            versions: { drafts: true },
+            fields: { siteTitle: f.text({ required: true }) },
+          }),
+        ],
+      }),
+    )
+
+    // 1. Initial save as published
+    const publishRes = await lontar.fetch(
+      new Request('http://localhost/api/globals/settings', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ siteTitle: 'Live Site Title' }),
+      }),
+    )
+    expect(publishRes.status).toBe(200)
+    const publishedDoc = (await publishRes.json()) as { siteTitle: string; _status: string }
+    expect(publishedDoc.siteTitle).toBe('Live Site Title')
+    expect(publishedDoc._status).toBe('published')
+
+    // 2. Save a draft revision (does not overwrite published doc in database)
+    const draftRes = await lontar.fetch(
+      new Request('http://localhost/api/globals/settings?draft=true', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ siteTitle: 'Draft WIP Site Title' }),
+      }),
+    )
+    expect(draftRes.status).toBe(200)
+    const draftDoc = (await draftRes.json()) as { siteTitle: string; _status: string }
+    expect(draftDoc.siteTitle).toBe('Draft WIP Site Title')
+    expect(draftDoc._status).toBe('draft')
+
+    // 3. GET /globals/settings returns published doc
+    const getPublishedRes = await lontar.fetch(new Request('http://localhost/api/globals/settings'))
+    expect(getPublishedRes.status).toBe(200)
+    const getPublishedDoc = (await getPublishedRes.json()) as { siteTitle: string }
+    expect(getPublishedDoc.siteTitle).toBe('Live Site Title')
+
+    // 4. GET /globals/settings?draft=true returns latest draft
+    const getDraftRes = await lontar.fetch(
+      new Request('http://localhost/api/globals/settings?draft=true'),
+    )
+    expect(getDraftRes.status).toBe(200)
+    const getDraftDoc = (await getDraftRes.json()) as { siteTitle: string }
+    expect(getDraftDoc.siteTitle).toBe('Draft WIP Site Title')
+
+    // 5. GET /globals/settings/versions returns versions list
+    const versionsRes = await lontar.fetch(
+      new Request('http://localhost/api/globals/settings/versions'),
+    )
+    expect(versionsRes.status).toBe(200)
+    const versionsJson = (await versionsRes.json()) as {
+      docs: Array<{ id: number; snapshot: { siteTitle: string } }>
+    }
+    expect(versionsJson.docs.length).toBeGreaterThanOrEqual(2)
+
+    // 6. GET /globals/settings/versions/:versionId returns single version
+    const version1Id = versionsJson.docs[versionsJson.docs.length - 1]!.id
+    const singleVersionRes = await lontar.fetch(
+      new Request(`http://localhost/api/globals/settings/versions/${version1Id}`),
+    )
+    expect(singleVersionRes.status).toBe(200)
+    const singleVersionJson = (await singleVersionRes.json()) as {
+      snapshot: { siteTitle: string }
+    }
+    expect(singleVersionJson.snapshot.siteTitle).toBe('Live Site Title')
+
+    // 7. POST /globals/settings/publish publishes the latest draft
+    const publishDraftRes = await lontar.fetch(
+      new Request('http://localhost/api/globals/settings/publish', {
+        method: 'POST',
+      }),
+    )
+    expect(publishDraftRes.status).toBe(200)
+    const publishedDraftDoc = (await publishDraftRes.json()) as {
+      siteTitle: string
+      _status: string
+    }
+    expect(publishedDraftDoc.siteTitle).toBe('Draft WIP Site Title')
+    expect(publishedDraftDoc._status).toBe('published')
+
+    // 8. POST /globals/settings/unpublish unpublishes
+    const unpublishRes = await lontar.fetch(
+      new Request('http://localhost/api/globals/settings/unpublish', {
+        method: 'POST',
+      }),
+    )
+    expect(unpublishRes.status).toBe(200)
+    const unpublishedDoc = (await unpublishRes.json()) as { _status: string }
+    expect(unpublishedDoc._status).toBe('draft')
+
+    // 9. POST /globals/settings/versions/:versionId/restore restores an older version
+    const restoreRes = await lontar.fetch(
+      new Request(`http://localhost/api/globals/settings/versions/${version1Id}/restore`, {
+        method: 'POST',
+      }),
+    )
+    expect(restoreRes.status).toBe(200)
+    const restoredDoc = (await restoreRes.json()) as { siteTitle: string }
+    expect(restoredDoc.siteTitle).toBe('Live Site Title')
   })
 })

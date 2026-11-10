@@ -366,9 +366,14 @@ export async function restoreDocVersion(
   return handleResponse<Record<string, unknown>>(res)
 }
 
-export async function fetchGlobal(apiBase: string, slug: string): Promise<Record<string, unknown>> {
+export async function fetchGlobal(
+  apiBase: string,
+  slug: string,
+  options?: { draft?: boolean },
+): Promise<Record<string, unknown>> {
   const base = apiBase.replace(/\/+$/, '')
-  const res = await fetch(`${base}/globals/${slug}`, { credentials: 'include' })
+  const query = options?.draft ? '?draft=true' : ''
+  const res = await fetch(`${base}/globals/${slug}${query}`, { credentials: 'include' })
   return handleResponse<Record<string, unknown>>(res)
 }
 
@@ -376,13 +381,73 @@ export async function saveGlobal(
   apiBase: string,
   slug: string,
   data: Record<string, unknown>,
+  options?: { draft?: boolean; autosave?: boolean },
 ): Promise<Record<string, unknown>> {
   const base = apiBase.replace(/\/+$/, '')
-  const res = await fetch(`${base}/globals/${slug}`, {
+  const params = new URLSearchParams()
+  if (options?.draft) params.set('draft', 'true')
+  if (options?.autosave) params.set('autosave', 'true')
+  const query = params.toString() ? `?${params.toString()}` : ''
+  const res = await fetch(`${base}/globals/${slug}${query}`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     credentials: 'include',
     body: JSON.stringify(data),
+  })
+  return handleResponse<Record<string, unknown>>(res)
+}
+
+export async function publishGlobal(
+  apiBase: string,
+  slug: string,
+): Promise<Record<string, unknown>> {
+  const base = apiBase.replace(/\/+$/, '')
+  const res = await fetch(`${base}/globals/${slug}/publish`, {
+    method: 'POST',
+    credentials: 'include',
+  })
+  return handleResponse<Record<string, unknown>>(res)
+}
+
+export async function unpublishGlobal(
+  apiBase: string,
+  slug: string,
+): Promise<Record<string, unknown>> {
+  const base = apiBase.replace(/\/+$/, '')
+  const res = await fetch(`${base}/globals/${slug}/unpublish`, {
+    method: 'POST',
+    credentials: 'include',
+  })
+  return handleResponse<Record<string, unknown>>(res)
+}
+
+export async function fetchGlobalVersions(
+  apiBase: string,
+  slug: string,
+  options?: { page?: number; limit?: number; sort?: string },
+): Promise<ClientPaginatedVersions> {
+  const base = apiBase.replace(/\/+$/, '')
+  const params = new URLSearchParams()
+  if (options?.page) params.set('page', String(options.page))
+  if (options?.limit) params.set('limit', String(options.limit))
+  if (options?.sort) params.set('sort', options.sort)
+  const query = params.toString() ? `?${params.toString()}` : ''
+  const res = await fetch(`${base}/globals/${slug}/versions${query}`, { credentials: 'include' })
+  return handleResponse<ClientPaginatedVersions>(res)
+}
+
+export async function restoreGlobalVersion(
+  apiBase: string,
+  slug: string,
+  versionId: number,
+  options?: { draft?: boolean },
+): Promise<Record<string, unknown>> {
+  const base = apiBase.replace(/\/+$/, '')
+  const query = options?.draft !== undefined ? `?draft=${options.draft}` : ''
+  const res = await fetch(`${base}/globals/${slug}/versions/${versionId}/restore${query}`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    credentials: 'include',
   })
   return handleResponse<Record<string, unknown>>(res)
 }

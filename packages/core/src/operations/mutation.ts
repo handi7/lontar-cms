@@ -2,7 +2,7 @@ import { sanitizeConditionalFields } from '../client/condition'
 import type { DocStatus } from '../client/system-fields'
 import { toClientCollection, toClientGlobal } from '../config/to-client-config'
 import type { CollectionConfig, Config, GlobalConfig } from '../config/types'
-import type { DatabaseAdapter, DocumentData, StoredDoc } from '../database/adapter'
+import type { DatabaseAdapter, DocumentData } from '../database/adapter'
 import { formatUniqueConstraintError, UniqueConstraintError } from '../database/errors'
 import { runAfterChangeHooks, runBeforeChangeHooks } from '../hooks'
 import type { DocStatusTransition } from '../hooks/types'
@@ -492,43 +492,251 @@ export async function executeUpdate(args: {
   return result
 }
 
+async function maybeSaveGlobalVersion(args: {
+  txDb: DatabaseAdapter
+  global: GlobalConfig
+  parentId: number
+  snapshot: DocumentData
+  status: DocStatus
+  autosave?: boolean
+  userId?: string | null
+}): Promise<void> {
+  if (!args.global.versions || !args.txDb.saveVersion) return
+  await args.txDb.saveVersion({
+    global: args.global,
+    parentId: args.parentId,
+    snapshot: args.snapshot,
+    status: args.status,
+    autosave: args.autosave,
+    userId: args.userId,
+  })
+}
+
+function isGlobalDraftRevisionOfPublished(
+  global: GlobalConfig,
+  originalDoc: DocumentData | null,
+  status?: DocStatus,
+  statusTransition?: DocStatusTransition,
+): boolean {
+  return Boolean(
+    global.versions?.drafts &&
+    originalDoc &&
+    originalDoc._status === 'published' &&
+    status === 'draft' &&
+    statusTransition !== 'unpublish',
+  )
+}
+
+export function resolveGlobalUpdateStatus(args: {
+  global: GlobalConfig
+  data: DocumentData
+  originalDoc?: DocumentData | null
+  draft?: boolean
+  status?: DocStatus
+  statusTransition?: DocStatusTransition
+}): {
+  status: DocStatus | undefined
+  previousStatus: DocStatus | undefined
+  statusTransition: DocStatusTransition | undefined
+} {
+  if (!args.global.versions?.drafts) {
+    return { status: undefined, previousStatus: undefined, statusTransition: undefined }
+  }
+  const previousStatus = (args.originalDoc?._status as DocStatus | undefined) ?? 'published'
+  const fallback = args.draft !== undefined ? (args.draft ? 'draft' : 'published') : previousStatus
+  const status = args.status ?? (args.data._status as DocStatus | undefined) ?? fallback
+  const statusTransition = resolveUpdateStatusTransition(
+    previousStatus,
+    status,
+    args.statusTransition,
+  )
+  return { status, previousStatus, statusTransition }
+}
+
+function applyGlobalStatus(
+  global: GlobalConfig,
+  target: DocumentData,
+  status?: DocStatus,
+  fallback?: DocStatus,
+): void {
+  if (global.versions?.drafts && status !== undefined) {
+    target._status = fallback ?? status
+  }
+}
+
+async function prepareGlobalPayload(
+  global: GlobalConfig,
+  clientGlobal: ReturnType<typeof toClientGlobal>,
+  args: {
+    data: DocumentData
+    existing?: DocumentData | null
+    req?: Request
+    status?: DocStatus
+    previousStatus?: DocStatus
+    statusTransition?: DocStatusTransition
+  },
+): Promise<DocumentData> {
+  const existing = args.existing ?? undefined
+  const operation = existing ? 'update' : 'create'
+  const initialData = sanitizeConditionalFields(clientGlobal.fields, args.data, existing)
+  applyGlobalStatus(global, initialData, args.status)
+
+  const hookData = await runBeforeChangeHooks({
+    global,
+    data: initialData,
+    operation,
+    originalDoc: existing,
+    status: args.status,
+    previousStatus: args.previousStatus,
+    statusTransition: args.statusTransition,
+    req: args.req,
+  })
+
+  const finalData = sanitizeConditionalFields(clientGlobal.fields, hookData, existing)
+  applyGlobalStatus(global, finalData, args.status, hookData._status as DocStatus | undefined)
+  return finalData
+}
+
+async function handleGlobalDraftRevisionUpdate(args: {
+  txDb: DatabaseAdapter
+  global: GlobalConfig
+  existing: DocumentData | null
+  finalData: DocumentData
+  previousStatus?: DocStatus
+  statusTransition?: DocStatusTransition
+  autosave?: boolean
+  userId?: string | null
+  req?: Request
+}): Promise<MutationExecutionResult> {
+  const parentId = Number(args.existing?.id ?? 1)
+  const draftDoc: DocumentData = {
+    ...args.existing,
+    ...args.finalData,
+    id: parentId,
+    _status: 'draft',
+    updatedAt: new Date().toISOString(),
+  }
+  await maybeSaveGlobalVersion({
+    txDb: args.txDb,
+    global: args.global,
+    parentId,
+    snapshot: draftDoc,
+    status: 'draft',
+    autosave: args.autosave,
+    userId: args.userId,
+  })
+  const doc = await runAfterChangeHooks({
+    global: args.global,
+    doc: draftDoc,
+    operation: 'update',
+    previousDoc: args.existing ?? undefined,
+    status: 'draft',
+    previousStatus: args.previousStatus,
+    statusTransition: args.statusTransition,
+    req: args.req,
+  })
+  return { success: true, doc: { ...doc, _isPublished: true } }
+}
+
+async function handleGlobalParentRowUpdate(args: {
+  txDb: DatabaseAdapter
+  global: GlobalConfig
+  existing: DocumentData | null
+  finalData: DocumentData
+  status?: DocStatus
+  previousStatus?: DocStatus
+  statusTransition?: DocStatusTransition
+  autosave?: boolean
+  userId?: string | null
+  req?: Request
+}): Promise<MutationExecutionResult> {
+  const operation = args.existing ? 'update' : 'create'
+  const saved = await args.txDb.updateGlobal({ global: args.global, data: args.finalData })
+  const parentId = Number(saved.id ?? 1)
+  await maybeSaveGlobalVersion({
+    txDb: args.txDb,
+    global: args.global,
+    parentId,
+    snapshot: saved,
+    status: (saved._status as DocStatus | undefined) ?? args.status ?? 'published',
+    autosave: args.autosave,
+    userId: args.userId,
+  })
+  const doc = await runAfterChangeHooks({
+    global: args.global,
+    doc: saved,
+    operation,
+    previousDoc: args.existing ?? undefined,
+    status: (saved._status as DocStatus | undefined) ?? args.status,
+    previousStatus: args.previousStatus,
+    statusTransition: args.statusTransition,
+    req: args.req,
+  })
+  const finalDoc = args.global.versions?.drafts
+    ? { ...doc, _isPublished: doc._status === 'published' }
+    : doc
+  return { success: true, doc: finalDoc }
+}
+
 export async function executeGlobalUpdate(args: {
   global: GlobalConfig
   db: DatabaseAdapter
-  existing: StoredDoc | null
+  existing: DocumentData | null
   data: DocumentData
   req?: Request
   config?: Config
+  draft?: boolean
+  status?: DocStatus
+  statusTransition?: DocStatusTransition
+  autosave?: boolean
+  userId?: string | null
 }): Promise<MutationExecutionResult> {
   const clientGlobal = toClientGlobal(args.global)
+  const { status, previousStatus, statusTransition } = resolveGlobalUpdateStatus({
+    global: args.global,
+    data: args.data,
+    originalDoc: args.existing,
+    draft: args.draft,
+    status: args.status,
+    statusTransition: args.statusTransition,
+  })
+
   const run = async (txDb: DatabaseAdapter): Promise<MutationExecutionResult> => {
-    const operation = args.existing ? 'update' : 'create'
-    const initialData = sanitizeConditionalFields(
-      clientGlobal.fields,
-      args.data,
-      args.existing ?? undefined,
-    )
-    const data = await runBeforeChangeHooks({
+    const finalData = await prepareGlobalPayload(args.global, clientGlobal, {
+      data: args.data,
+      existing: args.existing,
+      req: args.req,
+      status,
+      previousStatus,
+      statusTransition,
+    })
+
+    if (isGlobalDraftRevisionOfPublished(args.global, args.existing, status, statusTransition)) {
+      return handleGlobalDraftRevisionUpdate({
+        txDb,
+        global: args.global,
+        existing: args.existing,
+        finalData,
+        previousStatus,
+        statusTransition,
+        autosave: args.autosave,
+        userId: args.userId,
+        req: args.req,
+      })
+    }
+
+    return handleGlobalParentRowUpdate({
+      txDb,
       global: args.global,
-      data: initialData,
-      operation,
-      originalDoc: args.existing ?? undefined,
+      existing: args.existing,
+      finalData,
+      status,
+      previousStatus,
+      statusTransition,
+      autosave: args.autosave,
+      userId: args.userId,
       req: args.req,
     })
-    const finalData = sanitizeConditionalFields(
-      clientGlobal.fields,
-      data,
-      args.existing ?? undefined,
-    )
-    const saved = await txDb.updateGlobal({ global: args.global, data: finalData })
-    const doc = await runAfterChangeHooks({
-      global: args.global,
-      doc: saved,
-      operation,
-      previousDoc: args.existing ?? undefined,
-      req: args.req,
-    })
-    return { success: true, doc }
   }
 
   let result: MutationExecutionResult
@@ -545,14 +753,16 @@ export async function executeGlobalUpdate(args: {
     throw err
   }
 
-  if (result.success) {
-    const event = args.existing ? 'update' : 'create'
+  if (result.success && !args.autosave) {
+    const defaultEvent = args.existing ? 'update' : 'create'
+    const event = statusTransition === 'publish' ? 'publish' : defaultEvent
     void dispatchWebhooks({
       config: args.config,
       global: args.global,
       event,
       doc: result.doc,
       previousDoc: args.existing ?? undefined,
+      status: result.doc._status as DocStatus | undefined,
     })
   }
 

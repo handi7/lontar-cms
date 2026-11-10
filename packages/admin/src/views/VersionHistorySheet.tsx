@@ -1,6 +1,11 @@
 import { useState, useMemo } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { diffSnapshots, type ClientCollection, type ClientVersion } from '@lontar/core/client'
+import {
+  diffSnapshots,
+  type ClientCollection,
+  type ClientGlobal,
+  type ClientVersion,
+} from '@lontar/core/client'
 import {
   Sheet,
   SheetContent,
@@ -11,7 +16,13 @@ import {
 import { Button } from '../components/ui/button'
 import { Badge } from '../components/ui/badge'
 import { History, Maximize2, Minimize2, RotateCcw } from 'lucide-react'
-import { fetchDocVersions, restoreDocVersion, type ApiClientError } from '../api/client'
+import {
+  fetchDocVersions,
+  fetchGlobalVersions,
+  restoreDocVersion,
+  restoreGlobalVersion,
+  type ApiClientError,
+} from '../api/client'
 import { ConfirmRestoreDialog } from './ConfirmRestoreDialog'
 import { VersionDiffViewer } from './VersionDiffViewer'
 import { cn } from '../lib/utils'
@@ -20,8 +31,9 @@ export interface VersionHistorySheetProps {
   open: boolean
   onOpenChange: (open: boolean) => void
   apiBase: string
-  collection: ClientCollection
-  id: string | number
+  collection?: ClientCollection
+  global?: ClientGlobal
+  id?: string | number
   currentDoc?: Record<string, unknown> | null
   onRestoreSuccess?: (restoredDoc: Record<string, unknown>) => void
 }
@@ -179,7 +191,7 @@ function VersionList({
 }
 
 interface VersionDiffPanelProps {
-  collection: ClientCollection
+  entity: ClientCollection | ClientGlobal
   selectedVersion: ClientVersion | undefined
   currentDoc: Record<string, unknown> | null | undefined
   onAskRestore: () => void
@@ -187,7 +199,7 @@ interface VersionDiffPanelProps {
 }
 
 function VersionDiffPanel({
-  collection,
+  entity,
   selectedVersion,
   currentDoc,
   onAskRestore,
@@ -201,7 +213,7 @@ function VersionDiffPanel({
     )
   }
 
-  const diff = diffSnapshots(collection, selectedVersion.snapshot, currentDoc ?? {})
+  const diff = diffSnapshots(entity, selectedVersion.snapshot, currentDoc ?? {})
 
   return (
     <div className="lt:flex lt:flex-col lt:gap-3 lt:h-full lt:overflow-hidden">
@@ -229,7 +241,7 @@ function VersionDiffPanel({
       <div className="lt:flex-1 lt:overflow-y-auto lt:pr-1">
         <VersionDiffViewer
           diff={diff}
-          fields={collection.fields}
+          fields={entity.fields}
           oldLabel={`v${selectedVersion.versionNumber} snapshot`}
           newLabel="Current Document"
         />
@@ -261,24 +273,45 @@ function useVersionSelection(
 
 interface UseVersionRestoreOptions {
   apiBase: string
-  slug: string
-  id: string | number
+  collectionSlug?: string
+  globalSlug?: string
+  id?: string | number
   onSuccess: (doc: Record<string, unknown>) => void
 }
 
-function useVersionRestore({ apiBase, slug, id, onSuccess }: UseVersionRestoreOptions) {
+function useVersionRestore({
+  apiBase,
+  collectionSlug,
+  globalSlug,
+  id,
+  onSuccess,
+}: UseVersionRestoreOptions) {
   const queryClient = useQueryClient()
   const [restoreError, setRestoreError] = useState<string | null>(null)
 
   const mutation = useMutation({
-    mutationFn: (versionId: number) => restoreDocVersion(apiBase, slug, id, versionId),
+    mutationFn: (versionId: number) => {
+      if (globalSlug) {
+        return restoreGlobalVersion(apiBase, globalSlug, versionId)
+      }
+      return restoreDocVersion(apiBase, collectionSlug!, id!, versionId)
+    },
     onSuccess: (restoredDoc) => {
-      void queryClient.invalidateQueries({
-        queryKey: ['document', apiBase, slug, String(id)],
-      })
-      void queryClient.invalidateQueries({
-        queryKey: ['doc-versions', apiBase, slug, id],
-      })
+      if (globalSlug) {
+        void queryClient.invalidateQueries({
+          queryKey: ['globals', globalSlug],
+        })
+        void queryClient.invalidateQueries({
+          queryKey: ['global-versions', apiBase, globalSlug],
+        })
+      } else {
+        void queryClient.invalidateQueries({
+          queryKey: ['document', apiBase, collectionSlug, String(id)],
+        })
+        void queryClient.invalidateQueries({
+          queryKey: ['doc-versions', apiBase, collectionSlug, id],
+        })
+      }
       onSuccess(restoredDoc)
     },
     onError: (err: ApiClientError) => {
@@ -321,7 +354,7 @@ function VersionHistoryHeader({ isExpanded, onToggleExpand }: VersionHistoryHead
 }
 
 interface VersionHistoryContentProps {
-  collection: ClientCollection
+  entity: ClientCollection | ClientGlobal
   versions: ClientVersion[]
   selectedVersion: ClientVersion | undefined
   latestPublished: ClientVersion | undefined
@@ -353,7 +386,7 @@ function VersionHistoryContent(props: VersionHistoryContentProps) {
 
       <div className="md:lt:col-span-7 lt:h-full lt:overflow-hidden lt:border-t md:lt:border-t-0 md:lt:border-l md:lt:pl-4 lt:border-border">
         <VersionDiffPanel
-          collection={props.collection}
+          entity={props.entity}
           selectedVersion={props.selectedVersion}
           currentDoc={props.currentDoc}
           onAskRestore={props.onAskRestore}
@@ -364,24 +397,59 @@ function VersionHistoryContent(props: VersionHistoryContentProps) {
   )
 }
 
-export function VersionHistorySheet({
-  open,
-  onOpenChange,
+interface UseVersionHistoryListProps {
+  apiBase: string
+  collection?: ClientCollection
+  global?: ClientGlobal
+  id?: string | number
+  open: boolean
+  page: number
+}
+
+function useVersionHistoryList({
   apiBase,
   collection,
+  global,
   id,
-  currentDoc,
-  onRestoreSuccess,
-}: VersionHistorySheetProps) {
+  open,
+  page,
+}: UseVersionHistoryListProps) {
+  const entity = (collection ?? global)!
+  const isGlobal = Boolean(global)
+
+  return useQuery({
+    queryKey: isGlobal
+      ? ['global-versions', apiBase, entity.slug, page]
+      : ['doc-versions', apiBase, entity.slug, id, page],
+    queryFn: () => {
+      if (isGlobal) {
+        return fetchGlobalVersions(apiBase, entity.slug, { page, limit: 10 })
+      }
+      return fetchDocVersions(apiBase, entity.slug, id!, { page, limit: 10 })
+    },
+    enabled: open && (isGlobal || Boolean(id)),
+  })
+}
+
+function useVersionHistorySheetState(
+  props: Pick<
+    VersionHistorySheetProps,
+    'apiBase' | 'collection' | 'global' | 'id' | 'open' | 'onOpenChange' | 'onRestoreSuccess'
+  >,
+) {
   const [page, setPage] = useState(1)
   const [selectedVersionId, setSelectedVersionId] = useState<number | null>(null)
   const [isExpanded, setIsExpanded] = useState(false)
   const [confirmRestoreOpen, setConfirmRestoreOpen] = useState(false)
 
-  const versionsQuery = useQuery({
-    queryKey: ['doc-versions', apiBase, collection.slug, id, page],
-    queryFn: () => fetchDocVersions(apiBase, collection.slug, id, { page, limit: 10 }),
-    enabled: open && Boolean(id),
+  const entity = (props.collection ?? props.global)!
+  const versionsQuery = useVersionHistoryList({
+    apiBase: props.apiBase,
+    collection: props.collection,
+    global: props.global,
+    id: props.id,
+    open: props.open,
+    page,
   })
 
   const versions = versionsQuery.data?.docs ?? []
@@ -395,13 +463,14 @@ export function VersionHistorySheet({
     restoreError,
     setRestoreError,
   } = useVersionRestore({
-    apiBase,
-    slug: collection.slug,
-    id,
+    apiBase: props.apiBase,
+    collectionSlug: props.collection?.slug,
+    globalSlug: props.global?.slug,
+    id: props.id,
     onSuccess: (restoredDoc) => {
       setConfirmRestoreOpen(false)
-      onOpenChange(false)
-      onRestoreSuccess?.(restoredDoc)
+      props.onOpenChange(false)
+      props.onRestoreSuccess?.(restoredDoc)
     },
   })
 
@@ -410,6 +479,47 @@ export function VersionHistorySheet({
     setRestoreError(null)
     restoreMutation.mutate(selectedVersion.id)
   }
+
+  return {
+    page,
+    setPage,
+    setSelectedVersionId,
+    isExpanded,
+    setIsExpanded,
+    confirmRestoreOpen,
+    setConfirmRestoreOpen,
+    entity,
+    versions,
+    selectedVersion,
+    latestDraft,
+    latestPublished,
+    restoreMutation,
+    restoreError,
+    handleConfirmRestore,
+    totalPages: versionsQuery.data?.totalPages ?? 1,
+  }
+}
+
+export function VersionHistorySheet(props: VersionHistorySheetProps) {
+  const { open, onOpenChange, currentDoc } = props
+  const {
+    page,
+    setPage,
+    setSelectedVersionId,
+    isExpanded,
+    setIsExpanded,
+    confirmRestoreOpen,
+    setConfirmRestoreOpen,
+    entity,
+    versions,
+    selectedVersion,
+    latestDraft,
+    latestPublished,
+    restoreMutation,
+    restoreError,
+    handleConfirmRestore,
+    totalPages,
+  } = useVersionHistorySheetState(props)
 
   return (
     <>
@@ -440,7 +550,7 @@ export function VersionHistorySheet({
           )}
 
           <VersionHistoryContent
-            collection={collection}
+            entity={entity}
             versions={versions}
             selectedVersion={selectedVersion}
             latestPublished={latestPublished}
@@ -450,7 +560,7 @@ export function VersionHistorySheet({
             onAskRestore={() => setConfirmRestoreOpen(true)}
             isRestoring={restoreMutation.isPending}
             page={page}
-            totalPages={versionsQuery.data?.totalPages ?? 1}
+            totalPages={totalPages}
             onPageChange={setPage}
           />
         </SheetContent>
