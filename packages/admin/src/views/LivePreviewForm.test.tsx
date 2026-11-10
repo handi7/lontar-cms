@@ -117,8 +117,8 @@ describe('Live preview form integration', () => {
     })
   })
 
-  it('displays pending message when required tokens are missing and resolves when typed', async () => {
-    const docWithEmptySlug = {
+  it('displays pending message when required tokens are missing and resolves after saving', async () => {
+    let currentDoc = {
       id: 2,
       title: 'Post Without Slug',
       slug: '',
@@ -129,15 +129,22 @@ describe('Live preview form integration', () => {
 
     vi.stubGlobal(
       'fetch',
-      vi.fn().mockImplementation((url: string) => {
+      vi.fn().mockImplementation((url: string, init?: RequestInit) => {
         if (url.includes('/_lontar/config')) {
           return mockJsonResponse(mockConfigWithPreview)
         }
         if (url.includes('/auth/get-session')) {
           return mockJsonResponse({ user: mockAuthUser, session: mockAuthSession })
         }
+        if (url.includes('/api/articles/2/versions')) {
+          return mockJsonResponse({ docs: [], totalDocs: 0, page: 1, totalPages: 1 })
+        }
         if (url.includes('/api/articles/2')) {
-          return mockJsonResponse(docWithEmptySlug)
+          if (init?.method === 'PATCH' || init?.method === 'PUT') {
+            currentDoc = { ...currentDoc, slug: 'my-new-slug' }
+            return mockJsonResponse(currentDoc)
+          }
+          return mockJsonResponse(currentDoc)
         }
         return Promise.reject(new Error(`Unhandled URL: ${url}`))
       }),
@@ -165,7 +172,17 @@ describe('Live preview form integration', () => {
       fireEvent.change(slugInput, { target: { value: 'my-new-slug' } })
     })
 
-    // Once filled, iframe is rendered with the new slug
+    // Live form values change, but iframe does not load onto an unsaved URL
+    await waitFor(() => {
+      expect(screen.getByText('Save to start live preview.')).toBeTruthy()
+      expect(screen.queryByTitle('Live Preview')).toBeNull()
+    })
+
+    // Click Publish
+    const publishBtn = screen.getByRole('button', { name: 'Publish' })
+    fireEvent.click(publishBtn)
+
+    // Once saved, iframe is rendered with the new slug
     await waitFor(() => {
       expect(screen.queryByText('Preview pending')).toBeNull()
       const iframe = screen.getByTitle<HTMLIFrameElement>('Live Preview')

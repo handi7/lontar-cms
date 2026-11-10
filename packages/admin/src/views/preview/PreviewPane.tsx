@@ -12,6 +12,7 @@ export interface PreviewPaneProps {
   collectionSlug: string
   urlTemplate: string
   values: Record<string, unknown>
+  savedValues?: Record<string, unknown> | null
   onClose: () => void
   className?: string
 }
@@ -114,15 +115,18 @@ function resolvePresetWidthClass(preset: PreviewPreset): string {
 
 interface PendingPlaceholderProps {
   missingTokens: string[]
+  isUnsaved?: boolean
 }
 
-function PendingPlaceholder({ missingTokens }: PendingPlaceholderProps) {
+function PendingPlaceholder({ missingTokens, isUnsaved }: PendingPlaceholderProps) {
   const tokenList = missingTokens.map((t) => `"${t}"`).join(', ')
   return (
     <div className="lt:flex lt:flex-col lt:items-center lt:justify-center lt:h-full lt:p-8 lt:text-center lt:text-muted-foreground lt:text-xs">
       <AlertCircle className="lt:size-8 lt:mb-2 lt:text-muted-foreground/60" />
       <p className="lt:font-medium lt:text-foreground lt:text-sm">Preview pending</p>
-      <p className="lt:mt-1 lt:max-w-xs">Fill in {tokenList} to start live preview.</p>
+      <p className="lt:mt-1 lt:max-w-xs">
+        {isUnsaved ? 'Save to start live preview.' : `Fill in ${tokenList} to start live preview.`}
+      </p>
     </div>
   )
 }
@@ -154,7 +158,14 @@ export function PreviewPane(props: PreviewPaneProps) {
     }
   }
 
-  const resolved = resolvePreviewUrl(props.urlTemplate, props.values)
+  const resolved = resolvePreviewUrl(props.urlTemplate, props.savedValues ?? {})
+
+  const isUnsaved =
+    resolved.missingTokens.length > 0 &&
+    resolved.missingTokens.every((token) => {
+      const val = props.values[token]
+      return val !== undefined && val !== null && (typeof val !== 'string' || val.trim() !== '')
+    })
 
   const { postImmediate } = usePreviewPostMessage({
     iframeRef,
@@ -190,7 +201,7 @@ export function PreviewPane(props: PreviewPaneProps) {
 
       <div className="lt:flex-1 lt:h-full lt:overflow-auto lt:bg-muted/30 lt:p-2 lt:flex lt:justify-center lt:items-stretch">
         {!resolved.ready ? (
-          <PendingPlaceholder missingTokens={resolved.missingTokens} />
+          <PendingPlaceholder missingTokens={resolved.missingTokens} isUnsaved={isUnsaved} />
         ) : (
           <div className={cn('lt:transition-all lt:duration-200 lt:bg-background', presetClass)}>
             <iframe

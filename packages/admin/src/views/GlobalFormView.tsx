@@ -394,6 +394,7 @@ export interface GlobalPreviewSectionProps {
   urlTemplate?: string
   slug: string
   values: Record<string, unknown>
+  savedValues?: Record<string, unknown> | null
   onClose: () => void
 }
 
@@ -403,6 +404,7 @@ function GlobalPreviewSection({
   urlTemplate,
   slug,
   values,
+  savedValues,
   onClose,
 }: GlobalPreviewSectionProps) {
   if (!hasPreview || !isOpen || !urlTemplate) return null
@@ -412,6 +414,7 @@ function GlobalPreviewSection({
         collectionSlug={slug}
         urlTemplate={urlTemplate}
         values={values}
+        savedValues={savedValues}
         onClose={onClose}
       />
     </div>
@@ -587,6 +590,7 @@ function GlobalEditor({ global, slug, apiBase }: GlobalEditorProps) {
           urlTemplate={previewUrlTemplate}
           slug={global.slug}
           values={formatDocForSubmit(global.fields, formValues)}
+          savedValues={globalQuery.data}
           onClose={preview.close}
         />
       </div>
