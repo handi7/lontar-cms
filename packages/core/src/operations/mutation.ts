@@ -58,6 +58,12 @@ async function maybeSaveVersion(args: {
   })
 }
 
+// The original doc of a draft save is the pending draft snapshot, whose `_status` is
+// always 'draft'; `_isPublished` carries the live row's status in that case.
+function isLivePublished(doc: DocumentData): boolean {
+  return doc._isPublished === true || doc._status === 'published'
+}
+
 function isDraftRevisionOfPublished(
   collection: CollectionConfig,
   originalDoc: DocumentData,
@@ -66,7 +72,7 @@ function isDraftRevisionOfPublished(
 ): boolean {
   return Boolean(
     collection.versions?.drafts &&
-    originalDoc._status === 'published' &&
+    isLivePublished(originalDoc) &&
     status === 'draft' &&
     statusTransition !== 'unpublish',
   )
@@ -77,9 +83,9 @@ function buildDraftRevisionDoc(
   originalDoc: DocumentData,
   finalData: DocumentData,
 ): DocumentData {
+  const { _isPublished: _readOnlyFlag, ...rest } = { ...originalDoc, ...finalData }
   return {
-    ...originalDoc,
-    ...finalData,
+    ...rest,
     id,
     _status: 'draft',
     updatedAt: new Date().toISOString(),
@@ -521,7 +527,7 @@ function isGlobalDraftRevisionOfPublished(
   return Boolean(
     global.versions?.drafts &&
     originalDoc &&
-    originalDoc._status === 'published' &&
+    isLivePublished(originalDoc) &&
     status === 'draft' &&
     statusTransition !== 'unpublish',
   )
@@ -609,13 +615,7 @@ async function handleGlobalDraftRevisionUpdate(args: {
   req?: Request
 }): Promise<MutationExecutionResult> {
   const parentId = Number(args.existing?.id ?? 1)
-  const draftDoc: DocumentData = {
-    ...args.existing,
-    ...args.finalData,
-    id: parentId,
-    _status: 'draft',
-    updatedAt: new Date().toISOString(),
-  }
+  const draftDoc = buildDraftRevisionDoc(parentId, args.existing ?? {}, args.finalData)
   await maybeSaveGlobalVersion({
     txDb: args.txDb,
     global: args.global,

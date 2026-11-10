@@ -82,9 +82,10 @@ function createMockAdapter() {
     return Promise.resolve(found)
   })
 
+  // Like the MySQL adapter: the newest version, only while it is still a draft
   const mockFindLatestDraftVersion = vi.fn().mockImplementation(() => {
-    const found = storedVersions.find((v) => v._status === 'draft') ?? null
-    return Promise.resolve(found)
+    const latest = storedVersions[0]
+    return Promise.resolve(latest?._status === 'draft' ? latest : null)
   })
 
   const db: DatabaseAdapter = {
@@ -111,6 +112,8 @@ function createMockAdapter() {
     setStoredGlobal: (val: StoredDoc | null) => {
       storedGlobal = val
     },
+    getStoredGlobal: () => storedGlobal,
+    getVersions: () => storedVersions,
   }
 }
 
@@ -480,5 +483,88 @@ describe('Global REST Routes', () => {
     expect(restoreRes.status).toBe(200)
     const restoredDoc = (await restoreRes.json()) as { siteTitle: string }
     expect(restoredDoc.siteTitle).toBe('Live Site Title')
+  })
+})
+
+describe('Draft revisions of a published global', () => {
+  function setup() {
+    const mock = createMockAdapter()
+    mock.setStoredGlobal({
+      id: 1,
+      siteTitle: 'Live',
+      _status: 'published',
+      createdAt: '2026-11-01T00:00:00.000Z',
+      updatedAt: '2026-11-01T00:00:00.000Z',
+    })
+    const lontar = createLontar(
+      defineConfig({
+        secret: 'test-secret',
+        db: mock.db,
+        collections: [],
+        globals: [
+          global({
+            slug: 'settings',
+            access: { read: () => true, update: () => true },
+            versions: { drafts: true },
+            fields: { siteTitle: f.text({ required: true }) },
+          }),
+        ],
+      }),
+    )
+    const save = (query: string, siteTitle: string) =>
+      lontar.fetch(
+        new Request(`http://localhost/api/globals/settings?${query}`, {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ siteTitle }),
+        }),
+      )
+    const read = async (query = '') => {
+      const res = await lontar.fetch(new Request(`http://localhost/api/globals/settings${query}`))
+      expect(res.status).toBe(200)
+      return ((await res.json()) as { siteTitle: string }).siteTitle
+    }
+    return { ...mock, lontar, save, read }
+  }
+
+  it('keeps the live global published across consecutive draft saves', async () => {
+    const { save, read, getStoredGlobal, getVersions } = setup()
+
+    expect((await save('draft=true', 'Draft A')).status).toBe(200)
+    expect((await save('draft=true', 'Draft B')).status).toBe(200)
+
+    expect(getStoredGlobal()).toMatchObject({ siteTitle: 'Live', _status: 'published' })
+    expect(await read()).toBe('Live')
+    expect(await read('?draft=true')).toBe('Draft B')
+    expect(getVersions().every((v) => !('_isPublished' in v.snapshot))).toBe(true)
+  })
+
+  it('keeps the live global published across consecutive autosaves', async () => {
+    const { save, read, getStoredGlobal } = setup()
+
+    await save('draft=true&autosave=true', 'Autosave 1')
+    await save('draft=true&autosave=true', 'Autosave 2')
+
+    expect(getStoredGlobal()).toMatchObject({ siteTitle: 'Live', _status: 'published' })
+    expect(await read()).toBe('Live')
+    expect(await read('?draft=true')).toBe('Autosave 2')
+  })
+
+  it('restores a version as a draft without touching the live global while a draft is pending', async () => {
+    const { lontar, save, read, getStoredGlobal, getVersions } = setup()
+
+    await save('draft=true', 'Draft A')
+    const draftAId = getVersions()[0]!.id
+    await save('draft=true', 'Draft B')
+
+    const res = await lontar.fetch(
+      new Request(`http://localhost/api/globals/settings/versions/${draftAId}/restore?draft=true`, {
+        method: 'POST',
+      }),
+    )
+    expect(res.status).toBe(200)
+
+    expect(getStoredGlobal()).toMatchObject({ siteTitle: 'Live', _status: 'published' })
+    expect(await read('?draft=true')).toBe('Draft A')
   })
 })
