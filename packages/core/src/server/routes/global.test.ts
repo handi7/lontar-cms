@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from 'vitest'
+import type { AuthUser } from '../../auth/types'
 import { defineConfig } from '../../config/define-config'
 import { global } from '../../config/global'
 import type {
@@ -14,6 +15,7 @@ import type {
   BeforeChangeHook,
   BeforeValidateHook,
 } from '../../hooks'
+import { getLontar } from '../../local'
 import { createLontar } from '../create-lontar'
 
 function createMockAdapter() {
@@ -566,5 +568,79 @@ describe('Draft revisions of a published global', () => {
 
     expect(getStoredGlobal()).toMatchObject({ siteTitle: 'Live', _status: 'published' })
     expect(await read('?draft=true')).toBe('Draft A')
+  })
+})
+
+describe('Version history access on a publicly readable global', () => {
+  const editor = { id: 'u1', email: 'editor@example.com' } as unknown as AuthUser
+  const reader = { id: 'u2', email: 'reader@example.com' } as unknown as AuthUser
+
+  function setup() {
+    const mock = createMockAdapter()
+    mock.setStoredGlobal({
+      id: 1,
+      siteTitle: 'Live',
+      _status: 'published',
+      createdAt: '2026-11-01T00:00:00.000Z',
+      updatedAt: '2026-11-01T00:00:00.000Z',
+    })
+    mock.getVersions().push({
+      id: 1,
+      parentId: 1,
+      versionNumber: 1,
+      snapshot: { id: 1, siteTitle: 'Unannounced', _status: 'draft' },
+      _status: 'draft',
+      autosave: false,
+      createdAt: '2026-11-02T00:00:00.000Z',
+      createdBy: null,
+    })
+    const config = defineConfig({
+      secret: 'test-secret',
+      db: mock.db,
+      collections: [],
+      globals: [
+        global({
+          slug: 'settings',
+          access: { read: () => true, update: ({ user }) => user?.email === editor.email },
+          versions: { drafts: true },
+          fields: { siteTitle: f.text({ required: true }) },
+        }),
+      ],
+    })
+    return { lontar: createLontar(config), config }
+  }
+
+  it('rejects anonymous requests to the version endpoints', async () => {
+    const { lontar } = setup()
+    const status = async (path: string, method = 'GET') =>
+      (await lontar.fetch(new Request(`http://localhost/api/globals/settings${path}`, { method })))
+        .status
+
+    expect(await status('/versions')).toBe(401)
+    expect(await status('/versions/1')).toBe(401)
+    expect(await status('/versions/1/restore', 'POST')).toBe(401)
+  })
+
+  it('rejects users who can read but not update', async () => {
+    const { config } = setup()
+    const client = await getLontar(config)
+    const opts = { overrideAccess: false, user: reader }
+
+    await expect(client.findGlobalVersions('settings', opts)).rejects.toMatchObject({
+      status: 403,
+    })
+    await expect(client.findGlobalVersionByID('settings', 1, opts)).rejects.toMatchObject({
+      status: 403,
+    })
+  })
+
+  it('allows users with update access', async () => {
+    const { config } = setup()
+    const client = await getLontar(config)
+    const opts = { overrideAccess: false, user: editor }
+
+    expect((await client.findGlobalVersions('settings', opts)).docs).toHaveLength(1)
+    const version = await client.findGlobalVersionByID('settings', 1, opts)
+    expect(version.snapshot.siteTitle).toBe('Unannounced')
   })
 })
