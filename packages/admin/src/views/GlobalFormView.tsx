@@ -278,7 +278,7 @@ function useGlobalEditorAutosave({
   const onAutosave = useCallback(async () => {
     const values = getValues()
     const payload = formatDocForSubmit(global.fields, values)
-    return saveGlobal(apiBase, slug, payload, { autosave: true })
+    return saveGlobal(apiBase, slug, payload, { draft: true, autosave: true })
   }, [apiBase, global.fields, slug, getValues])
 
   const onAutosaveSuccess = useCallback(

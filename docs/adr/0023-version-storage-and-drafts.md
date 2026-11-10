@@ -190,7 +190,7 @@ In the admin SPA, autosave can trigger every few seconds while an editor types. 
 To prevent write bloat:
 
 1. `posts_versions` includes an `autosave tinyint(1) NOT NULL DEFAULT 0` column.
-2. Autosave requests pass `{ autosave: true }`.
+2. Autosave requests pass `{ autosave: true }`. An autosave is always a draft write: the engine treats it as `draft: true` even when the request omits `draft`, so it can never reach the live row.
 3. **In-place update strategy**:
    - If the most recent version for `parent_id` is already a draft with `autosave = 1`:
      - The engine **updates that existing autosave row in place** (updating `snapshot`, `updated_at`, and `created_by`).

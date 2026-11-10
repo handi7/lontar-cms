@@ -224,6 +224,17 @@ function resolveUpdateStatusTransition(
   return status === 'published' ? 'published' : 'draft'
 }
 
+// An autosave only ever writes a draft. Without this, an autosave sent without `draft`
+// would write the live row and publish edits nobody reviewed.
+export function resolveDraftFlag(
+  entity: CollectionConfig | GlobalConfig,
+  draft?: boolean,
+  autosave?: boolean,
+): boolean | undefined {
+  if (autosave && entity.versions?.drafts) return true
+  return draft
+}
+
 export function resolveUpdateStatus(args: {
   collection: CollectionConfig
   data: DocumentData

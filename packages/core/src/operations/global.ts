@@ -7,7 +7,7 @@ import type { DatabaseAdapter, DocumentData } from '../database/adapter'
 import { runAfterReadHooks, runBeforeValidateHooks } from '../hooks'
 import { populateDoc } from '../populate'
 import { AccessDeniedError, ValidationError } from './errors'
-import { executeGlobalUpdate, resolveGlobalUpdateStatus } from './mutation'
+import { executeGlobalUpdate, resolveDraftFlag, resolveGlobalUpdateStatus } from './mutation'
 import type { FindGlobalOperationArgs, UpdateGlobalOperationArgs } from './types'
 
 async function assertGlobalReadAccess(
@@ -176,12 +176,13 @@ export async function updateGlobalOperation<T = DocumentData>(
     await assertGlobalUpdateAccess(args.global, args.data, args.user)
   }
 
-  const existing = await resolveOriginalGlobalDoc(args.config.db, args.global, args.draft)
+  const draft = resolveDraftFlag(args.global, args.draft, args.autosave)
+  const existing = await resolveOriginalGlobalDoc(args.config.db, args.global, draft)
   const { status, previousStatus, statusTransition } = resolveGlobalUpdateStatus({
     global: args.global,
     data: args.data,
     originalDoc: existing,
-    draft: args.draft,
+    draft,
   })
 
   const hookData = await runBeforeValidateHooks({
@@ -203,7 +204,7 @@ export async function updateGlobalOperation<T = DocumentData>(
     data: validatedData,
     req: args.req,
     config: args.config,
-    draft: args.draft,
+    draft,
     autosave: args.autosave,
     status,
     statusTransition,

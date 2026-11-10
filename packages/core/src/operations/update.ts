@@ -6,7 +6,7 @@ import type { CollectionConfig } from '../config/types'
 import type { DatabaseAdapter, DocumentData } from '../database/adapter'
 import { populateDoc } from '../populate'
 import { AccessDeniedError, NotFoundError, ValidationError } from './errors'
-import { executeUpdate, resolveUpdateStatus } from './mutation'
+import { executeUpdate, resolveDraftFlag, resolveUpdateStatus } from './mutation'
 import { runBeforeValidateHooks } from '../hooks'
 import type { UpdateOperationArgs } from './types'
 
@@ -74,7 +74,8 @@ export async function updateOperation<T = DocumentData>(args: UpdateOperationArg
     await assertUpdateAccess(args.collection, args.id, args.data, args.user)
   }
 
-  const originalDoc = await resolveOriginalDoc(args.config.db, args.collection, args.id, args.draft)
+  const draft = resolveDraftFlag(args.collection, args.draft, args.autosave)
+  const originalDoc = await resolveOriginalDoc(args.config.db, args.collection, args.id, draft)
   if (!originalDoc) {
     throw new NotFoundError(`Document with ID ${args.id} not found`)
   }
@@ -83,7 +84,7 @@ export async function updateOperation<T = DocumentData>(args: UpdateOperationArg
     collection: args.collection,
     data: args.data,
     originalDoc,
-    draft: args.draft,
+    draft,
   })
 
   const hookData = await runBeforeValidateHooks({
@@ -106,7 +107,7 @@ export async function updateOperation<T = DocumentData>(args: UpdateOperationArg
     originalDoc,
     db: args.config.db,
     req: args.req,
-    draft: args.draft,
+    draft,
     autosave: args.autosave,
     userId: args.user?.id,
     config: args.config,
@@ -124,7 +125,7 @@ export async function updateOperation<T = DocumentData>(args: UpdateOperationArg
     user: args.user ?? null,
     req: args.req,
     overrideAccess: args.overrideAccess,
-    draft: args.draft,
+    draft,
   })
 
   return populated as T
