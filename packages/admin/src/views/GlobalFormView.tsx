@@ -586,7 +586,7 @@ function GlobalEditor({ global, slug, apiBase }: GlobalEditorProps) {
           isOpen={preview.isOpen}
           urlTemplate={previewUrlTemplate}
           slug={global.slug}
-          values={formValues}
+          values={formatDocForSubmit(global.fields, formValues)}
           onClose={preview.close}
         />
       </div>
