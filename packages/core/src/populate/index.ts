@@ -217,6 +217,30 @@ function extractTargetIds(
 
 export const MAX_POPULATE_BATCH_SIZE = 500
 
+async function hydrateTargetDraftDocs(
+  targetCol: CollectionConfig,
+  docs: DocumentData[],
+  db: DatabaseAdapter,
+  draft?: boolean,
+): Promise<DocumentData[]> {
+  if (!targetCol.versions?.drafts || !draft || !db.findLatestDraftVersion) {
+    return docs
+  }
+  return Promise.all(
+    docs.map(async (doc) => {
+      const isPublished = doc._status === 'published'
+      const latestDraft = await db.findLatestDraftVersion!({
+        collection: targetCol,
+        parentId: Number(doc.id),
+      })
+      if (latestDraft) {
+        return { ...latestDraft.snapshot, _isPublished: isPublished }
+      }
+      return { ...doc, _isPublished: isPublished }
+    }),
+  )
+}
+
 async function fetchTargetDocs(
   targetCol: CollectionConfig,
   targetIds: number[],
@@ -242,8 +266,9 @@ async function fetchTargetDocs(
     })
     docs.push(...result.docs)
   }
+  const hydrated = await hydrateTargetDraftDocs(targetCol, docs, db, draft)
   const transformed = await Promise.all(
-    docs.map((doc) => runAfterReadHooks({ collection: targetCol, doc, req })),
+    hydrated.map((doc) => runAfterReadHooks({ collection: targetCol, doc, req })),
   )
   return new Map(transformed.map((d) => [d.id as number, d]))
 }
@@ -345,8 +370,12 @@ async function populateTargetCollection(args: PopulateTargetArgs): Promise<void>
   const canRead = overrideAccess ? true : await checkAccess(targetCol.access?.read, { user })
   if (!canRead) return
 
+  const canDraftTarget = overrideAccess
+    ? Boolean(draft)
+    : Boolean(draft && (await checkAccess(targetCol.access?.update, { user })))
+
   const targetIds = extractTargetIds(targetSlots, targetCol.slug, seen)
-  const docsById = await fetchTargetDocs(targetCol, targetIds, db, req, draft)
+  const docsById = await fetchTargetDocs(targetCol, targetIds, db, req, canDraftTarget)
 
   if (depth > 1 && docsById.size > 0) {
     await populateChildren(
@@ -361,7 +390,7 @@ async function populateTargetCollection(args: PopulateTargetArgs): Promise<void>
       req,
       seen,
       overrideAccess,
-      draft,
+      canDraftTarget,
     )
   }
 

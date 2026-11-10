@@ -185,7 +185,7 @@ approval on the `npm` environment. Don't run `pnpm publish` by hand; see `docs/r
     - [x] Data loss and draft leaks: #225 (done), #226 (done), #227 (done), #228 (done), #229 (done)
     - [x] Admin editing: #230 (done), #232 (done), #233 (done), #234 (done)
     - [x] Webhooks and preview: #231 (done), #235 (done), #236 (done)
-    - [ ] Core lifecycle: #237 (done), #238 (done), #239, #244, #245
+    - [ ] Core lifecycle: #237 (done), #238 (done), #239 (done), #244, #245
     - [ ] API and schema: #240, #241, #243
     - [ ] Minor: #242, #246, #247, #248
     - [ ] ADR decisions to record: #249

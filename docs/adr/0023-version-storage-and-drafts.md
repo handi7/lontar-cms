@@ -173,6 +173,9 @@ In a headless CMS, public reads from frontend websites represent >99% of total t
   - If a related document has only an unpublished draft, it resolves to `null` (for single relationships) or is omitted from the array (for `hasMany`), matching the graceful resolution of deleted records (ADR 0021 §4).
 - When querying with `draft: true` (authorized editor read):
   - Related documents are populated with their latest draft state (subject to read/update permissions on the target collection).
+  - Target collections only lift the `_status = 'published'` filter and hydrate their latest pending draft snapshot if the user has `update` access on that target collection.
+  - If the user has `read` access but not `update` access on the target collection, the target is populated strictly in its published state (`_status = 'published'`), and any unpublished draft-only targets resolve to `null` (or are omitted from arrays).
+  - This applies identically across collection documents and globals.
 
 ### 6. Retention and Version Pruning (`maxPerDoc`)
 

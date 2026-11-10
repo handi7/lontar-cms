@@ -6,7 +6,7 @@ import type { CollectionConfig } from '../config/types'
 import type { DocumentData } from '../database/adapter'
 import { populateDoc } from '../populate'
 import { AccessDeniedError, ValidationError } from './errors'
-import { executeCreate, resolveCreateStatus } from './mutation'
+import { executeCreate, resolveCreateStatus, type MutationExecutionResult } from './mutation'
 import { runBeforeValidateHooks } from '../hooks'
 import type { CreateOperationArgs } from './types'
 
@@ -29,6 +29,28 @@ function validateCreateData(collection: CollectionConfig, data: DocumentData): D
     throw new ValidationError('Validation failed', { issues: parsed.error.issues })
   }
   return parsed.data
+}
+
+function assertCreateResultSuccess(result: MutationExecutionResult): DocumentData {
+  if (!result.success) {
+    if (result.status === 400 && 'issues' in result.body) {
+      throw new ValidationError('Validation failed', { issues: result.body.issues as unknown[] })
+    }
+    throw new Error(result.body.error ?? 'Create failed')
+  }
+  return result.doc
+}
+
+async function canPopulateCreateDraft(args: CreateOperationArgs, docId: unknown): Promise<boolean> {
+  if (args.overrideAccess) return true
+  if (!args.draft) return false
+  const numericId = typeof docId === 'number' ? docId : Number(docId) || undefined
+  return Boolean(
+    await checkAccess(args.collection.access?.update, {
+      user: args.user ?? null,
+      id: numericId,
+    }),
+  )
 }
 
 export async function createOperation<T = DocumentData>(args: CreateOperationArgs): Promise<T> {
@@ -60,14 +82,10 @@ export async function createOperation<T = DocumentData>(args: CreateOperationArg
     config: args.config,
   })
 
-  if (!result.success) {
-    if (result.status === 400 && 'issues' in result.body) {
-      throw new ValidationError('Validation failed', { issues: result.body.issues as unknown[] })
-    }
-    throw new Error(result.body.error ?? 'Create failed')
-  }
+  const createdDoc = assertCreateResultSuccess(result)
+  const canPopulateDraft = await canPopulateCreateDraft(args, createdDoc.id)
 
-  const populated = await populateDoc(result.doc, {
+  const populated = await populateDoc(createdDoc, {
     collection: args.collection,
     depth: args.depth ?? 0,
     collections: args.config.collections,
@@ -75,7 +93,7 @@ export async function createOperation<T = DocumentData>(args: CreateOperationArg
     user: args.user ?? null,
     req: args.req,
     overrideAccess: args.overrideAccess,
-    draft: args.draft,
+    draft: canPopulateDraft,
   })
 
   return populated as T

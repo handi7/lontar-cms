@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from 'vitest'
+import type { AuthUser } from '../../auth/types'
 import { collection } from '../../config/collection'
 import { defineConfig } from '../../config/define-config'
 import type { DatabaseAdapter, StoredDoc } from '../../database/adapter'
@@ -473,7 +474,8 @@ describe('Drafts, _status field, and draft-aware reads', () => {
             collection: { slug: string }
             where?: Record<string, unknown>
           }) => {
-            let docs = col.slug === 'categories' ? categoryDocs : postDocs
+            const pool = col.slug === 'categories' ? categoryDocs : postDocs
+            let docs = pool.map((d) => ({ ...d }))
             const andConds = (where?.and as Array<Record<string, unknown>>) ?? []
             if (andConds.some((c) => (c._status as { equals?: string })?.equals === 'published')) {
               docs = docs.filter((d) => d._status === 'published')
@@ -537,6 +539,187 @@ describe('Drafts, _status field, and draft-aware reads', () => {
     expect(docDraft?.category).toMatchObject({
       id: 10,
       name: 'Draft Category',
+      _status: 'draft',
+    })
+  })
+
+  it('enforces update access on target collection before populating draft targets', async () => {
+    const categoryDocs: StoredDoc[] = [
+      {
+        id: 10,
+        name: 'Live Category',
+        _status: 'published',
+        createdAt: '2026-10-31T00:00:00.000Z',
+        updatedAt: '2026-10-31T00:00:00.000Z',
+      },
+      {
+        id: 20,
+        name: 'Draft Only Category',
+        _status: 'draft',
+        createdAt: '2026-10-31T00:00:00.000Z',
+        updatedAt: '2026-10-31T00:00:00.000Z',
+      },
+    ]
+
+    const postDocs: StoredDoc[] = [
+      {
+        id: 1,
+        title: 'Post 1',
+        category: 10,
+        _status: 'published',
+        createdAt: '2026-10-31T00:00:00.000Z',
+        updatedAt: '2026-10-31T00:00:00.000Z',
+      },
+      {
+        id: 2,
+        title: 'Post 2',
+        category: 20,
+        _status: 'published',
+        createdAt: '2026-10-31T00:00:00.000Z',
+        updatedAt: '2026-10-31T00:00:00.000Z',
+      },
+    ]
+
+    const adapter: DatabaseAdapter = {
+      name: 'mock',
+      find: vi
+        .fn()
+        .mockImplementation(
+          ({
+            collection: col,
+            where,
+          }: {
+            collection: { slug: string }
+            where?: Record<string, unknown>
+          }) => {
+            const pool = col.slug === 'categories' ? categoryDocs : postDocs
+            let docs = pool.map((d) => ({ ...d }))
+            const andConds = (where?.and as Array<Record<string, unknown>>) ?? []
+            if (andConds.some((c) => (c._status as { equals?: string })?.equals === 'published')) {
+              docs = docs.filter((d) => d._status === 'published')
+            }
+            return Promise.resolve({
+              docs,
+              totalDocs: docs.length,
+              limit: 10,
+              page: 1,
+              totalPages: 1,
+              whereUsed: where,
+            })
+          },
+        ),
+      findByID: vi
+        .fn()
+        .mockImplementation(
+          ({ collection: col, id }: { collection: { slug: string }; id: number }) => {
+            const pool = col.slug === 'categories' ? categoryDocs : postDocs
+            const doc = pool.find((d) => d.id === id)
+            return Promise.resolve(doc ? { ...doc } : null)
+          },
+        ),
+      findLatestDraftVersion: vi
+        .fn()
+        .mockImplementation(
+          ({ collection: col, parentId }: { collection: { slug: string }; parentId: number }) => {
+            if (col.slug === 'categories' && parentId === 10) {
+              return Promise.resolve({
+                id: 99,
+                parentId: 10,
+                versionNumber: 2,
+                snapshot: { id: 10, name: 'Live Category WIP Draft', _status: 'draft' },
+                _status: 'draft',
+                autosave: false,
+                createdAt: '2026-10-31T00:00:00.000Z',
+                createdBy: null,
+              })
+            }
+            return Promise.resolve(null)
+          },
+        ),
+      create: vi.fn(),
+      update: vi.fn(),
+      delete: vi.fn(),
+      findGlobal: vi.fn().mockResolvedValue(null),
+      updateGlobal: vi.fn().mockResolvedValue(null),
+      toSchemaFile: vi.fn().mockReturnValue(''),
+      migrate: vi.fn().mockResolvedValue(undefined),
+    }
+
+    const categories = collection({
+      slug: 'categories',
+      versions: { drafts: true },
+      fields: { name: f.text({ required: true }) },
+      access: {
+        read: () => true,
+        update: ({ user }) => (user as { role?: string } | undefined)?.role === 'admin',
+      },
+    })
+
+    const posts = collection({
+      slug: 'posts',
+      fields: {
+        title: f.text({ required: true }),
+        category: f.relationship({ relationTo: 'categories' }),
+      },
+      access: {
+        read: () => true,
+        update: () => true,
+      },
+    })
+
+    const config = defineConfig({
+      secret: 'test-secret',
+      db: adapter,
+      collections: [categories, posts],
+    })
+
+    const client = await getLontar(config)
+
+    // User without update access on categories requesting draft=true
+    const regularUser = {
+      id: 'reader',
+      email: 'reader@example.com',
+      role: 'reader',
+    } as unknown as AuthUser
+    const resReader = await client.find('posts', {
+      depth: 1,
+      draft: true,
+      user: regularUser,
+      overrideAccess: false,
+    })
+    const readerDocs = resReader.docs as Array<Record<string, unknown>>
+    // Category 10 has published row -> returned as published, not the WIP draft snapshot
+    expect(readerDocs[0]?.category).toMatchObject({
+      id: 10,
+      name: 'Live Category',
+      _status: 'published',
+    })
+    // Category 20 is draft-only -> resolved to null
+    expect(readerDocs[1]?.category).toBeNull()
+
+    // Admin user with update access on categories requesting draft=true
+    const adminUser = {
+      id: 'admin',
+      email: 'admin@example.com',
+      role: 'admin',
+    } as unknown as AuthUser
+    const resAdmin = await client.find('posts', {
+      depth: 1,
+      draft: true,
+      user: adminUser,
+      overrideAccess: false,
+    })
+    const adminDocs = resAdmin.docs as Array<Record<string, unknown>>
+    // Hydrated with latest draft snapshot
+    expect(adminDocs[0]?.category).toMatchObject({
+      id: 10,
+      name: 'Live Category WIP Draft',
+      _status: 'draft',
+    })
+    // Draft-only category populated
+    expect(adminDocs[1]?.category).toMatchObject({
+      id: 20,
+      name: 'Draft Only Category',
       _status: 'draft',
     })
   })
