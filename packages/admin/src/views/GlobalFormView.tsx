@@ -297,6 +297,7 @@ function useGlobalEditorAutosave({
     interval: autosaveInterval,
     isDirty,
     isValid,
+    values: formValues,
     onSave: onAutosave,
     onSuccess: onAutosaveSuccess,
   })

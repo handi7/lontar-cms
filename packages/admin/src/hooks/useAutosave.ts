@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { AutosaveStatus } from '../views/AutosaveIndicator'
 
 export interface UseAutosaveOptions {
@@ -6,6 +6,7 @@ export interface UseAutosaveOptions {
   interval: number
   isDirty: boolean
   isValid: boolean
+  values?: unknown
   onSave: () => Promise<Record<string, unknown>>
   onSuccess?: (savedDoc: Record<string, unknown>) => void
 }
@@ -18,11 +19,51 @@ export interface UseAutosaveReturn {
   cancelAutosave: () => void
 }
 
+function serializeValues(val: unknown): string {
+  if (val === undefined) return ''
+  try {
+    return JSON.stringify(val) ?? ''
+  } catch {
+    return ''
+  }
+}
+
+interface SaveStateContext {
+  setStatus: (s: AutosaveStatus) => void
+  setLastSavedAt: (d: Date) => void
+  setErrorMessage: (msg: string | null) => void
+  setConsecutiveErrors: (updater: (prev: number) => number) => void
+  lastSavedValuesRef: React.MutableRefObject<string | null>
+}
+
+function handleSaveSuccess(
+  savedDoc: Record<string, unknown>,
+  values: unknown,
+  onSuccess: ((savedDoc: Record<string, unknown>) => void) | undefined,
+  ctx: SaveStateContext,
+): void {
+  ctx.setStatus('saved')
+  ctx.setLastSavedAt(new Date())
+  ctx.setErrorMessage(null)
+  ctx.setConsecutiveErrors(() => 0)
+  if (values !== undefined) {
+    ctx.lastSavedValuesRef.current = serializeValues(values)
+  }
+  onSuccess?.(savedDoc)
+}
+
+function handleSaveFailure(err: unknown, ctx: SaveStateContext): void {
+  ctx.setStatus('error')
+  ctx.setErrorMessage(err instanceof Error ? err.message : 'Autosave failed')
+  ctx.setConsecutiveErrors((prev) => prev + 1)
+}
+
 export function useAutosave({
   enabled,
   interval,
   isDirty,
   isValid,
+  values,
   onSave,
   onSuccess,
 }: UseAutosaveOptions): UseAutosaveReturn {
@@ -33,14 +74,16 @@ export function useAutosave({
 
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const inFlightRef = useRef(false)
+  const pendingSaveRef = useRef(false)
   const cancelledRef = useRef(false)
   const onSaveRef = useRef(onSave)
   const onSuccessRef = useRef(onSuccess)
-  const stateRef = useRef({ enabled, isDirty, isValid, interval })
+  const lastSavedValuesRef = useRef<string | null>(null)
+  const stateRef = useRef({ enabled, isDirty, isValid, interval, values })
 
   onSaveRef.current = onSave
   onSuccessRef.current = onSuccess
-  stateRef.current = { enabled, isDirty, isValid, interval }
+  stateRef.current = { enabled, isDirty, isValid, interval, values }
 
   const clearTimer = useCallback(() => {
     if (timerRef.current !== null) {
@@ -52,6 +95,8 @@ export function useAutosave({
   const cancelAutosave = useCallback(() => {
     clearTimer()
     cancelledRef.current = true
+    pendingSaveRef.current = false
+    lastSavedValuesRef.current = null
     setStatus('idle')
     setConsecutiveErrors(0)
     setErrorMessage(null)
@@ -59,40 +104,66 @@ export function useAutosave({
 
   const executeAutosave = useCallback(async () => {
     const { enabled: isEnabled, isDirty: dirty, isValid: valid } = stateRef.current
-    if (!isEnabled || !dirty || !valid || inFlightRef.current) return
+    if (!isEnabled || !dirty || !valid) return
+
+    if (inFlightRef.current) {
+      pendingSaveRef.current = true
+      return
+    }
 
     inFlightRef.current = true
     cancelledRef.current = false
     setStatus('saving')
 
+    const ctx: SaveStateContext = {
+      setStatus,
+      setLastSavedAt,
+      setErrorMessage,
+      setConsecutiveErrors,
+      lastSavedValuesRef,
+    }
+
     try {
       const savedDoc = await onSaveRef.current()
       if (cancelledRef.current) return
-
-      setStatus('saved')
-      setLastSavedAt(new Date())
-      setErrorMessage(null)
-      setConsecutiveErrors(0)
-      onSuccessRef.current?.(savedDoc)
+      handleSaveSuccess(savedDoc, stateRef.current.values, onSuccessRef.current, ctx)
     } catch (err) {
       if (cancelledRef.current) return
+      handleSaveFailure(err, ctx)
 
-      setStatus('error')
-      setErrorMessage(err instanceof Error ? err.message : 'Autosave failed')
-      setConsecutiveErrors((prev) => prev + 1)
-
-      // Schedule retry if still dirty and valid
       clearTimer()
       timerRef.current = setTimeout(() => {
         void executeAutosave()
       }, stateRef.current.interval)
     } finally {
       inFlightRef.current = false
+      if (pendingSaveRef.current && !cancelledRef.current) {
+        pendingSaveRef.current = false
+        clearTimer()
+        timerRef.current = setTimeout(() => {
+          void executeAutosave()
+        }, stateRef.current.interval)
+      }
     }
   }, [clearTimer])
 
+  const hasValues = values !== undefined
+  const serializedValues = useMemo(
+    () => (hasValues ? serializeValues(values) : null),
+    [hasValues, values],
+  )
+
   useEffect(() => {
     if (!enabled || !isDirty || !isValid) {
+      clearTimer()
+      return
+    }
+
+    if (
+      hasValues &&
+      lastSavedValuesRef.current !== null &&
+      serializedValues === lastSavedValuesRef.current
+    ) {
       clearTimer()
       return
     }
@@ -104,7 +175,16 @@ export function useAutosave({
     }, interval)
 
     return clearTimer
-  }, [enabled, isDirty, isValid, interval, clearTimer, executeAutosave])
+  }, [
+    enabled,
+    isDirty,
+    isValid,
+    interval,
+    hasValues,
+    serializedValues,
+    clearTimer,
+    executeAutosave,
+  ])
 
   useEffect(() => {
     return () => {

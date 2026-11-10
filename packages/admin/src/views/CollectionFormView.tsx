@@ -475,6 +475,7 @@ function useCollectionAutosave({
     interval: autosaveInterval,
     isDirty,
     isValid,
+    values: formValues,
     onSave,
     onSuccess,
   })

@@ -100,11 +100,22 @@ export function formatFieldForForm(f: ClientField, val: unknown): unknown {
   return formatNestedFieldForForm(f, val)
 }
 
+const EXCLUDED_FORM_SYSTEM_FIELDS = [
+  'createdAt',
+  'updatedAt',
+  '_status',
+  '_isPublished',
+  'latestVersionId',
+] as const
+
 export function formatDocForForm(
   fields: readonly ClientField[],
   data: Record<string, unknown>,
 ): Record<string, unknown> {
   const formatted = { ...data }
+  for (const sysField of EXCLUDED_FORM_SYSTEM_FIELDS) {
+    delete formatted[sysField]
+  }
   for (const f of fields) {
     if (f.name in formatted) {
       formatted[f.name] = formatFieldForForm(f, formatted[f.name])

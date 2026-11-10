@@ -138,6 +138,28 @@ describe('form-utils', () => {
       expect(formDoc.categories).toEqual([1, 2])
     })
 
+    it('strips document-level system fields (createdAt, updatedAt, _status, _isPublished, latestVersionId) (#232)', () => {
+      const doc = {
+        id: 42,
+        title: 'Loaded Post',
+        publishedAt: '2024-05-01T03:00:00.000Z',
+        createdAt: '2024-01-01T00:00:00.000Z',
+        updatedAt: '2024-05-01T03:00:00.000Z',
+        _status: 'draft',
+        _isPublished: false,
+        latestVersionId: 10,
+      }
+
+      const formDoc = formatDocForForm(fields, doc)
+      expect(formDoc.title).toBe('Loaded Post')
+      expect(formDoc.id).toBe(42)
+      expect('createdAt' in formDoc).toBe(false)
+      expect('updatedAt' in formDoc).toBe(false)
+      expect('_status' in formDoc).toBe(false)
+      expect('_isPublished' in formDoc).toBe(false)
+      expect('latestVersionId' in formDoc).toBe(false)
+    })
+
     it('handles nested group fields for defaults, formatDocForForm, and formatDocForSubmit', () => {
       const groupFields: ClientField[] = [
         {

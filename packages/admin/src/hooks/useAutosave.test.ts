@@ -170,4 +170,113 @@ describe('useAutosave hook', () => {
     expect(result.current.status).toBe('idle')
     expect(onSave).not.toHaveBeenCalled()
   })
+
+  it('executes multiple autosave requests for successive value edits across intervals (#232)', async () => {
+    let callCount = 0
+    const onSave = vi.fn().mockImplementation(() => {
+      callCount += 1
+      return Promise.resolve({ id: 1, title: `Saved Title ${callCount}` })
+    })
+
+    const { rerender } = renderHook((props: UseAutosaveOptions) => useAutosave(props), {
+      initialProps: {
+        enabled: true,
+        interval: 1000,
+        isDirty: true,
+        isValid: true,
+        values: { title: 'First Edit' },
+        onSave,
+      },
+    })
+
+    // Advance interval for first edit
+    await act(async () => {
+      vi.advanceTimersByTime(1000)
+      await Promise.resolve()
+    })
+    expect(onSave).toHaveBeenCalledTimes(1)
+
+    // Second edit while still dirty
+    rerender({
+      enabled: true,
+      interval: 1000,
+      isDirty: true,
+      isValid: true,
+      values: { title: 'Second Edit' },
+      onSave,
+    })
+
+    await act(async () => {
+      vi.advanceTimersByTime(1000)
+      await Promise.resolve()
+    })
+    expect(onSave).toHaveBeenCalledTimes(2)
+
+    // Third edit while still dirty
+    rerender({
+      enabled: true,
+      interval: 1000,
+      isDirty: true,
+      isValid: true,
+      values: { title: 'Third Edit' },
+      onSave,
+    })
+
+    await act(async () => {
+      vi.advanceTimersByTime(1000)
+      await Promise.resolve()
+    })
+    expect(onSave).toHaveBeenCalledTimes(3)
+  })
+
+  it('debounces rapid keystrokes so only the final value is saved (#232)', async () => {
+    const onSave = vi.fn().mockResolvedValue({ id: 1 })
+
+    const { rerender } = renderHook((props: UseAutosaveOptions) => useAutosave(props), {
+      initialProps: {
+        enabled: true,
+        interval: 500,
+        isDirty: true,
+        isValid: true,
+        values: { title: 'a' },
+        onSave,
+      },
+    })
+
+    // Advance 200ms and type again
+    act(() => {
+      vi.advanceTimersByTime(200)
+    })
+    rerender({
+      enabled: true,
+      interval: 500,
+      isDirty: true,
+      isValid: true,
+      values: { title: 'ab' },
+      onSave,
+    })
+
+    // Advance another 200ms and type again
+    act(() => {
+      vi.advanceTimersByTime(200)
+    })
+    rerender({
+      enabled: true,
+      interval: 500,
+      isDirty: true,
+      isValid: true,
+      values: { title: 'abc' },
+      onSave,
+    })
+
+    // 400ms total elapsed, but each keystroke reset the 500ms timer
+    expect(onSave).not.toHaveBeenCalled()
+
+    // Now wait the full 500ms debounce interval
+    await act(async () => {
+      vi.advanceTimersByTime(500)
+      await Promise.resolve()
+    })
+    expect(onSave).toHaveBeenCalledTimes(1)
+  })
 })
