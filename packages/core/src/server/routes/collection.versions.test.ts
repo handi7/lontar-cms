@@ -640,6 +640,30 @@ describe('Draft revisions of a published document', () => {
 
     expect(getDocs()[0]).toMatchObject({ title: 'Draft B', _status: 'published' })
   })
+
+  it('returns 400 and leaves the parent row unchanged when publishing an invalid draft snapshot', async () => {
+    const { app, getDocs, getVersions } = setup()
+
+    getVersions().push({
+      id: 99,
+      parentId: 1,
+      versionNumber: 2,
+      snapshot: { id: 1, title: '', _status: 'draft' },
+      _status: 'draft',
+      autosave: false,
+      createdAt: new Date().toISOString(),
+      createdBy: null,
+    })
+
+    const res = await app.request('/api/posts/1/publish', { method: 'POST' })
+    expect(res.status).toBe(400)
+    const body = (await res.json()) as { error: string; issues: unknown[] }
+    expect(body.error).toBe('Validation failed')
+    expect(body.issues).toBeDefined()
+    expect(body.issues.length).toBeGreaterThan(0)
+
+    expect(getDocs()[0]).toMatchObject({ title: 'Live', _status: 'published' })
+  })
 })
 
 describe('Version history access on a publicly readable collection', () => {
