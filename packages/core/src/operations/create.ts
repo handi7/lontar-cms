@@ -58,10 +58,11 @@ export async function createOperation<T = DocumentData>(args: CreateOperationArg
     await assertCreateAccess(args.collection, args.data, args.user)
   }
 
-  const { status, statusTransition } = resolveCreateStatus(args.collection, args.data, args.draft)
+  const { status, statusTransition } = resolveCreateStatus(args.collection, args.draft)
+  const { _status: _ignoredStatus, ...cleanData } = args.data
   const hookData = await runBeforeValidateHooks({
     collection: args.collection,
-    data: args.data,
+    data: cleanData,
     operation: 'create',
     status,
     previousStatus: undefined,
