@@ -1,5 +1,4 @@
 import { test, expect } from '@playwright/test'
-import { chooseOption, selectTrigger } from './helpers'
 
 test.describe('Lontar CMS Admin in Next.js', () => {
   const adminEmail = 'admin@example.com'
@@ -52,16 +51,8 @@ test.describe('Lontar CMS Admin in Next.js', () => {
     const uniqueTitle = `E2E Test Post ${Date.now()}`
     await page.locator('input[name="title"]').fill(uniqueTitle)
 
-    // publishedAt should be hidden while status defaults to Draft
-    await expect(page.locator('button[id="publishedAt"]')).not.toBeVisible()
-
-    await chooseOption(page, /^status/i, 'Published')
-
-    // publishedAt should mount reactively when status is Published
-    await expect(page.locator('button[id="publishedAt"]')).toBeVisible()
-
-    // 7. Submit form
-    await page.getByRole('button', { name: 'Create Post' }).click()
+    // 7. Submit form via Publish button (drafts-enabled collection)
+    await page.getByRole('button', { name: 'Publish', exact: true }).click()
 
     // 8. Verify back on posts list and new post appears in table
     await expect(page.getByRole('heading', { name: 'Posts', exact: true })).toBeVisible()
@@ -77,6 +68,7 @@ test.describe('Lontar CMS Admin in Next.js', () => {
     await expect(page.getByRole('link', { name: uniqueTitle })).toBeVisible()
 
     // 8b. Test column header sorting
+    await searchInput.fill(uniqueTitle)
     const titleHeader = page.getByRole('columnheader', { name: /title/i })
     await titleHeader.click()
     await expect(page.getByRole('link', { name: uniqueTitle })).toBeVisible()
@@ -85,16 +77,12 @@ test.describe('Lontar CMS Admin in Next.js', () => {
     await page.getByRole('link', { name: uniqueTitle }).click()
     await expect(page.getByRole('heading', { name: /Edit Post/ })).toBeVisible()
     await expect(page.locator('input[name="title"]')).toHaveValue(uniqueTitle)
-    await expect(selectTrigger(page, /^status/i)).toHaveText('Published')
 
     // 10. Update the post
     const updatedTitle = `${uniqueTitle} (Updated)`
     await page.locator('input[name="title"]').fill(updatedTitle)
-    await expect(page.locator('button[id="publishedAt"]')).toBeVisible()
-    await chooseOption(page, /^status/i, 'Draft')
-    await expect(page.locator('button[id="publishedAt"]')).not.toBeVisible()
-    await page.getByRole('button', { name: 'Save Changes' }).click()
-    await expect(page.getByText('Saved successfully!')).toBeVisible()
+    await page.getByRole('button', { name: 'Publish', exact: true }).click()
+    await expect(page.getByText('Published successfully!')).toBeVisible()
 
     // 11. Return to list view via breadcrumbs and verify updated title
     await page.getByLabel('Breadcrumb').getByRole('link', { name: 'Posts' }).click()

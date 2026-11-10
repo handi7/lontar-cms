@@ -54,7 +54,6 @@ export default async function CategoryPage({ params }: CategoryPageProps) {
 
   const lontar = await getLontar(config)
   const { docs } = await lontar.find('posts', {
-    where: { status: { equals: 'published' } },
     sort: '-publishedAt',
     limit: 50,
     depth: 1,

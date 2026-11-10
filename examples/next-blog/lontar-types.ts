@@ -3,11 +3,11 @@
 
 export interface Post {
   id: number
+  _status: 'draft' | 'published'
   createdAt: string
   updatedAt: string
   title: string
   slug?: string | null
-  status?: 'draft' | 'published' | null
   cover?: number | Media | null
   author?: number | Author | null
   categories?: (number | Category)[] | null
@@ -57,6 +57,7 @@ export type PageLayoutBlock =
 
 export interface Page {
   id: number
+  _status: 'draft' | 'published'
   createdAt: string
   updatedAt: string
   title: string

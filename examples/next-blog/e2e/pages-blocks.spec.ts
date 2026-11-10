@@ -143,7 +143,7 @@ test.describe('Pages Collection & Blocks Feature (M7)', () => {
     // -------------------------------------------------------------
     // 8. Submit Page Form
     // -------------------------------------------------------------
-    await page.getByRole('button', { name: 'Create Page' }).click()
+    await page.getByRole('button', { name: 'Publish', exact: true }).click()
 
     await expect(page.getByRole('heading', { name: 'Pages', exact: true })).toBeVisible()
     await expect(page.getByRole('link', { name: pageTitle })).toBeVisible()

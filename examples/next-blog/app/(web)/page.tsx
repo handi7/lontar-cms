@@ -136,7 +136,6 @@ export default async function HomePage({ searchParams }: HomePageProps) {
   const [categoriesRes, postsRes] = await Promise.all([
     lontar.find('categories', { limit: 50, sort: 'name' }),
     lontar.find('posts', {
-      where: { status: { equals: 'published' } },
       sort: '-publishedAt',
       limit: 20,
       depth: 1,
