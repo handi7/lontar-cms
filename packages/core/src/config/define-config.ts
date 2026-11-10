@@ -170,9 +170,10 @@ function validateRelationshipTarget(
 function validateCollection(collection: CollectionConfig): string[] {
   const where = `Collection "${collection.slug}"`
   const isUpload = Boolean(collection.upload)
+  const hasVersions = Boolean(collection.versions)
   return [
     ...validateSlug(collection.slug, 'Collection'),
-    ...validateFields(where, collection.fields, isUpload, 1),
+    ...validateFields(where, collection.fields, isUpload, 1, hasVersions),
     ...validatePagination(where, collection.pagination),
     ...validateVersions(where, collection.versions),
     ...validateAdmin(where, collection),
@@ -266,9 +267,10 @@ function validatePagination(where: string, pagination: PaginationConfig | undefi
 
 function validateGlobal(global: GlobalConfig): string[] {
   const where = `Global "${global.slug}"`
+  const hasVersions = Boolean(global.versions)
   return [
     ...validateSlug(global.slug, 'Global'),
-    ...validateFields(where, global.fields, false, 1),
+    ...validateFields(where, global.fields, false, 1, hasVersions),
     ...validateVersions(where, global.versions),
     ...validatePreview(where, global.admin?.preview),
     ...validateGlobalAccess(where, global),
@@ -281,10 +283,13 @@ function validateFields(
   fields: Record<string, Field>,
   isUpload: boolean,
   depth: number,
+  hasVersions = false,
 ): string[] {
   const issues: string[] = []
   for (const [name, field] of Object.entries(fields)) {
-    issues.push(...validateFieldName(where, name, depth === 1 && isUpload))
+    issues.push(
+      ...validateFieldName(where, name, depth === 1 && isUpload, depth === 1 && hasVersions),
+    )
     if (depth > 1 && name === 'id') {
       issues.push(`${where}: field name "id" is reserved.`)
     }
@@ -538,7 +543,12 @@ function validateSlug(slug: string, kind = 'Collection'): string[] {
   return []
 }
 
-function validateFieldName(where: string, name: string, isUpload = false): string[] {
+function validateFieldName(
+  where: string,
+  name: string,
+  isUpload = false,
+  hasVersions = false,
+): string[] {
   if (!FIELD_NAME.test(name)) {
     return [
       `${where}: field name "${name}" must start with a letter or underscore and contain only letters, digits and underscores.`,
@@ -554,6 +564,9 @@ function validateFieldName(where: string, name: string, isUpload = false): strin
   }
   if (isUpload && UPLOAD_SYSTEM_FIELD_NAMES.has(name)) {
     return [`${where}: field name "${name}" is reserved for an upload collection field.`]
+  }
+  if (hasVersions && name === 'versions') {
+    return [`${where}: field name "versions" is reserved when versions are enabled.`]
   }
   return []
 }

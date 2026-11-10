@@ -18,7 +18,7 @@ import type {
   TextField,
   UploadField,
 } from '@lontar/core'
-import { getJunctionTableName, flattenGroupFields } from './table'
+import { getJunctionTableName, flattenGroupFields, getVersionsParentForeignKeyName } from './table'
 
 export function resolveDrizzleOrmMysqlCore(): string {
   try {
@@ -231,6 +231,19 @@ const AUTH_BASE_IMPORTS = [
   'varchar',
 ] as const
 
+function collectEntityImports(entity: CollectionConfig | GlobalConfig, imports: Set<string>): void {
+  const isUpload = 'upload' in entity && Boolean(entity.upload)
+  if (isUpload || entity.versions) {
+    imports.add('json')
+  }
+  if (entity.versions) {
+    imports.add('foreignKey')
+  }
+  for (const field of Object.values(entity.fields)) {
+    collectFieldImports(field, imports)
+  }
+}
+
 function collectImports(
   collections: readonly CollectionConfig[],
   globals: readonly GlobalConfig[] = [],
@@ -240,20 +253,10 @@ function collectImports(
     imports.add('unique')
   }
   for (const collection of collections) {
-    if (collection.upload || collection.versions) {
-      imports.add('json')
-    }
-    for (const field of Object.values(collection.fields)) {
-      collectFieldImports(field, imports)
-    }
+    collectEntityImports(collection, imports)
   }
   for (const global of globals) {
-    if (global.versions) {
-      imports.add('json')
-    }
-    for (const field of Object.values(global.fields)) {
-      collectFieldImports(field, imports)
-    }
+    collectEntityImports(global, imports)
   }
   return Array.from(imports).sort()
 }
@@ -414,14 +417,13 @@ function renderVersionsTable(entity: CollectionConfig | GlobalConfig): string {
   const identifier = slugToIdentifier(entity.slug)
   const versionsIdentifier = `${identifier}Versions`
   const tableName = `${entity.slug}_versions`
+  const fkName = getVersionsParentForeignKeyName(entity.slug)
 
   return `export const ${versionsIdentifier} = mysqlTable(
   '${tableName}',
   {
     id: int('id').autoincrement().primaryKey(),
-    parentId: int('parent_id')
-      .notNull()
-      .references(() => ${identifier}.id, { onDelete: 'cascade' }),
+    parentId: int('parent_id').notNull(),
     versionNumber: int('version_number').notNull(),
     snapshot: json('snapshot').notNull(),
     _status: varchar('_status', { length: 20 }).default('draft').notNull(),
@@ -432,6 +434,11 @@ function renderVersionsTable(entity: CollectionConfig | GlobalConfig): string {
   (t) => [
     index('${tableName}_parent_id_idx').on(t.parentId, t.id),
     index('${tableName}_parent_status_idx').on(t.parentId, t._status),
+    foreignKey({
+      name: '${fkName}',
+      columns: [t.parentId],
+      foreignColumns: [${identifier}.id],
+    }).onDelete('cascade'),
   ],
 )`
 }

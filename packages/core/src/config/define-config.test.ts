@@ -132,6 +132,32 @@ describe('defineConfig', () => {
     ).toEqual([])
   })
 
+  it('rejects field named "versions" when versions are enabled on a collection or global', () => {
+    expect(
+      issuesOf([notes({ versions: { drafts: true }, fields: { versions: f.text() } })]),
+    ).toEqual(['Collection "notes": field name "versions" is reserved when versions are enabled.'])
+
+    expect(() =>
+      defineConfig({
+        secret: SECRET,
+        db: fakeAdapter,
+        collections: [],
+        globals: [
+          {
+            slug: 'site-settings',
+            versions: { drafts: true },
+            fields: { versions: f.text() },
+          },
+        ],
+      }),
+    ).toThrow(
+      'Global "site-settings": field name "versions" is reserved when versions are enabled.',
+    )
+
+    // Accepted when versions are NOT enabled
+    expect(issuesOf([notes({ fields: { versions: f.text() } })])).toEqual([])
+  })
+
   it('rejects admin options that name an unknown field', () => {
     const collection = notes({
       admin: { useAsTitle: 'heading', defaultColumns: ['title', 'body'] },
