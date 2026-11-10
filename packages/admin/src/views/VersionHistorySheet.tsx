@@ -370,8 +370,8 @@ interface VersionHistoryContentProps {
 
 function VersionHistoryContent(props: VersionHistoryContentProps) {
   return (
-    <div className="lt:flex-1 lt:grid lt:grid-cols-1 md:lt:grid-cols-12 lt:gap-4 lt:min-h-0 lt:overflow-hidden">
-      <div className="md:lt:col-span-5 lt:h-full lt:overflow-hidden">
+    <div className="lt:flex-1 lt:grid lt:grid-cols-1 lt:md:grid-cols-12 lt:gap-4 lt:min-h-0 lt:overflow-hidden">
+      <div className="lt:md:col-span-5 lt:h-full lt:overflow-hidden">
         <VersionList
           versions={props.versions}
           selectedVersionId={props.selectedVersion?.id ?? null}
@@ -384,7 +384,7 @@ function VersionHistoryContent(props: VersionHistoryContentProps) {
         />
       </div>
 
-      <div className="md:lt:col-span-7 lt:h-full lt:overflow-hidden lt:border-t md:lt:border-t-0 md:lt:border-l md:lt:pl-4 lt:border-border">
+      <div className="lt:md:col-span-7 lt:h-full lt:overflow-hidden lt:border-t lt:md:border-t-0 lt:md:border-l lt:md:pl-4 lt:border-border">
         <VersionDiffPanel
           entity={props.entity}
           selectedVersion={props.selectedVersion}

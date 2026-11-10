@@ -114,7 +114,7 @@ function FormFields({
   const accept = uploadConfig?.mimeTypes?.join(',')
 
   return (
-    <div className="lt:w-full lg:lt:max-w-[760px] lt:min-w-0 lt:flex-1">
+    <div className="lt:w-full lt:lg:max-w-[760px] lt:min-w-0 lt:flex-1">
       <Card className="lt:block lt:p-8 lt:shadow-none">
         {Boolean(collection.upload) && (
           <FileUploadZone
@@ -565,7 +565,7 @@ function PreviewPaneWrapper(props: PreviewPaneWrapperProps) {
   if (!props.isOpen || !props.urlTemplate) return null
 
   return (
-    <div className="lt:w-full xl:lt:w-1/2 xl:lt:sticky xl:lt:top-8 xl:lt:h-[calc(100vh-5rem)] lt:h-[600px] lt:shrink-0">
+    <div className="lt:w-full lt:xl:w-1/2 lt:xl:sticky lt:xl:top-8 lt:xl:h-[calc(100vh-5rem)] lt:h-[600px] lt:shrink-0">
       <PreviewPane
         collectionSlug={props.collection.slug}
         urlTemplate={props.urlTemplate}
@@ -708,14 +708,14 @@ function CollectionEditor({ collection, mode, id }: CollectionEditorProps) {
 
       <CollectionStatusAlerts apiError={apiError} successMsg={successMsg} />
 
-      <div className="lt:flex lt:flex-col xl:lt:flex-row lt:gap-6 lt:w-full lt:items-start">
-        <div className={cn('lt:w-full lt:min-w-0', preview.isOpen && 'xl:lt:w-1/2')}>
+      <div className="lt:flex lt:flex-col lt:xl:flex-row lt:gap-6 lt:w-full lt:items-start">
+        <div className={cn('lt:w-full lt:min-w-0', preview.isOpen && 'lt:xl:w-1/2')}>
           <form
             onSubmit={(e) => {
               e.preventDefault()
               onPublish()
             }}
-            className="lt:flex lt:flex-col lg:lt:flex-row lt:gap-8 lt:items-start"
+            className="lt:flex lt:flex-col lt:lg:flex-row lt:gap-8 lt:items-start"
           >
             <FormFields
               collection={collection}

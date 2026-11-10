@@ -135,7 +135,7 @@ function PrimitiveDiffRow({ diff, fieldType, oldLabel, newLabel }: PrimitiveDiff
   const newFormatted = renderFormattedValue(fieldType, diff.value)
 
   return (
-    <div className="lt:grid lt:grid-cols-1 md:lt:grid-cols-2 lt:gap-2 lt:text-xs">
+    <div className="lt:grid lt:grid-cols-1 lt:md:grid-cols-2 lt:gap-2 lt:text-xs">
       <div className="lt:rounded lt:border lt:p-2 lt:bg-card">
         <span className="lt:block lt:text-[0.6875rem] lt:font-medium lt:text-muted-foreground lt:mb-1">
           {oldLabel}

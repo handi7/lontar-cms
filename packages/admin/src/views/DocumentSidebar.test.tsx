@@ -179,11 +179,11 @@ describe('DocumentSidebar', () => {
 
     const aside = screen.getByRole('complementary', { name: 'Document sidebar' })
     expect(aside.className).toContain('lt:w-full')
-    expect(aside.className).toContain('lg:lt:w-[300px]')
+    expect(aside.className).toContain('lt:lg:w-[300px]')
     expect(aside.className).toContain('lt:order-first')
-    expect(aside.className).toContain('lg:lt:order-none')
-    expect(aside.className).toContain('lg:lt:sticky')
-    expect(aside.className).toContain('lg:lt:top-8')
+    expect(aside.className).toContain('lt:lg:order-none')
+    expect(aside.className).toContain('lt:lg:sticky')
+    expect(aside.className).toContain('lt:lg:top-8')
   })
 
   it('renders version history button in edit mode when enabled, and calls onOpenHistory when clicked', () => {

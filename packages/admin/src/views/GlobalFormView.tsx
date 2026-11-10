@@ -61,7 +61,7 @@ function GlobalFormFields({
   errors,
 }: GlobalFormFieldsProps) {
   return (
-    <div className="lt:w-full lg:lt:max-w-[760px] lt:min-w-0 lt:flex-1">
+    <div className="lt:w-full lt:lg:max-w-[760px] lt:min-w-0 lt:flex-1">
       <Card className="lt:block lt:p-8 lt:shadow-none">
         <div className="lt:flex lt:flex-col lt:gap-6">
           {fields.map((field) => (
@@ -424,7 +424,7 @@ function GlobalPreviewSection({
 }: GlobalPreviewSectionProps) {
   if (!hasPreview || !isOpen || !urlTemplate) return null
   return (
-    <div className="lt:w-full xl:lt:w-1/2 xl:lt:sticky xl:lt:top-8 xl:lt:h-[calc(100vh-5rem)] lt:h-[600px] lt:shrink-0">
+    <div className="lt:w-full lt:xl:w-1/2 lt:xl:sticky lt:xl:top-8 lt:xl:h-[calc(100vh-5rem)] lt:h-[600px] lt:shrink-0">
       <PreviewPane
         collectionSlug={slug}
         urlTemplate={urlTemplate}
@@ -557,14 +557,14 @@ function GlobalEditor({ global, slug, apiBase }: GlobalEditorProps) {
 
       <GlobalStatusAlerts apiError={apiError} successMsg={successMsg} />
 
-      <div className="lt:flex lt:flex-col xl:lt:flex-row lt:gap-6 lt:w-full lt:items-start">
-        <div className={cn('lt:w-full lt:min-w-0', preview.isOpen && 'xl:lt:w-1/2')}>
+      <div className="lt:flex lt:flex-col lt:xl:flex-row lt:gap-6 lt:w-full lt:items-start">
+        <div className={cn('lt:w-full lt:min-w-0', preview.isOpen && 'lt:xl:w-1/2')}>
           <form
             onSubmit={(e) => {
               e.preventDefault()
               onPublish()
             }}
-            className="lt:flex lt:flex-col lg:lt:flex-row lt:gap-8 lt:items-start"
+            className="lt:flex lt:flex-col lt:lg:flex-row lt:gap-8 lt:items-start"
           >
             <GlobalFormFields
               fields={global.fields}
