@@ -527,3 +527,106 @@ describe('Snapshot writes, version history API and retention', () => {
     expect(restoreRes.status).toBe(401)
   })
 })
+
+describe('Draft revisions of a published document', () => {
+  const publishedPost: StoredDoc = {
+    id: 1,
+    title: 'Live',
+    _status: 'published',
+    createdAt: '2026-10-31T00:00:00.000Z',
+    updatedAt: '2026-10-31T00:00:00.000Z',
+  }
+
+  function setup() {
+    const posts = collection({
+      slug: 'posts',
+      versions: { drafts: true },
+      access: {
+        read: () => true,
+        create: () => true,
+        update: () => true,
+      },
+      fields: {
+        title: f.text({ required: true }),
+      },
+    })
+    const mock = createVersionsMockAdapter([{ ...publishedPost }])
+    const app = createLontar(
+      defineConfig({ secret: 'test-secret', db: mock.adapter, collections: [posts] }),
+    )
+    const patch = (query: string, title: string) =>
+      app.request(`/api/posts/1?${query}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ title }),
+      })
+    return { ...mock, app, patch }
+  }
+
+  async function expectLiveUnchanged(
+    app: ReturnType<typeof createLontar>,
+    getDocs: () => StoredDoc[],
+  ) {
+    expect(getDocs()[0]).toMatchObject({ title: 'Live', _status: 'published' })
+    const res = await app.request('/api/posts/1')
+    expect(res.status).toBe(200)
+    expect(((await res.json()) as StoredDoc).title).toBe('Live')
+  }
+
+  async function readDraftTitle(app: ReturnType<typeof createLontar>) {
+    const res = await app.request('/api/posts/1?draft=true')
+    expect(res.status).toBe(200)
+    return ((await res.json()) as StoredDoc).title
+  }
+
+  it('keeps the live row published across consecutive draft saves', async () => {
+    const { app, patch, getDocs, getVersions } = setup()
+
+    expect((await patch('draft=true', 'Draft A')).status).toBe(200)
+    expect((await patch('draft=true', 'Draft B')).status).toBe(200)
+
+    await expectLiveUnchanged(app, getDocs)
+    expect(await readDraftTitle(app)).toBe('Draft B')
+    expect(getVersions().map((v) => v._status)).toEqual(['draft', 'draft'])
+    expect(getVersions().every((v) => !('_isPublished' in v.snapshot))).toBe(true)
+  })
+
+  it('keeps the live row published across consecutive autosaves', async () => {
+    const { app, patch, getDocs, getVersions } = setup()
+
+    expect((await patch('draft=true&autosave=true', 'Autosave 1')).status).toBe(200)
+    expect((await patch('draft=true&autosave=true', 'Autosave 2')).status).toBe(200)
+    expect((await patch('draft=true&autosave=true', 'Autosave 3')).status).toBe(200)
+
+    await expectLiveUnchanged(app, getDocs)
+    expect(await readDraftTitle(app)).toBe('Autosave 3')
+    expect(getVersions()).toHaveLength(1)
+  })
+
+  it('restores a version as a draft without touching the live row while a draft is pending', async () => {
+    const { app, patch, getDocs, getVersions } = setup()
+
+    await patch('draft=true', 'Draft A')
+    const draftAId = getVersions()[0]!.id
+    await patch('draft=true', 'Draft B')
+
+    const res = await app.request(`/api/posts/1/versions/${draftAId}/restore?draft=true`, {
+      method: 'POST',
+    })
+    expect(res.status).toBe(200)
+
+    await expectLiveUnchanged(app, getDocs)
+    expect(await readDraftTitle(app)).toBe('Draft A')
+  })
+
+  it('publishes the pending draft over the live row', async () => {
+    const { app, patch, getDocs } = setup()
+
+    await patch('draft=true', 'Draft A')
+    await patch('draft=true', 'Draft B')
+    const res = await app.request('/api/posts/1/publish', { method: 'POST' })
+    expect(res.status).toBe(200)
+
+    expect(getDocs()[0]).toMatchObject({ title: 'Draft B', _status: 'published' })
+  })
+})

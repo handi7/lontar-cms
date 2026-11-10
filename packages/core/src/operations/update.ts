@@ -63,7 +63,7 @@ async function resolveOriginalDoc(
   if (draft && collection.versions && db.findLatestDraftVersion) {
     const draftVersion = await db.findLatestDraftVersion({ collection, parentId: id })
     if (draftVersion) {
-      return draftVersion.snapshot
+      return { ...draftVersion.snapshot, _isPublished: baseDoc._status === 'published' }
     }
   }
   return baseDoc
