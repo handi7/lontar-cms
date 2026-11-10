@@ -28,8 +28,9 @@ export interface StoredVersion {
 }
 
 export interface SaveVersionArgs {
-  collection: CollectionConfig
-  parentId: number
+  collection?: CollectionConfig
+  global?: GlobalConfig
+  parentId?: number
   snapshot: DocumentData
   status: DocStatus
   autosave?: boolean
@@ -37,8 +38,9 @@ export interface SaveVersionArgs {
 }
 
 export interface FindVersionsArgs {
-  collection: CollectionConfig
-  parentId: number
+  collection?: CollectionConfig
+  global?: GlobalConfig
+  parentId?: number
   page?: number
   limit?: number
   sort?: string | SortItem[]
@@ -101,24 +103,27 @@ export interface DatabaseAdapter {
   }): Promise<StoredDoc | null>
   delete(args: { collection: CollectionConfig; id: number }): Promise<StoredDoc | null>
 
-  findGlobal(args: { global: GlobalConfig }): Promise<StoredDoc | null>
+  findGlobal(args: { global: GlobalConfig; draft?: boolean }): Promise<StoredDoc | null>
   updateGlobal(args: { global: GlobalConfig; data: DocumentData }): Promise<StoredDoc>
 
   // Version history (when versions are enabled)
   saveVersion?(args: SaveVersionArgs): Promise<StoredVersion>
   findVersions?(args: FindVersionsArgs): Promise<PaginatedVersions>
   findVersionByID?(args: {
-    collection: CollectionConfig
-    parentId: number
+    collection?: CollectionConfig
+    global?: GlobalConfig
+    parentId?: number
     versionId: number
   }): Promise<StoredVersion | null>
   findLatestDraftVersion?(args: {
-    collection: CollectionConfig
-    parentId: number
+    collection?: CollectionConfig
+    global?: GlobalConfig
+    parentId?: number
   }): Promise<StoredVersion | null>
   pruneVersions?(args: {
-    collection: CollectionConfig
-    parentId: number
+    collection?: CollectionConfig
+    global?: GlobalConfig
+    parentId?: number
     maxPerDoc: number
   }): Promise<number>
 

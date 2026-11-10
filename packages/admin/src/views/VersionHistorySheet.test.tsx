@@ -1,9 +1,16 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
-import type { ClientCollection, ClientPaginatedVersions } from '@lontar/core/client'
+import type { ClientCollection, ClientGlobal, ClientPaginatedVersions } from '@lontar/core/client'
 import { PortalContainerProvider } from '../context/PortalContainer'
 import { VersionHistorySheet } from './VersionHistorySheet'
+
+const mockGlobal: ClientGlobal = {
+  slug: 'settings',
+  label: 'Settings',
+  versions: { drafts: true },
+  fields: [{ name: 'title', label: 'Title', type: 'text', required: true }],
+}
 
 const mockCollection: ClientCollection = {
   slug: 'posts',
@@ -243,6 +250,48 @@ describe('VersionHistorySheet', () => {
       expect(onRestoreSuccess).toHaveBeenCalledWith(
         expect.objectContaining({ title: 'Updated Title' }),
       )
+    })
+  })
+
+  it('supports version history for globals', async () => {
+    let restoreCalled = false
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockImplementation((url: string, init?: RequestInit) => {
+        if (url.includes('/api/globals/settings/versions/2/restore') && init?.method === 'POST') {
+          restoreCalled = true
+          return mockJsonResponse({
+            title: 'Updated Global Title',
+            _status: 'draft',
+          })
+        }
+        if (url.includes('/api/globals/settings/versions')) {
+          return mockJsonResponse(mockVersions)
+        }
+        return mockJsonResponse({}, 404)
+      }),
+    )
+
+    renderVersionHistorySheet({
+      collection: undefined,
+      global: mockGlobal,
+      id: undefined,
+      currentDoc: { title: 'Current Title' },
+    })
+
+    await waitFor(() => {
+      expect(screen.getByText('v2')).toBeTruthy()
+    })
+
+    const restoreBtn = screen.getByRole('button', { name: /Restore v2/i })
+    fireEvent.click(restoreBtn)
+
+    expect(screen.getByText('Restore version #2?')).toBeTruthy()
+    const confirmBtn = screen.getByRole('button', { name: 'Restore' })
+    fireEvent.click(confirmBtn)
+
+    await waitFor(() => {
+      expect(restoreCalled).toBe(true)
     })
   })
 })

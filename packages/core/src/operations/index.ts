@@ -22,14 +22,27 @@ export type {
   UpdateOperationArgs,
 } from './types'
 export { updateOperation } from './update'
-export { publishOperation, unpublishOperation, type PublishOperationArgs } from './publish'
+export {
+  publishOperation,
+  unpublishOperation,
+  publishGlobalOperation,
+  unpublishGlobalOperation,
+  type PublishOperationArgs,
+  type PublishGlobalOperationArgs,
+} from './publish'
 export {
   findVersionsOperation,
   findVersionByIDOperation,
   restoreVersionOperation,
+  findGlobalVersionsOperation,
+  findGlobalVersionByIDOperation,
+  restoreGlobalVersionOperation,
   type FindVersionsOperationArgs,
   type FindVersionByIDOperationArgs,
   type RestoreVersionOperationArgs,
+  type FindGlobalVersionsOperationArgs,
+  type FindGlobalVersionByIDOperationArgs,
+  type RestoreGlobalVersionOperationArgs,
 } from './versions'
 export {
   diffSnapshots,

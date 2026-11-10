@@ -204,6 +204,14 @@ export function getCollectionVersionsTable(
   return createVersionsTable(collection.slug, parentTable)
 }
 
+export function getGlobalVersionsTable(
+  global: GlobalConfig,
+  parentTable?: DynamicTable,
+): VersionsTable | null {
+  if (!global.versions) return null
+  return createVersionsTable(global.slug, parentTable)
+}
+
 export function createJunctionTable(tableName: string): JunctionTable {
   const columns = {
     id: int('id').autoincrement().primaryKey(),

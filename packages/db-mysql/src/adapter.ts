@@ -925,12 +925,21 @@ function getTable(caches: AdapterCaches, collection: CollectionConfig): DynamicT
   return table
 }
 
-function getVersionsTable(caches: AdapterCaches, collection: CollectionConfig): VersionsTable {
-  const versionsSlug = `${collection.slug}_versions`
+function getEntityVersionsTable(
+  caches: AdapterCaches,
+  args: { collection?: CollectionConfig; global?: GlobalConfig },
+): VersionsTable {
+  const target = args.collection ?? args.global
+  if (!target) {
+    throw new Error('Either collection or global must be provided to getEntityVersionsTable')
+  }
+  const versionsSlug = `${target.slug}_versions`
   let table = caches.versionsTableCache.get(versionsSlug)
   if (!table) {
-    const parentTable = getTable(caches, collection)
-    table = createVersionsTable(collection.slug, parentTable)
+    const parentTable = args.collection
+      ? getTable(caches, args.collection)
+      : getGlobalTable(caches, args.global!)
+    table = createVersionsTable(target.slug, parentTable)
     caches.versionsTableCache.set(versionsSlug, table)
   }
   return table
@@ -1445,22 +1454,24 @@ async function saveVersion(
   caches: AdapterCaches,
   args: SaveVersionArgs,
 ): Promise<StoredVersion> {
+  const target = args.collection ?? args.global!
+  const parentId = args.parentId ?? 1
   try {
-    const vTable = getVersionsTable(caches, args.collection)
-    const maxPerDoc = args.collection.versions?.maxPerDoc ?? DEFAULT_MAX_PER_DOC
+    const vTable = getEntityVersionsTable(caches, args)
+    const maxPerDoc = target.versions?.maxPerDoc ?? DEFAULT_MAX_PER_DOC
 
-    const autosaveResult = await tryUpdateAutosave(executor, vTable, args)
+    const autosaveResult = await tryUpdateAutosave(executor, vTable, { ...args, parentId })
     if (autosaveResult) {
       return autosaveResult
     }
 
-    const saved = await insertNewVersion(executor, vTable, args)
+    const saved = await insertNewVersion(executor, vTable, { ...args, parentId })
     if (maxPerDoc > 0) {
-      await pruneVersionsInternal(executor, vTable, args.parentId, maxPerDoc)
+      await pruneVersionsInternal(executor, vTable, parentId, maxPerDoc)
     }
     return saved
   } catch (err) {
-    handleDatabaseError(err, toErrorContext(args.collection))
+    handleDatabaseError(err, toErrorContext(target))
   }
 }
 
@@ -1469,8 +1480,10 @@ async function findVersions(
   caches: AdapterCaches,
   args: FindVersionsArgs,
 ): Promise<PaginatedVersions> {
+  const target = args.collection ?? args.global!
+  const parentId = args.parentId ?? 1
   try {
-    const vTable = getVersionsTable(caches, args.collection)
+    const vTable = getEntityVersionsTable(caches, args)
     const page = Math.max(1, args.page ?? 1)
     const limit = args.limit ?? DEFAULT_LIMIT
     const offset = (page - 1) * limit
@@ -1478,7 +1491,7 @@ async function findVersions(
     const countResult = await executor
       .select({ count: count() })
       .from(vTable)
-      .where(eq(vTable.parentId, args.parentId))
+      .where(eq(vTable.parentId, parentId))
 
     const totalDocs = Number(countResult[0]?.count ?? 0)
     const totalPages = Math.ceil(totalDocs / limit) || 1
@@ -1486,7 +1499,7 @@ async function findVersions(
     const rows = await executor
       .select()
       .from(vTable)
-      .where(eq(vTable.parentId, args.parentId))
+      .where(eq(vTable.parentId, parentId))
       .orderBy(desc(vTable.id))
       .limit(limit)
       .offset(offset)
@@ -1499,42 +1512,51 @@ async function findVersions(
       totalPages,
     }
   } catch (err) {
-    handleDatabaseError(err, toErrorContext(args.collection))
+    handleDatabaseError(err, toErrorContext(target))
   }
 }
 
 async function findVersionByID(
   executor: DbExecutor,
   caches: AdapterCaches,
-  args: { collection: CollectionConfig; parentId: number; versionId: number },
+  args: {
+    collection?: CollectionConfig
+    global?: GlobalConfig
+    parentId?: number
+    versionId: number
+  },
 ): Promise<StoredVersion | null> {
+  const target = args.collection ?? args.global!
+  const parentId = args.parentId ?? 1
   try {
-    const vTable = getVersionsTable(caches, args.collection)
+    const vTable = getEntityVersionsTable(caches, args)
     const rows = await executor
       .select()
       .from(vTable)
-      .where(and(eq(vTable.parentId, args.parentId), eq(vTable.id, args.versionId)))
+      .where(and(eq(vTable.parentId, parentId), eq(vTable.id, args.versionId)))
       .limit(1)
 
     const row = rows[0]
     if (!row) return null
     return rowToVersionDoc(row)
   } catch (err) {
-    handleDatabaseError(err, toErrorContext(args.collection))
+    handleDatabaseError(err, toErrorContext(target))
   }
 }
 
 async function findLatestDraftVersion(
   executor: DbExecutor,
   caches: AdapterCaches,
-  args: { collection: CollectionConfig; parentId: number },
+  args: { collection?: CollectionConfig; global?: GlobalConfig; parentId?: number },
 ): Promise<StoredVersion | null> {
+  const target = args.collection ?? args.global!
+  const parentId = args.parentId ?? 1
   try {
-    const vTable = getVersionsTable(caches, args.collection)
+    const vTable = getEntityVersionsTable(caches, args)
     const rows = await executor
       .select()
       .from(vTable)
-      .where(eq(vTable.parentId, args.parentId))
+      .where(eq(vTable.parentId, parentId))
       .orderBy(desc(vTable.id))
       .limit(1)
 
@@ -1546,7 +1568,7 @@ async function findLatestDraftVersion(
     }
     return rowToVersionDoc(latest)
   } catch (err) {
-    handleDatabaseError(err, toErrorContext(args.collection))
+    handleDatabaseError(err, toErrorContext(target))
   }
 }
 
@@ -1569,8 +1591,13 @@ function createDatabaseOperations(
     findVersions: (args) => findVersions(executor, caches, args),
     findVersionByID: (args) => findVersionByID(executor, caches, args),
     findLatestDraftVersion: (args) => findLatestDraftVersion(executor, caches, args),
-    pruneVersions: ({ collection, parentId, maxPerDoc }) =>
-      pruneVersionsInternal(executor, getVersionsTable(caches, collection), parentId, maxPerDoc),
+    pruneVersions: (args) =>
+      pruneVersionsInternal(
+        executor,
+        getEntityVersionsTable(caches, args),
+        args.parentId ?? 1,
+        args.maxPerDoc,
+      ),
     async transaction<T>(cb: (txDb: DatabaseAdapter) => Promise<T>): Promise<T> {
       try {
         return await executor.transaction(async (tx) => {

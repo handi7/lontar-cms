@@ -1,8 +1,9 @@
 import { checkAccess } from '../access'
 import type { AuthUser } from '../auth/types'
-import type { CollectionConfig } from '../config/types'
+import type { CollectionConfig, GlobalConfig } from '../config/types'
 import type { DocumentData, PaginatedVersions, StoredVersion } from '../database/adapter'
 import { AccessDeniedError, NotFoundError, ValidationError } from './errors'
+import { updateGlobalOperation } from './global'
 import type { OperationContext } from './types'
 import { updateOperation } from './update'
 
@@ -23,6 +24,25 @@ export interface FindVersionByIDOperationArgs extends OperationContext {
 export interface RestoreVersionOperationArgs extends OperationContext {
   collection: CollectionConfig
   id: number
+  versionId: number
+  draft?: boolean
+  depth?: number
+}
+
+export interface FindGlobalVersionsOperationArgs extends OperationContext {
+  global: GlobalConfig
+  page?: number
+  limit?: number
+  sort?: string
+}
+
+export interface FindGlobalVersionByIDOperationArgs extends OperationContext {
+  global: GlobalConfig
+  versionId: number
+}
+
+export interface RestoreGlobalVersionOperationArgs extends OperationContext {
+  global: GlobalConfig
   versionId: number
   draft?: boolean
   depth?: number
@@ -126,6 +146,110 @@ export async function restoreVersionOperation<T = DocumentData>(
     config: args.config,
     collection: args.collection,
     id: args.id,
+    data: version.snapshot,
+    depth: args.depth,
+    draft,
+    overrideAccess: args.overrideAccess,
+    user: args.user,
+    req: args.req,
+  })
+}
+
+async function assertGlobalReadAccess(global: GlobalConfig, user?: AuthUser | null): Promise<void> {
+  const allowed = await checkAccess(global.access?.read, { user: user ?? null })
+  if (!allowed) {
+    throw new AccessDeniedError('Access denied', { user })
+  }
+}
+
+async function assertGlobalUpdateAccess(
+  global: GlobalConfig,
+  user?: AuthUser | null,
+): Promise<void> {
+  const allowed = await checkAccess(global.access?.update, { user: user ?? null })
+  if (!allowed) {
+    throw new AccessDeniedError('Access denied', { user })
+  }
+}
+
+function assertGlobalVersionsEnabled(global: GlobalConfig): void {
+  if (!global.versions) {
+    throw new ValidationError(`Versions are not enabled for global "${global.slug}"`)
+  }
+}
+
+export async function findGlobalVersionsOperation(
+  args: FindGlobalVersionsOperationArgs,
+): Promise<PaginatedVersions> {
+  assertGlobalVersionsEnabled(args.global)
+  if (!args.overrideAccess) {
+    await assertGlobalReadAccess(args.global, args.user)
+  }
+
+  if (!args.config.db.findVersions) {
+    throw new Error('Database adapter does not support version history')
+  }
+
+  const existing = await args.config.db.findGlobal({ global: args.global })
+  const parentId = Number(existing?.id ?? 1)
+
+  return args.config.db.findVersions({
+    global: args.global,
+    parentId,
+    page: args.page,
+    limit: args.limit,
+    sort: args.sort,
+  })
+}
+
+export async function findGlobalVersionByIDOperation(
+  args: FindGlobalVersionByIDOperationArgs,
+): Promise<StoredVersion> {
+  assertGlobalVersionsEnabled(args.global)
+  if (!args.overrideAccess) {
+    await assertGlobalReadAccess(args.global, args.user)
+  }
+
+  if (!args.config.db.findVersionByID) {
+    throw new Error('Database adapter does not support version history')
+  }
+
+  const existing = await args.config.db.findGlobal({ global: args.global })
+  const parentId = Number(existing?.id ?? 1)
+
+  const version = await args.config.db.findVersionByID({
+    global: args.global,
+    parentId,
+    versionId: args.versionId,
+  })
+
+  if (!version) {
+    throw new NotFoundError(`Version ${args.versionId} not found for global "${args.global.slug}"`)
+  }
+
+  return version
+}
+
+export async function restoreGlobalVersionOperation<T = DocumentData>(
+  args: RestoreGlobalVersionOperationArgs,
+): Promise<T> {
+  assertGlobalVersionsEnabled(args.global)
+  if (!args.overrideAccess) {
+    await assertGlobalUpdateAccess(args.global, args.user)
+  }
+
+  const version = await findGlobalVersionByIDOperation({
+    config: args.config,
+    global: args.global,
+    versionId: args.versionId,
+    overrideAccess: true,
+  })
+
+  const draft = args.draft !== undefined ? args.draft : version._status === 'draft'
+
+  return updateGlobalOperation<T>({
+    config: args.config,
+    global: args.global,
     data: version.snapshot,
     depth: args.depth,
     draft,

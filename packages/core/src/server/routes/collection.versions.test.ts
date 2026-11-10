@@ -25,6 +25,21 @@ function pruneMockVersions(
   return versions.filter((v) => v.parentId !== parentId || keepIds.has(v.id))
 }
 
+function tryUpdateMockAutosave(
+  versions: StoredVersion[],
+  args: SaveVersionArgs,
+): StoredVersion | null {
+  if (!args.autosave) return null
+  const latest = [...versions].reverse().find((v) => v.parentId === args.parentId)
+  if (latest && latest._status === 'draft' && latest.autosave) {
+    latest.snapshot = args.snapshot
+    latest.createdAt = new Date().toISOString()
+    latest.createdBy = args.userId ?? null
+    return { ...latest }
+  }
+  return null
+}
+
 function createVersionsMockAdapter(initialDocs: StoredDoc[] = []) {
   const docs = [...initialDocs]
   let versions: StoredVersion[] = []
@@ -74,23 +89,19 @@ function createVersionsMockAdapter(initialDocs: StoredDoc[] = []) {
     })
 
   const mockSaveVersion = vi.fn().mockImplementation((args: SaveVersionArgs) => {
-    if (args.autosave) {
-      const latest = [...versions].reverse().find((v) => v.parentId === args.parentId)
-      if (latest && latest._status === 'draft' && latest.autosave) {
-        latest.snapshot = args.snapshot
-        latest.createdAt = new Date().toISOString()
-        latest.createdBy = args.userId ?? null
-        return Promise.resolve({ ...latest })
-      }
+    const autosaved = tryUpdateMockAutosave(versions, args)
+    if (autosaved) {
+      return Promise.resolve(autosaved)
     }
 
+    const parentId = args.parentId ?? 1
     const maxVer = versions
-      .filter((v) => v.parentId === args.parentId)
+      .filter((v) => v.parentId === parentId)
       .reduce((max, v) => Math.max(max, v.versionNumber), 0)
 
     const newVersion: StoredVersion = {
       id: versions.length + 1,
-      parentId: args.parentId,
+      parentId,
       versionNumber: maxVer + 1,
       snapshot: args.snapshot,
       _status: args.status,
@@ -100,8 +111,8 @@ function createVersionsMockAdapter(initialDocs: StoredDoc[] = []) {
     }
     versions.push(newVersion)
 
-    const maxPerDoc = args.collection.versions?.maxPerDoc ?? 50
-    versions = pruneMockVersions(versions, args.parentId, maxPerDoc)
+    const maxPerDoc = (args.collection ?? args.global)?.versions?.maxPerDoc ?? 50
+    versions = pruneMockVersions(versions, parentId, maxPerDoc)
 
     return Promise.resolve({ ...newVersion })
   })

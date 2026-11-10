@@ -1,17 +1,26 @@
 import { checkAccess } from '../access'
 import type { AuthUser } from '../auth/types'
 import type { DocStatus } from '../client/system-fields'
-import type { CollectionConfig, Config } from '../config/types'
+import type { CollectionConfig, Config, GlobalConfig } from '../config/types'
 import type { DocumentData } from '../database/adapter'
 import type { DocStatusTransition } from '../hooks/types'
 import { populateDoc } from '../populate'
 import { AccessDeniedError, NotFoundError, ValidationError } from './errors'
-import { executeUpdate, type MutationExecutionResult } from './mutation'
+import { executeGlobalUpdate, executeUpdate, type MutationExecutionResult } from './mutation'
 
 export interface PublishOperationArgs {
   config: Config
   collection: CollectionConfig
   id: number
+  depth?: number
+  overrideAccess?: boolean
+  user?: AuthUser | null
+  req?: Request
+}
+
+export interface PublishGlobalOperationArgs {
+  config: Config
+  global: GlobalConfig
   depth?: number
   overrideAccess?: boolean
   user?: AuthUser | null
@@ -126,4 +135,136 @@ export function publishOperation<T = DocumentData>(args: PublishOperationArgs): 
 
 export function unpublishOperation<T = DocumentData>(args: PublishOperationArgs): Promise<T> {
   return transitionDocumentStatus<T>(args, 'draft', 'unpublish', 'Unpublish')
+}
+
+async function assertGlobalPublishAccess(
+  global: GlobalConfig,
+  user?: AuthUser | null,
+): Promise<void> {
+  const allowed = await checkAccess(global.access?.update, { user: user ?? null })
+  if (!allowed) {
+    throw new AccessDeniedError('Access denied', { user })
+  }
+}
+
+async function resolveGlobalPublishPayload(
+  db: Config['db'],
+  global: GlobalConfig,
+  originalDoc: DocumentData,
+  statusTransition: DocStatusTransition,
+): Promise<DocumentData> {
+  if (statusTransition === 'publish' && global.versions && db.findLatestDraftVersion) {
+    const parentId = Number(originalDoc.id ?? 1)
+    const latestDraft = await db.findLatestDraftVersion({ global, parentId })
+    if (latestDraft) {
+      return latestDraft.snapshot
+    }
+  }
+  return originalDoc
+}
+
+function assertGlobalTransitionSuccess(
+  result: Awaited<ReturnType<typeof executeGlobalUpdate>>,
+  action: string,
+): asserts result is { success: true; doc: DocumentData } {
+  if (!result.success) {
+    if (result.status === 400 && 'issues' in result.body) {
+      throw new ValidationError('Validation failed', { issues: result.body.issues as unknown[] })
+    }
+    throw new Error(result.body.error ?? `${action} failed`)
+  }
+}
+
+async function fetchOriginalGlobalForTransition(
+  db: Config['db'],
+  global: GlobalConfig,
+): Promise<DocumentData> {
+  const originalDoc = await db.findGlobal({ global })
+  if (!originalDoc) {
+    throw new NotFoundError(`Global "${global.slug}" not found`)
+  }
+  return originalDoc
+}
+
+async function populateGlobalTransitionDoc<T>(args: {
+  doc: DocumentData
+  global: GlobalConfig
+  config: Config
+  depth?: number
+  user?: AuthUser | null
+  req?: Request
+  overrideAccess?: boolean
+}): Promise<T> {
+  if (args.depth !== undefined && args.depth > 0) {
+    const populated = await populateDoc(args.doc, {
+      collection: { slug: args.global.slug, fields: args.global.fields },
+      depth: args.depth,
+      collections: args.config.collections,
+      db: args.config.db,
+      user: args.user ?? null,
+      req: args.req,
+      overrideAccess: args.overrideAccess,
+    })
+    return populated as T
+  }
+  return args.doc as T
+}
+
+async function transitionGlobalStatus<T = DocumentData>(
+  args: PublishGlobalOperationArgs,
+  status: DocStatus,
+  statusTransition: DocStatusTransition,
+  action: string,
+): Promise<T> {
+  if (!args.global.versions?.drafts) {
+    throw new ValidationError(`Drafts are not enabled for global "${args.global.slug}"`)
+  }
+
+  if (!args.overrideAccess) {
+    await assertGlobalPublishAccess(args.global, args.user)
+  }
+
+  const originalDoc = await fetchOriginalGlobalForTransition(args.config.db, args.global)
+  const publishPayload = await resolveGlobalPublishPayload(
+    args.config.db,
+    args.global,
+    originalDoc,
+    statusTransition,
+  )
+
+  const result = await executeGlobalUpdate({
+    global: args.global,
+    existing: originalDoc,
+    data: { ...publishPayload, _status: status },
+    db: args.config.db,
+    req: args.req,
+    status,
+    statusTransition,
+    userId: args.user?.id,
+    config: args.config,
+  })
+
+  assertGlobalTransitionSuccess(result, action)
+
+  return populateGlobalTransitionDoc<T>({
+    doc: result.doc,
+    global: args.global,
+    config: args.config,
+    depth: args.depth,
+    user: args.user,
+    req: args.req,
+    overrideAccess: args.overrideAccess,
+  })
+}
+
+export function publishGlobalOperation<T = DocumentData>(
+  args: PublishGlobalOperationArgs,
+): Promise<T> {
+  return transitionGlobalStatus<T>(args, 'published', 'publish', 'Publish')
+}
+
+export function unpublishGlobalOperation<T = DocumentData>(
+  args: PublishGlobalOperationArgs,
+): Promise<T> {
+  return transitionGlobalStatus<T>(args, 'draft', 'unpublish', 'Unpublish')
 }

@@ -15,10 +15,15 @@ import {
   findOperation,
   findVersionByIDOperation,
   findVersionsOperation,
+  findGlobalVersionByIDOperation,
+  findGlobalVersionsOperation,
   NotFoundError,
   publishOperation,
+  publishGlobalOperation,
   restoreVersionOperation,
+  restoreGlobalVersionOperation,
   unpublishOperation,
+  unpublishGlobalOperation,
   updateGlobalOperation,
   updateOperation,
   ValidationError,
@@ -97,10 +102,39 @@ export interface LocalFindGlobalOptions {
   depth?: number
   overrideAccess?: boolean
   user?: AuthUser | null
+  draft?: boolean
 }
 
 export interface LocalUpdateGlobalOptions {
   data?: DocumentData
+  depth?: number
+  overrideAccess?: boolean
+  user?: AuthUser | null
+  draft?: boolean
+  autosave?: boolean
+}
+
+export interface LocalPublishGlobalOptions {
+  depth?: number
+  overrideAccess?: boolean
+  user?: AuthUser | null
+}
+
+export interface LocalFindGlobalVersionsOptions {
+  page?: number
+  limit?: number
+  sort?: string
+  overrideAccess?: boolean
+  user?: AuthUser | null
+}
+
+export interface LocalFindGlobalVersionByIDOptions {
+  overrideAccess?: boolean
+  user?: AuthUser | null
+}
+
+export interface LocalRestoreGlobalVersionOptions {
+  draft?: boolean
   depth?: number
   overrideAccess?: boolean
   user?: AuthUser | null
@@ -228,6 +262,46 @@ export interface LontarClient {
   updateGlobal<T = DocumentData>(
     globalSlug: string,
     dataOrOptions?: DocumentData | LocalUpdateGlobalOptions,
+  ): Promise<T>
+
+  publishGlobal<K extends keyof LontarGlobals>(
+    globalSlug: K,
+    options?: LocalPublishGlobalOptions,
+  ): Promise<LontarGlobals[K]>
+  publishGlobal<T = DocumentData>(
+    globalSlug: string,
+    options?: LocalPublishGlobalOptions,
+  ): Promise<T>
+
+  unpublishGlobal<K extends keyof LontarGlobals>(
+    globalSlug: K,
+    options?: LocalPublishGlobalOptions,
+  ): Promise<LontarGlobals[K]>
+  unpublishGlobal<T = DocumentData>(
+    globalSlug: string,
+    options?: LocalPublishGlobalOptions,
+  ): Promise<T>
+
+  findGlobalVersions(
+    globalSlug: string,
+    options?: LocalFindGlobalVersionsOptions,
+  ): Promise<PaginatedVersions>
+
+  findGlobalVersionByID(
+    globalSlug: string,
+    versionId: number | string,
+    options?: LocalFindGlobalVersionByIDOptions,
+  ): Promise<StoredVersion>
+
+  restoreGlobalVersion<K extends keyof LontarGlobals>(
+    globalSlug: K,
+    versionId: number | string,
+    options?: LocalRestoreGlobalVersionOptions,
+  ): Promise<LontarGlobals[K]>
+  restoreGlobalVersion<T = DocumentData>(
+    globalSlug: string,
+    versionId: number | string,
+    options?: LocalRestoreGlobalVersionOptions,
   ): Promise<T>
 }
 
@@ -545,6 +619,7 @@ export function getLontar(config: Config): Promise<LontarClient> {
         config,
         global,
         depth: options.depth,
+        draft: options.draft,
         overrideAccess: options.overrideAccess ?? true,
         user: options.user,
       })
@@ -566,6 +641,90 @@ export function getLontar(config: Config): Promise<LontarClient> {
         config,
         global,
         data,
+        depth: options.depth,
+        draft: options.draft,
+        autosave: options.autosave,
+        overrideAccess: options.overrideAccess ?? true,
+        user: options.user,
+      })
+    },
+
+    async publishGlobal<T = DocumentData>(
+      slug: string,
+      options: LocalPublishGlobalOptions = {},
+    ): Promise<T> {
+      const global = resolveGlobal(config, slug)
+      return publishGlobalOperation<T>({
+        config,
+        global,
+        depth: options.depth,
+        overrideAccess: options.overrideAccess ?? true,
+        user: options.user,
+      })
+    },
+
+    async unpublishGlobal<T = DocumentData>(
+      slug: string,
+      options: LocalPublishGlobalOptions = {},
+    ): Promise<T> {
+      const global = resolveGlobal(config, slug)
+      return unpublishGlobalOperation<T>({
+        config,
+        global,
+        depth: options.depth,
+        overrideAccess: options.overrideAccess ?? true,
+        user: options.user,
+      })
+    },
+
+    async findGlobalVersions(
+      slug: string,
+      options: LocalFindGlobalVersionsOptions = {},
+    ): Promise<PaginatedVersions> {
+      const global = resolveGlobal(config, slug)
+      return findGlobalVersionsOperation({
+        config,
+        global,
+        page: options.page,
+        limit: options.limit,
+        sort: options.sort,
+        overrideAccess: options.overrideAccess ?? true,
+        user: options.user,
+      })
+    },
+
+    async findGlobalVersionByID(
+      slug: string,
+      versionIdOrOptions: number | string,
+      options: LocalFindGlobalVersionByIDOptions = {},
+    ): Promise<StoredVersion> {
+      const global = resolveGlobal(config, slug)
+      const versionId = parseId(versionIdOrOptions)
+      assertValidId(versionId)
+
+      return findGlobalVersionByIDOperation({
+        config,
+        global,
+        versionId,
+        overrideAccess: options.overrideAccess ?? true,
+        user: options.user,
+      })
+    },
+
+    async restoreGlobalVersion<T = DocumentData>(
+      slug: string,
+      versionIdOrOptions: number | string,
+      options: LocalRestoreGlobalVersionOptions = {},
+    ): Promise<T> {
+      const global = resolveGlobal(config, slug)
+      const versionId = parseId(versionIdOrOptions)
+      assertValidId(versionId)
+
+      return restoreGlobalVersionOperation<T>({
+        config,
+        global,
+        versionId,
+        draft: options.draft,
         depth: options.depth,
         overrideAccess: options.overrideAccess ?? true,
         user: options.user,

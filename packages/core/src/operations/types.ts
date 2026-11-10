@@ -52,10 +52,13 @@ export interface DeleteOperationArgs extends OperationContext {
 export interface FindGlobalOperationArgs extends OperationContext {
   global: GlobalConfig
   depth?: number
+  draft?: boolean
 }
 
 export interface UpdateGlobalOperationArgs extends OperationContext {
   global: GlobalConfig
   data: DocumentData
   depth?: number
+  draft?: boolean
+  autosave?: boolean
 }

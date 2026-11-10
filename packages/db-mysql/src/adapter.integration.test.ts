@@ -201,6 +201,15 @@ const headerGlobal: GlobalConfig = {
   },
 }
 
+const versionedSettingsGlobal: GlobalConfig = {
+  slug: 'versioned_settings',
+  versions: { drafts: true, maxPerDoc: 2 },
+  fields: {
+    siteName: { type: 'text', required: true },
+    tagline: { type: 'text' },
+  },
+}
+
 const versionedPostsCollection: CollectionConfig = {
   slug: 'versioned_posts',
   labels: { singular: 'Versioned Post', plural: 'Versioned Posts' },
@@ -236,7 +245,7 @@ describe('mysqlAdapter (integration)', () => {
         sharedBlocksCollection,
         versionedPostsCollection,
       ],
-      globals: [headerGlobal],
+      globals: [headerGlobal, versionedSettingsGlobal],
     }
 
     // Prepare temp dir and schema file
@@ -2155,5 +2164,103 @@ describe('mysqlAdapter (integration)', () => {
     // Exactly 2 rows retained per maxPerDoc: 2 (the manual draft and the second session autosave)
     expect(versionsFinal.totalDocs).toBe(2)
     expect(versionsFinal.docs.map((d) => d.id)).toEqual([secondAutosaveId, manualDraft.id])
+  })
+
+  it('manages global version history, autosave in-place updates, draft querying, and retention pruning', async () => {
+    // 1. Initial global doc
+    const saved = await adapter.updateGlobal({
+      global: versionedSettingsGlobal,
+      data: {
+        siteName: 'Original Site Name',
+        tagline: 'Just another CMS',
+        _status: 'published',
+      },
+    })
+    expect(saved.id).toBe(1)
+    expect(saved.siteName).toBe('Original Site Name')
+
+    // 2. Save version 1 (published)
+    const v1 = await adapter.saveVersion!({
+      global: versionedSettingsGlobal,
+      parentId: 1,
+      snapshot: { ...saved },
+      status: 'published',
+      userId: 'user-admin',
+    })
+    expect(v1.versionNumber).toBe(1)
+    expect(v1.snapshot.siteName).toBe('Original Site Name')
+    expect(v1._status).toBe('published')
+    expect(v1.autosave).toBe(false)
+    expect(v1.createdBy).toBe('user-admin')
+
+    // 3. Save draft version with autosave: true
+    const v2 = await adapter.saveVersion!({
+      global: versionedSettingsGlobal,
+      parentId: 1,
+      snapshot: { ...saved, siteName: 'Draft Site Name 1' },
+      status: 'draft',
+      autosave: true,
+      userId: 'user-admin',
+    })
+    expect(v2.versionNumber).toBe(2)
+    expect(v2.snapshot.siteName).toBe('Draft Site Name 1')
+    expect(v2.autosave).toBe(true)
+
+    // 4. Repeated autosave updates row in place
+    const v2Updated = await adapter.saveVersion!({
+      global: versionedSettingsGlobal,
+      parentId: 1,
+      snapshot: { ...saved, siteName: 'Draft Site Name 2 (autosaved)' },
+      status: 'draft',
+      autosave: true,
+      userId: 'user-editor',
+    })
+    expect(v2Updated.id).toBe(v2.id)
+    expect(v2Updated.snapshot.siteName).toBe('Draft Site Name 2 (autosaved)')
+    expect(v2Updated.createdBy).toBe('user-editor')
+
+    // 5. Query latest draft version
+    const latestDraft = await adapter.findLatestDraftVersion!({
+      global: versionedSettingsGlobal,
+      parentId: 1,
+    })
+    expect(latestDraft).not.toBeNull()
+    expect(latestDraft?.snapshot.siteName).toBe('Draft Site Name 2 (autosaved)')
+
+    // 6. Query versions list with pagination
+    const versionsList = await adapter.findVersions!({
+      global: versionedSettingsGlobal,
+      parentId: 1,
+      page: 1,
+      limit: 10,
+    })
+    expect(versionsList.totalDocs).toBe(2)
+    expect(versionsList.docs[0]?.id).toBe(v2.id)
+    expect(versionsList.docs[1]?.id).toBe(v1.id)
+
+    // 7. Find version by ID
+    const foundV2 = await adapter.findVersionByID!({
+      global: versionedSettingsGlobal,
+      versionId: v2.id,
+    })
+    expect(foundV2).not.toBeNull()
+    expect(foundV2?.id).toBe(v2.id)
+    expect(foundV2?.snapshot.siteName).toBe('Draft Site Name 2 (autosaved)')
+
+    // 8. Test retention pruning (maxPerDoc: 2). Adding version 3 should prune v1.
+    const v3 = await adapter.saveVersion!({
+      global: versionedSettingsGlobal,
+      parentId: 1,
+      snapshot: { ...saved, siteName: 'Published Site Name v3' },
+      status: 'published',
+    })
+    expect(v3.versionNumber).toBe(3)
+
+    const versionsAfterPrune = await adapter.findVersions!({
+      global: versionedSettingsGlobal,
+      parentId: 1,
+    })
+    expect(versionsAfterPrune.totalDocs).toBe(2)
+    expect(versionsAfterPrune.docs.map((d) => d.id)).toEqual([v3.id, v2.id])
   })
 })

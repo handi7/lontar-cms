@@ -21,7 +21,7 @@ export function parseDepth(val: string | undefined): number {
 
 export interface PopulateOptions {
   docs: DocumentData[]
-  collection: CollectionConfig
+  collection: { slug: string; fields: Record<string, Field> } | CollectionConfig
   depth: number
   collections: readonly CollectionConfig[]
   db: DatabaseAdapter
