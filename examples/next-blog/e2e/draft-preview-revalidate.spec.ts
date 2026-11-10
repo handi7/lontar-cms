@@ -67,7 +67,8 @@ test.describe('Next.js Blog M8: Drafts, Live Preview and Revalidation', () => {
     await expect(page.getByRole('heading', { name: 'Create Post' })).toBeVisible()
     await page.locator('input[name="title"]').fill(draftTitle)
 
-    // Select Author
+    // Select Author (the search opens in a popover)
+    await page.locator('[data-testid="relationship-open-search"]').first().click()
     const authorSearchInput = page.locator('input[data-testid="relationship-search"]').first()
     await authorSearchInput.fill(authorName)
     const authorOption = page.getByRole('button', { name: new RegExp(authorName, 'i') }).first()
