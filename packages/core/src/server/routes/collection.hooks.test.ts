@@ -14,8 +14,9 @@ import type {
 import { createLontar } from '../create-lontar'
 
 function createMockAdapter() {
-  const mockFind = vi.fn().mockResolvedValue({
-    docs: [
+  const store = new Map<number, StoredDoc>([
+    [
+      1,
       {
         id: 1,
         title: 'First Post',
@@ -23,44 +24,48 @@ function createMockAdapter() {
         updatedAt: '2026-10-31T00:00:00.000Z',
       },
     ],
-    totalDocs: 1,
-    limit: 10,
-    page: 1,
-    totalPages: 1,
-  })
+  ])
+  let nextId = 2
+
+  const mockFind = vi.fn().mockImplementation(() =>
+    Promise.resolve({
+      docs: Array.from(store.values()),
+      totalDocs: store.size,
+      limit: 10,
+      page: 1,
+      totalPages: 1,
+    }),
+  )
 
   const mockFindByID = vi.fn().mockImplementation(({ id }: { id: number }) => {
-    if (id === 1) {
-      return Promise.resolve({
-        id: 1,
-        title: 'First Post',
-        createdAt: '2026-10-31T00:00:00.000Z',
-        updatedAt: '2026-10-31T00:00:00.000Z',
-      })
-    }
-    return Promise.resolve(null)
+    const doc = store.get(id)
+    return Promise.resolve(doc ? { ...doc } : null)
   })
 
   const mockCreate = vi.fn().mockImplementation(({ data }: { data: Record<string, unknown> }) => {
-    return Promise.resolve({
-      id: 2,
+    const id = nextId++
+    const doc: StoredDoc = {
+      id,
       ...data,
       createdAt: '2026-10-31T00:00:00.000Z',
       updatedAt: '2026-10-31T00:00:00.000Z',
-    } as StoredDoc)
+    }
+    store.set(id, doc)
+    return Promise.resolve({ ...doc })
   })
 
   const mockUpdate = vi
     .fn()
     .mockImplementation(({ id, data }: { id: number; data: Record<string, unknown> }) => {
-      if (id === 1) {
-        return Promise.resolve({
-          id: 1,
-          title: 'First Post',
+      const existing = store.get(id)
+      if (existing) {
+        const updated: StoredDoc = {
+          ...existing,
           ...data,
-          createdAt: '2026-10-31T00:00:00.000Z',
           updatedAt: '2026-10-31T01:00:00.000Z',
-        } as StoredDoc)
+        }
+        store.set(id, updated)
+        return Promise.resolve({ ...updated })
       }
       return Promise.resolve(null)
     })
@@ -654,5 +659,69 @@ describe('Collection Lifecycle Hooks', () => {
         operation: 'create',
       }),
     )
+  })
+
+  it('runs beforeValidate hook with statusTransition: "publish" when publishing a draft', async () => {
+    const beforeValidateHook = vi.fn<BeforeValidateHook>(({ data, statusTransition }) => {
+      if (statusTransition === 'publish') {
+        return { ...data, slug: 'derived-slug' }
+      }
+      return data
+    })
+
+    const postsCol = collection({
+      slug: 'posts',
+      access: publicAccess,
+      versions: { drafts: true },
+      fields: {
+        title: f.text({ required: true }),
+        slug: f.text(),
+      },
+      hooks: {
+        beforeValidate: [beforeValidateHook],
+      },
+    })
+
+    const { db } = createMockAdapter()
+    const lontar = createLontar(
+      defineConfig({
+        secret: 'test-secret',
+        db,
+        collections: [postsCol],
+      }),
+    )
+
+    // Create draft
+    const createRes = await lontar.fetch(
+      new Request('http://localhost/api/posts?draft=true', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ title: 'Draft Post' }),
+      }),
+    )
+    expect(createRes.status).toBe(201)
+    const created = (await createRes.json()) as { id: number }
+
+    beforeValidateHook.mockClear()
+
+    // Publish document
+    const pubRes = await lontar.fetch(
+      new Request(`http://localhost/api/posts/${created.id}/publish`, {
+        method: 'POST',
+      }),
+    )
+    expect(pubRes.status).toBe(200)
+
+    expect(beforeValidateHook).toHaveBeenCalledWith(
+      expect.objectContaining({
+        status: 'published',
+        statusTransition: 'publish',
+        operation: 'update',
+      }),
+    )
+
+    const publishedDoc = (await pubRes.json()) as { id: number; slug: string; _status: string }
+    expect(publishedDoc._status).toBe('published')
+    expect(publishedDoc.slug).toBe('derived-slug')
   })
 })

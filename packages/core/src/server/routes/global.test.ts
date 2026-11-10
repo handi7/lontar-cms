@@ -580,6 +580,34 @@ describe('Draft revisions of a published global', () => {
     expect(getStoredGlobal()).toMatchObject({ siteTitle: 'Live', _status: 'published' })
     expect(await read('?draft=true')).toBe('Draft A')
   })
+
+  it('returns 400 and leaves the live global unchanged when publishing an invalid draft snapshot', async () => {
+    const { lontar, getStoredGlobal, getVersions } = setup()
+
+    getVersions().push({
+      id: 99,
+      parentId: 1,
+      versionNumber: 2,
+      snapshot: { id: 1, siteTitle: '', _status: 'draft' },
+      _status: 'draft',
+      autosave: false,
+      createdAt: new Date().toISOString(),
+      createdBy: null,
+    })
+
+    const res = await lontar.fetch(
+      new Request('http://localhost/api/globals/settings/publish', {
+        method: 'POST',
+      }),
+    )
+    expect(res.status).toBe(400)
+    const body = (await res.json()) as { error: string; issues: unknown[] }
+    expect(body.error).toBe('Validation failed')
+    expect(body.issues).toBeDefined()
+    expect(body.issues.length).toBeGreaterThan(0)
+
+    expect(getStoredGlobal()).toMatchObject({ siteTitle: 'Live', _status: 'published' })
+  })
 })
 
 describe('Version history access on a publicly readable global', () => {

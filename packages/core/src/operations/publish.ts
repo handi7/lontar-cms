@@ -1,8 +1,11 @@
 import { checkAccess } from '../access'
 import type { AuthUser } from '../auth/types'
 import type { DocStatus } from '../client/system-fields'
+import { clientFieldsToZod } from '../client/zod'
+import { toClientCollection, toClientGlobal } from '../config/to-client-config'
 import type { CollectionConfig, Config, GlobalConfig } from '../config/types'
 import type { DocumentData } from '../database/adapter'
+import { runBeforeValidateHooks } from '../hooks'
 import type { DocStatusTransition } from '../hooks/types'
 import { populateDoc } from '../populate'
 import { AccessDeniedError, NotFoundError, ValidationError } from './errors'
@@ -100,6 +103,59 @@ async function maybeCleanupPublishedMedia(
   }
 }
 
+function validatePublishData(
+  collection: CollectionConfig,
+  data: DocumentData,
+  originalDoc?: DocumentData,
+): DocumentData {
+  const clientCol = toClientCollection(collection)
+  const schema = clientFieldsToZod(clientCol.fields, { originalDoc })
+  const parsed = schema.safeParse(data)
+  if (!parsed.success) {
+    throw new ValidationError('Validation failed', { issues: parsed.error.issues })
+  }
+  return parsed.data
+}
+
+async function prepareTransitionDocumentPayload(
+  collection: CollectionConfig,
+  publishPayload: DocumentData,
+  originalDoc: DocumentData,
+  status: DocStatus,
+  statusTransition: DocStatusTransition,
+  req?: Request,
+): Promise<DocumentData> {
+  const dataForUpdate: DocumentData = { ...publishPayload, _status: status }
+  if (statusTransition === 'publish') {
+    const hookData = await runBeforeValidateHooks({
+      collection,
+      data: dataForUpdate,
+      operation: 'update',
+      originalDoc,
+      status,
+      previousStatus: (originalDoc._status as DocStatus | undefined) ?? 'draft',
+      statusTransition,
+      req,
+    })
+    const validatedData = validatePublishData(collection, hookData, originalDoc)
+    return { ...hookData, ...validatedData, _status: status }
+  }
+  if (statusTransition === 'unpublish') {
+    const hookData = await runBeforeValidateHooks({
+      collection,
+      data: dataForUpdate,
+      operation: 'update',
+      originalDoc,
+      status,
+      previousStatus: (originalDoc._status as DocStatus | undefined) ?? 'published',
+      statusTransition,
+      req,
+    })
+    return { ...hookData, _status: status }
+  }
+  return dataForUpdate
+}
+
 async function transitionDocumentStatus<T = DocumentData>(
   args: PublishOperationArgs,
   status: DocStatus,
@@ -116,10 +172,19 @@ async function transitionDocumentStatus<T = DocumentData>(
     statusTransition,
   )
 
+  const finalData = await prepareTransitionDocumentPayload(
+    args.collection,
+    publishPayload,
+    originalDoc,
+    status,
+    statusTransition,
+    args.req,
+  )
+
   const result = await executeUpdate({
     collection: args.collection,
     id: args.id,
-    data: { ...publishPayload, _status: status },
+    data: finalData,
     originalDoc,
     db: args.config.db,
     req: args.req,
@@ -229,6 +294,59 @@ async function populateGlobalTransitionDoc<T>(args: {
   return args.doc as T
 }
 
+function validateGlobalPublishData(
+  global: GlobalConfig,
+  data: DocumentData,
+  originalDoc?: DocumentData,
+): DocumentData {
+  const clientGlobal = toClientGlobal(global)
+  const schema = clientFieldsToZod(clientGlobal.fields, { originalDoc })
+  const parsed = schema.safeParse(data)
+  if (!parsed.success) {
+    throw new ValidationError('Validation failed', { issues: parsed.error.issues })
+  }
+  return parsed.data
+}
+
+async function prepareTransitionGlobalPayload(
+  global: GlobalConfig,
+  publishPayload: DocumentData,
+  originalDoc: DocumentData,
+  status: DocStatus,
+  statusTransition: DocStatusTransition,
+  req?: Request,
+): Promise<DocumentData> {
+  const dataForUpdate: DocumentData = { ...publishPayload, _status: status }
+  if (statusTransition === 'publish') {
+    const hookData = await runBeforeValidateHooks({
+      global,
+      data: dataForUpdate,
+      operation: 'update',
+      originalDoc,
+      status,
+      previousStatus: (originalDoc._status as DocStatus | undefined) ?? 'draft',
+      statusTransition,
+      req,
+    })
+    const validatedData = validateGlobalPublishData(global, hookData, originalDoc)
+    return { ...hookData, ...validatedData, _status: status }
+  }
+  if (statusTransition === 'unpublish') {
+    const hookData = await runBeforeValidateHooks({
+      global,
+      data: dataForUpdate,
+      operation: 'update',
+      originalDoc,
+      status,
+      previousStatus: (originalDoc._status as DocStatus | undefined) ?? 'published',
+      statusTransition,
+      req,
+    })
+    return { ...hookData, _status: status }
+  }
+  return dataForUpdate
+}
+
 async function transitionGlobalStatus<T = DocumentData>(
   args: PublishGlobalOperationArgs,
   status: DocStatus,
@@ -251,10 +369,19 @@ async function transitionGlobalStatus<T = DocumentData>(
     statusTransition,
   )
 
+  const finalData = await prepareTransitionGlobalPayload(
+    args.global,
+    publishPayload,
+    originalDoc,
+    status,
+    statusTransition,
+    args.req,
+  )
+
   const result = await executeGlobalUpdate({
     global: args.global,
     existing: originalDoc,
-    data: { ...publishPayload, _status: status },
+    data: finalData,
     db: args.config.db,
     req: args.req,
     status,
