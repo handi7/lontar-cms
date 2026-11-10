@@ -293,7 +293,7 @@ function useGlobalEditorAutosave({
 
 export interface UseGlobalEditorActionsProps {
   hasDrafts: boolean
-  cancelAutosave: () => void
+  cancelAutosave: () => Promise<void> | void
   handleSubmit: UseFormHandleSubmit<Record<string, unknown>>
   saveMutation: UseMutationResult<
     Record<string, unknown>,
@@ -311,8 +311,8 @@ function useGlobalEditorActions({
   unpublishMutation,
 }: UseGlobalEditorActionsProps) {
   const submitWithDraft = (draft: boolean) => {
-    cancelAutosave()
-    void handleSubmit((values) => {
+    void handleSubmit(async (values) => {
+      await cancelAutosave()
       saveMutation.mutate({ values, draft: hasDrafts ? draft : undefined })
     })()
   }
@@ -320,8 +320,10 @@ function useGlobalEditorActions({
   const onPublish = () => submitWithDraft(false)
   const onSaveDraft = () => submitWithDraft(true)
   const onUnpublish = () => {
-    cancelAutosave()
-    unpublishMutation.mutate()
+    void (async () => {
+      await cancelAutosave()
+      unpublishMutation.mutate()
+    })()
   }
 
   const isPublishing = saveMutation.isPending && !saveMutation.variables?.draft
@@ -520,7 +522,9 @@ function GlobalEditor({ global, slug, apiBase }: GlobalEditorProps) {
     setError,
     setApiError,
     setSuccessMsg,
-    onSaveSuccess: autosave.cancelAutosave,
+    onSaveSuccess: () => {
+      void autosave.cancelAutosave()
+    },
   })
 
   const { onPublish, onSaveDraft, onUnpublish, isPublishing, isSavingDraft } =

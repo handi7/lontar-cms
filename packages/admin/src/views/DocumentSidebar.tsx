@@ -65,6 +65,7 @@ export interface SidebarActionsProps {
   isPublishing?: boolean
   isSavingDraft?: boolean
   isUnpublishing?: boolean
+  isSavingAutosave?: boolean
 }
 
 interface DraftPublishActionsProps {
@@ -202,7 +203,11 @@ function DeleteButton(props: DeleteButtonProps) {
 
 function SidebarActions(props: SidebarActionsProps) {
   const isBusy = Boolean(
-    props.isPending || props.isPublishing || props.isSavingDraft || props.isUnpublishing,
+    props.isPending ||
+    props.isPublishing ||
+    props.isSavingDraft ||
+    props.isUnpublishing ||
+    props.isSavingAutosave,
   )
 
   return (
@@ -283,14 +288,35 @@ export interface DocumentSidebarProps {
   isPublishing?: boolean
   isSavingDraft?: boolean
   isUnpublishing?: boolean
+  isSavingAutosave?: boolean
+}
+
+interface ResolvedSidebarFlags {
+  mode: 'create' | 'edit'
+  resolvedStatus: DocumentStatus
+  canUnpublish: boolean
+  canDelete: boolean
+  hasVersions: boolean
+  isSavingAutosave: boolean
+  showMetadata: boolean
+}
+
+function resolveSidebarFlags(props: DocumentSidebarProps): ResolvedSidebarFlags {
+  const mode = props.mode ?? 'edit'
+  const resolvedStatus: DocumentStatus = props.status ?? getDocumentStatus(props.doc)
+  return {
+    mode,
+    resolvedStatus,
+    canUnpublish: resolveCanUnpublish(mode, resolvedStatus, props.doc),
+    canDelete: mode === 'edit' && Boolean(props.showDelete),
+    hasVersions: mode === 'edit' && Boolean(props.hasVersions),
+    isSavingAutosave: props.isSavingAutosave ?? props.autosave?.status === 'saving',
+    showMetadata: mode === 'edit' && Boolean(props.doc),
+  }
 }
 
 export function DocumentSidebar(props: DocumentSidebarProps) {
-  const mode = props.mode ?? 'edit'
-  const resolvedStatus: DocumentStatus = props.status ?? getDocumentStatus(props.doc)
-  const canUnpublish = resolveCanUnpublish(mode, resolvedStatus, props.doc)
-  const canDelete = mode === 'edit' && Boolean(props.showDelete)
-  const hasVersions = mode === 'edit' && Boolean(props.hasVersions)
+  const flags = resolveSidebarFlags(props)
 
   return (
     <aside
@@ -301,7 +327,7 @@ export function DocumentSidebar(props: DocumentSidebarProps) {
         {props.hasDrafts && (
           <div className="lt:flex lt:items-center lt:justify-between lt:text-xs">
             <span className="lt:font-medium lt:text-muted-foreground">Status</span>
-            <DocumentStatusBadge status={resolvedStatus} />
+            <DocumentStatusBadge status={flags.resolvedStatus} />
           </div>
         )}
 
@@ -319,23 +345,24 @@ export function DocumentSidebar(props: DocumentSidebarProps) {
           isPending={props.isPending}
           isDeleting={props.isDeleting}
           onDelete={props.onDelete}
-          canDelete={canDelete}
+          canDelete={flags.canDelete}
           hasDrafts={props.hasDrafts}
-          hasVersions={hasVersions}
+          hasVersions={flags.hasVersions}
           onOpenHistory={props.onOpenHistory}
           hasPreview={props.hasPreview}
           isPreviewOpen={props.isPreviewOpen}
           onTogglePreview={props.onTogglePreview}
-          canUnpublish={canUnpublish}
+          canUnpublish={flags.canUnpublish}
           onPublish={props.onPublish}
           onSaveDraft={props.onSaveDraft}
           onUnpublish={props.onUnpublish}
           isPublishing={props.isPublishing}
           isSavingDraft={props.isSavingDraft}
           isUnpublishing={props.isUnpublishing}
+          isSavingAutosave={flags.isSavingAutosave}
         />
 
-        {mode === 'edit' && props.doc && (
+        {flags.showMetadata && props.doc && (
           <SidebarMetadata doc={props.doc} showId={props.showId ?? true} />
         )}
       </Card>

@@ -4,7 +4,7 @@ import type { DocStatus } from '../client/system-fields'
 import { clientFieldsToZod } from '../client/zod'
 import { toClientCollection, toClientGlobal } from '../config/to-client-config'
 import type { CollectionConfig, Config, GlobalConfig } from '../config/types'
-import type { DocumentData } from '../database/adapter'
+import type { DatabaseAdapter, DocumentData } from '../database/adapter'
 import { runBeforeValidateHooks } from '../hooks'
 import type { DocStatusTransition } from '../hooks/types'
 import { populateDoc } from '../populate'
@@ -69,25 +69,6 @@ async function resolvePublishPayload(
     if (latestDraft) {
       return latestDraft.snapshot
     }
-  }
-  return originalDoc
-}
-
-async function validateTransitionPrerequisites(args: PublishOperationArgs): Promise<DocumentData> {
-  if (!args.collection.versions?.drafts) {
-    throw new ValidationError(`Drafts are not enabled for collection "${args.collection.slug}"`)
-  }
-
-  if (!args.overrideAccess) {
-    await assertPublishAccess(args.collection, args.id, args.user)
-  }
-
-  const originalDoc = await args.config.db.findByID({
-    collection: args.collection,
-    id: args.id,
-  })
-  if (!originalDoc) {
-    throw new NotFoundError(`Document with ID ${args.id} not found`)
   }
   return originalDoc
 }
@@ -162,45 +143,70 @@ async function transitionDocumentStatus<T = DocumentData>(
   statusTransition: DocStatusTransition,
   action: string,
 ): Promise<T> {
-  const originalDoc = await validateTransitionPrerequisites(args)
-
-  const publishPayload = await resolvePublishPayload(
-    args.config.db,
-    args.collection,
-    args.id,
-    originalDoc,
-    statusTransition,
-  )
-
-  const finalData = await prepareTransitionDocumentPayload(
-    args.collection,
-    publishPayload,
-    originalDoc,
-    status,
-    statusTransition,
-    args.req,
-  )
-
-  const result = await executeUpdate({
-    collection: args.collection,
-    id: args.id,
-    data: finalData,
-    originalDoc,
-    db: args.config.db,
-    req: args.req,
-    status,
-    statusTransition,
-    userId: args.user?.id,
-    config: args.config,
-  })
-
-  if (!result.success) {
-    handleMutationResult(result, args.id, action)
+  if (!args.collection.versions?.drafts) {
+    throw new ValidationError(`Drafts are not enabled for collection "${args.collection.slug}"`)
   }
 
-  await maybeCleanupPublishedMedia(args, originalDoc, result.doc, statusTransition)
+  if (!args.overrideAccess) {
+    await assertPublishAccess(args.collection, args.id, args.user)
+  }
 
-  const populated = await populateDoc(result.doc, {
+  const runTransition = async (
+    txDb: DatabaseAdapter,
+  ): Promise<{ resultDoc: DocumentData; originalDoc: DocumentData }> => {
+    const originalDoc = await txDb.findByID({
+      collection: args.collection,
+      id: args.id,
+      forUpdate: true,
+    })
+    if (!originalDoc) {
+      throw new NotFoundError(`Document with ID ${args.id} not found`)
+    }
+
+    const publishPayload = await resolvePublishPayload(
+      txDb,
+      args.collection,
+      args.id,
+      originalDoc,
+      statusTransition,
+    )
+
+    const finalData = await prepareTransitionDocumentPayload(
+      args.collection,
+      publishPayload,
+      originalDoc,
+      status,
+      statusTransition,
+      args.req,
+    )
+
+    const result = await executeUpdate({
+      collection: args.collection,
+      id: args.id,
+      data: finalData,
+      originalDoc,
+      db: txDb,
+      req: args.req,
+      status,
+      statusTransition,
+      userId: args.user?.id,
+      config: args.config,
+    })
+
+    if (!result.success) {
+      handleMutationResult(result, args.id, action)
+    }
+
+    return { resultDoc: result.doc, originalDoc }
+  }
+
+  const { resultDoc, originalDoc } = args.config.db.transaction
+    ? await args.config.db.transaction(runTransition)
+    : await runTransition(args.config.db)
+
+  await maybeCleanupPublishedMedia(args, originalDoc, resultDoc, statusTransition)
+
+  const populated = await populateDoc(resultDoc, {
     collection: args.collection,
     depth: args.depth ?? 0,
     collections: args.config.collections,
@@ -257,17 +263,6 @@ function assertGlobalTransitionSuccess(
     }
     throw new Error(result.body.error ?? `${action} failed`)
   }
-}
-
-async function fetchOriginalGlobalForTransition(
-  db: Config['db'],
-  global: GlobalConfig,
-): Promise<DocumentData> {
-  const originalDoc = await db.findGlobal({ global })
-  if (!originalDoc) {
-    throw new NotFoundError(`Global "${global.slug}" not found`)
-  }
-  return originalDoc
 }
 
 async function populateGlobalTransitionDoc<T>(args: {
@@ -361,39 +356,50 @@ async function transitionGlobalStatus<T = DocumentData>(
     await assertGlobalPublishAccess(args.global, args.user)
   }
 
-  const originalDoc = await fetchOriginalGlobalForTransition(args.config.db, args.global)
-  const publishPayload = await resolveGlobalPublishPayload(
-    args.config.db,
-    args.global,
-    originalDoc,
-    statusTransition,
-  )
+  const runTransition = async (txDb: DatabaseAdapter): Promise<DocumentData> => {
+    const originalDoc = await txDb.findGlobal({ global: args.global, forUpdate: true })
+    if (!originalDoc) {
+      throw new NotFoundError(`Global "${args.global.slug}" not found`)
+    }
 
-  const finalData = await prepareTransitionGlobalPayload(
-    args.global,
-    publishPayload,
-    originalDoc,
-    status,
-    statusTransition,
-    args.req,
-  )
+    const publishPayload = await resolveGlobalPublishPayload(
+      txDb,
+      args.global,
+      originalDoc,
+      statusTransition,
+    )
 
-  const result = await executeGlobalUpdate({
-    global: args.global,
-    existing: originalDoc,
-    data: finalData,
-    db: args.config.db,
-    req: args.req,
-    status,
-    statusTransition,
-    userId: args.user?.id,
-    config: args.config,
-  })
+    const finalData = await prepareTransitionGlobalPayload(
+      args.global,
+      publishPayload,
+      originalDoc,
+      status,
+      statusTransition,
+      args.req,
+    )
 
-  assertGlobalTransitionSuccess(result, action)
+    const result = await executeGlobalUpdate({
+      global: args.global,
+      existing: originalDoc,
+      data: finalData,
+      db: txDb,
+      req: args.req,
+      status,
+      statusTransition,
+      userId: args.user?.id,
+      config: args.config,
+    })
+
+    assertGlobalTransitionSuccess(result, action)
+    return result.doc
+  }
+
+  const resultDoc = args.config.db.transaction
+    ? await args.config.db.transaction(runTransition)
+    : await runTransition(args.config.db)
 
   return populateGlobalTransitionDoc<T>({
-    doc: result.doc,
+    doc: resultDoc,
     global: args.global,
     config: args.config,
     depth: args.depth,

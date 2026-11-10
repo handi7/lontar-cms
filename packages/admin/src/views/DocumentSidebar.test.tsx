@@ -77,6 +77,22 @@ describe('DocumentSidebar', () => {
     expect(onUnpublish).toHaveBeenCalledTimes(1)
   })
 
+  it('disables publish button while autosave is saving (#245)', () => {
+    renderWithPortal(
+      <DocumentSidebar
+        mode="edit"
+        submitLabel="Save Changes"
+        isPending={false}
+        hasDrafts={true}
+        autosave={{ status: 'saving', lastSavedAt: null }}
+        doc={{ id: 1, _status: 'draft', _isPublished: true }}
+      />,
+    )
+
+    const publishBtn = screen.getByRole('button', { name: 'Publish' })
+    expect(publishBtn.getAttribute('disabled')).not.toBeNull()
+  })
+
   it('renders delete button in edit mode when enabled, and calls onDelete when clicked', () => {
     const onDelete = vi.fn()
     render(

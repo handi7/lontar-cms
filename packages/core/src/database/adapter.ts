@@ -94,7 +94,11 @@ export interface DatabaseAdapter {
 
   // Runtime: called while serving requests.
   find(args: FindArgs): Promise<PaginatedDocs>
-  findByID(args: { collection: CollectionConfig; id: number }): Promise<StoredDoc | null>
+  findByID(args: {
+    collection: CollectionConfig
+    id: number
+    forUpdate?: boolean
+  }): Promise<StoredDoc | null>
   create(args: { collection: CollectionConfig; data: DocumentData }): Promise<StoredDoc>
   update(args: {
     collection: CollectionConfig
@@ -103,7 +107,11 @@ export interface DatabaseAdapter {
   }): Promise<StoredDoc | null>
   delete(args: { collection: CollectionConfig; id: number }): Promise<StoredDoc | null>
 
-  findGlobal(args: { global: GlobalConfig; draft?: boolean }): Promise<StoredDoc | null>
+  findGlobal(args: {
+    global: GlobalConfig
+    draft?: boolean
+    forUpdate?: boolean
+  }): Promise<StoredDoc | null>
   updateGlobal(args: { global: GlobalConfig; data: DocumentData }): Promise<StoredDoc>
 
   // Version history (when versions are enabled)

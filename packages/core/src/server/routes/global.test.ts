@@ -421,7 +421,7 @@ describe('Global REST Routes', () => {
   })
 
   it('supports drafts and version history endpoints for versioned global', async () => {
-    const { db } = createMockAdapter()
+    const { db, mockFindGlobal } = createMockAdapter()
     const lontar = createLontar(
       defineConfig({
         secret: 'test-secret',
@@ -500,6 +500,7 @@ describe('Global REST Routes', () => {
     expect(singleVersionJson.snapshot.siteTitle).toBe('Live Site Title')
 
     // 7. POST /globals/settings/publish publishes the latest draft
+    mockFindGlobal.mockClear()
     const publishDraftRes = await lontar.fetch(
       new Request('http://localhost/api/globals/settings/publish', {
         method: 'POST',
@@ -512,6 +513,7 @@ describe('Global REST Routes', () => {
     }
     expect(publishedDraftDoc.siteTitle).toBe('Draft WIP Site Title')
     expect(publishedDraftDoc._status).toBe('published')
+    expect(mockFindGlobal).toHaveBeenCalledWith(expect.objectContaining({ forUpdate: true }))
 
     // 8. POST /globals/settings/unpublish unpublishes
     const unpublishRes = await lontar.fetch(
