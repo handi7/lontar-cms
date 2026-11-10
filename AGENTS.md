@@ -167,7 +167,7 @@ approval on the `npm` environment. Don't run `pnpm publish` by hand; see `docs/r
     - [x] Conditional fields: #174 (done), #175 (done)
     - [x] Admin styling: #183 (done)
     - [x] Minor: #177 (done), #178 (done), #179 (done), #180 (done)
-- [ ] **M8: Drafts, versions & publishing** (tracking in #146)
+- [x] **M8: Drafts, versions & publishing** (Done; tracking in #146)
   - [x] #196 ADR: version storage and the draft/publish lifecycle (done)
   - [x] #197 ADR: live preview and outgoing webhooks (done)
   - [x] #198 `versions: { drafts: true }`, `_status` field and draft-aware reads (done)
@@ -180,7 +180,7 @@ approval on the `npm` environment. Don't run `pnpm publish` by hand; see `docs/r
   - [x] #204 Live preview: `admin.preview.url`, iframe pane, frontend helper (done)
   - [x] #205 Outgoing webhooks on change, publish and delete (done)
   - [x] #206 Drafts and version history for globals (done)
-  - [ ] #207 `examples/next-blog` draft preview and revalidation, with e2e
+  - [x] #207 `examples/next-blog` draft preview and revalidation, with e2e (done)
 - [ ] **M9: Second database adapter** (tracking in #147)
 - [ ] **M10: Users, roles & field-level access** (tracking in #148)
 - [ ] **M11: Localization** (tracking in #149)
