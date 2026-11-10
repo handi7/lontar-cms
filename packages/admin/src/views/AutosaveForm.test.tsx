@@ -128,6 +128,98 @@ describe('Autosave in edit form (#203)', () => {
     })
   })
 
+  it('handles multiple consecutive edits across intervals, sending PATCH for each edit (#232)', async () => {
+    let currentDoc = {
+      id: 1,
+      title: 'Original Title',
+      content: 'Original content',
+      _status: 'draft',
+      _isPublished: false,
+      createdAt: '2026-01-01T00:00:00.000Z',
+      updatedAt: '2026-01-01T00:00:00.000Z',
+    }
+
+    const requests: { url: string; method: string; body?: string }[] = []
+
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockImplementation((url: string, init?: RequestInit) => {
+        if (url.includes('/_lontar/config')) {
+          return mockJsonResponse(mockConfigWithAutosave)
+        }
+        if (url.includes('/auth/get-session')) {
+          return mockJsonResponse({ user: mockAuthUser, session: mockAuthSession })
+        }
+        if (url.includes('/api/articles/1') && init?.method === 'PATCH') {
+          const body = typeof init.body === 'string' ? init.body : undefined
+          requests.push({ url, method: 'PATCH', body })
+          const parsed = body ? (JSON.parse(body) as Record<string, unknown>) : {}
+          currentDoc = {
+            ...currentDoc,
+            ...parsed,
+            updatedAt: new Date().toISOString(),
+          }
+          return mockJsonResponse(currentDoc)
+        }
+        if (url.includes('/api/articles/1')) {
+          return mockJsonResponse(currentDoc)
+        }
+        return Promise.reject(new Error(`Unhandled URL: ${url}`))
+      }),
+    )
+
+    const history = createMemoryHistory({ initialEntries: ['/admin/articles/1'] })
+    render(<Admin apiBase="/api" basePath="/admin" history={history} />)
+
+    // Wait for form to load
+    await waitFor(() => {
+      expect(screen.getByRole('textbox', { name: /Title/i })).toBeTruthy()
+    })
+
+    const titleInput = screen.getByRole('textbox', { name: /Title/i })
+
+    // Edit 1: change title to 'Edit One'
+    fireEvent.change(titleInput, { target: { value: 'Edit One' } })
+    act(() => {
+      vi.advanceTimersByTime(600)
+    })
+
+    await waitFor(() => {
+      expect(requests.filter((r) => r.method === 'PATCH')).toHaveLength(1)
+    })
+    expect(requests[0]?.body).toContain('Edit One')
+
+    await waitFor(() => {
+      expect(screen.getByText('Saved just now')).toBeTruthy()
+    })
+
+    // Edit 2: change title to 'Edit Two'
+    fireEvent.change(titleInput, { target: { value: 'Edit Two' } })
+    act(() => {
+      vi.advanceTimersByTime(600)
+    })
+
+    await waitFor(() => {
+      expect(requests.filter((r) => r.method === 'PATCH')).toHaveLength(2)
+    })
+    expect(requests[1]?.body).toContain('Edit Two')
+
+    await waitFor(() => {
+      expect(screen.getByText('Saved just now')).toBeTruthy()
+    })
+
+    // Edit 3: change title to 'Edit Three'
+    fireEvent.change(titleInput, { target: { value: 'Edit Three' } })
+    act(() => {
+      vi.advanceTimersByTime(600)
+    })
+
+    await waitFor(() => {
+      expect(requests.filter((r) => r.method === 'PATCH')).toHaveLength(3)
+    })
+    expect(requests[2]?.body).toContain('Edit Three')
+  })
+
   it('does not autosave when a required field is invalid', async () => {
     const existingDoc = {
       id: 1,
