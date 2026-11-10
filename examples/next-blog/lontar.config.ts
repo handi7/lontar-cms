@@ -67,9 +67,16 @@ const media = collection({
 const posts = collection({
   slug: 'posts',
   labels: { singular: 'Post', plural: 'Posts' },
+  versions: {
+    drafts: true,
+    autosave: { interval: 2000 },
+  },
   admin: {
     useAsTitle: 'title',
-    defaultColumns: ['title', 'status', 'publishedAt'],
+    defaultColumns: ['title', '_status', 'publishedAt'],
+    preview: {
+      url: '/posts/{slug}?preview=1',
+    },
   },
   access: {
     read: () => true,
@@ -80,23 +87,16 @@ const posts = collection({
   fields: {
     title: f.text({ required: true, maxLength: 120 }),
     slug: f.slug({ from: 'title', unique: true }),
-    status: f.select({ options: ['draft', 'published'], defaultValue: 'draft' }),
     cover: f.upload({ relationTo: 'media' }),
     author: f.relationship({ relationTo: 'authors' }),
     categories: f.relationship({ relationTo: 'categories', hasMany: true }),
     content: f.richText(),
-    publishedAt: f.date({
-      admin: {
-        condition: {
-          status: { equals: 'published' },
-        },
-      },
-    }),
+    publishedAt: f.date(),
   },
   hooks: {
     beforeChange: [
-      ({ data }) => {
-        if (data.status === 'published' && !data.publishedAt) {
+      ({ data, statusTransition }) => {
+        if (statusTransition === 'publish' && !data.publishedAt) {
           data.publishedAt = new Date()
         }
         return data
@@ -167,9 +167,16 @@ const callToActionBlock = block({
 const pages = collection({
   slug: 'pages',
   labels: { singular: 'Page', plural: 'Pages' },
+  versions: {
+    drafts: true,
+    autosave: { interval: 2000 },
+  },
   admin: {
     useAsTitle: 'title',
-    defaultColumns: ['title', 'slug', 'createdAt'],
+    defaultColumns: ['title', 'slug', '_status', 'createdAt'],
+    preview: {
+      url: '/{slug}?preview=1',
+    },
   },
   access: {
     read: () => true,
@@ -213,4 +220,11 @@ export default defineConfig({
   storage: localStorage(),
   collections: [posts, pages, categories, authors, media],
   globals: [siteSettings],
+  webhooks: [
+    {
+      url: `${process.env.LONTAR_URL || 'http://localhost:3000'}/api/revalidate`,
+      events: ['publish', 'unpublish', 'delete'],
+      secret: process.env.REVALIDATION_SECRET || 'dev-webhook-secret-key-12345',
+    },
+  ],
 })

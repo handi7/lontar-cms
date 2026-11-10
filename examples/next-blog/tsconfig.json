@@ -26,6 +26,9 @@
       "@lontar/db-mysql": ["../../packages/db-mysql/src/index.ts"],
       "@lontar/admin": ["../../packages/admin/src/index.ts"],
       "@lontar/next": ["../../packages/next/src/index.ts"],
+      "@lontar/preview": ["../../packages/preview/src/index.ts"],
+      "@lontar/preview/react": ["../../packages/preview/src/react/index.ts"],
+      "@lontar/preview/*": ["../../packages/preview/src/*"],
       "@lontar/storage-local": ["../../packages/storage-local/src/index.ts"],
       "@lontar/storage-s3": ["../../packages/storage-s3/src/index.ts"]
     }

@@ -18,6 +18,7 @@
     "@lontar/core": "workspace:*",
     "@lontar/db-mysql": "workspace:*",
     "@lontar/next": "workspace:*",
+    "@lontar/preview": "workspace:*",
     "@lontar/storage-local": "workspace:*"
   },
   "devDependencies": {
