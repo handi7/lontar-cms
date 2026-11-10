@@ -41,9 +41,9 @@ function handleGlobalError(err: unknown, c: Context<LontarEnv>, user: AuthUser |
     return c.json({ error: err.message }, 404)
   }
   if (err instanceof ValidationError) {
-    return c.json({ error: 'Validation failed', issues: err.issues }, 400)
-  }
-  if (err instanceof Error) {
+    if (err.issues && err.issues.length > 0) {
+      return c.json({ error: err.message, issues: err.issues }, 400)
+    }
     return c.json({ error: err.message }, 400)
   }
   throw err
@@ -79,9 +79,8 @@ async function handleUpdateGlobal(c: Context<LontarEnv>, global: GlobalConfig, c
   }
 
   const depth = parseDepth(c.req.query('depth'))
-  const rawBody = body as Record<string, unknown>
-  const draft = c.req.query('draft') === 'true' || Boolean(rawBody?.draft)
-  const autosave = c.req.query('autosave') === 'true' || Boolean(rawBody?.autosave)
+  const draft = c.req.query('draft') === 'true'
+  const autosave = c.req.query('autosave') === 'true'
 
   try {
     const doc = await updateGlobalOperation({
@@ -206,14 +205,8 @@ async function handleRestoreGlobalVersion(
     return c.json({ error: 'Invalid version ID' }, 400)
   }
   const user = c.get('user') ?? null
-  const body = (await parseJsonBody(c)) as Record<string, unknown> | undefined
   const depth = parseDepth(c.req.query('depth'))
-  const draft =
-    c.req.query('draft') !== undefined
-      ? c.req.query('draft') === 'true'
-      : typeof body?.draft === 'boolean'
-        ? body.draft
-        : undefined
+  const draft = c.req.query('draft') !== undefined ? c.req.query('draft') === 'true' : undefined
 
   try {
     const result = await restoreGlobalVersionOperation({
