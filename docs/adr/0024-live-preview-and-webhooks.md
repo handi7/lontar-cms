@@ -46,10 +46,11 @@ const Posts = collection({
 - **Placeholder tokens**:
   - Tokens reference top-level document fields: `{id}`, `{slug}`, `{title}`, etc.
   - The admin replaces tokens using URL encoding: `encodeURIComponent(String(fieldValue))`.
+  - The preview iframe URL is resolved from the **saved document** (or last saved draft), not from live form values. When editing an existing document, edits to tokens like `slug` or `title` do not change the iframe `src` until the document is saved; live changes are streamed over `postMessage`.
 - **Handling empty or unset tokens**:
-  - When creating a new document (or before required tokens like `{slug}` are filled in by the editor), the placeholder value is empty.
+  - When creating a new document (or before required tokens like `{slug}` are saved in the document), the token value is empty in saved state.
   - If a required token in the URL path is empty, the admin preview pane pauses loading and displays an informative placeholder:
-    > "Fill in `{slug}` to start live preview."
+    > "Fill in `{slug}` to start live preview." (or "Save to start live preview." if filled in form but unsaved).
   - This avoids firing 404 requests or crashing the frontend iframe on initial document creation.
 
 #### 2. Transport Protocol: Versioned `postMessage`

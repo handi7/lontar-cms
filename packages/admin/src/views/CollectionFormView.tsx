@@ -613,6 +613,7 @@ interface PreviewPaneWrapperProps {
   isOpen: boolean
   urlTemplate?: string
   values: Record<string, unknown>
+  savedValues?: Record<string, unknown> | null
   onClose: () => void
 }
 
@@ -625,6 +626,7 @@ function PreviewPaneWrapper(props: PreviewPaneWrapperProps) {
         collectionSlug={props.collection.slug}
         urlTemplate={props.urlTemplate}
         values={props.values}
+        savedValues={props.savedValues}
         onClose={props.onClose}
       />
     </div>
@@ -820,6 +822,7 @@ function CollectionEditor({ collection, mode, id }: CollectionEditorProps) {
           isOpen={preview.isOpen}
           urlTemplate={previewUrlTemplate}
           values={formatDocForSubmit(collection.fields, formValues)}
+          savedValues={docQuery.data}
           onClose={preview.close}
         />
       </div>
