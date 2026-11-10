@@ -28,6 +28,7 @@ test.describe('Next.js Blog M8: Drafts, Live Preview and Revalidation', () => {
     const id = Date.now()
     const draftTitle = `Upcoming Architecture Insights ${id}`
     const postSlug = `upcoming-architecture-insights-${id}`
+    const authorName = `Preview Author ${id}`
 
     // -------------------------------------------------------------
     // 1. Log in to the Admin Panel as an editor
@@ -45,6 +46,18 @@ test.describe('Next.js Blog M8: Drafts, Live Preview and Revalidation', () => {
     })
 
     // -------------------------------------------------------------
+    // 1b. Create an Author to verify populated relation in preview
+    // -------------------------------------------------------------
+    await page.getByRole('link', { name: 'Authors', exact: true }).click()
+    await expect(page.getByRole('heading', { name: 'Authors', exact: true })).toBeVisible()
+    await page.getByRole('link', { name: 'Create Author' }).first().click()
+    await expect(page.getByRole('heading', { name: 'Create Author' })).toBeVisible()
+    await page.locator('input[name="name"]').fill(authorName)
+    await page.locator('textarea[name="bio"]').fill('Author bio for live preview verification.')
+    await page.getByRole('button', { name: 'Create Author' }).click()
+    await expect(page.getByRole('heading', { name: 'Authors', exact: true })).toBeVisible()
+
+    // -------------------------------------------------------------
     // 2. Create a Post as a Draft (do not publish yet)
     // -------------------------------------------------------------
     await page.getByRole('link', { name: 'Posts', exact: true }).click()
@@ -53,6 +66,13 @@ test.describe('Next.js Blog M8: Drafts, Live Preview and Revalidation', () => {
 
     await expect(page.getByRole('heading', { name: 'Create Post' })).toBeVisible()
     await page.locator('input[name="title"]').fill(draftTitle)
+
+    // Select Author
+    const authorSearchInput = page.locator('input[data-testid="relationship-search"]').first()
+    await authorSearchInput.fill(authorName)
+    const authorOption = page.getByRole('button', { name: new RegExp(authorName, 'i') }).first()
+    await expect(authorOption).toBeVisible()
+    await authorOption.click()
 
     // Fill rich text
     const richTextEditor = page.locator('.ProseMirror')
@@ -124,6 +144,7 @@ test.describe('Next.js Blog M8: Drafts, Live Preview and Revalidation', () => {
       timeout: 10000,
     })
     await expect(previewFrame.locator('[data-testid="preview-badge"]')).toBeVisible()
+    await expect(previewFrame.locator('[data-testid="post-author"]')).toContainText(authorName)
 
     // Update title in editor -> updates live in preview pane over postMessage
     const updatedDraftTitle = `${draftTitle} [Live Edit]`
@@ -131,6 +152,8 @@ test.describe('Next.js Blog M8: Drafts, Live Preview and Revalidation', () => {
     await expect(previewFrame.locator('[data-testid="post-title"]')).toHaveText(updatedDraftTitle, {
       timeout: 5000,
     })
+    // Relational author continues to render after typing in live preview
+    await expect(previewFrame.locator('[data-testid="post-author"]')).toContainText(authorName)
 
     // -------------------------------------------------------------
     // 6. Publish the Post

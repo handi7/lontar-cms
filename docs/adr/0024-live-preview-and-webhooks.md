@@ -115,6 +115,7 @@ To preserve framework neutrality (Rule 4), the frontend preview helper is packag
      - Subscribes to `window.addEventListener('message', ...)`.
      - Validates origin and message shape.
      - Merges received form data over `initialData` in React state.
+     - Preserves populated objects and arrays of populated objects (relations, uploads, nested blocks) when the incoming form value references the same ID(s). If an ID changes, the incoming ID is applied; the host frontend can render a fallback or refetch the newly associated record.
      - Unsubscribes on component unmount.
 - **Vanilla JS Core**:
   `@lontar/preview` also exports `subscribeLivePreview({ initialData, serverURL, onChange })` for non-React frontends (Vue, Svelte, vanilla JS).
