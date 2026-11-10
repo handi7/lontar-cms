@@ -70,6 +70,16 @@ async function assertUpdateAccess(
   }
 }
 
+// Version snapshots hold draft content, which ADR 0023 §5 gates behind update access.
+async function assertVersionHistoryAccess(
+  collection: CollectionConfig,
+  id: number,
+  user?: AuthUser | null,
+): Promise<void> {
+  await assertReadAccess(collection, id, user)
+  await assertUpdateAccess(collection, id, user)
+}
+
 function assertVersionsEnabled(collection: CollectionConfig): void {
   if (!collection.versions) {
     throw new ValidationError(`Versions are not enabled for collection "${collection.slug}"`)
@@ -81,7 +91,7 @@ export async function findVersionsOperation(
 ): Promise<PaginatedVersions> {
   assertVersionsEnabled(args.collection)
   if (!args.overrideAccess) {
-    await assertReadAccess(args.collection, args.id, args.user)
+    await assertVersionHistoryAccess(args.collection, args.id, args.user)
   }
 
   if (!args.config.db.findVersions) {
@@ -102,7 +112,7 @@ export async function findVersionByIDOperation(
 ): Promise<StoredVersion> {
   assertVersionsEnabled(args.collection)
   if (!args.overrideAccess) {
-    await assertReadAccess(args.collection, args.id, args.user)
+    await assertVersionHistoryAccess(args.collection, args.id, args.user)
   }
 
   if (!args.config.db.findVersionByID) {
@@ -129,7 +139,7 @@ export async function restoreVersionOperation<T = DocumentData>(
 ): Promise<T> {
   assertVersionsEnabled(args.collection)
   if (!args.overrideAccess) {
-    await assertUpdateAccess(args.collection, args.id, args.user)
+    await assertVersionHistoryAccess(args.collection, args.id, args.user)
   }
 
   const version = await findVersionByIDOperation({
@@ -172,6 +182,14 @@ async function assertGlobalUpdateAccess(
   }
 }
 
+async function assertGlobalVersionHistoryAccess(
+  global: GlobalConfig,
+  user?: AuthUser | null,
+): Promise<void> {
+  await assertGlobalReadAccess(global, user)
+  await assertGlobalUpdateAccess(global, user)
+}
+
 function assertGlobalVersionsEnabled(global: GlobalConfig): void {
   if (!global.versions) {
     throw new ValidationError(`Versions are not enabled for global "${global.slug}"`)
@@ -183,7 +201,7 @@ export async function findGlobalVersionsOperation(
 ): Promise<PaginatedVersions> {
   assertGlobalVersionsEnabled(args.global)
   if (!args.overrideAccess) {
-    await assertGlobalReadAccess(args.global, args.user)
+    await assertGlobalVersionHistoryAccess(args.global, args.user)
   }
 
   if (!args.config.db.findVersions) {
@@ -207,7 +225,7 @@ export async function findGlobalVersionByIDOperation(
 ): Promise<StoredVersion> {
   assertGlobalVersionsEnabled(args.global)
   if (!args.overrideAccess) {
-    await assertGlobalReadAccess(args.global, args.user)
+    await assertGlobalVersionHistoryAccess(args.global, args.user)
   }
 
   if (!args.config.db.findVersionByID) {
@@ -235,7 +253,7 @@ export async function restoreGlobalVersionOperation<T = DocumentData>(
 ): Promise<T> {
   assertGlobalVersionsEnabled(args.global)
   if (!args.overrideAccess) {
-    await assertGlobalUpdateAccess(args.global, args.user)
+    await assertGlobalVersionHistoryAccess(args.global, args.user)
   }
 
   const version = await findGlobalVersionByIDOperation({

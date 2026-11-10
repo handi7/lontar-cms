@@ -205,6 +205,7 @@ When drafts are enabled:
 - The parent table always stores the published document (or initial draft if never published), ensuring public reads remain fast single-table queries without version joins.
 - Draft edits to an already-published document are stored as version snapshots in `${collection}_versions` until published.
 - Queries default to published documents. Pass `draft: true` (requires update access) to read the latest draft state.
+- Version history (`/versions`, a single version, and restore) holds draft content, so it requires both read and update access.
 
 ### Live preview
 

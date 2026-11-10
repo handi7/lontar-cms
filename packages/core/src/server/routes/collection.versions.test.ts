@@ -9,6 +9,7 @@ import type {
   StoredDoc,
   StoredVersion,
 } from '../../database/adapter'
+import type { AuthUser } from '../../auth/types'
 import { fields as f } from '../../fields'
 import { getLontar } from '../../local'
 import { createLontar } from '../create-lontar'
@@ -628,5 +629,78 @@ describe('Draft revisions of a published document', () => {
     expect(res.status).toBe(200)
 
     expect(getDocs()[0]).toMatchObject({ title: 'Draft B', _status: 'published' })
+  })
+})
+
+describe('Version history access on a publicly readable collection', () => {
+  const editor = { id: 'u1', email: 'editor@example.com' } as unknown as AuthUser
+  const reader = { id: 'u2', email: 'reader@example.com' } as unknown as AuthUser
+
+  function setup() {
+    const posts = collection({
+      slug: 'posts',
+      versions: { drafts: true },
+      access: {
+        read: () => true,
+        update: ({ user }) => user?.email === editor.email,
+      },
+      fields: {
+        title: f.text({ required: true }),
+      },
+    })
+    const mock = createVersionsMockAdapter([
+      {
+        id: 1,
+        title: 'Unpublished',
+        _status: 'draft',
+        createdAt: '2026-10-31T00:00:00.000Z',
+        updatedAt: '2026-10-31T00:00:00.000Z',
+      },
+    ])
+    mock.getVersions().push({
+      id: 1,
+      parentId: 1,
+      versionNumber: 1,
+      snapshot: { id: 1, title: 'Unpublished', _status: 'draft' },
+      _status: 'draft',
+      autosave: false,
+      createdAt: '2026-10-31T00:00:00.000Z',
+      createdBy: null,
+    })
+    const config = defineConfig({ secret: 'test-secret', db: mock.adapter, collections: [posts] })
+    return { app: createLontar(config), config }
+  }
+
+  it('rejects anonymous requests to the version endpoints', async () => {
+    const { app } = setup()
+
+    expect((await app.request('/api/posts/1')).status).toBe(404)
+    expect((await app.request('/api/posts/1/versions')).status).toBe(401)
+    expect((await app.request('/api/posts/1/versions/1')).status).toBe(401)
+    expect((await app.request('/api/posts/1/versions/1/restore', { method: 'POST' })).status).toBe(
+      401,
+    )
+  })
+
+  it('rejects users who can read but not update', async () => {
+    const { config } = setup()
+    const client = await getLontar(config)
+    const opts = { overrideAccess: false, user: reader }
+
+    await expect(client.findVersions('posts', 1, opts)).rejects.toMatchObject({ status: 403 })
+    await expect(client.findVersionByID('posts', 1, 1, opts)).rejects.toMatchObject({
+      status: 403,
+    })
+  })
+
+  it('allows users with update access', async () => {
+    const { config } = setup()
+    const client = await getLontar(config)
+    const opts = { overrideAccess: false, user: editor }
+
+    const list = await client.findVersions('posts', 1, opts)
+    expect(list.docs).toHaveLength(1)
+    const version = await client.findVersionByID('posts', 1, 1, opts)
+    expect(version.snapshot.title).toBe('Unpublished')
   })
 })
