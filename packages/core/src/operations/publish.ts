@@ -7,6 +7,7 @@ import type { DocStatusTransition } from '../hooks/types'
 import { populateDoc } from '../populate'
 import { AccessDeniedError, NotFoundError, ValidationError } from './errors'
 import { executeGlobalUpdate, executeUpdate, type MutationExecutionResult } from './mutation'
+import { cleanupReplacedMedia } from '../server/routes/collection-upload'
 
 export interface PublishOperationArgs {
   config: Config
@@ -69,12 +70,7 @@ async function resolvePublishPayload(
   return originalDoc
 }
 
-async function transitionDocumentStatus<T = DocumentData>(
-  args: PublishOperationArgs,
-  status: DocStatus,
-  statusTransition: DocStatusTransition,
-  action: string,
-): Promise<T> {
+async function validateTransitionPrerequisites(args: PublishOperationArgs): Promise<DocumentData> {
   if (!args.collection.versions?.drafts) {
     throw new ValidationError(`Drafts are not enabled for collection "${args.collection.slug}"`)
   }
@@ -90,6 +86,27 @@ async function transitionDocumentStatus<T = DocumentData>(
   if (!originalDoc) {
     throw new NotFoundError(`Document with ID ${args.id} not found`)
   }
+  return originalDoc
+}
+
+async function maybeCleanupPublishedMedia(
+  args: PublishOperationArgs,
+  originalDoc: DocumentData,
+  resultDoc: DocumentData,
+  statusTransition: DocStatusTransition,
+): Promise<void> {
+  if (args.collection.upload && statusTransition === 'publish') {
+    await cleanupReplacedMedia(args.config, originalDoc, resultDoc)
+  }
+}
+
+async function transitionDocumentStatus<T = DocumentData>(
+  args: PublishOperationArgs,
+  status: DocStatus,
+  statusTransition: DocStatusTransition,
+  action: string,
+): Promise<T> {
+  const originalDoc = await validateTransitionPrerequisites(args)
 
   const publishPayload = await resolvePublishPayload(
     args.config.db,
@@ -115,6 +132,8 @@ async function transitionDocumentStatus<T = DocumentData>(
   if (!result.success) {
     handleMutationResult(result, args.id, action)
   }
+
+  await maybeCleanupPublishedMedia(args, originalDoc, result.doc, statusTransition)
 
   const populated = await populateDoc(result.doc, {
     collection: args.collection,
