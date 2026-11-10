@@ -182,7 +182,7 @@ approval on the `npm` environment. Don't run `pnpm publish` by hand; see `docs/r
   - [x] #206 Drafts and version history for globals (done)
   - [x] #207 `examples/next-blog` draft preview and revalidation, with e2e (done)
   - [ ] Code review fixes from `main` @ b78398c, in fix order
-    - [ ] Data loss and draft leaks: #225 (done), #226 (done), #227, #228, #229
+    - [ ] Data loss and draft leaks: #225 (done), #226 (done), #227 (done), #228, #229
     - [ ] Admin editing: #230, #232, #233, #234
     - [ ] Webhooks and preview: #231, #235, #236
     - [ ] Core lifecycle: #237, #238, #239, #244, #245

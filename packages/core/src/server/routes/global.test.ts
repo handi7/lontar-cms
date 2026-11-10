@@ -541,6 +541,17 @@ describe('Draft revisions of a published global', () => {
     expect(getVersions().every((v) => !('_isPublished' in v.snapshot))).toBe(true)
   })
 
+  it('saves an autosave sent without draft as a draft', async () => {
+    const { save, read, getStoredGlobal, getVersions } = setup()
+
+    expect((await save('autosave=true', 'Autosaved')).status).toBe(200)
+
+    expect(getStoredGlobal()).toMatchObject({ siteTitle: 'Live', _status: 'published' })
+    expect(await read()).toBe('Live')
+    expect(await read('?draft=true')).toBe('Autosaved')
+    expect(getVersions().map((v) => v._status)).toEqual(['draft'])
+  })
+
   it('keeps the live global published across consecutive autosaves', async () => {
     const { save, read, getStoredGlobal } = setup()
 

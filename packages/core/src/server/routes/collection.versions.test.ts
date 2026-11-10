@@ -592,6 +592,16 @@ describe('Draft revisions of a published document', () => {
     expect(getVersions().every((v) => !('_isPublished' in v.snapshot))).toBe(true)
   })
 
+  it('saves an autosave sent without draft as a draft', async () => {
+    const { app, patch, getDocs, getVersions } = setup()
+
+    expect((await patch('autosave=true', 'Autosaved')).status).toBe(200)
+
+    await expectLiveUnchanged(app, getDocs)
+    expect(await readDraftTitle(app)).toBe('Autosaved')
+    expect(getVersions().map((v) => v._status)).toEqual(['draft'])
+  })
+
   it('keeps the live row published across consecutive autosaves', async () => {
     const { app, patch, getDocs, getVersions } = setup()
 

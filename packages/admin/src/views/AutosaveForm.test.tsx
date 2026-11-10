@@ -233,3 +233,83 @@ describe('Autosave in edit form (#203)', () => {
     expect((titleInput as HTMLInputElement).value).toBe('My Unsaved Edits')
   })
 })
+
+describe('Autosave in the global edit form', () => {
+  const mockConfigWithGlobalAutosave: ClientConfig = {
+    version: CLIENT_CONFIG_VERSION,
+    collections: [],
+    globals: [
+      {
+        slug: 'settings',
+        label: 'Settings',
+        versions: { drafts: true, autosave: { interval: 500 } },
+        fields: [{ name: 'siteTitle', label: 'Site Title', type: 'text', required: true }],
+      },
+    ],
+  }
+
+  beforeEach(() => {
+    vi.restoreAllMocks()
+    vi.useFakeTimers({ shouldAdvanceTime: true })
+  })
+
+  afterEach(() => {
+    vi.useRealTimers()
+    cleanup()
+  })
+
+  it('saves a draft instead of publishing the live global', async () => {
+    const liveGlobal = {
+      id: 1,
+      siteTitle: 'Live Title',
+      _status: 'published',
+      _isPublished: true,
+      createdAt: '2026-01-01T00:00:00.000Z',
+      updatedAt: '2026-01-01T00:00:00.000Z',
+    }
+    const saves: string[] = []
+
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockImplementation((url: string, init?: RequestInit) => {
+        if (url.includes('/_lontar/config')) {
+          return mockJsonResponse(mockConfigWithGlobalAutosave)
+        }
+        if (url.includes('/auth/get-session')) {
+          return mockJsonResponse({ user: mockAuthUser, session: mockAuthSession })
+        }
+        if (url.includes('/api/globals/settings/versions')) {
+          return mockJsonResponse({ docs: [], totalDocs: 0, page: 1, totalPages: 1, limit: 10 })
+        }
+        if (url.includes('/api/globals/settings') && init?.method === 'POST') {
+          saves.push(url)
+          return mockJsonResponse({ ...liveGlobal, siteTitle: 'Edited', _status: 'draft' })
+        }
+        if (url.includes('/api/globals/settings')) {
+          return mockJsonResponse(liveGlobal)
+        }
+        return Promise.reject(new Error(`Unhandled URL: ${url}`))
+      }),
+    )
+
+    const history = createMemoryHistory({ initialEntries: ['/admin/globals/settings'] })
+    render(<Admin apiBase="/api" basePath="/admin" history={history} />)
+
+    await waitFor(() => {
+      expect(screen.getByRole('textbox', { name: /Site Title/i })).toBeTruthy()
+    })
+    fireEvent.change(screen.getByRole('textbox', { name: /Site Title/i }), {
+      target: { value: 'Edited' },
+    })
+
+    act(() => {
+      vi.advanceTimersByTime(600)
+    })
+
+    await waitFor(() => {
+      expect(saves.length).toBeGreaterThanOrEqual(1)
+    })
+    expect(saves[0]).toContain('draft=true')
+    expect(saves[0]).toContain('autosave=true')
+  })
+})
