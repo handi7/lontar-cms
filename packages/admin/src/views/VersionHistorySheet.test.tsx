@@ -73,14 +73,13 @@ function mockJsonResponse(data: unknown, status = 200): Promise<Response> {
 
 function renderVersionHistorySheet(
   props: Partial<React.ComponentProps<typeof VersionHistorySheet>> = {},
-) {
-  const queryClient = new QueryClient({
+  queryClient: QueryClient = new QueryClient({
     defaultOptions: {
       queries: { retry: false },
       mutations: { retry: false },
     },
-  })
-
+  }),
+) {
   return render(
     <div className="lontar-admin">
       <PortalContainerProvider>
@@ -207,6 +206,10 @@ describe('VersionHistorySheet', () => {
     const onRestoreSuccess = vi.fn()
     const onOpenChange = vi.fn()
     let restoreCalled = false
+    const queryClient = new QueryClient({
+      defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
+    })
+    const invalidateSpy = vi.spyOn(queryClient, 'invalidateQueries')
 
     vi.stubGlobal(
       'fetch',
@@ -227,7 +230,7 @@ describe('VersionHistorySheet', () => {
       }),
     )
 
-    renderVersionHistorySheet({ onRestoreSuccess, onOpenChange })
+    renderVersionHistorySheet({ onRestoreSuccess, onOpenChange }, queryClient)
 
     await waitFor(() => {
       expect(screen.getByText('v2')).toBeTruthy()
@@ -250,6 +253,12 @@ describe('VersionHistorySheet', () => {
       expect(onRestoreSuccess).toHaveBeenCalledWith(
         expect.objectContaining({ title: 'Updated Title' }),
       )
+      expect(invalidateSpy).toHaveBeenCalledWith({
+        queryKey: ['document', 'posts', '1'],
+      })
+      expect(invalidateSpy).toHaveBeenCalledWith({
+        queryKey: ['doc-versions', 'http://localhost:3000/api', 'posts', '1'],
+      })
     })
   })
 

@@ -21,6 +21,7 @@ import {
   fetchGlobalVersions,
   restoreDocVersion,
   restoreGlobalVersion,
+  queryKeys,
   type ApiClientError,
 } from '../api/client'
 import { ConfirmRestoreDialog } from './ConfirmRestoreDialog'
@@ -299,17 +300,17 @@ function useVersionRestore({
     onSuccess: (restoredDoc) => {
       if (globalSlug) {
         void queryClient.invalidateQueries({
-          queryKey: ['globals', globalSlug],
+          queryKey: queryKeys.global(globalSlug),
         })
         void queryClient.invalidateQueries({
-          queryKey: ['global-versions', apiBase, globalSlug],
+          queryKey: queryKeys.globalVersions(apiBase, globalSlug),
         })
-      } else {
+      } else if (collectionSlug && id) {
         void queryClient.invalidateQueries({
-          queryKey: ['document', apiBase, collectionSlug, String(id)],
+          queryKey: queryKeys.documentPrefix(collectionSlug, id),
         })
         void queryClient.invalidateQueries({
-          queryKey: ['doc-versions', apiBase, collectionSlug, id],
+          queryKey: queryKeys.docVersions(apiBase, collectionSlug, id),
         })
       }
       onSuccess(restoredDoc)
@@ -419,8 +420,8 @@ function useVersionHistoryList({
 
   return useQuery({
     queryKey: isGlobal
-      ? ['global-versions', apiBase, entity.slug, page]
-      : ['doc-versions', apiBase, entity.slug, id, page],
+      ? queryKeys.globalVersions(apiBase, entity.slug, page)
+      : queryKeys.docVersions(apiBase, entity.slug, id!, page),
     queryFn: () => {
       if (isGlobal) {
         return fetchGlobalVersions(apiBase, entity.slug, { page, limit: 10 })

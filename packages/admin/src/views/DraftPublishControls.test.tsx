@@ -67,6 +67,18 @@ function handleMockPatch(
   })
 }
 
+function handleMockRestoreRequest(
+  url: string,
+  init: RequestInit | undefined,
+  onRestore: () => Record<string, unknown>,
+  mockVersions: unknown,
+) {
+  if (url.includes('/restore') && init?.method === 'POST') {
+    return mockJsonResponse(onRestore())
+  }
+  return mockJsonResponse(mockVersions)
+}
+
 describe('Draft and publish controls (#201)', () => {
   beforeEach(() => {
     vi.restoreAllMocks()
@@ -216,5 +228,143 @@ describe('Draft and publish controls (#201)', () => {
     const lastUnpublishReq = requests[requests.length - 1]
     expect(lastUnpublishReq?.url).toBe('/api/articles/1/unpublish')
     expect(lastUnpublishReq?.method).toBe('POST')
+  })
+
+  it('restores while form is dirty, retains restored values, and sends them on later publish (#233)', async () => {
+    let currentDoc: Record<string, unknown> = {
+      id: 1,
+      title: 'Current Article',
+      content: 'Hello world',
+      _status: 'draft',
+      _isPublished: false,
+      createdAt: '2026-01-01T00:00:00.000Z',
+      updatedAt: '2026-01-02T00:00:00.000Z',
+    }
+
+    const mockVersions = {
+      docs: [
+        {
+          id: 2,
+          parentId: 1,
+          versionNumber: 2,
+          autosave: false,
+          snapshot: {
+            id: 1,
+            title: 'Restored Title v2',
+            content: 'Restored content v2',
+            _status: 'published',
+          },
+          _status: 'published',
+          createdAt: '2026-11-09T10:00:00.000Z',
+          createdBy: 'editor@example.com',
+        },
+        {
+          id: 1,
+          parentId: 1,
+          versionNumber: 1,
+          autosave: false,
+          snapshot: {
+            id: 1,
+            title: 'Current Article',
+            content: 'Hello world',
+            _status: 'draft',
+          },
+          _status: 'draft',
+          createdAt: '2026-11-09T09:00:00.000Z',
+          createdBy: null,
+        },
+      ],
+      totalDocs: 2,
+      limit: 10,
+      page: 1,
+      totalPages: 1,
+    }
+
+    const requests: { url: string; method: string; body?: unknown }[] = []
+
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockImplementation((url: string, init?: RequestInit) => {
+        if (url.includes('/_lontar/config')) return mockJsonResponse(mockConfig)
+        if (url.includes('/auth/get-session')) {
+          return mockJsonResponse({ user: mockAuthUser, session: mockAuthSession })
+        }
+        if (url.includes('/api/articles/1/versions')) {
+          return handleMockRestoreRequest(
+            url,
+            init,
+            () => {
+              currentDoc = {
+                id: 1,
+                title: 'Restored Title v2',
+                content: 'Restored content v2',
+                _status: 'draft',
+                _isPublished: false,
+              }
+              return currentDoc
+            },
+            mockVersions,
+          )
+        }
+        if (url.includes('/api/articles/1') && init?.method === 'PATCH') {
+          return handleMockPatch(url, init, currentDoc, requests)
+        }
+        if (url.includes('/api/articles/1')) return mockJsonResponse(currentDoc)
+        return Promise.reject(new Error(`Unhandled URL: ${url}`))
+      }),
+    )
+
+    const history = createMemoryHistory({ initialEntries: ['/admin/articles/1'] })
+    render(<Admin apiBase="/api" basePath="/admin" history={history} />)
+
+    // Wait for form to load
+    await waitFor(() => {
+      expect(screen.getByRole('complementary', { name: 'Document sidebar' })).toBeTruthy()
+    })
+
+    const titleInput = screen.getByLabelText<HTMLInputElement>(/title/i)
+    expect(titleInput.value).toBe('Current Article')
+
+    // 1. Edit the form so it is dirty
+    fireEvent.change(titleInput, { target: { value: 'Dirty Article Title' } })
+    expect(titleInput.value).toBe('Dirty Article Title')
+
+    // 2. Open Version History sheet
+    const historyBtn = screen.getByRole('button', { name: /version history/i })
+    fireEvent.click(historyBtn)
+
+    await waitFor(() => {
+      expect(screen.getByText('v2')).toBeTruthy()
+    })
+
+    // 3. Click Restore v2 and confirm
+    const restoreBtn = screen.getByRole('button', { name: /restore v2/i })
+    fireEvent.click(restoreBtn)
+
+    const confirmRestoreBtn = screen.getByRole('button', { name: 'Restore' })
+    fireEvent.click(confirmRestoreBtn)
+
+    await waitFor(() => {
+      expect(screen.getByText('Version restored successfully!')).toBeTruthy()
+    })
+
+    // 4. Form should hold restored values, NOT reverting to stale docQuery.data or dirty edit
+    expect(titleInput.value).toBe('Restored Title v2')
+
+    // 5. Subsequent Publish sends the restored values
+    const publishBtn = screen.getByRole('button', { name: 'Publish' })
+    fireEvent.click(publishBtn)
+
+    await waitFor(() => {
+      expect(screen.getByText('Published successfully!')).toBeTruthy()
+    })
+
+    const lastReq = requests[requests.length - 1]
+    expect(lastReq?.url).toBe('/api/articles/1')
+    expect(lastReq?.method).toBe('PATCH')
+    expect(lastReq?.body).toMatchObject({
+      title: 'Restored Title v2',
+      content: 'Restored content v2',
+    })
   })
 })
