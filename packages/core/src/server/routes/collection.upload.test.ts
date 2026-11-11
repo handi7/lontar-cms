@@ -14,6 +14,7 @@ import type {
 } from '../../database/adapter'
 import type { StorageAdapter, UploadFile, UploadResult } from '../../storage/adapter'
 import { registerCollectionRoutes } from './collection'
+import { updateOperation } from '../../operations/update'
 
 const publicAccess = {
   read: () => true,
@@ -1404,7 +1405,7 @@ describe('collection upload routes', () => {
       })
       const app = new Hono()
       registerCollectionRoutes(app as never, config)
-      return { app, storage, deleted, files, db }
+      return { app, storage, deleted, files, db, config }
     }
 
     it('keeps the published file readable when replacing a file as draft, and deletes it on publish', async () => {
@@ -1588,6 +1589,87 @@ describe('collection upload routes', () => {
       expect(json2.filename).toBe('custom-draft-1.png')
       expect(files.get('custom-draft.png')).toEqual(TINY_PNG)
       expect(files.get('custom-draft-1.png')).toEqual(TINY_PNG_2)
+    })
+
+    it('partial draft update after unpublish does not delete pending draft file and preserves draft upload fields', async () => {
+      const { app, deleted, files } = setupVersionsUpload()
+
+      // 1. Initial live upload has 'old.png' with alt 'Old image'
+      // 2. Draft update replaces file with 'draft.png' and alt 'Draft image'
+      const form = new FormData()
+      form.append('file', new File([TINY_PNG_2], 'draft.png', { type: 'image/png' }))
+      form.append('alt', 'Draft image')
+
+      const patchRes = await app.request('/media/1?draft=true', {
+        method: 'PATCH',
+        body: form,
+      })
+      expect(patchRes.status).toBe(200)
+      expect(files.get('draft.png')).toBeDefined()
+      expect(files.get('old.png')).toBeDefined()
+
+      // 3. Unpublish document
+      const unpublishRes = await app.request('/media/1/unpublish', { method: 'POST' })
+      expect(unpublishRes.status).toBe(200)
+
+      // 4. Partial draft update updating only alt (no new file uploaded)
+      const partialForm = new FormData()
+      partialForm.append('alt', 'Updated Draft Alt')
+
+      const partialRes = await app.request('/media/1?draft=true', {
+        method: 'PATCH',
+        body: partialForm,
+      })
+      expect(partialRes.status).toBe(200)
+
+      // draft.png MUST NOT have been deleted
+      expect(deleted).not.toContain('draft.png')
+      expect(files.get('draft.png')).toBeDefined()
+      expect(files.get('old.png')).toBeDefined()
+
+      // 5. Draft read returns draft.png and updated alt
+      const draftRes = await app.request('/media/1?draft=true')
+      expect(draftRes.status).toBe(200)
+      const draftJson = (await draftRes.json()) as DocumentData
+      expect(draftJson.filename).toBe('draft.png')
+      expect(draftJson.alt).toBe('Updated Draft Alt')
+      expect(draftJson._status).toBe('draft')
+    })
+
+    it('local API updateOperation on upload after unpublish preserves draft media and does not delete it', async () => {
+      const { app, deleted, files, config } = setupVersionsUpload()
+
+      // 1. Draft update with 'draft.png'
+      const form = new FormData()
+      form.append('file', new File([TINY_PNG_2], 'draft.png', { type: 'image/png' }))
+      form.append('alt', 'Draft image')
+
+      const patchRes = await app.request('/media/1?draft=true', {
+        method: 'PATCH',
+        body: form,
+      })
+      expect(patchRes.status).toBe(200)
+
+      // 2. Unpublish document
+      const unpublishRes = await app.request('/media/1/unpublish', { method: 'POST' })
+      expect(unpublishRes.status).toBe(200)
+
+      // 3. Local API partial update with draft: true
+      const mediaCol = config.collections[0]!
+      const updated = await updateOperation({
+        config,
+        collection: mediaCol,
+        id: 1,
+        draft: true,
+        data: { alt: 'Local API Alt' },
+      })
+
+      expect(deleted).not.toContain('draft.png')
+      expect(files.get('draft.png')).toBeDefined()
+      expect(files.get('old.png')).toBeDefined()
+      expect(updated.filename).toBe('draft.png')
+      expect(updated.alt).toBe('Local API Alt')
+      expect(updated._status).toBe('draft')
     })
   })
 })
