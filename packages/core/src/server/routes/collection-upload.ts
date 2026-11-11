@@ -700,7 +700,8 @@ async function applyValidatedUpdate(args: {
     return c.json(result.body, result.status)
   }
 
-  if (!result.isDraftRevision) {
+  const isDraftUpdate = Boolean(args.draft) || Boolean(result.isDraftRevision)
+  if (!isDraftUpdate) {
     await cleanupReplacedMedia(config, args.originalDoc, args.newUploadDoc)
   }
   return respondPopulatedDoc(c, collection, config, result.doc, user, 200)

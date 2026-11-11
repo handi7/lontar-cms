@@ -543,6 +543,7 @@ describe('Draft revisions of a published global', () => {
     mock.setStoredGlobal({
       id: 1,
       siteTitle: 'Live',
+      tagline: 'Live Tagline',
       _status: 'published',
       createdAt: '2026-11-01T00:00:00.000Z',
       updatedAt: '2026-11-01T00:00:00.000Z',
@@ -557,7 +558,10 @@ describe('Draft revisions of a published global', () => {
             slug: 'settings',
             access: { read: () => true, update: () => true },
             versions: { drafts: true },
-            fields: { siteTitle: f.text({ required: true }) },
+            fields: {
+              siteTitle: f.text({ required: true }),
+              tagline: f.text(),
+            },
           }),
         ],
       }),
@@ -570,12 +574,20 @@ describe('Draft revisions of a published global', () => {
           body: JSON.stringify({ siteTitle }),
         }),
       )
+    const saveData = (query: string, data: Record<string, unknown>) =>
+      lontar.fetch(
+        new Request(`http://localhost/api/globals/settings?${query}`, {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify(data),
+        }),
+      )
     const read = async (query = '') => {
       const res = await lontar.fetch(new Request(`http://localhost/api/globals/settings${query}`))
       expect(res.status).toBe(200)
       return ((await res.json()) as { siteTitle: string }).siteTitle
     }
-    return { ...mock, lontar, save, read }
+    return { ...mock, lontar, save, saveData, read }
   }
 
   it('keeps the live global published across consecutive draft saves', async () => {
@@ -686,6 +698,66 @@ describe('Draft revisions of a published global', () => {
 
     // Public read returns empty object (hidden)
     expect(await read()).toBeUndefined()
+  })
+
+  it('partial draft save after unpublish preserves pending draft fields', async () => {
+    const { lontar, saveData, getStoredGlobal, getVersions } = setup()
+
+    // 1. Live global has siteTitle 'Live' and tagline 'Live Tagline'
+    // 2. Draft update sets siteTitle 'Draft Site' and tagline 'Draft Tagline'
+    const resDraft = await saveData('draft=true', {
+      siteTitle: 'Draft Site',
+      tagline: 'Draft Tagline',
+    })
+    expect(resDraft.status).toBe(200)
+
+    // 3. Unpublish global
+    const unpubRes = await lontar.fetch(
+      new Request('http://localhost/api/globals/settings/unpublish', {
+        method: 'POST',
+      }),
+    )
+    expect(unpubRes.status).toBe(200)
+    expect(getStoredGlobal()).toMatchObject({
+      siteTitle: 'Live',
+      tagline: 'Live Tagline',
+      _status: 'draft',
+    })
+
+    // 4. Partial draft save updating only siteTitle
+    const saveRes = await saveData('draft=true', { siteTitle: 'Updated Draft Site' })
+    expect(saveRes.status).toBe(200)
+
+    // 5. Draft read returns updated siteTitle and preserved pending draft tagline
+    const draftRes = await lontar.fetch(
+      new Request('http://localhost/api/globals/settings?draft=true'),
+    )
+    expect(draftRes.status).toBe(200)
+    const draftDoc = (await draftRes.json()) as {
+      siteTitle: string
+      tagline: string
+      _status: string
+    }
+    expect(draftDoc).toMatchObject({
+      siteTitle: 'Updated Draft Site',
+      tagline: 'Draft Tagline',
+      _status: 'draft',
+    })
+
+    // Stored global in db has the merged draft data
+    expect(getStoredGlobal()).toMatchObject({
+      siteTitle: 'Updated Draft Site',
+      tagline: 'Draft Tagline',
+      _status: 'draft',
+    })
+
+    // Latest version snapshot has the merged draft data
+    const versions = getVersions()
+    expect(versions[0]!.snapshot).toMatchObject({
+      siteTitle: 'Updated Draft Site',
+      tagline: 'Draft Tagline',
+      _status: 'draft',
+    })
   })
 })
 

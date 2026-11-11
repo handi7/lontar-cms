@@ -535,6 +535,7 @@ describe('Draft revisions of a published document', () => {
   const publishedPost: StoredDoc = {
     id: 1,
     title: 'Live',
+    body: 'Live Body',
     _status: 'published',
     createdAt: '2026-10-31T00:00:00.000Z',
     updatedAt: '2026-10-31T00:00:00.000Z',
@@ -551,6 +552,7 @@ describe('Draft revisions of a published document', () => {
       },
       fields: {
         title: f.text({ required: true }),
+        body: f.text(),
       },
     })
     const mock = createVersionsMockAdapter([{ ...publishedPost }])
@@ -563,7 +565,13 @@ describe('Draft revisions of a published document', () => {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ title }),
       })
-    return { ...mock, app, patch }
+    const patchData = (query: string, data: Record<string, unknown>) =>
+      app.request(`/api/posts/1?${query}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(data),
+      })
+    return { ...mock, app, patch, patchData }
   }
 
   async function expectLiveUnchanged(
@@ -716,6 +724,49 @@ describe('Draft revisions of a published document', () => {
     // Public read returns 404
     const publicRes = await app.request('/api/posts/1')
     expect(publicRes.status).toBe(404)
+  })
+
+  it('partial draft save after unpublish preserves pending draft fields', async () => {
+    const { app, patchData, getDocs, getVersions } = setup()
+
+    // 1. Live post has title 'Live' and body 'Live Body'
+    // 2. Draft update sets title 'Draft Title' and body 'Draft Body'
+    const resDraft = await patchData('draft=true', { title: 'Draft Title', body: 'Draft Body' })
+    expect(resDraft.status).toBe(200)
+
+    // 3. Unpublish post
+    const unpublishRes = await app.request('/api/posts/1/unpublish', { method: 'POST' })
+    expect(unpublishRes.status).toBe(200)
+    expect(getDocs()[0]).toMatchObject({ title: 'Live', body: 'Live Body', _status: 'draft' })
+
+    // 4. Partial draft save updating only title
+    const patchRes = await patchData('draft=true', { title: 'Updated Draft Title' })
+    expect(patchRes.status).toBe(200)
+
+    // 5. Draft read returns updated title and preserved pending draft body
+    const draftRes = await app.request('/api/posts/1?draft=true')
+    expect(draftRes.status).toBe(200)
+    const draftDoc = (await draftRes.json()) as StoredDoc
+    expect(draftDoc).toMatchObject({
+      title: 'Updated Draft Title',
+      body: 'Draft Body',
+      _status: 'draft',
+    })
+
+    // Parent row in db has the merged draft data
+    expect(getDocs()[0]).toMatchObject({
+      title: 'Updated Draft Title',
+      body: 'Draft Body',
+      _status: 'draft',
+    })
+
+    // Latest version snapshot has the merged draft data
+    const versions = getVersions()
+    expect(versions[versions.length - 1]!.snapshot).toMatchObject({
+      title: 'Updated Draft Title',
+      body: 'Draft Body',
+      _status: 'draft',
+    })
   })
 })
 

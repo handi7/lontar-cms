@@ -263,7 +263,8 @@ export async function resolveOriginalDoc(
 ): Promise<DocumentData | null> {
   const baseDoc = await db.findByID({ collection, id })
   if (!baseDoc) return null
-  if (draft && collection.versions && db.findLatestDraftVersion) {
+  const shouldLoadDraft = draft ?? baseDoc._status === 'draft'
+  if (shouldLoadDraft && collection.versions && db.findLatestDraftVersion) {
     const draftVersion = await db.findLatestDraftVersion({ collection, parentId: id })
     if (draftVersion) {
       return { ...draftVersion.snapshot, _isPublished: baseDoc._status === 'published' }
@@ -447,6 +448,35 @@ async function syncParentRowVersion(args: {
   })
 }
 
+function mergeDraftUpdateData(originalDoc: DocumentData, finalData: DocumentData): DocumentData {
+  const {
+    id: _id,
+    createdAt: _created,
+    updatedAt: _updated,
+    _isPublished: _published,
+    ...rest
+  } = originalDoc
+  return { ...rest, ...finalData }
+}
+
+function resolveParentRowData(args: {
+  collection: CollectionConfig
+  originalDoc: DocumentData
+  finalData: DocumentData
+  status?: DocStatus
+  statusTransition?: DocStatusTransition
+}): DocumentData {
+  if (
+    args.collection.versions?.drafts &&
+    args.status === 'draft' &&
+    args.statusTransition !== 'unpublish' &&
+    args.originalDoc
+  ) {
+    return mergeDraftUpdateData(args.originalDoc, args.finalData)
+  }
+  return args.finalData
+}
+
 async function handleParentRowUpdate(args: {
   txDb: DatabaseAdapter
   rootDb: DatabaseAdapter
@@ -462,10 +492,17 @@ async function handleParentRowUpdate(args: {
   userId?: string | null
   req?: Request
 }): Promise<MutationExecutionResult> {
+  const dataToUpdate = resolveParentRowData({
+    collection: args.collection,
+    originalDoc: args.originalDoc,
+    finalData: args.finalData,
+    status: args.status,
+    statusTransition: args.statusTransition,
+  })
   const updated = await args.txDb.update({
     collection: args.collection,
     id: args.id,
-    data: args.finalData,
+    data: dataToUpdate,
   })
   if (!updated) {
     return {
@@ -849,6 +886,24 @@ async function syncGlobalParentRowVersion(args: {
   })
 }
 
+function resolveGlobalParentRowData(args: {
+  global: GlobalConfig
+  existing: DocumentData | null
+  finalData: DocumentData
+  status?: DocStatus
+  statusTransition?: DocStatusTransition
+}): DocumentData {
+  if (
+    args.global.versions?.drafts &&
+    args.status === 'draft' &&
+    args.statusTransition !== 'unpublish' &&
+    args.existing
+  ) {
+    return mergeDraftUpdateData(args.existing, args.finalData)
+  }
+  return args.finalData
+}
+
 async function handleGlobalParentRowUpdate(args: {
   txDb: DatabaseAdapter
   global: GlobalConfig
@@ -862,7 +917,14 @@ async function handleGlobalParentRowUpdate(args: {
   req?: Request
 }): Promise<MutationExecutionResult> {
   const operation = args.existing ? 'update' : 'create'
-  const saved = await args.txDb.updateGlobal({ global: args.global, data: args.finalData })
+  const dataToUpdate = resolveGlobalParentRowData({
+    global: args.global,
+    existing: args.existing,
+    finalData: args.finalData,
+    status: args.status,
+    statusTransition: args.statusTransition,
+  })
+  const saved = await args.txDb.updateGlobal({ global: args.global, data: dataToUpdate })
   const parentId = Number(saved.id ?? 1)
   const pendingDraft = await resolveGlobalUnpublishPendingDraft(
     args.txDb,

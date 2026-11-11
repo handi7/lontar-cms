@@ -109,7 +109,8 @@ export async function updateOperation<T = DocumentData>(args: UpdateOperationArg
     handleUpdateError(result, args.id)
   }
 
-  if (args.collection.upload && !result.isDraftRevision) {
+  const isDraftUpdate = status === 'draft' || Boolean(result.isDraftRevision)
+  if (args.collection.upload && !isDraftUpdate) {
     await cleanupReplacedMedia(args.config, originalDoc, result.doc)
   }
 

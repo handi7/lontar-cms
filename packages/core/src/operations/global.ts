@@ -59,7 +59,8 @@ async function resolveOriginalGlobalDoc(
 ): Promise<DocumentData | null> {
   const baseDoc = await db.findGlobal({ global })
   if (!baseDoc) return null
-  if (draft && global.versions && db.findLatestDraftVersion) {
+  const shouldLoadDraft = draft ?? baseDoc._status === 'draft'
+  if (shouldLoadDraft && global.versions && db.findLatestDraftVersion) {
     const parentId = Number(baseDoc.id ?? 1)
     const draftVersion = await db.findLatestDraftVersion({ global, parentId })
     if (draftVersion) {
