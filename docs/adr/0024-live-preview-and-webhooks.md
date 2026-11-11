@@ -87,6 +87,10 @@ Embedding a remote frontend inside an iframe and transmitting draft content acro
   - The helper rejects any message where `event.data?.source !== 'lontar-preview'` or `event.data?.version !== 1`.
 - **Frame Ancestors Protection**:
   - The frontend application should set `Content-Security-Policy: frame-ancestors 'self' <lontar-admin-origin>` on preview routes to prevent clickjacking by unauthorized third parties.
+- **Iframe Sandboxing**:
+  - The admin preview pane embeds the preview URL in an `<iframe>` configured with `sandbox="allow-scripts allow-same-origin allow-forms allow-popups"`.
+  - Script execution and same-origin capabilities are required for client-side frontend framework hydration (e.g. React/Next.js), loading co-hosted assets/session cookies, and cross-window `postMessage` protocol handling.
+  - Security is maintained via developer-configured URL templates in server config, strict target origin verification on `postMessage`, and host-side CSP `frame-ancestors`.
 
 #### 4. Frontend Helper Surface: `@lontar/preview`
 
@@ -170,6 +174,7 @@ const Posts = collection({
 ```
 
 - **Server-Only Security**: All `webhooks` configurations are stripped by `toClientConfig()`. Webhook URLs and signing secrets are never exposed in `ClientConfig` or sent to the admin SPA.
+- **Root Webhook Scoping**: A root webhook with `collections: [...]` or `'*'` matches collection events; `globals: [...]` or `'*'` matches global events. If neither `collections` nor `globals` is specified on a root webhook, it defaults to matching all collections (`collections: '*'`). To subscribe a root webhook to globals, developers must explicitly declare `globals: '*'` or list specific slugs in `globals: ['site-settings']`.
 
 #### 2. Event Payload
 
@@ -209,7 +214,8 @@ Receivers verify the signature using constant-time comparison (`crypto.timingSaf
 - **Failure Isolation**: An unreachable or failing webhook receiver (500 error or network timeout) **never** causes the editor's save operation to fail.
 - **Timeouts & Retries**:
   - Request timeout: 5 seconds per attempt.
-  - Automatic retry: Up to 3 attempts with exponential backoff (`1s`, `2s`, `4s`) for network timeouts or 5xx HTTP responses.
+  - Automatic retry: Up to 3 attempts with exponential backoff schedule `[1000, 2000]` ms (Attempt 1 immediate, 1000ms delay, Attempt 2, 2000ms delay, Attempt 3).
+  - Error categorization: HTTP 4xx responses represent client/configuration errors and are terminal (not retried). HTTP 5xx responses and network connectivity errors/timeouts (AbortError, ECONNREFUSED) represent transient infrastructure issues and are retried.
   - Terminal failures are logged to the backend console logger.
 
 #### 5. Interaction with Draft Saves

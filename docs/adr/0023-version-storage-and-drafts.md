@@ -50,9 +50,11 @@ Each collection configured with `versions` receives a dedicated versions table n
 | created_by       | varchar(36) null | User ID of author (if auth)     |
 +------------------+------------------+---------------------------------+
 Indexes:
-  - (parent_id, id DESC)
+  - (parent_id, id)
   - (parent_id, _status)
 ```
+
+> **Note on index direction:** Composite indexes in Drizzle MySQL are created in ascending order `(parent_id, id)`. In MySQL 8, InnoDB supports backward index scan with negligible performance delta, making explicit `DESC` index ordering unnecessary.
 
 **Why dedicated tables over a shared table:**
 
@@ -60,7 +62,7 @@ Indexes:
 - **Index isolation**: Queries for document history or draft checks scan only that collection's version rows, preventing high-write collections from degrading query performance across other collections.
 - **Clean migrations**: Renaming or dropping a collection cleanly renames or drops its associated versions table.
 
-For globals, each versioned global receives `${globalSlug}_versions` (e.g. `site_settings_versions`). Because globals have a single document, `parent_id` is omitted or fixed to `1`.
+For globals, each versioned global receives `${globalSlug}_versions` verbatim in backticks (e.g. `\`site-settings_versions\``for a slug of`'site-settings'`). Because globals have a single document, `parent_id`is fixed to`1`.
 
 ### 2. Snapshot Payload: Canonical Nested JSON
 
@@ -69,6 +71,7 @@ The `snapshot` column stores the entire document as a canonical, nested JSON obj
 - Top-level `group` fields are stored in their nested object structure (e.g., `{ seo: { metaTitle: '...' } }`), **not** flattened into `seo__metaTitle` database column keys.
 - Array and block items retain their stable string `id`s (ADR 0021 §2).
 - The snapshot includes the document's content fields, `_status`, and the `createdAt`/`updatedAt` values at the moment the version was stamped.
+- **Upload collections**: For upload collections, the snapshot stores the canonical file metadata (`filename`, `mimeType`, `filesize`, `url`, `sizes`). Restoring an upload document version restores this metadata to point to the historical asset state; physical storage files are preserved across draft revisions and only purged when replaced on published documents or upon document deletion.
 
 **Why canonical nested JSON:**
 
@@ -95,6 +98,9 @@ When `versions: { drafts: true }` is enabled on a collection or global:
      UPDATE `<table>` SET `_status` = 'draft' WHERE `_status` IS NULL;
      ALTER TABLE `<table>` MODIFY COLUMN `_status` varchar(20) NOT NULL DEFAULT 'draft';
      ```
+6. **Required fields validation on drafts**:
+   - Initial document creation (`create` with `draft: true`): Inserts a row into the parent table to establish the immutable integer `id` and foreign relations. Because required database columns in MySQL are `NOT NULL`, initial creation validates against the full schema.
+   - Subsequent draft revisions (`update`/`PATCH` with `draft: true`): Validates against the partial schema, allowing editors to save in-progress draft revisions where some fields are not yet complete.
 
 ### 4. Storage Model: Where the Published Row Lives
 
@@ -134,6 +140,14 @@ The lifecycle proceeds as follows:
    - The parent table row has its `_status` changed to `'draft'`. Public queries immediately exclude it from results.
    - If a pending draft revision already exists in `_versions`, it remains the latest draft. Unpublishing does not overwrite or hide the pending draft behind a new draft version of the former published content. Subsequent draft reads (`?draft=true`) and the admin edit form continue to show the pending draft, while public reads (`draft: false`) exclude the document.
    - If no pending draft exists when unpublishing, a draft version is recorded for the unpublish event so the document's draft state is tracked in version history.
+6. **Plain PATCH publishing behavior**:
+   - In the REST API (`PATCH /api/:collection/:id`), omitting `?draft=true` (or sending `draft: false`) validates against the full schema and publishes the document. If the document was previously an unpublished draft, a plain `PATCH` transitions it from `'draft'` to `'published'`.
+   - To update draft content without publishing, callers must explicitly pass `?draft=true`.
+7. **`restoreVersion` default status**:
+   - Restoring a version defaults to restoring that version's original `_status`.
+   - Restoring an older published version restores and immediately publishes it (`_status = 'published'`) to the parent table.
+   - Restoring an older draft snapshot restores it as a draft revision in `_versions` without modifying the live published row.
+   - Callers can explicitly override the default status by passing `?draft=true` (restore as draft) or `?draft=false` (force publish).
 
 #### Why this model wins for read performance
 
@@ -199,6 +213,8 @@ WHERE parent_id = ?
 
 Because pruning runs inside the transaction, version limits are strictly respected, and database storage never grows unbounded.
 
+- **Published baseline safety during pruning**: `maxPerDoc` prunes snapshot rows in the versions table (`${collection}_versions` / `${global}_versions`). The currently active published content stored directly in the parent collection (or global) table is **never** pruned or deleted by `maxPerDoc`. Pruning only discards historical version snapshots beyond `maxPerDoc` ordered by `id DESC`. Unlimited retention is configured with `maxPerDoc: 0`.
+
 ### 7. Autosave Write Volume Mitigation
 
 In the admin SPA, autosave can trigger every few seconds while an editor types. Creating a new version row on every autosave would generate hundreds of rows an hour, exhausting `maxPerDoc` and purging meaningful history.
@@ -260,13 +276,15 @@ const SiteSettings = global({
 })
 ```
 
-- Each versioned global gets `${globalSlug}_versions` (e.g. `site_settings_versions`).
+- Each versioned global gets `${globalSlug}_versions` verbatim in backticks (e.g. `\`site-settings_versions\``for a slug of`'site-settings'`), without converting hyphens to underscores.
 - The global table stores the live published settings; drafts live in the versions table.
 - REST endpoints:
   - `GET /api/globals/site-settings?draft=true`
   - `POST /api/globals/site-settings?draft=true`
   - `POST /api/globals/site-settings/publish`
   - `POST /api/globals/site-settings/unpublish`
+  - `GET /api/globals/site-settings/versions` (supports `page` and `limit` query parameters, with `DEFAULT_LIMIT = 10` and `MAX_LIMIT = 100`)
+  - `POST /api/globals/site-settings/versions/:versionId/restore` (supports `?draft=true` / `?draft=false`)
 
 ### 10. Downstream Compatibility with Localization (M11)
 
