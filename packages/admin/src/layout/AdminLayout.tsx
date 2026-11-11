@@ -31,7 +31,7 @@ export function AdminLayout() {
           without it a wide list table pushes the whole row past the viewport
           instead of scrolling inside its own container. */}
       <main className="lt:min-w-0 lt:flex-1 lt:bg-background">
-        <div className="lt:mx-auto lt:max-w-[1100px] lt:px-10 lt:py-8">
+        <div className="lt:w-full lt:px-4 lt:md:px-10 lt:py-8">
           <Outlet />
         </div>
       </main>

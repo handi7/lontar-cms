@@ -264,4 +264,63 @@ test.describe('Next.js Blog M8: Drafts, Live Preview and Revalidation', () => {
 
     await publicContext.close()
   })
+
+  test('live preview responsive layout and preset scaling', async ({ page }) => {
+    // 1. Log in to the Admin Panel
+    await page.goto('/admin')
+    await expect(page.getByRole('heading', { name: 'Sign in to Admin' })).toBeVisible({
+      timeout: 15000,
+    })
+    await page.locator('input[type="email"]').fill(adminEmail)
+    await page.locator('input[type="password"]').fill(adminPassword)
+    await page.getByRole('button', { name: 'Sign In' }).click()
+
+    await expect(page.getByRole('link', { name: 'Posts', exact: true })).toBeVisible({
+      timeout: 15000,
+    })
+
+    await page.goto('/admin/posts')
+    const postLink = page.locator('table tbody tr a').first()
+    await expect(postLink).toBeVisible()
+    await postLink.click()
+    await expect(page.getByRole('heading', { name: /Edit Post/ })).toBeVisible()
+
+    // Open live preview
+    const livePreviewBtn = page.getByRole('button', { name: 'Live Preview' })
+    await expect(livePreviewBtn).toBeVisible()
+    await livePreviewBtn.click()
+
+    // 1. Field column has readable width (>= 400px)
+    const fieldCol = page.locator('[data-testid="field-column"]')
+    await expect(fieldCol).toBeVisible()
+    const box = await fieldCol.boundingBox()
+    expect(box?.width).toBeGreaterThanOrEqual(400)
+
+    // 2. Select Tablet preset and verify scale label appears
+    await page.getByRole('button', { name: /Tablet/ }).click()
+    const scaleBadge = page.locator('[data-testid="preview-scale"]')
+    await expect(scaleBadge).toBeVisible()
+
+    // 3. Test responsive toggle on narrow viewport (1024px)
+    await page.setViewportSize({ width: 1024, height: 768 })
+    const viewToggle = page.locator('[role="tablist"][aria-label="Editor view"]')
+    await expect(viewToggle).toBeVisible()
+
+    // Since preview was toggled open, Preview tab is active; preview iframe is visible and form is hidden
+    await expect(page.locator('iframe[title="Live Preview"]')).toBeVisible()
+    await expect(fieldCol).not.toBeVisible()
+
+    // Switching to Edit shows the form and hides preview pane
+    await page.getByRole('tab', { name: 'Edit' }).click()
+    await expect(fieldCol).toBeVisible()
+    await expect(page.locator('iframe[title="Live Preview"]')).not.toBeVisible()
+
+    // Switching back to Preview shows preview pane and hides form
+    await page.getByRole('tab', { name: 'Preview' }).click()
+    await expect(page.locator('iframe[title="Live Preview"]')).toBeVisible()
+    await expect(fieldCol).not.toBeVisible()
+
+    // Reset viewport size
+    await page.setViewportSize({ width: 1280, height: 720 })
+  })
 })

@@ -39,6 +39,7 @@ import { CollectionBreadcrumbs } from './FormBreadcrumbs'
 import { DocumentSidebar } from './DocumentSidebar'
 import { VersionHistorySheet } from './VersionHistorySheet'
 import { PreviewPane } from './preview/PreviewPane'
+import { EditorSplitLayout, useEditorView } from './preview/EditorSplitLayout'
 import { useAutosave } from '../hooks/useAutosave'
 import { cn } from '../lib/utils'
 
@@ -115,7 +116,10 @@ function FormFields({
   const accept = uploadConfig?.mimeTypes?.join(',')
 
   return (
-    <div className="lt:w-full lt:lg:max-w-[760px] lt:min-w-0 lt:flex-1">
+    <div
+      data-testid="field-column"
+      className="lt:w-full lt:min-w-0 lt:@3xl:max-w-[760px] lt:flex-1"
+    >
       <Card className="lt:block lt:p-8 lt:shadow-none">
         {Boolean(collection.upload) && (
           <FileUploadZone
@@ -615,13 +619,19 @@ interface PreviewPaneWrapperProps {
   values: Record<string, unknown>
   savedValues?: Record<string, unknown> | null
   onClose: () => void
+  activeView?: 'edit' | 'preview'
 }
 
 function PreviewPaneWrapper(props: PreviewPaneWrapperProps) {
   if (!props.isOpen || !props.urlTemplate) return null
 
   return (
-    <div className="lt:w-full lt:xl:w-1/2 lt:xl:sticky lt:xl:top-8 lt:xl:h-[calc(100vh-5rem)] lt:h-[600px] lt:shrink-0">
+    <div
+      className={cn(
+        'lt:w-full lt:xl:w-1/2 lt:xl:sticky lt:xl:top-8 lt:xl:h-[calc(100vh-5rem)] lt:h-[600px] lt:shrink-0',
+        props.activeView === 'edit' && 'lt:hidden lt:xl:block',
+      )}
+    >
       <PreviewPane
         collectionSlug={props.collection.slug}
         urlTemplate={props.urlTemplate}
@@ -654,6 +664,8 @@ function CollectionEditor({ collection, mode, id }: CollectionEditorProps) {
   const previewUrlTemplate = collection.admin?.preview?.url
   const hasPreview = Boolean(previewUrlTemplate)
   const preview = usePreviewState(collection.slug, hasPreview)
+  const editorView = useEditorView(preview)
+
   const docQuery = useDocumentQuery(mode, apiBase, collection.slug, id, hasDrafts)
   const schema = useMemo(() => clientFieldsToZod(collection.fields), [collection])
   const defaultValues = useMemo(() => computeDefaultValues(collection.fields), [collection])
@@ -766,71 +778,76 @@ function CollectionEditor({ collection, mode, id }: CollectionEditorProps) {
 
       <CollectionStatusAlerts apiError={apiError} successMsg={successMsg} />
 
-      <div className="lt:flex lt:flex-col lt:xl:flex-row lt:gap-6 lt:w-full lt:items-start">
-        <div className={cn('lt:w-full lt:min-w-0', preview.isOpen && 'lt:xl:w-1/2')}>
-          <form
-            onSubmit={(e) => {
-              e.preventDefault()
-              onPublish()
+      <EditorSplitLayout
+        hasPreview={hasPreview}
+        isPreviewOpen={preview.isOpen}
+        activeView={editorView.activeView}
+        onViewChange={editorView.setActiveView}
+        preview={
+          <PreviewPaneWrapper
+            collection={collection}
+            isOpen={preview.isOpen}
+            urlTemplate={previewUrlTemplate}
+            values={formatDocForSubmit(collection.fields, formValues)}
+            savedValues={docQuery.data}
+            onClose={editorView.close}
+            activeView={editorView.activeView}
+          />
+        }
+      >
+        <form
+          onSubmit={(e) => {
+            e.preventDefault()
+            onPublish()
+          }}
+          className="lt:flex lt:flex-col lt:@3xl:flex-row lt:gap-8 lt:items-start"
+        >
+          <FormFields
+            collection={collection}
+            mode={mode}
+            control={control}
+            register={register}
+            setValue={setValue}
+            watch={watch}
+            errors={errors}
+            selectedFile={selectedFile}
+            onFileChange={(file) => {
+              setSelectedFile(file)
+              setFileError(null)
             }}
-            className="lt:flex lt:flex-col lt:lg:flex-row lt:gap-8 lt:items-start"
-          >
-            <FormFields
-              collection={collection}
-              mode={mode}
-              control={control}
-              register={register}
-              setValue={setValue}
-              watch={watch}
-              errors={errors}
-              selectedFile={selectedFile}
-              onFileChange={(file) => {
-                setSelectedFile(file)
-                setFileError(null)
-              }}
-              fileError={fileError}
-              doc={docQuery.data}
-            />
+            fileError={fileError}
+            doc={docQuery.data}
+          />
 
-            <DocumentSidebar
-              mode={mode}
-              submitLabel={submitLabel}
-              isPending={isSubmitting || saveMutation.isPending || unpublishMutation.isPending}
-              isDeleting={deleteMutation.isPending}
-              onDelete={() => setConfirmOpen(true)}
-              showDelete={mode === 'edit'}
-              doc={docQuery.data}
-              hasDrafts={hasDrafts}
-              hasVersions={hasVersions}
-              hasPreview={hasPreview}
-              isPreviewOpen={preview.isOpen}
-              onTogglePreview={preview.toggle}
-              onOpenHistory={() => setHistoryOpen(true)}
-              autosave={autosave.sidebarAutosave}
-              onPublish={onPublish}
-              onSaveDraft={onSaveDraft}
-              onUnpublish={() => {
-                void (async () => {
-                  await autosave.cancelAutosave()
-                  unpublishMutation.mutate()
-                })()
-              }}
-              isPublishing={isPublishing}
-              isSavingDraft={isSavingDraft}
-              isUnpublishing={unpublishMutation.isPending}
-            />
-          </form>
-        </div>
-
-        <PreviewPaneWrapper
-          collection={collection}
-          isOpen={preview.isOpen}
-          urlTemplate={previewUrlTemplate}
-          values={formatDocForSubmit(collection.fields, formValues)}
-          savedValues={docQuery.data}
-          onClose={preview.close}
-        />
-      </div>
+          <DocumentSidebar
+            mode={mode}
+            submitLabel={submitLabel}
+            isPending={isSubmitting || saveMutation.isPending || unpublishMutation.isPending}
+            isDeleting={deleteMutation.isPending}
+            onDelete={() => setConfirmOpen(true)}
+            showDelete={mode === 'edit'}
+            doc={docQuery.data}
+            hasDrafts={hasDrafts}
+            hasVersions={hasVersions}
+            hasPreview={hasPreview}
+            isPreviewOpen={preview.isOpen}
+            onTogglePreview={editorView.toggle}
+            onOpenHistory={() => setHistoryOpen(true)}
+            autosave={autosave.sidebarAutosave}
+            onPublish={onPublish}
+            onSaveDraft={onSaveDraft}
+            onUnpublish={() => {
+              void (async () => {
+                await autosave.cancelAutosave()
+                unpublishMutation.mutate()
+              })()
+            }}
+            isPublishing={isPublishing}
+            isSavingDraft={isSavingDraft}
+            isUnpublishing={unpublishMutation.isPending}
+          />
+        </form>
+      </EditorSplitLayout>
 
       <VersionHistorySheetWrapper
         hasVersions={hasVersions}

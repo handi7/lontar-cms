@@ -189,4 +189,62 @@ describe('Live preview form integration', () => {
       expect(iframe.src).toBe('https://example.com/posts/my-new-slug?preview=1')
     })
   })
+
+  it('renders EditorPreviewToggle and data-testid="field-column" when preview is open', async () => {
+    const existingDoc = {
+      id: 3,
+      title: 'Layout Test',
+      slug: 'layout-test',
+      content: 'Sample content',
+      _status: 'draft',
+      _isPublished: false,
+    }
+
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockImplementation((url: string) => {
+        if (url.includes('/_lontar/config')) {
+          return mockJsonResponse(mockConfigWithPreview)
+        }
+        if (url.includes('/auth/get-session')) {
+          return mockJsonResponse({ user: mockAuthUser, session: mockAuthSession })
+        }
+        if (url.includes('/api/articles/3')) {
+          return mockJsonResponse(existingDoc)
+        }
+        return Promise.reject(new Error(`Unhandled URL: ${url}`))
+      }),
+    )
+
+    const history = createMemoryHistory({ initialEntries: ['/admin/articles/3'] })
+    render(<Admin apiBase="/api" basePath="/admin" history={history} />)
+
+    await waitFor(() => {
+      expect(screen.getByTestId('field-column')).toBeTruthy()
+    })
+    const fieldCol = screen.getByTestId('field-column')
+    expect(fieldCol.className).toContain('lt:@3xl:max-w-[760px]')
+
+    // Toggle not rendered when preview is closed
+    expect(screen.queryByRole('tablist', { name: 'Editor view' })).toBeNull()
+
+    // Open live preview
+    fireEvent.click(screen.getByRole('button', { name: 'Live Preview' }))
+
+    await waitFor(() => {
+      expect(screen.getByRole('tablist', { name: 'Editor view' })).toBeTruthy()
+    })
+
+    const editTab = screen.getByRole('tab', { name: 'Edit' })
+    const previewTab = screen.getByRole('tab', { name: 'Preview' })
+
+    // On narrow viewports, clicking Preview tab switches active view
+    fireEvent.click(previewTab)
+    expect(previewTab.getAttribute('aria-selected')).toBe('true')
+    expect(editTab.getAttribute('aria-selected')).toBe('false')
+
+    fireEvent.click(editTab)
+    expect(editTab.getAttribute('aria-selected')).toBe('true')
+    expect(previewTab.getAttribute('aria-selected')).toBe('false')
+  })
 })

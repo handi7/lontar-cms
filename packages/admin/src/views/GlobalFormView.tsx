@@ -34,6 +34,7 @@ import { GlobalBreadcrumbs } from './FormBreadcrumbs'
 import { DocumentSidebar } from './DocumentSidebar'
 import { VersionHistorySheet } from './VersionHistorySheet'
 import { PreviewPane } from './preview/PreviewPane'
+import { EditorSplitLayout, useEditorView } from './preview/EditorSplitLayout'
 import { useAutosave } from '../hooks/useAutosave'
 import { cn } from '../lib/utils'
 
@@ -55,7 +56,10 @@ function GlobalFormFields({
   errors,
 }: GlobalFormFieldsProps) {
   return (
-    <div className="lt:w-full lt:lg:max-w-[760px] lt:min-w-0 lt:flex-1">
+    <div
+      data-testid="field-column"
+      className="lt:w-full lt:min-w-0 lt:@3xl:max-w-[760px] lt:flex-1"
+    >
       <Card className="lt:block lt:p-8 lt:shadow-none">
         <div className="lt:flex lt:flex-col lt:gap-6">
           {fields.map((field) => (
@@ -398,26 +402,24 @@ export interface GlobalPreviewSectionProps {
   values: Record<string, unknown>
   savedValues?: Record<string, unknown> | null
   onClose: () => void
+  activeView?: 'edit' | 'preview'
 }
 
-function GlobalPreviewSection({
-  hasPreview,
-  isOpen,
-  urlTemplate,
-  slug,
-  values,
-  savedValues,
-  onClose,
-}: GlobalPreviewSectionProps) {
-  if (!hasPreview || !isOpen || !urlTemplate) return null
+function GlobalPreviewSection(props: GlobalPreviewSectionProps) {
+  if (!props.hasPreview || !props.isOpen || !props.urlTemplate) return null
   return (
-    <div className="lt:w-full lt:xl:w-1/2 lt:xl:sticky lt:xl:top-8 lt:xl:h-[calc(100vh-5rem)] lt:h-[600px] lt:shrink-0">
+    <div
+      className={cn(
+        'lt:w-full lt:xl:w-1/2 lt:xl:sticky lt:xl:top-8 lt:xl:h-[calc(100vh-5rem)] lt:h-[600px] lt:shrink-0',
+        props.activeView === 'edit' && 'lt:hidden lt:xl:block',
+      )}
+    >
       <PreviewPane
-        collectionSlug={slug}
-        urlTemplate={urlTemplate}
-        values={values}
-        savedValues={savedValues}
-        onClose={onClose}
+        collectionSlug={props.slug}
+        urlTemplate={props.urlTemplate}
+        values={props.values}
+        savedValues={props.savedValues}
+        onClose={props.onClose}
       />
     </div>
   )
@@ -472,6 +474,7 @@ function GlobalEditor({ global, slug, apiBase }: GlobalEditorProps) {
   const previewUrlTemplate = global.admin?.preview?.url
   const hasPreview = Boolean(previewUrlTemplate)
   const preview = usePreviewState(slug, hasPreview)
+  const editorView = useEditorView(preview)
 
   const globalQuery = useQuery({
     queryKey: queryKeys.global(slug),
@@ -549,55 +552,64 @@ function GlobalEditor({ global, slug, apiBase }: GlobalEditorProps) {
 
       <GlobalStatusAlerts apiError={apiError} successMsg={successMsg} />
 
-      <div className="lt:flex lt:flex-col lt:xl:flex-row lt:gap-6 lt:w-full lt:items-start">
-        <div className={cn('lt:w-full lt:min-w-0', preview.isOpen && 'lt:xl:w-1/2')}>
-          <form
-            onSubmit={(e) => {
-              e.preventDefault()
-              onPublish()
+      <EditorSplitLayout
+        hasPreview={hasPreview}
+        isPreviewOpen={preview.isOpen}
+        activeView={editorView.activeView}
+        onViewChange={editorView.setActiveView}
+        preview={
+          <GlobalPreviewSection
+            hasPreview={hasPreview}
+            isOpen={preview.isOpen}
+            urlTemplate={previewUrlTemplate}
+            slug={global.slug}
+            values={formatDocForSubmit(global.fields, formValues)}
+            savedValues={globalQuery.data}
+            onClose={editorView.close}
+            activeView={editorView.activeView}
+          />
+        }
+      >
+        <form
+          onSubmit={(e) => {
+            e.preventDefault()
+            onPublish()
+          }}
+          className="lt:flex lt:flex-col lt:@3xl:flex-row lt:gap-8 lt:items-start"
+        >
+          <GlobalFormFields
+            fields={global.fields}
+            control={control}
+            register={register}
+            setValue={setValue}
+            watch={watch}
+            errors={errors}
+          />
+
+          <GlobalEditorSidebar
+            submitLabel={submitLabel}
+            isSaving={isSaving}
+            doc={globalQuery.data}
+            hasDrafts={hasDrafts}
+            hasVersions={hasVersions}
+            hasPreview={hasPreview}
+            preview={{
+              isOpen: preview.isOpen,
+              toggle: editorView.toggle,
+              close: editorView.close,
             }}
-            className="lt:flex lt:flex-col lt:lg:flex-row lt:gap-8 lt:items-start"
-          >
-            <GlobalFormFields
-              fields={global.fields}
-              control={control}
-              register={register}
-              setValue={setValue}
-              watch={watch}
-              errors={errors}
-            />
-
-            <GlobalEditorSidebar
-              submitLabel={submitLabel}
-              isSaving={isSaving}
-              doc={globalQuery.data}
-              hasDrafts={hasDrafts}
-              hasVersions={hasVersions}
-              hasPreview={hasPreview}
-              preview={preview}
-              onOpenHistory={() => setIsHistoryOpen(true)}
-              autosaveEnabled={autosaveEnabled}
-              autosave={autosave}
-              onPublish={onPublish}
-              onSaveDraft={onSaveDraft}
-              onUnpublish={onUnpublish}
-              isPublishing={isPublishing}
-              isSavingDraft={isSavingDraft}
-              isUnpublishing={unpublishMutation.isPending}
-            />
-          </form>
-        </div>
-
-        <GlobalPreviewSection
-          hasPreview={hasPreview}
-          isOpen={preview.isOpen}
-          urlTemplate={previewUrlTemplate}
-          slug={global.slug}
-          values={formatDocForSubmit(global.fields, formValues)}
-          savedValues={globalQuery.data}
-          onClose={preview.close}
-        />
-      </div>
+            onOpenHistory={() => setIsHistoryOpen(true)}
+            autosaveEnabled={autosaveEnabled}
+            autosave={autosave}
+            onPublish={onPublish}
+            onSaveDraft={onSaveDraft}
+            onUnpublish={onUnpublish}
+            isPublishing={isPublishing}
+            isSavingDraft={isSavingDraft}
+            isUnpublishing={unpublishMutation.isPending}
+          />
+        </form>
+      </EditorSplitLayout>
 
       <GlobalVersionHistory
         hasVersions={hasVersions}
