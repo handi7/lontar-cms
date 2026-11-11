@@ -7,9 +7,16 @@ import { fields as f } from '../../fields'
 import { drainPendingWebhooks, verifyWebhookSignature } from '../../webhooks'
 import { createLontar } from '../create-lontar'
 
-function createMockAdapter(storage: Map<number, StoredDoc> = new Map()) {
+function createMockAdapter(
+  storage: Map<number, StoredDoc> = new Map(),
+  options?: {
+    onTransactionStart?: () => void
+    onTransactionCommit?: () => void
+  },
+) {
   let nextId = 1
   let inTx = false
+  let txDepth = 0
 
   let globalStore: Record<string, unknown> = { siteName: 'Default Title' }
 
@@ -77,12 +84,23 @@ function createMockAdapter(storage: Map<number, StoredDoc> = new Map()) {
     transaction: vi
       .fn()
       .mockImplementation(async (callback: (txDb: DatabaseAdapter) => Promise<unknown>) => {
+        txDepth++
+        const isOuter = txDepth === 1
         inTx = true
+        if (isOuter) {
+          options?.onTransactionStart?.()
+        }
         try {
           const res = await callback(adapter)
+          if (isOuter) {
+            options?.onTransactionCommit?.()
+          }
           return res
         } finally {
-          inTx = false
+          txDepth--
+          if (isOuter) {
+            inTx = false
+          }
         }
       }),
   }
@@ -108,11 +126,14 @@ describe('outgoing webhooks integration', () => {
   const secret = 'webhook-secret-key'
   let capturedDeliveries: Array<{ url: string; headers: Headers; body: string }> = []
   let originalFetch: typeof globalThis.fetch
+  let onFetchCall: (() => void) | undefined
 
   beforeEach(() => {
     capturedDeliveries = []
+    onFetchCall = undefined
     originalFetch = globalThis.fetch
     globalThis.fetch = vi.fn<typeof fetch>((url: string | URL | Request, init?: RequestInit) => {
+      onFetchCall?.()
       const urlStr = typeof url === 'string' ? url : 'url' in url ? url.url : url.toString()
       capturedDeliveries.push({
         url: urlStr,
@@ -769,5 +790,205 @@ describe('outgoing webhooks integration', () => {
       collection: 'posts',
       id: 1,
     })
+  })
+
+  it('commit ordering: publish and unpublish dispatch strictly after outer transaction commits', async () => {
+    const executionOrder: string[] = []
+    const { adapter, storage } = createMockAdapter(undefined, {
+      onTransactionStart: () => {
+        executionOrder.push('outer_tx:start')
+      },
+      onTransactionCommit: () => {
+        executionOrder.push('outer_tx:commit')
+      },
+    })
+    onFetchCall = () => {
+      executionOrder.push('webhook:deliver')
+    }
+
+    storage.set(1, {
+      id: 1,
+      title: 'Draft Post',
+      _status: 'draft',
+      createdAt: '2026-11-10T00:00:00.000Z',
+      updatedAt: '2026-11-10T00:00:00.000Z',
+    })
+
+    const posts = collection({
+      slug: 'posts',
+      access: publicAccess,
+      versions: { drafts: true },
+      fields: { title: f.text() },
+      webhooks: [
+        {
+          url: 'https://mysite.com/revalidate',
+          events: ['publish', 'unpublish'],
+        },
+      ],
+    })
+
+    const config = defineConfig({
+      secret: 'app-secret',
+      db: adapter,
+      collections: [posts],
+    })
+
+    const app = createLontar(config)
+
+    // Publish
+    const publishRes = await app.request('/api/posts/1/publish', { method: 'POST' })
+    expect(publishRes.status).toBe(200)
+    await drainPendingWebhooks()
+
+    expect(executionOrder).toEqual(['outer_tx:start', 'outer_tx:commit', 'webhook:deliver'])
+
+    // Reset order tracking
+    executionOrder.length = 0
+
+    // Unpublish
+    const unpublishRes = await app.request('/api/posts/1/unpublish', { method: 'POST' })
+    expect(unpublishRes.status).toBe(200)
+    await drainPendingWebhooks()
+
+    expect(executionOrder).toEqual(['outer_tx:start', 'outer_tx:commit', 'webhook:deliver'])
+  })
+
+  it('commit ordering: does not deliver publish webhook when outer transaction fails or throws', async () => {
+    const { adapter, storage } = createMockAdapter()
+    storage.set(1, {
+      id: 1,
+      title: 'Draft Post',
+      _status: 'draft',
+      createdAt: '2026-11-10T00:00:00.000Z',
+      updatedAt: '2026-11-10T00:00:00.000Z',
+    })
+
+    const posts = collection({
+      slug: 'posts',
+      access: publicAccess,
+      versions: { drafts: true },
+      fields: { title: f.text() },
+      hooks: {
+        afterChange: [
+          () => {
+            throw new Error('Simulated failure during publish')
+          },
+        ],
+      },
+      webhooks: [
+        {
+          url: 'https://mysite.com/revalidate',
+          events: ['publish'],
+        },
+      ],
+    })
+
+    const config = defineConfig({
+      secret: 'app-secret',
+      db: adapter,
+      collections: [posts],
+    })
+
+    const app = createLontar(config)
+    const res = await app.request('/api/posts/1/publish', { method: 'POST' })
+    expect(res.status).toBe(500)
+    await drainPendingWebhooks()
+
+    // No webhook should be delivered because transaction failed
+    expect(capturedDeliveries).toHaveLength(0)
+  })
+
+  it('commit ordering: global publish and unpublish dispatch strictly after outer transaction commits', async () => {
+    const executionOrder: string[] = []
+    const { adapter, setGlobalDoc } = createMockAdapter(undefined, {
+      onTransactionStart: () => {
+        executionOrder.push('outer_tx:start')
+      },
+      onTransactionCommit: () => {
+        executionOrder.push('outer_tx:commit')
+      },
+    })
+    onFetchCall = () => {
+      executionOrder.push('webhook:deliver')
+    }
+    setGlobalDoc({ siteName: 'Draft Site', _status: 'draft' })
+
+    const settings = global({
+      slug: 'settings',
+      access: publicAccess,
+      versions: { drafts: true },
+      fields: { siteName: f.text() },
+      webhooks: [
+        {
+          url: 'https://mysite.com/revalidate',
+          events: ['publish', 'unpublish'],
+        },
+      ],
+    })
+
+    const config = defineConfig({
+      secret: 'app-secret',
+      db: adapter,
+      collections: [],
+      globals: [settings],
+    })
+
+    const app = createLontar(config)
+
+    // Publish
+    const publishRes = await app.request('/api/globals/settings/publish', { method: 'POST' })
+    expect(publishRes.status).toBe(200)
+    await drainPendingWebhooks()
+
+    expect(executionOrder).toEqual(['outer_tx:start', 'outer_tx:commit', 'webhook:deliver'])
+
+    // Reset
+    executionOrder.length = 0
+
+    // Unpublish
+    const unpublishRes = await app.request('/api/globals/settings/unpublish', { method: 'POST' })
+    expect(unpublishRes.status).toBe(200)
+    await drainPendingWebhooks()
+
+    expect(executionOrder).toEqual(['outer_tx:start', 'outer_tx:commit', 'webhook:deliver'])
+  })
+
+  it('commit ordering: does not deliver global publish webhook when outer transaction fails', async () => {
+    const { adapter, setGlobalDoc } = createMockAdapter()
+    setGlobalDoc({ siteName: 'Draft Site', _status: 'draft' })
+
+    const settings = global({
+      slug: 'settings',
+      access: publicAccess,
+      versions: { drafts: true },
+      fields: { siteName: f.text() },
+      hooks: {
+        afterChange: [
+          () => {
+            throw new Error('Simulated failure during global publish')
+          },
+        ],
+      },
+      webhooks: [
+        {
+          url: 'https://mysite.com/revalidate',
+          events: ['publish'],
+        },
+      ],
+    })
+
+    const config = defineConfig({
+      secret: 'app-secret',
+      db: adapter,
+      collections: [],
+      globals: [settings],
+    })
+
+    const app = createLontar(config)
+    const res = await app.request('/api/globals/settings/publish', { method: 'POST' })
+    expect(res.status).toBe(500)
+    await drainPendingWebhooks()
+
+    expect(capturedDeliveries).toHaveLength(0)
   })
 })
