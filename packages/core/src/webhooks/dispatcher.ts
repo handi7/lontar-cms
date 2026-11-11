@@ -216,26 +216,37 @@ export function dispatchWebhooks(args: DispatchWebhooksArgs): Promise<WebhookDel
     return Promise.resolve([])
   }
 
-  const deliveries = matching.map((target) => {
-    const payload = buildWebhookPayload({
-      event: args.event,
-      collection: args.collection,
-      global: args.global,
-      doc: args.doc,
-      status: args.status,
-      previousStatus: args.previousStatus,
-      includeDoc: target.includeDoc,
-    })
+  let deliveries: Promise<WebhookDeliveryResult>[]
+  try {
+    deliveries = matching.map((target) => {
+      const payload = buildWebhookPayload({
+        event: args.event,
+        collection: args.collection,
+        global: args.global,
+        doc: args.doc,
+        status: args.status,
+        previousStatus: args.previousStatus,
+        includeDoc: target.includeDoc,
+      })
 
-    return deliverWebhook({
-      url: target.url,
-      payload,
-      secret: target.secret,
-      ...args.options,
+      return deliverWebhook({
+        url: target.url,
+        payload,
+        secret: target.secret,
+        ...args.options,
+      })
     })
+  } catch (err: unknown) {
+    const logger = args.options?.logger ?? console.error
+    logger('[Webhooks] Delivery batch failed:', err)
+    return Promise.resolve([])
+  }
+
+  const batchPromise = Promise.all(deliveries).catch((err: unknown) => {
+    const logger = args.options?.logger ?? console.error
+    logger('[Webhooks] Delivery batch failed:', err)
+    return []
   })
-
-  const batchPromise = Promise.all(deliveries)
   pendingWebhooks.add(batchPromise)
   void batchPromise.finally(() => {
     pendingWebhooks.delete(batchPromise)

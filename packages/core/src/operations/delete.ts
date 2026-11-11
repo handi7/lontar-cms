@@ -57,25 +57,37 @@ export async function deleteOperation<T = DocumentData>(
     return null
   }
 
-  if (args.collection.upload) {
-    await handleUploadDelete(args.collection, args.config, deletedDoc)
+  let finalDoc: DocumentData = deletedDoc
+  let postCommitError: Error | null = null
+
+  try {
+    if (args.collection.upload) {
+      await handleUploadDelete(args.collection, args.config, deletedDoc)
+    }
+
+    finalDoc = await runAfterDeleteHooks({
+      collection: args.collection,
+      id: args.id,
+      doc: deletedDoc,
+      status: deletedDoc._status as DocStatus | undefined,
+      req: args.req,
+    })
+  } catch (err) {
+    postCommitError =
+      err instanceof Error ? err : new Error(typeof err === 'string' ? err : 'Delete hook failed')
+  } finally {
+    void dispatchWebhooks({
+      config: args.config,
+      collection: args.collection,
+      event: 'delete',
+      doc: finalDoc,
+      status: deletedDoc._status as DocStatus | undefined,
+    })
   }
 
-  const finalDoc = await runAfterDeleteHooks({
-    collection: args.collection,
-    id: args.id,
-    doc: deletedDoc,
-    status: deletedDoc._status as DocStatus | undefined,
-    req: args.req,
-  })
-
-  void dispatchWebhooks({
-    config: args.config,
-    collection: args.collection,
-    event: 'delete',
-    doc: finalDoc,
-    status: deletedDoc._status as DocStatus | undefined,
-  })
+  if (postCommitError) {
+    throw postCommitError
+  }
 
   return finalDoc as T
 }

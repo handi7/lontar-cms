@@ -716,4 +716,58 @@ describe('outgoing webhooks integration', () => {
     expect(payload.status).toBe('published')
     expect(payload.previousStatus).toBe('published')
   })
+
+  it('dispatches delete webhook even when afterDelete hook throws (#247)', async () => {
+    const { adapter, storage } = createMockAdapter()
+    storage.set(1, {
+      id: 1,
+      title: 'Flaky Hook Post',
+      createdAt: '2026-11-10T00:00:00.000Z',
+      updatedAt: '2026-11-10T00:00:00.000Z',
+    })
+
+    const posts = collection({
+      slug: 'posts',
+      access: publicAccess,
+      fields: { title: f.text() },
+      hooks: {
+        afterDelete: [
+          () => {
+            throw new Error('Flaky third-party service failed in afterDelete')
+          },
+        ],
+      },
+      webhooks: [
+        {
+          url: 'https://mysite.com/revalidate',
+          events: ['delete'],
+        },
+      ],
+    })
+
+    const config = defineConfig({
+      secret: 'app-secret',
+      db: adapter,
+      collections: [posts],
+    })
+
+    const app = createLontar(config)
+    const deleteRes = await app.request('/api/posts/1', { method: 'DELETE' })
+    expect(deleteRes.status).toBe(500)
+    await drainPendingWebhooks()
+
+    // The document was successfully deleted from storage
+    expect(storage.has(1)).toBe(false)
+
+    // The delete webhook was dispatched despite the throwing hook
+    expect(capturedDeliveries).toHaveLength(1)
+    const d0 = capturedDeliveries[0]
+    expect(d0).toBeDefined()
+    if (!d0) throw new Error('expected delivery')
+    expect(JSON.parse(d0.body)).toMatchObject({
+      event: 'delete',
+      collection: 'posts',
+      id: 1,
+    })
+  })
 })
