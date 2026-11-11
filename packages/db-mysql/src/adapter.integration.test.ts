@@ -5,6 +5,7 @@ import path from 'node:path'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import mysql from 'mysql2/promise'
 import {
+  createLontar,
   UniqueConstraintError,
   type CollectionConfig,
   type Config,
@@ -203,6 +204,10 @@ const headerGlobal: GlobalConfig = {
 
 const versionedSettingsGlobal: GlobalConfig = {
   slug: 'versioned_settings',
+  access: {
+    read: () => true,
+    update: () => true,
+  },
   versions: { drafts: true, maxPerDoc: 2 },
   fields: {
     siteName: { type: 'text', required: true },
@@ -213,6 +218,11 @@ const versionedSettingsGlobal: GlobalConfig = {
 const versionedPostsCollection: CollectionConfig = {
   slug: 'versioned_posts',
   labels: { singular: 'Versioned Post', plural: 'Versioned Posts' },
+  access: {
+    read: () => true,
+    create: () => true,
+    update: () => true,
+  },
   versions: { drafts: true, maxPerDoc: 2 },
   fields: {
     title: { type: 'text', required: true },
@@ -234,6 +244,7 @@ describe('mysqlAdapter (integration)', () => {
   let testDb: TestDatabase
   let testDatabaseUrl: string
   let adapter: MysqlAdapter
+  let config: Config
   let tempDir: string
   let migrationsDir: string
 
@@ -242,7 +253,7 @@ describe('mysqlAdapter (integration)', () => {
     testDatabaseUrl = testDb.url
     adapter = mysqlAdapter({ url: testDatabaseUrl })
 
-    const config: Config = {
+    config = {
       secret: 'test-secret',
       db: adapter,
       collections: [
@@ -926,7 +937,7 @@ describe('mysqlAdapter (integration)', () => {
         })
         throw new Error('Simulated hook failure')
       }),
-    ).rejects.toThrow('Database operation failed')
+    ).rejects.toThrow('Simulated hook failure')
 
     // Document must not exist
     const found = await adapter.find({
@@ -955,7 +966,7 @@ describe('mysqlAdapter (integration)', () => {
           throw new Error('Nested failure')
         })
       } catch (err) {
-        expect((err as Error).message).toContain('Database operation failed')
+        expect((err as Error).message).toContain('Nested failure')
       }
     })
 
@@ -1299,7 +1310,7 @@ describe('mysqlAdapter (integration)', () => {
         })
         throw new Error('Forced rollback')
       }),
-    ).rejects.toThrow('Database operation failed')
+    ).rejects.toThrow('Forced rollback')
 
     const afterRollback = await adapter.findByID({
       collection: pagesCollection,
@@ -1389,7 +1400,7 @@ describe('mysqlAdapter (integration)', () => {
         })
         throw new Error('Forced rollback')
       }),
-    ).rejects.toThrow('Database operation failed')
+    ).rejects.toThrow('Forced rollback')
 
     const afterRollback = await adapter.findByID({
       collection: pagesCollection,
@@ -2417,5 +2428,73 @@ describe('mysqlAdapter (integration)', () => {
     })
     expect(versions.totalDocs).toBe(5)
     expect(versions.docs.map((d) => d.versionNumber)).toEqual([1, 2, 3, 4, 5])
+  })
+
+  it('publish of a missing id returns 404 on real MySQL adapter', async () => {
+    const app = createLontar(config)
+    const res = await app.request('/api/versioned_posts/999999/publish', { method: 'POST' })
+    expect(res.status).toBe(404)
+    const body = (await res.json()) as { error: string }
+    expect(body.error).toContain('not found')
+  })
+
+  it('publish of an invalid draft returns 400 with issues on real MySQL adapter', async () => {
+    const app = createLontar(config)
+    // 1. Create a valid doc
+    const doc = await adapter.create({
+      collection: versionedPostsCollection,
+      data: { title: 'Initial Post', content: 'Draft content' },
+    })
+
+    // 2. Save an invalid draft version snapshot (e.g. empty required title)
+    await adapter.saveVersion!({
+      collection: versionedPostsCollection,
+      parentId: doc.id,
+      snapshot: { ...doc, title: '' },
+      status: 'draft',
+    })
+
+    // 3. Attempt to publish invalid draft -> 400 with issues
+    const pubRes = await app.request(`/api/versioned_posts/${doc.id}/publish`, {
+      method: 'POST',
+    })
+    expect(pubRes.status).toBe(400)
+    const pubBody = (await pubRes.json()) as { error: string; issues: unknown[] }
+    expect(pubBody.error).toBe('Validation failed')
+    expect(pubBody.issues).toBeDefined()
+    expect(pubBody.issues.length).toBeGreaterThan(0)
+  })
+
+  it('publish of an unknown global returns 404 on real MySQL adapter', async () => {
+    const app = createLontar(config)
+    const res = await app.request('/api/globals/nonexistent_global/publish', { method: 'POST' })
+    expect(res.status).toBe(404)
+  })
+
+  it('publish of an invalid draft global returns 400 with issues on real MySQL adapter', async () => {
+    const app = createLontar(config)
+    // 1. Initialize global
+    const globalDoc = await adapter.updateGlobal({
+      global: versionedSettingsGlobal,
+      data: { siteName: 'Initial Site', tagline: 'Live' },
+    })
+
+    // 2. Save an invalid draft version snapshot (e.g. empty required siteName)
+    await adapter.saveVersion!({
+      global: versionedSettingsGlobal,
+      parentId: 1,
+      snapshot: { ...globalDoc, siteName: '' },
+      status: 'draft',
+    })
+
+    // 3. Attempt to publish invalid global draft -> 400 with issues
+    const pubRes = await app.request('/api/globals/versioned_settings/publish', {
+      method: 'POST',
+    })
+    expect(pubRes.status).toBe(400)
+    const pubBody = (await pubRes.json()) as { error: string; issues: unknown[] }
+    expect(pubBody.error).toBe('Validation failed')
+    expect(pubBody.issues).toBeDefined()
+    expect(pubBody.issues.length).toBeGreaterThan(0)
   })
 })
