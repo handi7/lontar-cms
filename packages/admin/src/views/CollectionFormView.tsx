@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo, useCallback } from 'react'
+import { useState, useEffect, useMemo, useCallback, useRef } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { useNavigate, useParams } from '@tanstack/react-router'
 import {
@@ -15,7 +15,7 @@ import {
 } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
 import type { z } from 'zod'
-import { clientFieldsToZod, type ClientCollection } from '@lontar/core/client'
+import { clientFieldsToZod, type ClientCollection, type ClientField } from '@lontar/core/client'
 import { useAdmin, useCollection } from '../context/AdminContext'
 import {
   fetchDoc,
@@ -28,7 +28,12 @@ import {
 } from '../api/client'
 import { FieldRenderer } from '../fields/FieldRenderer'
 import { FileUploadZone, formatFilesize } from '../fields/FileUploadZone'
-import { computeDefaultValues, formatDocForForm, formatDocForSubmit } from '../utils/form-utils'
+import {
+  computeDefaultValues,
+  formatDocForForm,
+  formatDocForSubmit,
+  isSameDoc,
+} from '../utils/form-utils'
 import { ConfirmDeleteDialog } from './ConfirmDeleteDialog'
 import { NotFoundView } from './NotFoundView'
 import { Alert } from '../components/ui/alert'
@@ -174,6 +179,7 @@ export interface UseDocMutationsOptions {
   setApiError: (msg: string | null) => void
   setSuccessMsg: (msg: string | null) => void
   onSaveSuccess?: () => void
+  onDocApplied?: (doc: Record<string, unknown>) => void
 }
 
 export interface SaveDocArgs {
@@ -192,6 +198,7 @@ function useDocMutations({
   setApiError,
   setSuccessMsg,
   onSaveSuccess,
+  onDocApplied,
 }: UseDocMutationsOptions) {
   const queryClient = useQueryClient()
   const navigate = useNavigate()
@@ -219,6 +226,7 @@ function useDocMutations({
         })
       }
       onSaveSuccess?.()
+      onDocApplied?.(savedDoc)
       if (mode === 'create') {
         void navigate({ to: '/$collection', params: { collection: slug } })
       } else {
@@ -265,6 +273,7 @@ function useDocMutations({
         })
       }
       setSuccessMsg('Unpublished successfully!')
+      onDocApplied?.(unpublishedDoc)
       reset(formatDocForForm(collection.fields, unpublishedDoc))
     },
     onError: (err: Error) => {
@@ -457,6 +466,7 @@ interface UseCollectionAutosaveOptions {
   schema: z.ZodTypeAny
   selectedFile: File | null
   reset: UseFormReset<Record<string, unknown>>
+  onDocApplied?: (doc: Record<string, unknown>) => void
 }
 
 function isCollectionAutosaveEnabled(
@@ -489,6 +499,7 @@ function useCollectionAutosave({
   schema,
   selectedFile,
   reset,
+  onDocApplied,
 }: UseCollectionAutosaveOptions) {
   const queryClient = useQueryClient()
   const autosaveEnabled = isCollectionAutosaveEnabled(mode, collection.versions, id)
@@ -512,6 +523,7 @@ function useCollectionAutosave({
 
   const onSuccess = useCallback(
     (savedDoc: Record<string, unknown>) => {
+      onDocApplied?.(savedDoc)
       reset(formatDocForForm(collection.fields, savedDoc), { keepValues: true })
       if (id) {
         queryClient.setQueryData(
@@ -529,6 +541,7 @@ function useCollectionAutosave({
       collection.slug,
       collection.versions?.drafts,
       id,
+      onDocApplied,
       queryClient,
       reset,
     ],
@@ -643,6 +656,46 @@ function PreviewPaneWrapper(props: PreviewPaneWrapperProps) {
   )
 }
 
+export interface UseResetFormOnDocLoadedOptions {
+  doc: Record<string, unknown> | null | undefined
+  id?: string
+  collectionSlug: string
+  fields: ClientField[]
+  isDirty: boolean
+  reset: (values?: Record<string, unknown>) => void
+  onDocReset?: () => void
+  lastAppliedDocRef: React.MutableRefObject<Record<string, unknown> | null>
+}
+
+function useResetFormOnDocLoaded({
+  doc,
+  id,
+  collectionSlug,
+  fields,
+  isDirty,
+  reset,
+  onDocReset,
+  lastAppliedDocRef,
+}: UseResetFormOnDocLoadedOptions) {
+  const lastLoadedKeyRef = useRef<string | null>(null)
+  const currentKey = `${collectionSlug}:${id ?? ''}`
+
+  useEffect(() => {
+    if (!doc) return
+    if (currentKey !== lastLoadedKeyRef.current) {
+      lastLoadedKeyRef.current = currentKey
+      lastAppliedDocRef.current = null
+    }
+
+    if (isSameDoc(doc, lastAppliedDocRef.current)) return
+    if (lastAppliedDocRef.current !== null && isDirty) return
+
+    lastAppliedDocRef.current = doc
+    reset(formatDocForForm(fields, doc))
+    onDocReset?.()
+  }, [currentKey, doc, fields, isDirty, lastAppliedDocRef, onDocReset, reset])
+}
+
 export interface CollectionEditorProps {
   collection: ClientCollection
   mode: 'create' | 'edit'
@@ -687,6 +740,11 @@ function CollectionEditor({ collection, mode, id }: CollectionEditorProps) {
 
   const formValues = watch()
 
+  const lastAppliedDocRef = useRef<Record<string, unknown> | null>(null)
+  const onDocApplied = useCallback((doc: Record<string, unknown>) => {
+    lastAppliedDocRef.current = doc
+  }, [])
+
   const autosave = useCollectionAutosave({
     collection,
     mode,
@@ -699,15 +757,22 @@ function CollectionEditor({ collection, mode, id }: CollectionEditorProps) {
     schema,
     selectedFile,
     reset,
+    onDocApplied,
   })
 
-  useEffect(() => {
-    if (docQuery.data && !isDirty) {
-      reset(formatDocForForm(collection.fields, docQuery.data))
+  useResetFormOnDocLoaded({
+    doc: docQuery.data,
+    id,
+    collectionSlug: collection.slug,
+    fields: collection.fields,
+    isDirty,
+    reset,
+    onDocReset: () => {
       setSelectedFile(null)
       setFileError(null)
-    }
-  }, [docQuery.data, collection, reset, isDirty])
+    },
+    lastAppliedDocRef,
+  })
 
   const { saveMutation, deleteMutation, unpublishMutation } = useDocMutations({
     apiBase,
@@ -719,6 +784,7 @@ function CollectionEditor({ collection, mode, id }: CollectionEditorProps) {
     setError,
     setApiError,
     setSuccessMsg,
+    onDocApplied,
     onSaveSuccess: () => {
       void autosave.cancelAutosave()
       setSelectedFile(null)
@@ -858,6 +924,7 @@ function CollectionEditor({ collection, mode, id }: CollectionEditorProps) {
         collection={collection}
         currentDoc={docQuery.data}
         onRestoreSuccess={(restoredDoc) => {
+          onDocApplied(restoredDoc)
           if (id) {
             queryClient.setQueryData(
               queryKeys.document(collection.slug, id, Boolean(hasDrafts)),

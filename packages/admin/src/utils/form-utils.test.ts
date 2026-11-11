@@ -6,6 +6,7 @@ import {
   formatDateForSubmit,
   formatDocForForm,
   formatDocForSubmit,
+  isSameDoc,
 } from './form-utils'
 
 describe('form-utils', () => {
@@ -598,6 +599,40 @@ describe('form-utils', () => {
           },
         ],
       })
+    })
+  })
+
+  describe('isSameDoc', () => {
+    it('returns true when references are identical', () => {
+      const doc = { id: 1, title: 'Test' }
+      expect(isSameDoc(doc, doc)).toBe(true)
+      expect(isSameDoc(null, null)).toBe(true)
+      expect(isSameDoc(undefined, undefined)).toBe(true)
+    })
+
+    it('returns false when one is null/undefined and the other is not', () => {
+      const doc = { id: 1, title: 'Test' }
+      expect(isSameDoc(doc, null)).toBe(false)
+      expect(isSameDoc(null, doc)).toBe(false)
+      expect(isSameDoc(doc, undefined)).toBe(false)
+    })
+
+    it('returns true when id and updatedAt match', () => {
+      const docA = { id: 1, title: 'Draft 1', updatedAt: '2026-01-01T00:00:00.000Z' }
+      const docB = { id: 1, title: 'Draft 2', updatedAt: '2026-01-01T00:00:00.000Z' }
+      expect(isSameDoc(docA, docB)).toBe(true)
+    })
+
+    it('returns false when ids differ', () => {
+      const docA = { id: 1, updatedAt: '2026-01-01T00:00:00.000Z' }
+      const docB = { id: 2, updatedAt: '2026-01-01T00:00:00.000Z' }
+      expect(isSameDoc(docA, docB)).toBe(false)
+    })
+
+    it('returns false when updatedAt differs', () => {
+      const docA = { id: 1, updatedAt: '2026-01-01T00:00:00.000Z' }
+      const docB = { id: 1, updatedAt: '2026-01-02T00:00:00.000Z' }
+      expect(isSameDoc(docA, docB)).toBe(false)
     })
   })
 })

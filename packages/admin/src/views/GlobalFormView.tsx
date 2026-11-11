@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo, useCallback } from 'react'
+import { useState, useEffect, useMemo, useCallback, useRef } from 'react'
 import {
   useQuery,
   useMutation,
@@ -24,7 +24,12 @@ import { clientFieldsToZod, type ClientField, type ClientGlobal } from '@lontar/
 import { useAdmin, useGlobal } from '../context/AdminContext'
 import { fetchGlobal, saveGlobal, unpublishGlobal, ApiClientError, queryKeys } from '../api/client'
 import { FieldRenderer } from '../fields/FieldRenderer'
-import { computeDefaultValues, formatDocForForm, formatDocForSubmit } from '../utils/form-utils'
+import {
+  computeDefaultValues,
+  formatDocForForm,
+  formatDocForSubmit,
+  isSameDoc,
+} from '../utils/form-utils'
 import { NotFoundView } from './NotFoundView'
 import { Alert } from '../components/ui/alert'
 import { Card } from '../components/ui/card'
@@ -124,6 +129,7 @@ export interface UseGlobalMutationsOptions {
   setApiError: (msg: string | null) => void
   setSuccessMsg: (msg: string | null) => void
   onSaveSuccess?: () => void
+  onDocApplied?: (doc: Record<string, unknown>) => void
 }
 
 function handleValidationError(
@@ -152,6 +158,7 @@ function useGlobalMutations({
   setApiError,
   setSuccessMsg,
   onSaveSuccess,
+  onDocApplied,
 }: UseGlobalMutationsOptions) {
   const queryClient = useQueryClient()
 
@@ -162,6 +169,7 @@ function useGlobalMutations({
       return saveGlobal(apiBase, slug, formatDocForSubmit(fields, values), { draft })
     },
     onSuccess: (saved, vars) => {
+      onDocApplied?.(saved)
       reset(formatDocForForm(fields, saved))
       if (hasDrafts) {
         setSuccessMsg(vars.draft ? 'Draft saved successfully.' : 'Published successfully.')
@@ -183,6 +191,7 @@ function useGlobalMutations({
       return unpublishGlobal(apiBase, slug)
     },
     onSuccess: (unpublished) => {
+      onDocApplied?.(unpublished)
       reset(formatDocForForm(fields, unpublished))
       setSuccessMsg('Unpublished successfully.')
       queryClient.setQueryData(queryKeys.global(slug), unpublished)
@@ -240,6 +249,7 @@ export interface UseGlobalEditorAutosaveProps {
   getValues: UseFormGetValues<Record<string, unknown>>
   schema: z.ZodTypeAny
   reset: UseFormReset<Record<string, unknown>>
+  onDocApplied?: (doc: Record<string, unknown>) => void
 }
 
 function useGlobalEditorAutosave({
@@ -252,6 +262,7 @@ function useGlobalEditorAutosave({
   getValues,
   schema,
   reset,
+  onDocApplied,
 }: UseGlobalEditorAutosaveProps) {
   const queryClient = useQueryClient()
   const hasDrafts = Boolean(global.versions?.drafts)
@@ -273,13 +284,14 @@ function useGlobalEditorAutosave({
 
   const onAutosaveSuccess = useCallback(
     (savedDoc: Record<string, unknown>) => {
+      onDocApplied?.(savedDoc)
       reset(formatDocForForm(global.fields, savedDoc), { keepValues: true })
       queryClient.setQueryData(queryKeys.global(slug), savedDoc)
       void queryClient.invalidateQueries({
         queryKey: queryKeys.globalVersions(apiBase, slug),
       })
     },
-    [apiBase, global.fields, slug, queryClient, reset],
+    [apiBase, global.fields, onDocApplied, queryClient, reset, slug],
   )
 
   const autosave = useAutosave({
@@ -381,17 +393,38 @@ function GlobalEditorSidebar(props: GlobalEditorSidebarProps) {
   )
 }
 
-function useResetFormOnDocLoaded(
-  doc: Record<string, unknown> | null | undefined,
-  fields: ClientField[],
-  isDirty: boolean,
-  reset: (values?: Record<string, unknown>) => void,
-) {
+export interface UseResetGlobalFormOnDocLoadedOptions {
+  doc: Record<string, unknown> | null | undefined
+  fields: ClientField[]
+  slug: string
+  isDirty: boolean
+  reset: (values?: Record<string, unknown>) => void
+  lastAppliedDocRef: React.MutableRefObject<Record<string, unknown> | null>
+}
+
+function useResetFormOnDocLoaded({
+  doc,
+  fields,
+  slug,
+  isDirty,
+  reset,
+  lastAppliedDocRef,
+}: UseResetGlobalFormOnDocLoadedOptions) {
+  const lastLoadedSlugRef = useRef<string | null>(null)
+
   useEffect(() => {
-    if (doc && !isDirty) {
-      reset(formatDocForForm(fields, doc))
+    if (!doc) return
+    if (slug !== lastLoadedSlugRef.current) {
+      lastLoadedSlugRef.current = slug
+      lastAppliedDocRef.current = null
     }
-  }, [doc, fields, reset, isDirty])
+
+    if (isSameDoc(doc, lastAppliedDocRef.current)) return
+    if (lastAppliedDocRef.current !== null && isDirty) return
+
+    lastAppliedDocRef.current = doc
+    reset(formatDocForForm(fields, doc))
+  }, [doc, fields, isDirty, lastAppliedDocRef, reset, slug])
 }
 
 export interface GlobalPreviewSectionProps {
@@ -502,7 +535,19 @@ function GlobalEditor({ global, slug, apiBase }: GlobalEditorProps) {
 
   const formValues = watch()
 
-  useResetFormOnDocLoaded(globalQuery.data, global.fields, isDirty, reset)
+  const lastAppliedDocRef = useRef<Record<string, unknown> | null>(null)
+  const onDocApplied = useCallback((doc: Record<string, unknown>) => {
+    lastAppliedDocRef.current = doc
+  }, [])
+
+  useResetFormOnDocLoaded({
+    doc: globalQuery.data,
+    fields: global.fields,
+    slug,
+    isDirty,
+    reset,
+    lastAppliedDocRef,
+  })
 
   const { autosave, autosaveEnabled } = useGlobalEditorAutosave({
     apiBase,
@@ -514,6 +559,7 @@ function GlobalEditor({ global, slug, apiBase }: GlobalEditorProps) {
     getValues,
     schema,
     reset,
+    onDocApplied,
   })
 
   const { saveMutation, unpublishMutation } = useGlobalMutations({
@@ -525,6 +571,7 @@ function GlobalEditor({ global, slug, apiBase }: GlobalEditorProps) {
     setError,
     setApiError,
     setSuccessMsg,
+    onDocApplied,
     onSaveSuccess: () => {
       void autosave.cancelAutosave()
     },
@@ -619,6 +666,7 @@ function GlobalEditor({ global, slug, apiBase }: GlobalEditorProps) {
         global={global}
         currentDoc={globalQuery.data}
         onRestore={(restored) => {
+          onDocApplied(restored)
           queryClient.setQueryData(queryKeys.global(slug), restored)
           reset(formatDocForForm(global.fields, restored))
           setSuccessMsg('Version restored successfully.')
