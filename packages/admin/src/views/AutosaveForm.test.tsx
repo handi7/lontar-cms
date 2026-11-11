@@ -476,6 +476,80 @@ describe('Autosave in edit form (#203)', () => {
     // Focus remains on input
     expect(document.activeElement).toBe(titleInput)
   })
+
+  it('flushes pending debounced edits on navigation before debounce interval expires (#288)', async () => {
+    const existingDoc = {
+      id: 1,
+      title: 'Original Title',
+      content: 'Original content',
+      _status: 'draft',
+      _isPublished: false,
+    }
+    const patchBodies: string[] = []
+
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockImplementation((url: string, init?: RequestInit) => {
+        if (url.includes('/_lontar/config')) {
+          return mockJsonResponse(mockConfigWithAutosave)
+        }
+        if (url.includes('/auth/get-session')) {
+          return mockJsonResponse({ user: mockAuthUser, session: mockAuthSession })
+        }
+        if (url.includes('/api/articles/1/versions') || url.includes('/api/articles/versions')) {
+          return mockJsonResponse({ docs: [], totalDocs: 0, page: 1, totalPages: 1, limit: 10 })
+        }
+        if (url.includes('/api/articles/1') && init?.method === 'PATCH') {
+          patchBodies.push(init.body as string)
+          return mockJsonResponse({
+            ...existingDoc,
+            title: 'Navigated Title',
+            updatedAt: '2026-01-01T00:00:01.000Z',
+          })
+        }
+        if (url.includes('/api/articles/1')) {
+          return mockJsonResponse(existingDoc)
+        }
+        if (url.includes('/api/articles')) {
+          return mockJsonResponse({
+            docs: [existingDoc],
+            totalDocs: 1,
+            page: 1,
+            totalPages: 1,
+            limit: 10,
+          })
+        }
+        return Promise.reject(new Error(`Unhandled URL: ${url}`))
+      }),
+    )
+
+    const history = createMemoryHistory({ initialEntries: ['/admin/articles/1'] })
+    render(<Admin apiBase="/api" basePath="/admin" history={history} />)
+
+    await waitFor(() => {
+      expect(screen.getByRole('textbox', { name: /Title/i })).toBeTruthy()
+    })
+
+    const titleInput = screen.getByRole<HTMLInputElement>('textbox', { name: /Title/i })
+    fireEvent.change(titleInput, { target: { value: 'Navigated Title' } })
+
+    // Only advance 100ms (interval is 500ms)
+    act(() => {
+      vi.advanceTimersByTime(100)
+    })
+    expect(patchBodies).toHaveLength(0)
+
+    // Navigate away to collection list
+    act(() => {
+      history.push('/admin/articles')
+    })
+
+    // Autosave should have flushed the pending edit on unmount
+    await waitFor(() => {
+      expect(patchBodies).toHaveLength(1)
+    })
+    expect(patchBodies[0]).toContain('Navigated Title')
+  })
 })
 
 describe('Autosave in the global edit form', () => {
