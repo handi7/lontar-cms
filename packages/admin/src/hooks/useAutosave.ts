@@ -38,7 +38,7 @@ interface SaveStateContext {
 
 function handleSaveSuccess(
   savedDoc: Record<string, unknown>,
-  values: unknown,
+  savedValuesSerialized: string | null,
   onSuccess: ((savedDoc: Record<string, unknown>) => void) | undefined,
   ctx: SaveStateContext,
 ): void {
@@ -46,8 +46,8 @@ function handleSaveSuccess(
   ctx.setLastSavedAt(new Date())
   ctx.setErrorMessage(null)
   ctx.setConsecutiveErrors(() => 0)
-  if (values !== undefined) {
-    ctx.lastSavedValuesRef.current = serializeValues(values)
+  if (savedValuesSerialized !== null) {
+    ctx.lastSavedValuesRef.current = savedValuesSerialized
   }
   onSuccess?.(savedDoc)
 }
@@ -56,6 +56,18 @@ function handleSaveFailure(err: unknown, ctx: SaveStateContext): void {
   ctx.setStatus('error')
   ctx.setErrorMessage(err instanceof Error ? err.message : 'Autosave failed')
   ctx.setConsecutiveErrors((prev) => prev + 1)
+}
+
+function shouldSkipSave(
+  state: { enabled: boolean; isDirty: boolean; isValid: boolean; values?: unknown },
+  serializedAtStart: string | null,
+  lastSaved: string | null,
+): boolean {
+  if (!state.enabled || !state.isDirty || !state.isValid) return true
+  if (state.values !== undefined && lastSaved !== null && serializedAtStart === lastSaved) {
+    return true
+  }
+  return false
 }
 
 export function useAutosave({
@@ -112,8 +124,12 @@ export function useAutosave({
   }, [clearTimer])
 
   const executeAutosave = useCallback(async () => {
-    const { enabled: isEnabled, isDirty: dirty, isValid: valid } = stateRef.current
-    if (!isEnabled || !dirty || !valid) return
+    const valuesToSave = stateRef.current.values
+    const serializedAtStart = valuesToSave !== undefined ? serializeValues(valuesToSave) : null
+
+    if (shouldSkipSave(stateRef.current, serializedAtStart, lastSavedValuesRef.current)) {
+      return
+    }
 
     if (inFlightRef.current) {
       pendingSaveRef.current = true
@@ -137,7 +153,7 @@ export function useAutosave({
       inFlightPromiseRef.current = savePromise
       const savedDoc = await savePromise
       if (cancelledRef.current) return
-      handleSaveSuccess(savedDoc, stateRef.current.values, onSuccessRef.current, ctx)
+      handleSaveSuccess(savedDoc, serializedAtStart, onSuccessRef.current, ctx)
     } catch (err) {
       if (cancelledRef.current) return
       handleSaveFailure(err, ctx)
