@@ -189,6 +189,7 @@ approval on the `npm` environment. Don't run `pnpm publish` by hand; see `docs/r
     - [x] API and schema: #240 (done), #241 (done), #243 (done)
     - [x] Minor: #242 (done), #246 (done), #247 (done), #248 (done)
     - [x] ADR decisions to record: #249 (done)
+    - [x] Code review fixes from `main` @ 0069d5e: #285 (done), #286 (done), #287 (done), #288 (done)
 - [ ] **M9: Second database adapter** (tracking in #147)
 - [ ] **M10: Users, roles & field-level access** (tracking in #148)
 - [ ] **M11: Localization** (tracking in #149)
