@@ -6,7 +6,12 @@ import type { CollectionConfig } from '../config/types'
 import type { DocumentData } from '../database/adapter'
 import { populateDoc } from '../populate'
 import { AccessDeniedError, ValidationError } from './errors'
-import { executeCreate, resolveCreateStatus, type MutationExecutionResult } from './mutation'
+import {
+  executeCreate,
+  resolveCreateStatus,
+  resolveDraftFlag,
+  type MutationExecutionResult,
+} from './mutation'
 import { runBeforeValidateHooks } from '../hooks'
 import type { CreateOperationArgs } from './types'
 
@@ -41,9 +46,13 @@ function assertCreateResultSuccess(result: MutationExecutionResult): DocumentDat
   return result.doc
 }
 
-async function canPopulateCreateDraft(args: CreateOperationArgs, docId: unknown): Promise<boolean> {
+async function canPopulateCreateDraft(
+  args: CreateOperationArgs,
+  docId: unknown,
+  draft?: boolean,
+): Promise<boolean> {
   if (args.overrideAccess) return true
-  if (!args.draft) return false
+  if (!draft) return false
   const numericId = typeof docId === 'number' ? docId : Number(docId) || undefined
   return Boolean(
     await checkAccess(args.collection.access?.update, {
@@ -58,7 +67,8 @@ export async function createOperation<T = DocumentData>(args: CreateOperationArg
     await assertCreateAccess(args.collection, args.data, args.user)
   }
 
-  const { status, statusTransition } = resolveCreateStatus(args.collection, args.draft)
+  const draft = resolveDraftFlag(args.collection, args.draft, args.autosave)
+  const { status, statusTransition } = resolveCreateStatus(args.collection, draft)
   const { _status: _ignoredStatus, ...cleanData } = args.data
   const hookData = await runBeforeValidateHooks({
     collection: args.collection,
@@ -77,14 +87,14 @@ export async function createOperation<T = DocumentData>(args: CreateOperationArg
     data: validatedData,
     db: args.config.db,
     req: args.req,
-    draft: args.draft,
+    draft,
     autosave: args.autosave,
     userId: args.user?.id,
     config: args.config,
   })
 
   const createdDoc = assertCreateResultSuccess(result)
-  const canPopulateDraft = await canPopulateCreateDraft(args, createdDoc.id)
+  const canPopulateDraft = await canPopulateCreateDraft(args, createdDoc.id, draft)
 
   const populated = await populateDoc(createdDoc, {
     collection: args.collection,

@@ -54,6 +54,7 @@ export interface LocalCreateOptions {
   overrideAccess?: boolean
   user?: AuthUser | null
   draft?: boolean
+  autosave?: boolean
 }
 
 export interface LocalUpdateOptions {
@@ -63,6 +64,7 @@ export interface LocalUpdateOptions {
   overrideAccess?: boolean
   user?: AuthUser | null
   draft?: boolean
+  autosave?: boolean
 }
 
 export interface LocalPublishOptions {
@@ -457,6 +459,7 @@ export function getLontar(config: Config): Promise<LontarClient> {
         data,
         depth: options.depth,
         draft: options.draft,
+        autosave: options.autosave,
         overrideAccess: options.overrideAccess ?? true,
         user: options.user,
       })
@@ -476,6 +479,7 @@ export function getLontar(config: Config): Promise<LontarClient> {
         data,
         depth: options.depth,
         draft: options.draft,
+        autosave: options.autosave,
         overrideAccess: options.overrideAccess ?? true,
         user: options.user,
       })
