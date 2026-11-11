@@ -246,6 +246,7 @@ async function prepareUploadFilename(args: {
   file: File
   extSuffix: string
   excludeDocId?: number
+  forDraft?: boolean
 }): Promise<string> {
   const { base } = sanitizeFilename(args.file.name || 'unnamed')
   return getUniqueFilename({
@@ -254,6 +255,7 @@ async function prepareUploadFilename(args: {
     base,
     ext: args.extSuffix,
     excludeDocId: args.excludeDocId,
+    forDraft: args.forDraft,
   })
 }
 
@@ -344,6 +346,7 @@ async function processIncomingFile(
   collection: CollectionConfig,
   config: Config,
   excludeDocId?: number,
+  forDraft?: boolean,
 ): Promise<ProcessFileResult> {
   if (!config.storage) {
     return { ok: false, error: 'Storage adapter is not configured', status: 500 }
@@ -363,6 +366,7 @@ async function processIncomingFile(
     file,
     extSuffix: mimeResult.extSuffix,
     excludeDocId,
+    forDraft,
   })
 
   return uploadMediaFile({
@@ -582,14 +586,20 @@ export async function handleUploadCreate(ctx: UploadCreateContext): Promise<Resp
     return c.json({ error: 'No file provided in upload request' }, 400)
   }
 
-  const processed = await processIncomingFile(rawBody.file, collection, config)
-  if (!processed.ok) {
-    return c.json({ error: processed.error }, processed.status)
-  }
-
   const draftQuery = c.req.query('draft') === 'true'
   const autosaveQuery = c.req.query('autosave') === 'true'
   const draft = resolveDraftFlag(collection, draftQuery, autosaveQuery)
+
+  const processed = await processIncomingFile(
+    rawBody.file,
+    collection,
+    config,
+    undefined,
+    Boolean(draft),
+  )
+  if (!processed.ok) {
+    return c.json({ error: processed.error }, processed.status)
+  }
 
   const validation = await parseAndValidateFields(rawBody, collection, schema, {
     operation: 'create',
@@ -637,13 +647,14 @@ async function processOptionalUploadFile(
   collection: CollectionConfig,
   config: Config,
   id: number,
+  forDraft?: boolean,
 ): Promise<
   { ok: true; doc?: UploadedMediaDoc } | { ok: false; error: string; status: 400 | 413 | 500 }
 > {
   if (!isUploadFile(fileVal)) {
     return { ok: true }
   }
-  const processed = await processIncomingFile(fileVal, collection, config, id)
+  const processed = await processIncomingFile(fileVal, collection, config, id, forDraft)
   if (!processed.ok) {
     return { ok: false, error: processed.error, status: processed.status }
   }
@@ -720,7 +731,13 @@ export async function handleUploadUpdate(ctx: UploadUpdateContext): Promise<Resp
     return c.json({ error: `Document with ID ${id} not found` }, 404)
   }
 
-  const uploadResult = await processOptionalUploadFile(rawBody.file, collection, config, id)
+  const uploadResult = await processOptionalUploadFile(
+    rawBody.file,
+    collection,
+    config,
+    id,
+    Boolean(draft),
+  )
   if (!uploadResult.ok) {
     return c.json({ error: uploadResult.error }, uploadResult.status)
   }

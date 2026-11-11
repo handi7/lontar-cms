@@ -69,8 +69,9 @@ export async function getUniqueFilename(args: {
   base: string
   ext: string
   excludeDocId?: number
+  forDraft?: boolean
 }): Promise<string> {
-  const { db, collection, base, ext, excludeDocId } = args
+  const { db, collection, base, ext, excludeDocId, forDraft } = args
 
   for (let counter = 0; counter < 1000; counter++) {
     const candidate = formatCandidateFilename(base, ext, counter)
@@ -79,9 +80,21 @@ export async function getUniqueFilename(args: {
     }
     const result = await db.find({ collection, where, limit: 1, page: 1 })
     const existing = result.docs[0]
-    if (!existing || isDocOwner(existing, excludeDocId)) {
-      return candidate
+    if (existing && (forDraft || !isDocOwner(existing, excludeDocId))) {
+      continue
     }
+
+    if (collection.versions && db.hasVersionWithFilename) {
+      const inVersions = await db.hasVersionWithFilename({
+        collection,
+        filename: candidate,
+      })
+      if (inVersions) {
+        continue
+      }
+    }
+
+    return candidate
   }
 
   const timestamp = Date.now()

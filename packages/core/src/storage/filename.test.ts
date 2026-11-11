@@ -120,4 +120,51 @@ describe('getUniqueFilename', () => {
 
     expect(unique).toBe('photo.jpg')
   })
+
+  it('does not reuse same filename for excludeDocId when forDraft is true', async () => {
+    const mockDb = createMockDb(({ where }) => {
+      const filter = where?.filename as { equals?: string } | undefined
+      const candidate = filter?.equals ?? ''
+      if (candidate === 'photo.jpg') {
+        return Promise.resolve({
+          docs: [{ id: 42, filename: 'photo.jpg' } as unknown as StoredDoc],
+          totalDocs: 1,
+        })
+      }
+      return Promise.resolve({ docs: [], totalDocs: 0 })
+    })
+
+    const unique = await getUniqueFilename({
+      db: mockDb,
+      collection: mockCollection,
+      base: 'photo',
+      ext: 'jpg',
+      excludeDocId: 42,
+      forDraft: true,
+    })
+
+    expect(unique).toBe('photo-1.jpg')
+  })
+
+  it('increments counter when filename exists in version history snapshot', async () => {
+    const versionedCollection: CollectionConfig = {
+      ...mockCollection,
+      versions: { drafts: true },
+    }
+    const mockDb = {
+      ...createMockDb(),
+      hasVersionWithFilename: vi.fn().mockImplementation((args: { filename: string }) => {
+        return Promise.resolve(args.filename === 'photo.jpg')
+      }),
+    }
+
+    const unique = await getUniqueFilename({
+      db: mockDb,
+      collection: versionedCollection,
+      base: 'photo',
+      ext: 'jpg',
+    })
+
+    expect(unique).toBe('photo-1.jpg')
+  })
 })

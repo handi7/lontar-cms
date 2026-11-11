@@ -1621,6 +1621,25 @@ async function findLatestDraftVersion(
   }
 }
 
+async function hasVersionWithFilename(
+  executor: DbExecutor,
+  caches: AdapterCaches,
+  collection: CollectionConfig,
+  filename: string,
+): Promise<boolean> {
+  try {
+    const vTable = getEntityVersionsTable(caches, { collection })
+    const result = await executor
+      .select({ id: vTable.id })
+      .from(vTable)
+      .where(sql`JSON_UNQUOTE(JSON_EXTRACT(${vTable.snapshot}, '$.filename')) = ${filename}`)
+      .limit(1)
+    return result.length > 0
+  } catch (err) {
+    handleDatabaseError(err, toErrorContext(collection))
+  }
+}
+
 function createDatabaseOperations(
   executor: DbExecutor,
   caches: AdapterCaches,
@@ -1648,6 +1667,8 @@ function createDatabaseOperations(
         args.parentId ?? 1,
         args.maxPerDoc,
       ),
+    hasVersionWithFilename: (args) =>
+      hasVersionWithFilename(executor, caches, args.collection, args.filename),
     async transaction<T>(cb: (txDb: DatabaseAdapter) => Promise<T>): Promise<T> {
       try {
         return await executor.transaction(async (tx) => {
