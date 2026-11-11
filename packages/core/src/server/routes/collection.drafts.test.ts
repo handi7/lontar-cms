@@ -11,10 +11,17 @@ import { createLontar } from '../create-lontar'
 function createMockAdapter(initialDocs: StoredDoc[] = []) {
   let docs = [...initialDocs]
 
-  const mockFind = vi.fn().mockImplementation(({ where }: { where?: unknown }) => {
+  const mockFind = vi.fn().mockImplementation(({ where }: { where?: Record<string, unknown> }) => {
+    let result = docs
+    if (where && '_status' in where) {
+      const statusClause = where._status as { equals?: string } | undefined
+      if (statusClause?.equals) {
+        result = result.filter((d) => d._status === statusClause.equals)
+      }
+    }
     return Promise.resolve({
-      docs,
-      totalDocs: docs.length,
+      docs: result,
+      totalDocs: result.length,
       limit: 10,
       page: 1,
       totalPages: 1,
@@ -249,6 +256,43 @@ describe('Drafts, _status field, and draft-aware reads', () => {
         statusTransition: 'draft',
       }),
     )
+
+    // POST with ?autosave=true creates draft doc and is hidden from public read (#284)
+    const resAutosave = await app.request('/api/posts?autosave=true', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', cookie },
+      body: JSON.stringify({ title: 'Autosaved Article' }),
+    })
+    expect(resAutosave.status).toBe(201)
+    const autosaveDoc = (await resAutosave.json()) as Record<string, unknown>
+    expect(autosaveDoc._status).toBe('draft')
+    expect(beforeChangeHook).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        status: 'draft',
+        statusTransition: 'draft',
+      }),
+    )
+
+    // Read with cookie but without draft=true should hide the autosaved draft doc
+    const resWithoutDraft = await app.request('/api/posts', {
+      headers: { cookie },
+    })
+    expect(resWithoutDraft.status).toBe(200)
+    const bodyWithoutDraft = (await resWithoutDraft.json()) as {
+      docs: Array<{ id: number; title: string }>
+    }
+    expect(bodyWithoutDraft.docs.some((d) => d.id === autosaveDoc.id)).toBe(false)
+    expect(bodyWithoutDraft.docs.some((d) => d.id === pubDoc.id)).toBe(true)
+
+    // Read with draft=true should include the autosaved draft doc
+    const resWithDraft = await app.request('/api/posts?draft=true', {
+      headers: { cookie },
+    })
+    expect(resWithDraft.status).toBe(200)
+    const bodyWithDraft = (await resWithDraft.json()) as {
+      docs: Array<{ id: number; title: string }>
+    }
+    expect(bodyWithDraft.docs.some((d) => d.id === autosaveDoc.id)).toBe(true)
   })
 
   it('publishes and unpublishes documents via dedicated endpoints', async () => {
@@ -438,6 +482,13 @@ describe('Drafts, _status field, and draft-aware reads', () => {
     // Unpublish
     const unpublished = await client.unpublish('posts', 1)
     expect(unpublished._status).toBe('draft')
+
+    // Create with autosave: true forces draft (#284)
+    const autosaved = await client.create<Record<string, unknown>>('posts', {
+      data: { title: 'Autosaved Local' },
+      autosave: true,
+    })
+    expect(autosaved._status).toBe('draft')
   })
 
   it('filters unpublished related documents when draft is false during population', async () => {
