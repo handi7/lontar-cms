@@ -240,6 +240,7 @@ export {
 } from './storage'
 
 export {
+  DEFAULT_WEBHOOK_TOLERANCE_SECONDS,
   signWebhookPayload,
   verifyWebhookSignature,
   deliverWebhook,

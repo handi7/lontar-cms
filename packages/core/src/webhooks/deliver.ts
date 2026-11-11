@@ -18,15 +18,19 @@ function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms))
 }
 
-export function buildWebhookHeaders(rawBody: string, secret?: string): Record<string, string> {
-  const timestamp = Math.floor(Date.now() / 1000).toString()
+export function buildWebhookHeaders(
+  rawBody: string,
+  secret?: string,
+  timestampInput?: string | number,
+): Record<string, string> {
+  const timestamp = (timestampInput ?? Math.floor(Date.now() / 1000)).toString()
   const headers: Record<string, string> = {
     'content-type': 'application/json',
     'x-lontar-timestamp': timestamp,
   }
 
   if (secret) {
-    headers['x-lontar-signature-256'] = signWebhookPayload(rawBody, secret)
+    headers['x-lontar-signature-256'] = signWebhookPayload(rawBody, secret, timestamp)
   }
 
   return headers

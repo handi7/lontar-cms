@@ -165,8 +165,11 @@ describe('outgoing webhooks integration', () => {
     expect(delivery.url).toBe('https://mysite.com/api/revalidate')
 
     const sig = delivery.headers.get('x-lontar-signature-256') ?? ''
+    const ts = delivery.headers.get('x-lontar-timestamp') ?? ''
     expect(sig).toMatch(/^sha256=[a-f0-9]{64}$/)
-    expect(verifyWebhookSignature({ payload: delivery.body, signature: sig, secret })).toBe(true)
+    expect(
+      verifyWebhookSignature({ payload: delivery.body, signature: sig, secret, timestamp: ts }),
+    ).toBe(true)
 
     const payload = JSON.parse(delivery.body) as Record<string, unknown>
     expect(payload.event).toBe('create')
