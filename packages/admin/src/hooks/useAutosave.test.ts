@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { act, cleanup, renderHook } from '@testing-library/react'
 import { useAutosave, type UseAutosaveOptions } from './useAutosave'
+import { ApiClientError } from '../api/client'
 
 describe('useAutosave hook', () => {
   beforeEach(() => {
@@ -508,5 +509,316 @@ describe('useAutosave hook', () => {
 
     // Should not save again because values match what was saved
     expect(onSave).toHaveBeenCalledTimes(1)
+  })
+
+  it('stops retrying on 4xx client errors and waits for the next user edit (#288)', async () => {
+    let rejectSave!: (err: unknown) => void
+    let resolveSecondSave!: (val: Record<string, unknown>) => void
+
+    const onSave = vi.fn().mockImplementation(() => {
+      const callIndex = onSave.mock.calls.length
+      if (callIndex === 1) {
+        return new Promise((_, rej) => {
+          rejectSave = rej
+        })
+      }
+      return new Promise<Record<string, unknown>>((res) => {
+        resolveSecondSave = res
+      })
+    })
+
+    const { rerender, result } = renderHook((props: UseAutosaveOptions) => useAutosave(props), {
+      initialProps: {
+        enabled: true,
+        interval: 1000,
+        isDirty: true,
+        isValid: true,
+        values: { slug: 'taken-slug' },
+        onSave,
+      },
+    })
+
+    // Advance debounce timer to trigger first save
+    act(() => {
+      vi.advanceTimersByTime(1000)
+    })
+    expect(result.current.status).toBe('saving')
+
+    // Reject with a 400 validation error (e.g. slug already taken)
+    await act(async () => {
+      rejectSave(new ApiClientError('Validation error', 400, [{ message: 'Slug already taken' }]))
+      await Promise.resolve()
+    })
+
+    expect(result.current.status).toBe('error')
+    expect(result.current.errorMessage).toBe('Validation error: Slug already taken')
+    expect(result.current.consecutiveErrors).toBe(1)
+
+    // Advance timers significantly: should NOT retry automatically
+    act(() => {
+      vi.advanceTimersByTime(10_000)
+    })
+    expect(onSave).toHaveBeenCalledTimes(1)
+
+    // User edits the form to fix the error
+    rerender({
+      enabled: true,
+      interval: 1000,
+      isDirty: true,
+      isValid: true,
+      values: { slug: 'new-unique-slug' },
+      onSave,
+    })
+
+    // Advance debounce timer for new edit
+    act(() => {
+      vi.advanceTimersByTime(1000)
+    })
+    expect(onSave).toHaveBeenCalledTimes(2)
+    expect(result.current.status).toBe('saving')
+
+    // Resolve second save
+    await act(async () => {
+      resolveSecondSave({ id: 1, slug: 'new-unique-slug' })
+      await Promise.resolve()
+    })
+
+    expect(result.current.status).toBe('saved')
+    expect(result.current.errorMessage).toBeNull()
+    expect(result.current.consecutiveErrors).toBe(0)
+  })
+
+  it('backs off with exponential delay and caps retries on 5xx or network errors (#288)', async () => {
+    let rejectSave!: (err: Error) => void
+    const onSave = vi.fn().mockImplementation(() => {
+      return new Promise((_, rej) => {
+        rejectSave = rej
+      })
+    })
+
+    const { result } = renderHook(() =>
+      useAutosave({
+        enabled: true,
+        interval: 1000,
+        isDirty: true,
+        isValid: true,
+        values: { title: 'Test' },
+        maxRetries: 3,
+        onSave,
+      }),
+    )
+
+    // Initial save at t=1000
+    act(() => {
+      vi.advanceTimersByTime(1000)
+    })
+    expect(onSave).toHaveBeenCalledTimes(1)
+
+    // Failure 1 (attempt 1) -> retry delay: 1000ms * 2^0 = 1000ms
+    await act(async () => {
+      rejectSave(new Error('Server error 1'))
+      await Promise.resolve()
+    })
+    expect(result.current.consecutiveErrors).toBe(1)
+
+    // Advance 999ms (not yet fired)
+    act(() => {
+      vi.advanceTimersByTime(999)
+    })
+    expect(onSave).toHaveBeenCalledTimes(1)
+
+    // Advance 1ms (fires retry 1)
+    act(() => {
+      vi.advanceTimersByTime(1)
+    })
+    expect(onSave).toHaveBeenCalledTimes(2)
+
+    // Failure 2 (attempt 2) -> retry delay: 1000ms * 2^1 = 2000ms
+    await act(async () => {
+      rejectSave(new Error('Server error 2'))
+      await Promise.resolve()
+    })
+    expect(result.current.consecutiveErrors).toBe(2)
+
+    // Advance 1999ms (not yet fired)
+    act(() => {
+      vi.advanceTimersByTime(1999)
+    })
+    expect(onSave).toHaveBeenCalledTimes(2)
+
+    // Advance 1ms (fires retry 2)
+    act(() => {
+      vi.advanceTimersByTime(1)
+    })
+    expect(onSave).toHaveBeenCalledTimes(3)
+
+    // Failure 3 (attempt 3) -> retry delay: 1000ms * 2^2 = 4000ms
+    await act(async () => {
+      rejectSave(new Error('Server error 3'))
+      await Promise.resolve()
+    })
+    expect(result.current.consecutiveErrors).toBe(3)
+
+    // Advance 3999ms (not yet fired)
+    act(() => {
+      vi.advanceTimersByTime(3999)
+    })
+    expect(onSave).toHaveBeenCalledTimes(3)
+
+    // Advance 1ms (fires retry 3)
+    act(() => {
+      vi.advanceTimersByTime(1)
+    })
+    expect(onSave).toHaveBeenCalledTimes(4)
+
+    // Failure 4 (attempt 4 > maxRetries 3) -> cap reached, should stop retrying
+    await act(async () => {
+      rejectSave(new Error('Server error 4'))
+      await Promise.resolve()
+    })
+    expect(result.current.consecutiveErrors).toBe(4)
+
+    // Advance 30 seconds: no further retries
+    act(() => {
+      vi.advanceTimersByTime(30_000)
+    })
+    expect(onSave).toHaveBeenCalledTimes(4)
+    expect(result.current.status).toBe('error')
+  })
+
+  it('still calls onSuccess to update query cache when an in-flight save resolves after unmount (#288)', async () => {
+    let resolveSave!: (val: Record<string, unknown>) => void
+    const onSave = vi.fn().mockImplementation(() => {
+      return new Promise<Record<string, unknown>>((resolve) => {
+        resolveSave = resolve
+      })
+    })
+    const onSuccess = vi.fn()
+
+    const { unmount } = renderHook(() =>
+      useAutosave({
+        enabled: true,
+        interval: 1000,
+        isDirty: true,
+        isValid: true,
+        values: { title: 'In-flight doc' },
+        onSave,
+        onSuccess,
+      }),
+    )
+
+    // Trigger save
+    act(() => {
+      vi.advanceTimersByTime(1000)
+    })
+    expect(onSave).toHaveBeenCalledTimes(1)
+
+    // Unmount before save resolves (simulating navigation)
+    unmount()
+
+    // Resolve in-flight save
+    const savedDoc = { id: 1, title: 'In-flight doc' }
+    await act(async () => {
+      resolveSave(savedDoc)
+      await Promise.resolve()
+    })
+
+    // onSuccess must be called so query cache is updated with server doc
+    expect(onSuccess).toHaveBeenCalledTimes(1)
+    expect(onSuccess).toHaveBeenCalledWith(savedDoc)
+  })
+
+  it('flushes pending debounced edits on unmount (#288)', async () => {
+    let resolveSave!: (val: Record<string, unknown>) => void
+    const onSave = vi.fn().mockImplementation(() => {
+      return new Promise<Record<string, unknown>>((resolve) => {
+        resolveSave = resolve
+      })
+    })
+    const onSuccess = vi.fn()
+
+    const { unmount } = renderHook(() =>
+      useAutosave({
+        enabled: true,
+        interval: 1000,
+        isDirty: true,
+        isValid: true,
+        values: { title: 'Unsaved edit before unmount' },
+        onSave,
+        onSuccess,
+      }),
+    )
+
+    // Only 200ms elapsed (debounce interval of 1000ms has not passed yet)
+    act(() => {
+      vi.advanceTimersByTime(200)
+    })
+    expect(onSave).not.toHaveBeenCalled()
+
+    // Component unmounts (e.g. user clicks breadcrumb/nav link)
+    unmount()
+
+    // Unmount must immediately flush the pending save
+    expect(onSave).toHaveBeenCalledTimes(1)
+
+    // When save finishes, onSuccess is called to update cache
+    const savedDoc = { id: 1, title: 'Unsaved edit before unmount' }
+    await act(async () => {
+      resolveSave(savedDoc)
+      await Promise.resolve()
+    })
+
+    expect(onSuccess).toHaveBeenCalledWith(savedDoc)
+  })
+
+  it('does not flush on unmount when form has no pending edits or is clean (#288)', () => {
+    const onSave = vi.fn().mockResolvedValue({ id: 1 })
+
+    const { unmount } = renderHook(() =>
+      useAutosave({
+        enabled: true,
+        interval: 1000,
+        isDirty: false,
+        isValid: true,
+        values: { title: 'clean' },
+        onSave,
+      }),
+    )
+
+    unmount()
+    expect(onSave).not.toHaveBeenCalled()
+  })
+
+  it('flushes pending save programmatically via flush (#288)', async () => {
+    const savedDoc = { id: 1, title: 'Flushed' }
+    const onSave = vi.fn().mockResolvedValue(savedDoc)
+    const onSuccess = vi.fn()
+
+    const { result } = renderHook(() =>
+      useAutosave({
+        enabled: true,
+        interval: 5000,
+        isDirty: true,
+        isValid: true,
+        values: { title: 'Flushed' },
+        onSave,
+        onSuccess,
+      }),
+    )
+
+    // Advance 500ms (debounce has not passed)
+    act(() => {
+      vi.advanceTimersByTime(500)
+    })
+    expect(onSave).not.toHaveBeenCalled()
+
+    // Explicitly call flush()
+    await act(async () => {
+      await result.current.flush()
+    })
+
+    expect(onSave).toHaveBeenCalledTimes(1)
+    expect(onSuccess).toHaveBeenCalledWith(savedDoc)
+    expect(result.current.status).toBe('saved')
   })
 })
