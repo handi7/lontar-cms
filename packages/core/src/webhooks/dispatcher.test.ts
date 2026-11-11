@@ -249,4 +249,31 @@ describe('dispatchWebhooks', () => {
     expect(parsed.previousStatus).toBe('draft')
     expect(typeof parsed.timestamp).toBe('string')
   })
+
+  it('catches and logs unexpected delivery batch rejections (#247)', async () => {
+    const mockLogger = vi.fn()
+    const circularDoc: Record<string, unknown> = { id: 1 }
+    circularDoc.self = circularDoc
+
+    const collection: CollectionConfig = {
+      slug: 'posts',
+      fields: {},
+      webhooks: [{ url: 'https://example.com/webhook', events: ['publish'], includeDoc: true }],
+    }
+
+    const promise = dispatchWebhooks({
+      collection,
+      event: 'publish',
+      doc: circularDoc,
+      status: 'published',
+      options: { logger: mockLogger },
+    })
+
+    await drainPendingWebhooks()
+    const results = await promise
+
+    expect(results).toEqual([])
+    expect(mockLogger).toHaveBeenCalledTimes(1)
+    expect(mockLogger).toHaveBeenCalledWith('[Webhooks] Delivery batch failed:', expect.any(Error))
+  })
 })
