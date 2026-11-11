@@ -103,6 +103,117 @@ describe('mergeLivePreviewData', () => {
       bgImage: { id: 8, url: '/hero.png' },
     })
   })
+
+  it('drops omitted keys below the top level (e.g. un-bolding text or removing links) (#285)', () => {
+    const initial = {
+      title: 'Post',
+      content: {
+        type: 'doc',
+        content: [
+          {
+            type: 'paragraph',
+            content: [
+              {
+                type: 'text',
+                text: 'Bold text',
+                marks: [{ type: 'bold' }],
+              },
+            ],
+          },
+        ],
+      },
+    }
+
+    const incoming = {
+      title: 'Post',
+      content: {
+        type: 'doc',
+        content: [
+          {
+            type: 'paragraph',
+            content: [
+              {
+                type: 'text',
+                text: 'Unbolded text',
+              },
+            ],
+          },
+        ],
+      },
+    }
+
+    const merged = mergeLivePreviewData(initial, incoming)
+    const textNode = (
+      merged.content as { content: Array<{ content: Array<Record<string, unknown>> }> }
+    ).content[0]!.content[0]!
+    expect(textNode.text).toBe('Unbolded text')
+    expect(textNode).not.toHaveProperty('marks')
+  })
+
+  it('does not merge array items without id by index when items are deleted or cleared (#285)', () => {
+    const initial = {
+      content: {
+        type: 'doc',
+        content: [
+          {
+            type: 'paragraph',
+            attrs: { textAlign: 'center' },
+            content: [{ type: 'text', text: 'Paragraph 1', marks: [{ type: 'italic' }] }],
+          },
+          {
+            type: 'paragraph',
+            content: [{ type: 'text', text: 'Paragraph 2' }],
+          },
+        ],
+      },
+    }
+
+    // Paragraph 1 was deleted; only Paragraph 2 remains
+    const incoming = {
+      content: {
+        type: 'doc',
+        content: [
+          {
+            type: 'paragraph',
+            content: [{ type: 'text', text: 'Paragraph 2' }],
+          },
+        ],
+      },
+    }
+
+    const merged = mergeLivePreviewData(initial, incoming)
+    const paragraphs = (merged.content as { content: Array<Record<string, unknown>> }).content
+    expect(paragraphs).toHaveLength(1)
+    expect(paragraphs[0]).not.toHaveProperty('attrs')
+    const textNode = (paragraphs[0]!.content as Array<Record<string, unknown>>)[0]!
+    expect(textNode.text).toBe('Paragraph 2')
+    expect(textNode).not.toHaveProperty('marks')
+  })
+
+  it('drops removed keys in nested group fields below top-level (#285)', () => {
+    const initial = {
+      id: 1,
+      createdAt: '2026-10-31T00:00:00.000Z',
+      meta: {
+        description: 'Old desc',
+        keywords: 'cms, blog',
+      },
+    }
+
+    const incoming = {
+      meta: {
+        description: 'New desc',
+      },
+    }
+
+    const merged = mergeLivePreviewData(initial, incoming)
+    expect(merged.id).toBe(1)
+    expect(merged.createdAt).toBe('2026-10-31T00:00:00.000Z')
+    expect(merged.meta).toEqual({
+      description: 'New desc',
+    })
+    expect(merged.meta).not.toHaveProperty('keywords')
+  })
 })
 
 describe('subscribeLivePreview', () => {
@@ -266,6 +377,83 @@ describe('subscribeLivePreview', () => {
     )
 
     expect(onChange).not.toHaveBeenCalled()
+    unsubscribe()
+  })
+
+  it('merges consecutive messages over initialData, allowing relation toggles A -> B -> A to retain populated entity (#285)', () => {
+    const mockTop = {} as Window
+    Object.defineProperty(window, 'top', {
+      value: mockTop,
+      configurable: true,
+    })
+
+    const initialData = {
+      title: 'Initial Post',
+      author: { id: 1, name: 'Alice Author' },
+      categories: [
+        { id: 10, name: 'Tech' },
+        { id: 20, name: 'Design' },
+      ],
+    }
+
+    const onChange = vi.fn()
+    const unsubscribe = subscribeLivePreview({
+      initialData,
+      serverURL: 'http://localhost:3000',
+      collection: 'posts',
+      onChange,
+    })
+
+    const send = (document: unknown) => {
+      window.dispatchEvent(
+        new MessageEvent('message', {
+          origin: 'http://localhost:3000',
+          data: {
+            source: 'lontar-preview',
+            version: 1,
+            collection: 'posts',
+            document,
+          },
+        }),
+      )
+    }
+
+    // 1. Author remains 1, categories [10, 20]
+    send({ title: 'Edit 1', author: 1, categories: [10, 20] })
+    expect(onChange).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        title: 'Edit 1',
+        author: { id: 1, name: 'Alice Author' },
+        categories: [
+          { id: 10, name: 'Tech' },
+          { id: 20, name: 'Design' },
+        ],
+      }),
+    )
+
+    // 2. Author changed to 2 (unpopulated/bare id), categories [20]
+    send({ title: 'Edit 2', author: 2, categories: [20] })
+    expect(onChange).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        title: 'Edit 2',
+        author: 2,
+        categories: [{ id: 20, name: 'Design' }],
+      }),
+    )
+
+    // 3. Author changed BACK to 1, categories [10, 20]
+    send({ title: 'Edit 3', author: 1, categories: [10, 20] })
+    expect(onChange).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        title: 'Edit 3',
+        author: { id: 1, name: 'Alice Author' },
+        categories: [
+          { id: 10, name: 'Tech' },
+          { id: 20, name: 'Design' },
+        ],
+      }),
+    )
+
     unsubscribe()
   })
 })
