@@ -60,43 +60,74 @@ function findPopulatedInArray(initialArr: unknown[], incomingId: unknown): unkno
   return undefined
 }
 
-function mergeArrayItem(initialArr: unknown[], incItem: unknown, index: number): unknown {
-  if (incItem !== null && typeof incItem !== 'object') {
-    const populated = findPopulatedInArray(initialArr, incItem)
-    if (populated !== undefined) {
-      return populated
+function mergeArrays(initialArr: unknown[] | undefined, incomingArr: unknown[]): unknown[] {
+  if (!initialArr || !Array.isArray(initialArr)) {
+    return incomingArr.map((item) => mergeValue(undefined, item, false))
+  }
+
+  return incomingArr.map((incItem) => {
+    if (incItem !== null && typeof incItem !== 'object') {
+      const populated = findPopulatedInArray(initialArr, incItem)
+      if (populated !== undefined) {
+        return populated
+      }
+      return incItem
     }
-    return incItem
-  }
 
-  const incId = getEntityId(incItem)
-  if (incId !== undefined) {
-    const matchingInitial = findPopulatedInArray(initialArr, incId)
-    if (matchingInitial !== undefined) {
-      return mergeLivePreviewData(matchingInitial, incItem)
+    const incId = getEntityId(incItem)
+    if (incId !== undefined) {
+      const matchingInitial = findPopulatedInArray(initialArr, incId)
+      if (matchingInitial !== undefined) {
+        return mergeValue(matchingInitial, incItem, false)
+      }
     }
-  }
 
-  if (index < initialArr.length) {
-    return mergeLivePreviewData(initialArr[index], incItem)
-  }
-
-  return incItem
+    return mergeValue(undefined, incItem, false)
+  })
 }
 
-function mergeArrays(initialArr: unknown[], incomingArr: unknown[]): unknown[] {
-  return incomingArr.map((item, idx) => mergeArrayItem(initialArr, item, idx))
+function mergePrimitive(initial: unknown, incoming: unknown): unknown {
+  const populated = matchPopulatedEntity(initial, incoming)
+  if (populated !== undefined) {
+    return populated
+  }
+  return incoming
 }
 
-function mergeObjects(
-  initialObj: Record<string, unknown>,
-  incomingObj: Record<string, unknown>,
+function mergeObject(
+  initial: unknown,
+  incoming: Record<string, unknown>,
+  isTopLevel: boolean,
 ): Record<string, unknown> {
-  const result: Record<string, unknown> = { ...initialObj }
-  for (const key of Object.keys(incomingObj)) {
-    result[key] = mergeLivePreviewData(initialObj[key], incomingObj[key])
+  const initialObj = isObject(initial) ? initial : undefined
+  const result: Record<string, unknown> = isTopLevel && initialObj ? { ...initialObj } : {}
+
+  for (const key of Object.keys(incoming)) {
+    result[key] = mergeValue(initialObj?.[key], incoming[key], false)
   }
+
   return result
+}
+
+function mergeValue(initial: unknown, incoming: unknown, isTopLevel: boolean): unknown {
+  if (incoming === undefined) {
+    return initial
+  }
+
+  if (incoming === null || typeof incoming !== 'object') {
+    return mergePrimitive(initial, incoming)
+  }
+
+  if (Array.isArray(incoming)) {
+    const initialArr = Array.isArray(initial) ? initial : undefined
+    return mergeArrays(initialArr, incoming)
+  }
+
+  if (!isObject(incoming)) {
+    return incoming
+  }
+
+  return mergeObject(initial, incoming, isTopLevel)
 }
 
 /**
@@ -106,30 +137,7 @@ function mergeObjects(
  * object is preserved.
  */
 export function mergeLivePreviewData<T>(initial: T, incoming: unknown): T {
-  if (incoming === undefined) {
-    return initial
-  }
-
-  if (incoming === null || typeof incoming !== 'object') {
-    const populated = matchPopulatedEntity(initial, incoming)
-    if (populated !== undefined) {
-      return populated as T
-    }
-    return incoming as T
-  }
-
-  if (Array.isArray(incoming)) {
-    if (!Array.isArray(initial)) {
-      return incoming as T
-    }
-    return mergeArrays(initial, incoming) as T
-  }
-
-  if (!isObject(initial) || !isObject(incoming)) {
-    return incoming as T
-  }
-
-  return mergeObjects(initial, incoming) as T
+  return mergeValue(initial, incoming, true) as T
 }
 
 /**
@@ -148,8 +156,6 @@ export function subscribeLivePreview<T>(options: SubscribeLivePreviewOptions<T>)
   } catch {
     return () => {}
   }
-
-  let currentData: unknown = options.initialData
 
   const handleMessage = (event: MessageEvent<unknown>) => {
     if (event.origin !== expectedOrigin) {
@@ -171,8 +177,7 @@ export function subscribeLivePreview<T>(options: SubscribeLivePreviewOptions<T>)
     }
 
     if (data.document !== undefined) {
-      const merged = mergeLivePreviewData(currentData, data.document) as T
-      currentData = merged
+      const merged: T = mergeLivePreviewData(options.initialData, data.document)
       options.onChange(merged)
     }
   }
