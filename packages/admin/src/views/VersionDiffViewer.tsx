@@ -186,6 +186,8 @@ function GroupDiffView({ diff, subfields, oldLabel, newLabel }: GroupDiffViewPro
         type="button"
         className="lt:flex lt:items-center lt:justify-between lt:w-full lt:text-xs lt:font-medium lt:text-foreground lt:cursor-pointer"
         onClick={() => setExpanded((prev) => !prev)}
+        aria-expanded={expanded}
+        aria-label={`${expanded ? 'Hide' : 'Show'} nested group fields`}
       >
         <span className="lt:flex lt:items-center lt:gap-1.5">
           {expanded ? (
@@ -219,6 +221,53 @@ function GroupDiffView({ diff, subfields, oldLabel, newLabel }: GroupDiffViewPro
   )
 }
 
+function resolveRowLabel(item: ArrayItemDiff): string {
+  if (item.blockType) return `block ${item.blockType}`
+  if (typeof item.newIndex === 'number') return `row ${item.newIndex + 1}`
+  if (typeof item.oldIndex === 'number') return `row ${item.oldIndex + 1}`
+  return 'row 1'
+}
+
+interface ReorderBadgeProps {
+  oldIndex?: number
+  newIndex?: number
+}
+
+function ReorderBadge({ oldIndex = 0, newIndex = 0 }: ReorderBadgeProps) {
+  return (
+    <span className="lt:text-[0.625rem] lt:text-muted-foreground lt:bg-muted lt:px-1.5 lt:py-0.5 lt:rounded">
+      reordered ({oldIndex} → {newIndex})
+    </span>
+  )
+}
+
+interface ArrayItemSubfieldsProps {
+  diffs: Record<string, FieldDiff>
+  subfields: ClientField[]
+  oldLabel: string
+  newLabel: string
+}
+
+function ArrayItemSubfields({ diffs, subfields, oldLabel, newLabel }: ArrayItemSubfieldsProps) {
+  return (
+    <div className="lt:pt-2 lt:border-t lt:border-border lt:flex lt:flex-col lt:gap-2">
+      {subfields.map((subfield) => {
+        const fieldDiff = diffs[subfield.name]
+        if (!fieldDiff) return null
+        return (
+          <FieldDiffItem
+            key={subfield.name}
+            field={subfield}
+            diff={fieldDiff}
+            oldLabel={oldLabel}
+            newLabel={newLabel}
+          />
+        )
+      })}
+    </div>
+  )
+}
+
 interface ArrayItemDiffViewProps {
   item: ArrayItemDiff
   subfields?: ClientField[]
@@ -229,6 +278,7 @@ interface ArrayItemDiffViewProps {
 function ArrayItemDiffView({ item, subfields, oldLabel, newLabel }: ArrayItemDiffViewProps) {
   const [expanded, setExpanded] = useState(item.change !== 'unchanged')
   const itemTag = item.blockType ? `[${item.blockType}] #${item.id}` : `Row #${item.id}`
+  const labelTarget = resolveRowLabel(item)
 
   return (
     <div className="lt:rounded lt:border lt:border-border lt:p-2.5 lt:flex lt:flex-col lt:gap-2 lt:bg-card">
@@ -239,6 +289,8 @@ function ArrayItemDiffView({ item, subfields, oldLabel, newLabel }: ArrayItemDif
               type="button"
               className="lt:cursor-pointer"
               onClick={() => setExpanded((prev) => !prev)}
+              aria-expanded={expanded}
+              aria-label={`${expanded ? 'Hide' : 'Show'} changes in ${labelTarget}`}
             >
               {expanded ? (
                 <ChevronDown className="lt:size-3.5" />
@@ -248,31 +300,18 @@ function ArrayItemDiffView({ item, subfields, oldLabel, newLabel }: ArrayItemDif
             </button>
           )}
           <span>{itemTag}</span>
-          {item.orderChanged && (
-            <span className="lt:text-[0.625rem] lt:text-muted-foreground lt:bg-muted lt:px-1.5 lt:py-0.5 lt:rounded">
-              reordered ({item.oldIndex ?? 0} → {item.newIndex ?? 0})
-            </span>
-          )}
+          {item.orderChanged && <ReorderBadge oldIndex={item.oldIndex} newIndex={item.newIndex} />}
         </span>
         <ChangeBadge change={item.change} />
       </div>
 
       {expanded && item.diffs && subfields && (
-        <div className="lt:pt-2 lt:border-t lt:border-border lt:flex lt:flex-col lt:gap-2">
-          {subfields.map((subfield) => {
-            const fieldDiff = item.diffs?.[subfield.name]
-            if (!fieldDiff) return null
-            return (
-              <FieldDiffItem
-                key={subfield.name}
-                field={subfield}
-                diff={fieldDiff}
-                oldLabel={oldLabel}
-                newLabel={newLabel}
-              />
-            )
-          })}
-        </div>
+        <ArrayItemSubfields
+          diffs={item.diffs}
+          subfields={subfields}
+          oldLabel={oldLabel}
+          newLabel={newLabel}
+        />
       )}
     </div>
   )

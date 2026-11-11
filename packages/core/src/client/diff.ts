@@ -143,7 +143,13 @@ function diffArrayItems(
   for (const [newIdx, newInfo] of newEntries.entries()) {
     const oldInfo = oldMap.get(newInfo.id)
     if (!oldInfo) {
-      items.push({ id: newInfo.id, change: 'added', newIndex: newIdx })
+      const innerDiff = diffFields(fields, {}, newInfo.item)
+      items.push({
+        id: newInfo.id,
+        change: 'added',
+        newIndex: newIdx,
+        diffs: innerDiff.fields,
+      })
       hasChanges = true
     } else {
       const itemDiff = diffMatchedArrayItem(fields, oldInfo, newInfo.item, newIdx)
@@ -156,7 +162,13 @@ function diffArrayItems(
 
   for (const oldInfo of oldEntries) {
     if (!newMap.has(oldInfo.id)) {
-      items.push({ id: oldInfo.id, change: 'removed', oldIndex: oldInfo.index })
+      const innerDiff = diffFields(fields, oldInfo.item, {})
+      items.push({
+        id: oldInfo.id,
+        change: 'removed',
+        oldIndex: oldInfo.index,
+        diffs: innerDiff.fields,
+      })
       hasChanges = true
     }
   }
@@ -217,6 +229,17 @@ function diffMatchedBlockItem(
   }
 }
 
+function buildStandaloneBlockDiff(
+  blocks: unknown,
+  blockType: string | undefined,
+  oldItem: Record<string, unknown>,
+  newItem: Record<string, unknown>,
+): Record<string, FieldDiff> {
+  const blockDef = findBlockDef(blocks, blockType)
+  if (!blockDef) return {}
+  return diffFields(blockDef.fields, oldItem, newItem).fields
+}
+
 function diffBlockItems(
   blocks: unknown,
   oldVal: unknown,
@@ -235,7 +258,13 @@ function diffBlockItems(
     const blockType =
       typeof newInfo.item.blockType === 'string' ? newInfo.item.blockType : undefined
     if (!oldInfo) {
-      items.push({ id: newInfo.id, blockType, change: 'added', newIndex: newIdx })
+      items.push({
+        id: newInfo.id,
+        blockType,
+        change: 'added',
+        newIndex: newIdx,
+        diffs: buildStandaloneBlockDiff(blocks, blockType, {}, newInfo.item),
+      })
       hasChanges = true
     } else {
       const itemDiff = diffMatchedBlockItem(blocks, oldInfo, newInfo.item, newIdx)
@@ -250,7 +279,13 @@ function diffBlockItems(
     if (!newMap.has(oldInfo.id)) {
       const blockType =
         typeof oldInfo.item.blockType === 'string' ? oldInfo.item.blockType : undefined
-      items.push({ id: oldInfo.id, blockType, change: 'removed', oldIndex: oldInfo.index })
+      items.push({
+        id: oldInfo.id,
+        blockType,
+        change: 'removed',
+        oldIndex: oldInfo.index,
+        diffs: buildStandaloneBlockDiff(blocks, blockType, oldInfo.item, {}),
+      })
       hasChanges = true
     }
   }

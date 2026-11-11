@@ -191,17 +191,37 @@ describe('diffSnapshots', () => {
       value: 'Lead Editor',
     })
 
-    // David: added at index 2
+    // David: added at index 2 (full content diffed as added)
     const david = authorsDiff.items.find((item) => item.id === 'row-4')!
     expect(david).toBeDefined()
     expect(david.change).toBe('added')
     expect(david.newIndex).toBe(2)
+    expect(david.diffs?.name).toEqual({
+      type: 'primitive',
+      change: 'added',
+      value: 'David',
+    })
+    expect(david.diffs?.role).toEqual({
+      type: 'primitive',
+      change: 'added',
+      value: 'Contributor',
+    })
 
-    // Charlie: removed (oldIndex 2)
+    // Charlie: removed (oldIndex 2) (full content diffed as removed)
     const charlie = authorsDiff.items.find((item) => item.id === 'row-3')!
     expect(charlie).toBeDefined()
     expect(charlie.change).toBe('removed')
     expect(charlie.oldIndex).toBe(2)
+    expect(charlie.diffs?.name).toEqual({
+      type: 'primitive',
+      change: 'removed',
+      oldValue: 'Charlie',
+    })
+    expect(charlie.diffs?.role).toEqual({
+      type: 'primitive',
+      change: 'removed',
+      oldValue: 'Reviewer',
+    })
   })
 
   it('diffs blocks with stable IDs and block types', () => {
@@ -263,10 +283,30 @@ describe('diffSnapshots', () => {
     const b2 = layoutDiff.items.find((b) => b.id === 'b-2')!
     expect(b2.change).toBe('removed')
     expect(b2.blockType).toBe('callout')
+    expect(b2.diffs?.tone).toEqual({
+      type: 'primitive',
+      change: 'removed',
+      oldValue: 'info',
+    })
+    expect(b2.diffs?.message).toEqual({
+      type: 'primitive',
+      change: 'removed',
+      oldValue: 'Hello note',
+    })
 
     const b3 = layoutDiff.items.find((b) => b.id === 'b-3')!
     expect(b3.change).toBe('added')
     expect(b3.blockType).toBe('callout')
+    expect(b3.diffs?.tone).toEqual({
+      type: 'primitive',
+      change: 'added',
+      value: 'warning',
+    })
+    expect(b3.diffs?.message).toEqual({
+      type: 'primitive',
+      change: 'added',
+      value: 'Warning note',
+    })
   })
 
   it('diffs _status for collections with drafts enabled', () => {
