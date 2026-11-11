@@ -322,4 +322,191 @@ describe('useAutosave hook', () => {
     })
     expect(onSave).toHaveBeenCalledTimes(1)
   })
+
+  it('saves edits made while an autosave is in flight (#287)', async () => {
+    let resolveFirstSave!: (val: Record<string, unknown>) => void
+    const savedValues: Array<Record<string, unknown>> = []
+
+    const onSave = vi.fn().mockImplementation(() => {
+      const callIndex = onSave.mock.calls.length
+      if (callIndex === 1) {
+        return new Promise<Record<string, unknown>>((resolve) => {
+          resolveFirstSave = (doc) => {
+            savedValues.push(doc)
+            resolve(doc)
+          }
+        })
+      }
+      return Promise.resolve({ id: 1, title: '' })
+    })
+
+    const { rerender, result } = renderHook((props: UseAutosaveOptions) => useAutosave(props), {
+      initialProps: {
+        enabled: true,
+        interval: 1000,
+        isDirty: true,
+        isValid: true,
+        values: { title: 'x' },
+        onSave,
+      },
+    })
+
+    // Advance 1000ms: first autosave starts with 'x'
+    act(() => {
+      vi.advanceTimersByTime(1000)
+    })
+    expect(onSave).toHaveBeenCalledTimes(1)
+    expect(result.current.status).toBe('saving')
+
+    // While save 1 is in flight, user deletes value ('')
+    rerender({
+      enabled: true,
+      interval: 1000,
+      isDirty: true,
+      isValid: true,
+      values: { title: '' },
+      onSave,
+    })
+
+    // Resolve first save with title 'x'
+    await act(async () => {
+      resolveFirstSave({ id: 1, title: 'x' })
+      await Promise.resolve()
+    })
+
+    expect(result.current.status).toBe('saved')
+
+    // Debounce timer for the newer edit advances
+    await act(async () => {
+      vi.advanceTimersByTime(1000)
+      await Promise.resolve()
+    })
+
+    // Second autosave should have fired for the in-flight edit
+    expect(onSave).toHaveBeenCalledTimes(2)
+  })
+
+  it('schedules pending save when debounce timer expires while save is in flight (#287)', async () => {
+    let resolveFirstSave!: (val: Record<string, unknown>) => void
+
+    const onSave = vi.fn().mockImplementation(() => {
+      const callIndex = onSave.mock.calls.length
+      if (callIndex === 1) {
+        return new Promise<Record<string, unknown>>((resolve) => {
+          resolveFirstSave = resolve
+        })
+      }
+      return Promise.resolve({ id: 1, title: 'y' })
+    })
+
+    const { rerender } = renderHook((props: UseAutosaveOptions) => useAutosave(props), {
+      initialProps: {
+        enabled: true,
+        interval: 1000,
+        isDirty: true,
+        isValid: true,
+        values: { title: 'x' },
+        onSave,
+      },
+    })
+
+    // Start first autosave
+    act(() => {
+      vi.advanceTimersByTime(1000)
+    })
+    expect(onSave).toHaveBeenCalledTimes(1)
+
+    // Edit while in flight
+    rerender({
+      enabled: true,
+      interval: 1000,
+      isDirty: true,
+      isValid: true,
+      values: { title: 'y' },
+      onSave,
+    })
+
+    // Advance debounce interval while first save is still in flight
+    act(() => {
+      vi.advanceTimersByTime(1000)
+    })
+    // Still in flight, so second save cannot run concurrently
+    expect(onSave).toHaveBeenCalledTimes(1)
+
+    // Resolve first save
+    await act(async () => {
+      resolveFirstSave({ id: 1, title: 'x' })
+      await Promise.resolve()
+    })
+
+    // Finally block queues pending save after interval
+    await act(async () => {
+      vi.advanceTimersByTime(1000)
+      await Promise.resolve()
+    })
+
+    expect(onSave).toHaveBeenCalledTimes(2)
+  })
+
+  it('skips redundant save if in-flight edit reverts back to saved values (#287)', async () => {
+    let resolveFirstSave!: (val: Record<string, unknown>) => void
+
+    const onSave = vi.fn().mockImplementation(() => {
+      return new Promise<Record<string, unknown>>((resolve) => {
+        resolveFirstSave = resolve
+      })
+    })
+
+    const { rerender } = renderHook((props: UseAutosaveOptions) => useAutosave(props), {
+      initialProps: {
+        enabled: true,
+        interval: 1000,
+        isDirty: true,
+        isValid: true,
+        values: { title: 'x' },
+        onSave,
+      },
+    })
+
+    // Start first autosave with 'x'
+    act(() => {
+      vi.advanceTimersByTime(1000)
+    })
+    expect(onSave).toHaveBeenCalledTimes(1)
+
+    // Edit to 'y' while in flight
+    rerender({
+      enabled: true,
+      interval: 1000,
+      isDirty: true,
+      isValid: true,
+      values: { title: 'y' },
+      onSave,
+    })
+
+    // Revert back to 'x' while still in flight
+    rerender({
+      enabled: true,
+      interval: 1000,
+      isDirty: true,
+      isValid: true,
+      values: { title: 'x' },
+      onSave,
+    })
+
+    // Resolve first save
+    await act(async () => {
+      resolveFirstSave({ id: 1, title: 'x' })
+      await Promise.resolve()
+    })
+
+    // Advance debounce timer
+    await act(async () => {
+      vi.advanceTimersByTime(2000)
+      await Promise.resolve()
+    })
+
+    // Should not save again because values match what was saved
+    expect(onSave).toHaveBeenCalledTimes(1)
+  })
 })
