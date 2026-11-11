@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
-import { DatabaseError, UniqueConstraintError } from '@lontar/core'
-import { findFieldName, handleDatabaseError, toErrorContext } from './errors'
+import { DatabaseError, NotFoundError, UniqueConstraintError, ValidationError } from '@lontar/core'
+import { findFieldName, handleDatabaseError, isDriverError, toErrorContext } from './errors'
 
 describe('db-mysql errors', () => {
   describe('findFieldName', () => {
@@ -99,6 +99,39 @@ describe('db-mysql errors', () => {
         expect(dbe.message).not.toContain('password123')
         expect(dbe.cause).toBe(drizzleError)
       }
+    })
+
+    it('rethrows non-driver errors (NotFoundError, ValidationError, custom Error) untouched', () => {
+      const notFound = new NotFoundError('Post not found')
+      expect(() => handleDatabaseError(notFound, context)).toThrow(notFound)
+
+      const validation = new ValidationError('Validation failed', { issues: [] })
+      expect(() => handleDatabaseError(validation, context)).toThrow(validation)
+
+      const custom = new Error('Custom hook failure')
+      expect(() => handleDatabaseError(custom, context)).toThrow(custom)
+    })
+  })
+
+  describe('isDriverError', () => {
+    it('returns false for generic errors and core domain errors', () => {
+      expect(isDriverError(new Error('Generic failure'))).toBe(false)
+      expect(isDriverError(new NotFoundError('Missing doc'))).toBe(false)
+      expect(isDriverError(new ValidationError('Invalid'))).toBe(false)
+      expect(isDriverError(null)).toBe(false)
+      expect(isDriverError('string error')).toBe(false)
+    })
+
+    it('returns true when error or cause has mysql-specific properties', () => {
+      expect(isDriverError({ code: 'ER_DUP_ENTRY', errno: 1062 })).toBe(true)
+      expect(isDriverError({ code: 'ER_LOCK_DEADLOCK', errno: 1213 })).toBe(true)
+      expect(isDriverError({ code: 'ECONNRESET' })).toBe(true)
+      expect(isDriverError({ sqlState: '23000' })).toBe(true)
+      expect(isDriverError({ sqlMessage: 'Table not found' })).toBe(true)
+
+      const wrapped = new Error('Drizzle wrapper')
+      ;(wrapped as unknown as { cause: unknown }).cause = { code: 'ER_PARSE_ERROR', errno: 1064 }
+      expect(isDriverError(wrapped)).toBe(true)
     })
   })
 })

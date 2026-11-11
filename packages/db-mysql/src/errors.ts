@@ -1,3 +1,4 @@
+import { DrizzleError } from 'drizzle-orm'
 import {
   DatabaseError,
   UniqueConstraintError,
@@ -68,15 +69,73 @@ interface MysqlRawError {
   code?: string
   errno?: number
   sqlMessage?: string
+  sqlState?: string
   message?: string
 }
 
 function extractMysqlError(err: unknown): MysqlRawError | undefined {
-  const cause = typeof err === 'object' && err !== null && 'cause' in err ? err.cause : err
-  if (typeof cause === 'object' && cause !== null) {
-    return cause
+  let current: unknown = err
+  while (typeof current === 'object' && current !== null) {
+    const raw = current as MysqlRawError
+    if (raw.code || raw.errno !== undefined || raw.sqlMessage || raw.sqlState) {
+      return raw
+    }
+    if ('cause' in current && current.cause && current.cause !== current) {
+      current = current.cause
+    } else {
+      break
+    }
   }
   return undefined
+}
+
+function hasMysqlErrorCode(code: string): boolean {
+  return (
+    code.startsWith('ER_') ||
+    code.startsWith('PROTOCOL_') ||
+    code.startsWith('WARN_') ||
+    code === 'ECONNRESET' ||
+    code === 'ECONNREFUSED' ||
+    code === 'ETIMEDOUT'
+  )
+}
+
+function hasMysqlErrorProperties(err: unknown): boolean {
+  if (!err || typeof err !== 'object') return false
+  const raw = err as MysqlRawError
+  if (
+    typeof raw.errno === 'number' ||
+    typeof raw.sqlState === 'string' ||
+    typeof raw.sqlMessage === 'string'
+  ) {
+    return true
+  }
+  return typeof raw.code === 'string' && hasMysqlErrorCode(raw.code)
+}
+
+function matchesDriverError(target: unknown): boolean {
+  if (target instanceof DrizzleError) {
+    return true
+  }
+  return hasMysqlErrorProperties(target)
+}
+
+function nextCause(current: object): unknown {
+  if ('cause' in current && current.cause && current.cause !== current) {
+    return current.cause
+  }
+  return undefined
+}
+
+export function isDriverError(err: unknown): boolean {
+  let current: unknown = err
+  while (typeof current === 'object' && current !== null) {
+    if (matchesDriverError(current)) {
+      return true
+    }
+    current = nextCause(current)
+  }
+  return false
 }
 
 function parseDuplicateEntry(rawMsg: string): { value?: string; key?: string } | null {
@@ -118,6 +177,10 @@ function buildUniqueConstraintError(
 export function handleDatabaseError(err: unknown, context?: ErrorContext): never {
   if (err instanceof UniqueConstraintError || err instanceof DatabaseError) {
     throw err
+  }
+
+  if (!isDriverError(err)) {
+    throw err as Error
   }
 
   const mysqlErr = extractMysqlError(err)
