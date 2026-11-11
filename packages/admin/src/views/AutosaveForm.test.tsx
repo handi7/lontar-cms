@@ -324,6 +324,158 @@ describe('Autosave in edit form (#203)', () => {
     // Form retains the local user edits
     expect((titleInput as HTMLInputElement).value).toBe('My Unsaved Edits')
   })
+
+  it('does not reset form, regenerate array ids, blur focus, or clear selected file on autosave success (#286)', async () => {
+    const configWithArrayAndUpload: ClientConfig = {
+      version: CLIENT_CONFIG_VERSION,
+      collections: [
+        {
+          slug: 'articles',
+          labels: { singular: 'Article', plural: 'Articles' },
+          upload: true,
+          versions: {
+            drafts: true,
+            autosave: { interval: 500 },
+          },
+          admin: { useAsTitle: 'title', defaultColumns: ['title'] },
+          fields: [
+            { name: 'title', label: 'Title', type: 'text', required: true },
+            {
+              name: 'tags',
+              label: 'Tags',
+              type: 'array',
+              required: false,
+              fields: [{ name: 'name', label: 'Tag Name', type: 'text', required: true }],
+            },
+          ],
+        },
+      ],
+      globals: [],
+    }
+
+    const existingDoc = {
+      id: 1,
+      title: 'Original Title',
+      tags: [{ id: 'row-1', name: 'Tech' }],
+      _status: 'draft',
+      _isPublished: false,
+      createdAt: '2026-01-01T00:00:00.000Z',
+      updatedAt: '2026-01-01T00:00:00.000Z',
+    }
+
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockImplementation((url: string, init?: RequestInit) => {
+        if (url.includes('/_lontar/config')) {
+          return mockJsonResponse(configWithArrayAndUpload)
+        }
+        if (url.includes('/auth/get-session')) {
+          return mockJsonResponse({ user: mockAuthUser, session: mockAuthSession })
+        }
+        if (url.includes('/api/articles/1') && init?.method === 'PATCH') {
+          return mockJsonResponse({
+            ...existingDoc,
+            tags: [{ id: 'row-1', name: 'Technology' }],
+            updatedAt: '2026-01-01T00:00:01.000Z',
+          })
+        }
+        if (url.includes('/api/articles/1')) {
+          return mockJsonResponse(existingDoc)
+        }
+        return Promise.reject(new Error(`Unhandled URL: ${url}`))
+      }),
+    )
+
+    const history = createMemoryHistory({ initialEntries: ['/admin/articles/1'] })
+    render(<Admin apiBase="/api" basePath="/admin" history={history} />)
+
+    await waitFor(() => {
+      expect(screen.getByDisplayValue('Tech')).toBeTruthy()
+    })
+
+    const tagInput = screen.getByDisplayValue<HTMLInputElement>('Tech')
+    tagInput.focus()
+    expect(document.activeElement).toBe(tagInput)
+
+    // Select a file
+    const fileInput = document.querySelector('input[type="file"]') as HTMLInputElement
+    expect(fileInput).toBeTruthy()
+    const testFile = new File(['hello'], 'hello.png', { type: 'image/png' })
+    fireEvent.change(fileInput, { target: { files: [testFile] } })
+
+    // Verify file name is shown
+    expect(screen.getByText('hello.png')).toBeTruthy()
+
+    // Edit tag input
+    fireEvent.change(tagInput, { target: { value: 'Technology' } })
+
+    // Advance timer past autosave interval
+    act(() => {
+      vi.advanceTimersByTime(600)
+    })
+
+    await waitFor(() => {
+      expect(screen.getByText('Saved just now')).toBeTruthy()
+    })
+
+    // Focus is NOT lost
+    expect(document.activeElement).toBe(tagInput)
+    // Selected file is NOT cleared
+    expect(screen.getByText('hello.png')).toBeTruthy()
+  })
+
+  it('does not reset form or blur focus when an edit is reverted back to saved value (#286)', async () => {
+    const existingDoc = {
+      id: 1,
+      title: 'Original Title',
+      content: 'Original content',
+      _status: 'draft',
+      _isPublished: false,
+      createdAt: '2026-01-01T00:00:00.000Z',
+      updatedAt: '2026-01-01T00:00:00.000Z',
+    }
+
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockImplementation((url: string) => {
+        if (url.includes('/_lontar/config')) {
+          return mockJsonResponse(mockConfigWithAutosave)
+        }
+        if (url.includes('/auth/get-session')) {
+          return mockJsonResponse({ user: mockAuthUser, session: mockAuthSession })
+        }
+        if (url.includes('/api/articles/1')) {
+          return mockJsonResponse(existingDoc)
+        }
+        return Promise.reject(new Error(`Unhandled URL: ${url}`))
+      }),
+    )
+
+    const history = createMemoryHistory({ initialEntries: ['/admin/articles/1'] })
+    render(<Admin apiBase="/api" basePath="/admin" history={history} />)
+
+    await waitFor(() => {
+      expect(screen.getByRole('textbox', { name: /Title/i })).toBeTruthy()
+    })
+
+    const titleInput = screen.getByRole<HTMLInputElement>('textbox', { name: /Title/i })
+    titleInput.focus()
+    expect(document.activeElement).toBe(titleInput)
+
+    // Make an edit
+    fireEvent.change(titleInput, { target: { value: 'Original Title Edited' } })
+
+    // Revert the edit back to original value (isDirty becomes false)
+    fireEvent.change(titleInput, { target: { value: 'Original Title' } })
+
+    // Advance timers
+    act(() => {
+      vi.advanceTimersByTime(600)
+    })
+
+    // Focus remains on input
+    expect(document.activeElement).toBe(titleInput)
+  })
 })
 
 describe('Autosave in the global edit form', () => {
@@ -403,5 +555,65 @@ describe('Autosave in the global edit form', () => {
     })
     expect(saves[0]).toContain('draft=true')
     expect(saves[0]).toContain('autosave=true')
+  })
+
+  it('does not blur focused input on autosave success (#286)', async () => {
+    const liveGlobal = {
+      id: 1,
+      siteTitle: 'Live Title',
+      _status: 'draft',
+      _isPublished: false,
+      createdAt: '2026-01-01T00:00:00.000Z',
+      updatedAt: '2026-01-01T00:00:00.000Z',
+    }
+
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockImplementation((url: string, init?: RequestInit) => {
+        if (url.includes('/_lontar/config')) {
+          return mockJsonResponse(mockConfigWithGlobalAutosave)
+        }
+        if (url.includes('/auth/get-session')) {
+          return mockJsonResponse({ user: mockAuthUser, session: mockAuthSession })
+        }
+        if (url.includes('/api/globals/settings/versions')) {
+          return mockJsonResponse({ docs: [], totalDocs: 0, page: 1, totalPages: 1, limit: 10 })
+        }
+        if (url.includes('/api/globals/settings') && init?.method === 'POST') {
+          return mockJsonResponse({
+            ...liveGlobal,
+            siteTitle: 'Edited Global',
+            updatedAt: '2026-01-01T00:00:01.000Z',
+          })
+        }
+        if (url.includes('/api/globals/settings')) {
+          return mockJsonResponse(liveGlobal)
+        }
+        return Promise.reject(new Error(`Unhandled URL: ${url}`))
+      }),
+    )
+
+    const history = createMemoryHistory({ initialEntries: ['/admin/globals/settings'] })
+    render(<Admin apiBase="/api" basePath="/admin" history={history} />)
+
+    await waitFor(() => {
+      expect(screen.getByRole('textbox', { name: /Site Title/i })).toBeTruthy()
+    })
+
+    const titleInput = screen.getByRole<HTMLInputElement>('textbox', { name: /Site Title/i })
+    titleInput.focus()
+    expect(document.activeElement).toBe(titleInput)
+
+    fireEvent.change(titleInput, { target: { value: 'Edited Global' } })
+
+    act(() => {
+      vi.advanceTimersByTime(600)
+    })
+
+    await waitFor(() => {
+      expect(screen.getByText('Saved just now')).toBeTruthy()
+    })
+
+    expect(document.activeElement).toBe(titleInput)
   })
 })

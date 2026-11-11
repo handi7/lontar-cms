@@ -229,6 +229,17 @@ export function getFieldDefault(f: ClientField): unknown {
   return undefined
 }
 
+export function isSameDoc(
+  a: Record<string, unknown> | null | undefined,
+  b: Record<string, unknown> | null | undefined,
+): boolean {
+  if (a === b) return true
+  if (!a || !b) return false
+  if (a.id !== undefined && b.id !== undefined && a.id !== b.id) return false
+  if (a.updatedAt && b.updatedAt) return a.updatedAt === b.updatedAt
+  return false
+}
+
 export function computeDefaultValues(fields: readonly ClientField[]): Record<string, unknown> {
   const defaults: Record<string, unknown> = {}
   for (const f of fields) {
