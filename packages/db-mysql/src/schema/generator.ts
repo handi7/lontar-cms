@@ -23,6 +23,8 @@ import {
   flattenGroupFields,
   getVersionsParentForeignKeyName,
   getVersionsParentVersionUniqueName,
+  getVersionsParentIdIndexName,
+  getVersionsParentStatusIndexName,
 } from './table'
 
 export function resolveDrizzleOrmMysqlCore(): string {
@@ -425,6 +427,8 @@ function renderVersionsTable(entity: CollectionConfig | GlobalConfig): string {
   const tableName = `${entity.slug}_versions`
   const fkName = getVersionsParentForeignKeyName(entity.slug)
   const uniqueName = getVersionsParentVersionUniqueName(entity.slug)
+  const parentIdIdxName = getVersionsParentIdIndexName(entity.slug)
+  const parentStatusIdxName = getVersionsParentStatusIndexName(entity.slug)
 
   return `export const ${versionsIdentifier} = mysqlTable(
   '${tableName}',
@@ -439,8 +443,8 @@ function renderVersionsTable(entity: CollectionConfig | GlobalConfig): string {
     createdBy: varchar('created_by', { length: 36 }),
   },
   (t) => [
-    index('${tableName}_parent_id_idx').on(t.parentId, t.id),
-    index('${tableName}_parent_status_idx').on(t.parentId, t._status),
+    index('${parentIdIdxName}').on(t.parentId, t.id),
+    index('${parentStatusIdxName}').on(t.parentId, t._status),
     unique('${uniqueName}').on(t.parentId, t.versionNumber),
     foreignKey({
       name: '${fkName}',
