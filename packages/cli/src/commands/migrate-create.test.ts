@@ -77,4 +77,48 @@ UPDATE \`pages\` SET \`_status\` = 'published';--> statement-breakpoint
     const warnings = inspectMigrationForStatusBackfills(sql)
     expect(warnings).toHaveLength(0)
   })
+
+  it('warns when ADD _status is present on a hyphenated table name (#283)', () => {
+    const sql = `
+ALTER TABLE \`blog-posts\` ADD \`_status\` varchar(20) DEFAULT 'draft' NOT NULL;
+`
+    const warnings = inspectMigrationForStatusBackfills(sql)
+    expect(warnings).toHaveLength(1)
+    expect(warnings[0]).toContain('Migration adds `_status` to table "blog-posts"')
+    expect(warnings[0]).toContain("UPDATE `blog-posts` SET `_status` = 'published'")
+  })
+
+  it('does not warn when ADD _status on hyphenated table has an accompanying published backfill (#283)', () => {
+    const sql = `
+ALTER TABLE \`blog-posts\` ADD \`_status\` varchar(20) DEFAULT 'draft' NOT NULL;
+UPDATE \`blog-posts\` SET \`_status\` = 'published';
+`
+    const warnings = inspectMigrationForStatusBackfills(sql)
+    expect(warnings).toHaveLength(0)
+  })
+
+  it('warns when MODIFY _status NOT NULL is present on a hyphenated table name (#283)', () => {
+    const sql = `
+ALTER TABLE \`site-settings\` RENAME COLUMN \`status\` TO \`_status\`;
+ALTER TABLE \`site-settings\` MODIFY COLUMN \`_status\` varchar(20) NOT NULL DEFAULT 'draft';
+`
+    const warnings = inspectMigrationForStatusBackfills(sql)
+    expect(warnings).toHaveLength(1)
+    expect(warnings[0]).toContain(
+      'Migration modifies `_status` to NOT NULL on table "site-settings"',
+    )
+    expect(warnings[0]).toContain(
+      "UPDATE `site-settings` SET `_status` = 'draft' WHERE `_status` IS NULL",
+    )
+  })
+
+  it('does not warn when MODIFY _status NOT NULL on hyphenated table has a NULL check backfill (#283)', () => {
+    const sql = `
+ALTER TABLE \`site-settings\` RENAME COLUMN \`status\` TO \`_status\`;
+UPDATE \`site-settings\` SET \`_status\` = 'draft' WHERE \`_status\` IS NULL;
+ALTER TABLE \`site-settings\` MODIFY COLUMN \`_status\` varchar(20) NOT NULL DEFAULT 'draft';
+`
+    const warnings = inspectMigrationForStatusBackfills(sql)
+    expect(warnings).toHaveLength(0)
+  })
 })
