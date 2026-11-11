@@ -139,4 +139,57 @@ describe('PreviewPane', () => {
     fireEvent.click(closeButton)
     expect(onClose).toHaveBeenCalledTimes(1)
   })
+
+  it('renders scale percentage label in header when viewport is scaled down', () => {
+    const onClose = vi.fn()
+    render(
+      <PreviewPane
+        collectionSlug="posts"
+        urlTemplate="https://example.com/posts/{slug}"
+        values={{ slug: 'test-post' }}
+        savedValues={{ slug: 'test-post' }}
+        onClose={onClose}
+        containerWidth={500}
+      />,
+    )
+
+    // Default is desktop: 100%, no scale label
+    expect(screen.queryByTestId('preview-scale')).toBeNull()
+
+    // Switch to tablet (768px): inside 500px container, available = 500 - 16 = 484px -> 484 / 768 = 63%
+    const tabletButton = screen.getByTitle(/Tablet view/i)
+    fireEvent.click(tabletButton)
+
+    const scaleLabel = screen.getByTestId('preview-scale')
+    expect(scaleLabel).toBeTruthy()
+    expect(scaleLabel.textContent).toBe('63%')
+    expect(scaleLabel.getAttribute('aria-label')).toBe('Preview scaled to 63%')
+
+    // Switch to mobile (375px): 375px fits within 484px, scale = 100%, so label disappears
+    const mobileButton = screen.getByTitle(/Mobile view/i)
+    fireEvent.click(mobileButton)
+    expect(screen.queryByTestId('preview-scale')).toBeNull()
+  })
+
+  it('renders mobile scale percentage label when container is narrower than mobile preset', () => {
+    const onClose = vi.fn()
+    render(
+      <PreviewPane
+        collectionSlug="posts"
+        urlTemplate="https://example.com/posts/{slug}"
+        values={{ slug: 'test-post' }}
+        savedValues={{ slug: 'test-post' }}
+        onClose={onClose}
+        containerWidth={300}
+      />,
+    )
+
+    // Switch to mobile (375px): inside 300px container, available = 300 - 16 = 284px -> 284 / 375 = 76%
+    const mobileButton = screen.getByTitle(/Mobile view/i)
+    fireEvent.click(mobileButton)
+
+    const scaleLabel = screen.getByTestId('preview-scale')
+    expect(scaleLabel).toBeTruthy()
+    expect(scaleLabel.textContent).toBe('76%')
+  })
 })
