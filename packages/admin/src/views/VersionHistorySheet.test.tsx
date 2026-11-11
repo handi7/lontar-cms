@@ -303,4 +303,182 @@ describe('VersionHistorySheet', () => {
       expect(restoreCalled).toBe(true)
     })
   })
+
+  it('labels the newest version as Current Draft only when it is a draft newer than published (#246)', async () => {
+    const versionsWithDraftOnTop: ClientPaginatedVersions = {
+      docs: [
+        {
+          id: 3,
+          parentId: 1,
+          versionNumber: 3,
+          autosave: false,
+          snapshot: { id: 1, title: 'Draft Title', _status: 'draft' },
+          _status: 'draft',
+          createdAt: '2026-11-09T11:00:00.000Z',
+          createdBy: 'editor@example.com',
+        },
+        {
+          id: 2,
+          parentId: 1,
+          versionNumber: 2,
+          autosave: false,
+          snapshot: { id: 1, title: 'Published Title', _status: 'published' },
+          _status: 'published',
+          createdAt: '2026-11-09T10:00:00.000Z',
+          createdBy: 'editor@example.com',
+        },
+        {
+          id: 1,
+          parentId: 1,
+          versionNumber: 1,
+          autosave: false,
+          snapshot: { id: 1, title: 'Old Draft Title', _status: 'draft' },
+          _status: 'draft',
+          createdAt: '2026-11-09T09:00:00.000Z',
+          createdBy: null,
+        },
+      ],
+      totalDocs: 3,
+      limit: 10,
+      page: 1,
+      totalPages: 1,
+    }
+
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockImplementation((url: string) => {
+        if (url.includes('/api/posts/1/versions')) {
+          return mockJsonResponse(versionsWithDraftOnTop)
+        }
+        return mockJsonResponse({}, 404)
+      }),
+    )
+
+    renderVersionHistorySheet({
+      currentDoc: { id: 1, title: 'Draft Title', _status: 'draft' },
+    })
+
+    await waitFor(() => {
+      expect(screen.getByText('v3')).toBeTruthy()
+      expect(screen.getByText('v2')).toBeTruthy()
+      expect(screen.getByText('v1')).toBeTruthy()
+    })
+
+    // Exactly one Current Draft badge and one Published badge
+    expect(screen.getAllByText('Current Draft')).toHaveLength(1)
+    expect(screen.getAllByText('Published')).toHaveLength(1)
+
+    // v3 is Current Draft
+    const v3Item = screen.getByText('v3').closest('button')!
+    expect(v3Item.textContent).toContain('Current Draft')
+    expect(v3Item.textContent).not.toContain('Published')
+
+    // v2 is Published
+    const v2Item = screen.getByText('v2').closest('button')!
+    expect(v2Item.textContent).toContain('Published')
+    expect(v2Item.textContent).not.toContain('Current Draft')
+
+    // v1 has neither badge
+    const v1Item = screen.getByText('v1').closest('button')!
+    expect(v1Item.textContent).not.toContain('Current Draft')
+    expect(v1Item.textContent).not.toContain('Published')
+  })
+
+  it('does not label older drafts as Current Draft when newest version is published (#246)', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockImplementation((url: string) => {
+        if (url.includes('/api/posts/1/versions')) {
+          return mockJsonResponse(mockVersions)
+        }
+        return mockJsonResponse({}, 404)
+      }),
+    )
+
+    // Current doc is published (v2 is published, v1 is draft)
+    renderVersionHistorySheet({
+      currentDoc: { id: 1, title: 'Current Title', _status: 'published' },
+    })
+
+    await waitFor(() => {
+      expect(screen.getByText('v2')).toBeTruthy()
+      expect(screen.getByText('v1')).toBeTruthy()
+    })
+
+    expect(screen.getAllByText('Published')).toHaveLength(1)
+    expect(screen.queryByText('Current Draft')).toBeNull()
+  })
+
+  it('does not label an older published row on page 2 as Published (#246)', async () => {
+    const page1Versions: ClientPaginatedVersions = {
+      docs: [
+        {
+          id: 3,
+          parentId: 1,
+          versionNumber: 3,
+          autosave: false,
+          snapshot: { id: 1, title: 'Latest Published', _status: 'published' },
+          _status: 'published',
+          createdAt: '2026-11-09T11:00:00.000Z',
+          createdBy: 'editor@example.com',
+        },
+      ],
+      totalDocs: 2,
+      limit: 1,
+      page: 1,
+      totalPages: 2,
+    }
+
+    const page2Versions: ClientPaginatedVersions = {
+      docs: [
+        {
+          id: 1,
+          parentId: 1,
+          versionNumber: 1,
+          autosave: false,
+          snapshot: { id: 1, title: 'Old Published', _status: 'published' },
+          _status: 'published',
+          createdAt: '2026-11-09T09:00:00.000Z',
+          createdBy: null,
+        },
+      ],
+      totalDocs: 2,
+      limit: 1,
+      page: 2,
+      totalPages: 2,
+    }
+
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockImplementation((url: string) => {
+        if (url.includes('page=2')) {
+          return mockJsonResponse(page2Versions)
+        }
+        if (url.includes('/api/posts/1/versions')) {
+          return mockJsonResponse(page1Versions)
+        }
+        return mockJsonResponse({}, 404)
+      }),
+    )
+
+    renderVersionHistorySheet({
+      currentDoc: { id: 1, title: 'Latest Published', _status: 'published' },
+    })
+
+    await waitFor(() => {
+      expect(screen.getByText('v3')).toBeTruthy()
+    })
+    expect(screen.getByText('Published')).toBeTruthy()
+
+    // Navigate to page 2
+    const nextBtn = screen.getByRole('button', { name: 'Next' })
+    fireEvent.click(nextBtn)
+
+    await waitFor(() => {
+      expect(screen.getByText('v1')).toBeTruthy()
+    })
+
+    // v1 is an old published row, so on page 2 it must NOT be labeled Published
+    expect(screen.queryByText('Published')).toBeNull()
+  })
 })
