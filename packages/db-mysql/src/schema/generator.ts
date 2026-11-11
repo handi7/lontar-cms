@@ -18,7 +18,12 @@ import type {
   TextField,
   UploadField,
 } from '@lontar/core'
-import { getJunctionTableName, flattenGroupFields, getVersionsParentForeignKeyName } from './table'
+import {
+  getJunctionTableName,
+  flattenGroupFields,
+  getVersionsParentForeignKeyName,
+  getVersionsParentVersionUniqueName,
+} from './table'
 
 export function resolveDrizzleOrmMysqlCore(): string {
   try {
@@ -238,6 +243,7 @@ function collectEntityImports(entity: CollectionConfig | GlobalConfig, imports: 
   }
   if (entity.versions) {
     imports.add('foreignKey')
+    imports.add('unique')
   }
   for (const field of Object.values(entity.fields)) {
     collectFieldImports(field, imports)
@@ -418,6 +424,7 @@ function renderVersionsTable(entity: CollectionConfig | GlobalConfig): string {
   const versionsIdentifier = `${identifier}Versions`
   const tableName = `${entity.slug}_versions`
   const fkName = getVersionsParentForeignKeyName(entity.slug)
+  const uniqueName = getVersionsParentVersionUniqueName(entity.slug)
 
   return `export const ${versionsIdentifier} = mysqlTable(
   '${tableName}',
@@ -434,6 +441,7 @@ function renderVersionsTable(entity: CollectionConfig | GlobalConfig): string {
   (t) => [
     index('${tableName}_parent_id_idx').on(t.parentId, t.id),
     index('${tableName}_parent_status_idx').on(t.parentId, t._status),
+    unique('${uniqueName}').on(t.parentId, t.versionNumber),
     foreignKey({
       name: '${fkName}',
       columns: [t.parentId],

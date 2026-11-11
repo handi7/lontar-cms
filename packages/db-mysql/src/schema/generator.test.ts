@@ -507,11 +507,15 @@ describe('generateSchemaFile', () => {
     expect(output).toContain("autosave: boolean('autosave').default(false).notNull(),")
     expect(output).toContain("index('posts_versions_parent_id_idx').on(t.parentId, t.id)")
     expect(output).toContain("index('posts_versions_parent_status_idx').on(t.parentId, t._status)")
+    expect(output).toContain(
+      "unique('posts_versions_parent_version_unique').on(t.parentId, t.versionNumber)",
+    )
+    expect(output).toMatch(/import \{.*foreignKey,.*unique.*\} from '.*drizzle-orm\/mysql-core/)
   })
 
-  it('truncates versions parent FK to at most 64 characters for long collection slugs', () => {
+  it('truncates versions parent FK and unique constraint to at most 64 characters for long collection slugs', () => {
     const longCol: CollectionConfig = {
-      slug: 'newsletter-campaigns',
+      slug: 'very-long-newsletter-campaigns-and-marketing-slug',
       versions: { drafts: true },
       fields: { title: { type: 'text' } },
     }
@@ -527,6 +531,12 @@ describe('generateSchemaFile', () => {
     expect(fkMatch).not.toBeNull()
     const fkName = fkMatch?.[1] ?? ''
     expect(fkName.length).toBeLessThanOrEqual(64)
-    expect(fkName).toMatch(/^newsletter-campaigns_versions_parent_id_newsletter-c_[a-f0-9]{8}_fk$/)
+    expect(fkName).toMatch(/_[a-f0-9]{8}_fk$/)
+
+    const uqMatch = output.match(/unique\('([^']+)'\)/)
+    expect(uqMatch).not.toBeNull()
+    const uqName = uqMatch?.[1] ?? ''
+    expect(uqName.length).toBeLessThanOrEqual(64)
+    expect(uqName).toMatch(/_[a-f0-9]{8}_unique$/)
   })
 })

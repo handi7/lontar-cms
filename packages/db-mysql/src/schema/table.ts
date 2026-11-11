@@ -169,6 +169,15 @@ export function getVersionsParentForeignKeyName(slug: string): string {
   return `${baseName.slice(0, 52)}_${hash}_fk`
 }
 
+export function getVersionsParentVersionUniqueName(slug: string): string {
+  const baseName = `${slug}_versions_parent_version_unique`
+  if (baseName.length <= 64) {
+    return baseName
+  }
+  const hash = createHash('sha256').update(baseName).digest('hex').slice(0, 8)
+  return `${baseName.slice(0, 48)}_${hash}_unique`
+}
+
 export type VersionsTable = MySqlTable & {
   id: AnyMySqlColumn
   parentId: AnyMySqlColumn
@@ -186,6 +195,7 @@ export function createVersionsTable(
 ): VersionsTable {
   const tableName = getVersionsTableName(collectionSlug)
   const fkName = getVersionsParentForeignKeyName(collectionSlug)
+  const uniqueName = getVersionsParentVersionUniqueName(collectionSlug)
 
   const columns = {
     id: int('id').autoincrement().primaryKey(),
@@ -202,6 +212,7 @@ export function createVersionsTable(
     const extra: MySqlTableExtraConfigValue[] = [
       index(`${tableName}_parent_id_idx`).on(t.parentId, t.id),
       index(`${tableName}_parent_status_idx`).on(t.parentId, t._status),
+      unique(uniqueName).on(t.parentId, t.versionNumber),
     ]
     if (parentTable) {
       extra.push(

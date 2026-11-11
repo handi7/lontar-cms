@@ -1376,11 +1376,11 @@ async function tryUpdateAutosave(
   vTable: VersionsTable,
   args: SaveVersionArgs,
 ): Promise<StoredVersion | null> {
-  if (!args.autosave) return null
+  if (!args.autosave || args.status !== 'draft') return null
   const latest = await executor
     .select()
     .from(vTable)
-    .where(eq(vTable.parentId, args.parentId))
+    .where(eq(vTable.parentId, args.parentId!))
     .orderBy(desc(vTable.id))
     .limit(1)
 
@@ -1459,6 +1459,12 @@ async function saveVersion(
   const target = args.collection ?? args.global!
   const parentId = args.parentId ?? 1
   try {
+    const parentTable = args.collection
+      ? getTable(caches, args.collection)
+      : getGlobalTable(caches, args.global!)
+
+    await executor.select().from(parentTable).where(eq(parentTable.id, parentId)).for('update')
+
     const vTable = getEntityVersionsTable(caches, args)
     const maxPerDoc = target.versions?.maxPerDoc ?? DEFAULT_MAX_PER_DOC
 
@@ -1475,6 +1481,45 @@ async function saveVersion(
   } catch (err) {
     handleDatabaseError(err, toErrorContext(target))
   }
+}
+
+type VersionsSortColumn =
+  'id' | 'parentId' | 'versionNumber' | '_status' | 'autosave' | 'createdAt' | 'createdBy'
+
+const VERSIONS_SORT_FIELDS: Record<string, VersionsSortColumn> = {
+  id: 'id',
+  parentId: 'parentId',
+  parent_id: 'parentId',
+  versionNumber: 'versionNumber',
+  version_number: 'versionNumber',
+  _status: '_status',
+  status: '_status',
+  autosave: 'autosave',
+  createdAt: 'createdAt',
+  created_at: 'createdAt',
+  createdBy: 'createdBy',
+  created_by: 'createdBy',
+}
+
+function resolveVersionsOrderBy(vTable: VersionsTable, sort?: string | SortItem[]): SQL[] {
+  const sortItems = Array.isArray(sort)
+    ? sort.filter((s): s is SortItem => typeof s === 'object' && 'field' in s)
+    : parseSort(sort)
+
+  const orderByList: SQL[] = []
+  for (const item of sortItems) {
+    const colKey = VERSIONS_SORT_FIELDS[item.field]
+    if (!colKey) continue
+    const column = vTable[colKey]
+    if (column) {
+      orderByList.push(item.direction === 'desc' ? desc(column) : asc(column))
+    }
+  }
+
+  if (orderByList.length === 0) {
+    return [desc(vTable.id)]
+  }
+  return orderByList
 }
 
 async function findVersions(
@@ -1498,11 +1543,13 @@ async function findVersions(
     const totalDocs = Number(countResult[0]?.count ?? 0)
     const totalPages = Math.ceil(totalDocs / limit) || 1
 
+    const orderByList = resolveVersionsOrderBy(vTable, args.sort)
+
     const rows = await executor
       .select()
       .from(vTable)
       .where(eq(vTable.parentId, parentId))
-      .orderBy(desc(vTable.id))
+      .orderBy(...orderByList)
       .limit(limit)
       .offset(offset)
 

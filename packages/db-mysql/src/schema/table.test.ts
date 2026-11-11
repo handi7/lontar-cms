@@ -8,6 +8,7 @@ import {
   getCollectionJunctionTables,
   getCollectionVersionsTable,
   getVersionsParentForeignKeyName,
+  getVersionsParentVersionUniqueName,
   globalToTable,
 } from './table'
 
@@ -316,28 +317,48 @@ describe('collectionToTable', () => {
     expect(config.name).toBe('posts_versions')
     expect(config.indexes.map((i) => i.config.name)).toContain('posts_versions_parent_id_idx')
     expect(config.indexes.map((i) => i.config.name)).toContain('posts_versions_parent_status_idx')
+    expect(config.uniqueConstraints.map((u) => u.name)).toContain(
+      'posts_versions_parent_version_unique',
+    )
     expect(config.foreignKeys).toHaveLength(1)
     expect(config.foreignKeys[0]?.getName()).toBe('posts_versions_parent_id_posts_id_fk')
   })
 
-  it('truncates foreign key name when it exceeds MySQL 64-character identifier limit', () => {
+  it('truncates foreign key and unique constraint names when they exceed MySQL 64-character identifier limit', () => {
+    const slug = 'very-long-newsletter-campaigns-and-marketing-slug'
     const parentTable = collectionToTable({
-      slug: 'newsletter-campaigns',
+      slug,
       fields: { title: { type: 'text', required: true } },
     })
-    const vTable = createVersionsTable('newsletter-campaigns', parentTable)
+    const vTable = createVersionsTable(slug, parentTable)
     const config = getTableConfig(vTable)
     expect(config.foreignKeys).toHaveLength(1)
     const fkName = config.foreignKeys[0]?.getName() ?? ''
     expect(fkName.length).toBeLessThanOrEqual(64)
-    expect(fkName).toMatch(/^newsletter-campaigns_versions_parent_id_newsletter-c_[a-f0-9]{8}_fk$/)
+    expect(fkName).toMatch(/_[a-f0-9]{8}_fk$/)
+
+    expect(config.uniqueConstraints).toHaveLength(1)
+    const uqName = config.uniqueConstraints[0]?.name ?? ''
+    expect(uqName.length).toBeLessThanOrEqual(64)
+    expect(uqName).toMatch(/_[a-f0-9]{8}_unique$/)
   })
 
   it('getVersionsParentForeignKeyName returns exact name when <= 64 and hashes when > 64', () => {
     expect(getVersionsParentForeignKeyName('posts')).toBe('posts_versions_parent_id_posts_id_fk')
-    const longName = getVersionsParentForeignKeyName('newsletter-campaigns')
+    const longName = getVersionsParentForeignKeyName(
+      'very-long-newsletter-campaigns-and-marketing-slug',
+    )
     expect(longName.length).toBeLessThanOrEqual(64)
     expect(longName).toMatch(/_[a-f0-9]{8}_fk$/)
+  })
+
+  it('getVersionsParentVersionUniqueName returns exact name when <= 64 and hashes when > 64', () => {
+    expect(getVersionsParentVersionUniqueName('posts')).toBe('posts_versions_parent_version_unique')
+    const longName = getVersionsParentVersionUniqueName(
+      'very-long-newsletter-campaigns-and-marketing-slug',
+    )
+    expect(longName.length).toBeLessThanOrEqual(64)
+    expect(longName).toMatch(/_[a-f0-9]{8}_unique$/)
   })
 
   it('getCollectionVersionsTable returns null when versions is not configured', () => {
