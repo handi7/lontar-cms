@@ -17,7 +17,12 @@ export {
   type TargetWebhook,
 } from './dispatcher'
 
-export { signWebhookPayload, verifyWebhookSignature, type VerifyWebhookSignatureArgs } from './sign'
+export {
+  DEFAULT_WEBHOOK_TOLERANCE_SECONDS,
+  signWebhookPayload,
+  verifyWebhookSignature,
+  type VerifyWebhookSignatureArgs,
+} from './sign'
 
 export type {
   CollectionWebhookConfig,

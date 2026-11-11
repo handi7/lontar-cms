@@ -302,7 +302,7 @@ Webhook requests are sent as HTTP `POST` requests with JSON payloads containing 
 - **Draft isolation**: Draft saves do not trigger `publish` webhooks. They trigger `update` or `change` webhooks with `status: "draft"`.
 - **Post-commit delivery**: Webhooks fire asynchronously in the background strictly after database transactions commit.
 - **Failure isolation**: Dead endpoints or network errors retry up to 3 times with exponential backoff and never fail an editor's save.
-- **Cryptographic signing**: Requests include `x-lontar-timestamp` (epoch in seconds) and `x-lontar-signature-256` (`sha256=<hex_digest>`).
+- **Cryptographic signing**: Requests include `x-lontar-timestamp` (epoch in seconds) and `x-lontar-signature-256` (`sha256=<hex_digest>` computed over `${timestamp}.${body}` to prevent replay attacks).
 
 #### Next.js revalidation receiver example
 
@@ -314,11 +314,13 @@ import { verifyWebhookSignature, type WebhookPayload } from '@lontar/core'
 export async function POST(request: Request) {
   const rawBody = await request.text()
   const signature = request.headers.get('x-lontar-signature-256') ?? ''
+  const timestamp = request.headers.get('x-lontar-timestamp') ?? ''
 
   const isValid = verifyWebhookSignature({
     payload: rawBody,
     signature,
     secret: process.env.WEBHOOK_SECRET ?? '',
+    timestamp,
   })
 
   if (!isValid) {

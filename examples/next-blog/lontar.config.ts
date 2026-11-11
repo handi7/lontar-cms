@@ -212,6 +212,10 @@ const siteSettings = global({
   },
 })
 
+const revalidationSecret =
+  process.env.REVALIDATION_SECRET ||
+  (process.env.NODE_ENV !== 'production' ? 'dev-webhook-secret-key-12345' : undefined)
+
 export default defineConfig({
   secret: process.env.LONTAR_SECRET || 'dev-secret-at-least-32-chars-long-12345',
   db: mysqlAdapter({
@@ -224,7 +228,7 @@ export default defineConfig({
     {
       url: `${process.env.LONTAR_URL || 'http://localhost:3000'}/api/revalidate`,
       events: ['publish', 'unpublish', 'delete'],
-      secret: process.env.REVALIDATION_SECRET || 'dev-webhook-secret-key-12345',
+      ...(revalidationSecret ? { secret: revalidationSecret } : {}),
     },
   ],
 })

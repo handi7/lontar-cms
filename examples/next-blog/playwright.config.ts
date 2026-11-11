@@ -29,6 +29,7 @@ export default defineConfig({
       BETTER_AUTH_TRUSTED_ORIGINS: `http://127.0.0.1:${port},http://localhost:${port}`,
       PLAYWRIGHT: 'true',
       DISABLE_AUTH_RATE_LIMIT: 'true',
+      REVALIDATION_SECRET: 'dev-webhook-secret-key-12345',
     },
   },
 })

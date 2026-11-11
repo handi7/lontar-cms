@@ -36,14 +36,23 @@ function revalidateTarget(collection?: string, doc?: WebhookPayload['doc']): voi
 }
 
 export async function POST(request: Request): Promise<NextResponse> {
-  const secret = process.env.REVALIDATION_SECRET || 'dev-webhook-secret-key-12345'
+  const secret =
+    process.env.REVALIDATION_SECRET ||
+    (process.env.NODE_ENV !== 'production' ? 'dev-webhook-secret-key-12345' : undefined)
+
+  if (!secret) {
+    return NextResponse.json({ error: 'Webhook secret is not configured' }, { status: 500 })
+  }
+
   const signature = request.headers.get('x-lontar-signature-256') ?? ''
+  const timestamp = request.headers.get('x-lontar-timestamp') ?? ''
   const rawBody = await request.text()
 
   const isValid = verifyWebhookSignature({
     payload: rawBody,
     signature,
     secret,
+    timestamp,
   })
 
   if (!isValid) {

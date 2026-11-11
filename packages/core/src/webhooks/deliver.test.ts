@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from 'vitest'
 import { deliverWebhook } from './deliver'
+import { verifyWebhookSignature } from './sign'
 import type { WebhookPayload } from './types'
 
 describe('deliverWebhook', () => {
@@ -36,11 +37,25 @@ describe('deliverWebhook', () => {
     expect(result.attempts).toBe(1)
     expect(result.statusCode).toBe(200)
 
-    expect(capturedRequest?.url).toBe('https://example.com/api/revalidate')
-    expect(capturedRequest?.headers.get('content-type')).toBe('application/json')
-    expect(capturedRequest?.headers.get('x-lontar-timestamp')).toBeTruthy()
-    expect(capturedRequest?.headers.get('x-lontar-signature-256')).toMatch(/^sha256=[a-f0-9]{64}$/)
-    expect(JSON.parse(capturedRequest?.body ?? '')).toEqual(samplePayload)
+    expect(capturedRequest).toBeDefined()
+    if (!capturedRequest) throw new Error('expected capturedRequest')
+    const req = capturedRequest
+
+    expect(req.url).toBe('https://example.com/api/revalidate')
+    expect(req.headers.get('content-type')).toBe('application/json')
+    const timestampHeader = req.headers.get('x-lontar-timestamp') ?? ''
+    const signatureHeader = req.headers.get('x-lontar-signature-256') ?? ''
+    expect(timestampHeader).toBeTruthy()
+    expect(signatureHeader).toMatch(/^sha256=[a-f0-9]{64}$/)
+    expect(
+      verifyWebhookSignature({
+        payload: req.body,
+        signature: signatureHeader,
+        secret: 'my-secret',
+        timestamp: timestampHeader,
+      }),
+    ).toBe(true)
+    expect(JSON.parse(req.body)).toEqual(samplePayload)
   })
 
   it('omits signature header when no secret is configured', async () => {
