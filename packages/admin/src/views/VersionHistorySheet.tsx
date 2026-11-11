@@ -251,23 +251,70 @@ function VersionDiffPanel({
   )
 }
 
+interface UseVersionSelectionArgs {
+  currentPageVersions: ClientVersion[]
+  firstPageVersions: ClientVersion[]
+  selectedId: number | null
+  currentDoc?: Record<string, unknown> | null
+}
+
 interface UseVersionSelectionResult {
   selectedVersion: ClientVersion | undefined
   latestDraft: ClientVersion | undefined
   latestPublished: ClientVersion | undefined
 }
 
-function useVersionSelection(
-  versions: ClientVersion[],
-  selectedId: number | null,
-): UseVersionSelectionResult {
-  const selectedVersion = useMemo(() => {
-    if (!selectedId && versions.length > 0) return versions[0]
-    return versions.find((v) => v.id === selectedId) ?? versions[0]
-  }, [versions, selectedId])
+function resolveLatestDraftVersion(
+  firstPageVersions: ClientVersion[],
+  currentDoc?: Record<string, unknown> | null,
+): ClientVersion | undefined {
+  if (currentDoc?._status === 'published') {
+    return undefined
+  }
+  const newestVersion = firstPageVersions[0]
+  if (newestVersion?._status === 'draft') {
+    return newestVersion
+  }
+  return undefined
+}
 
-  const latestDraft = useMemo(() => versions.find((v) => v._status === 'draft'), [versions])
-  const latestPublished = useMemo(() => versions.find((v) => v._status === 'published'), [versions])
+function resolveLatestPublishedVersion(
+  firstPageVersions: ClientVersion[],
+  currentPageVersions: ClientVersion[],
+  currentDoc?: Record<string, unknown> | null,
+): ClientVersion | undefined {
+  if (currentDoc?._isPublished === false) {
+    return undefined
+  }
+  const publishedOnFirstPage = firstPageVersions.find((v) => v._status === 'published')
+  if (publishedOnFirstPage) {
+    return publishedOnFirstPage
+  }
+  if (firstPageVersions.length > 0 && !publishedOnFirstPage) {
+    return currentPageVersions.find((v) => v._status === 'published')
+  }
+  return undefined
+}
+
+function useVersionSelection({
+  currentPageVersions,
+  firstPageVersions,
+  selectedId,
+  currentDoc,
+}: UseVersionSelectionArgs): UseVersionSelectionResult {
+  const selectedVersion = useMemo(() => {
+    if (!selectedId && currentPageVersions.length > 0) return currentPageVersions[0]
+    return currentPageVersions.find((v) => v.id === selectedId) ?? currentPageVersions[0]
+  }, [currentPageVersions, selectedId])
+
+  const latestDraft = useMemo(
+    () => resolveLatestDraftVersion(firstPageVersions, currentDoc),
+    [firstPageVersions, currentDoc],
+  )
+  const latestPublished = useMemo(
+    () => resolveLatestPublishedVersion(firstPageVersions, currentPageVersions, currentDoc),
+    [firstPageVersions, currentPageVersions, currentDoc],
+  )
 
   return { selectedVersion, latestDraft, latestPublished }
 }
@@ -435,7 +482,14 @@ function useVersionHistoryList({
 function useVersionHistorySheetState(
   props: Pick<
     VersionHistorySheetProps,
-    'apiBase' | 'collection' | 'global' | 'id' | 'open' | 'onOpenChange' | 'onRestoreSuccess'
+    | 'apiBase'
+    | 'collection'
+    | 'global'
+    | 'id'
+    | 'open'
+    | 'onOpenChange'
+    | 'onRestoreSuccess'
+    | 'currentDoc'
   >,
 ) {
   const [page, setPage] = useState(1)
@@ -453,11 +507,23 @@ function useVersionHistorySheetState(
     page,
   })
 
+  const firstPageQuery = useVersionHistoryList({
+    apiBase: props.apiBase,
+    collection: props.collection,
+    global: props.global,
+    id: props.id,
+    open: props.open,
+    page: 1,
+  })
+
   const versions = versionsQuery.data?.docs ?? []
-  const { selectedVersion, latestDraft, latestPublished } = useVersionSelection(
-    versions,
-    selectedVersionId,
-  )
+  const firstPageVersions = firstPageQuery.data?.docs ?? []
+  const { selectedVersion, latestDraft, latestPublished } = useVersionSelection({
+    currentPageVersions: versions,
+    firstPageVersions,
+    selectedId: selectedVersionId,
+    currentDoc: props.currentDoc,
+  })
 
   const {
     mutation: restoreMutation,
