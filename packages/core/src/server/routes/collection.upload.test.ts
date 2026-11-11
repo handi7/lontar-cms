@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 import { Hono } from 'hono'
 import { fields as f } from '../../fields'
 import { defineConfig } from '../../config/define-config'
+import type { CollectionConfig } from '../../config/types'
 import type {
   DatabaseAdapter,
   DocumentData,
@@ -164,6 +165,12 @@ function createMockDb(
       }
       return Promise.resolve(null)
     },
+    hasVersionWithFilename: (args: { collection: CollectionConfig; filename: string }) => {
+      const exists = versionsStore.some(
+        (v) => (v.snapshot as { filename?: string }).filename === args.filename,
+      )
+      return Promise.resolve(exists)
+    },
     findGlobal: () => Promise.resolve(null),
     updateGlobal: () =>
       Promise.resolve({
@@ -207,6 +214,11 @@ function createMockStorage(initialFiles?: Record<string, Buffer>) {
 
 const TINY_PNG = Buffer.from(
   'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==',
+  'base64',
+)
+
+const TINY_PNG_2 = Buffer.from(
+  'iVBORw0KGgoAAAANSUhEUgAAAAIAAAACCAYAAABytg0kAAAAFElEQVR42mNk+M/wn4GBgYGBgQEABwUBAQn8gVAAAAAASUVORK5CYII=',
   'base64',
 )
 
@@ -1512,6 +1524,70 @@ describe('collection upload routes', () => {
       const liveJson = (await liveRes.json()) as DocumentData
       expect(liveJson.filename).toBe('old.png')
       expect(liveJson._status).toBe('published')
+    })
+
+    it('draft upload with the same filename as the published file leaves the published file bytes unchanged', async () => {
+      const { app, files } = setupVersionsUpload()
+      const originalBytes = files.get('old.png')!
+      expect(originalBytes).toBeDefined()
+
+      // Draft upload uses the SAME filename "old.png", but with different bytes (TINY_PNG_2)
+      const formData = new FormData()
+      formData.append('file', new File([TINY_PNG_2], 'old.png', { type: 'image/png' }))
+      formData.append('alt', 'Draft update with same filename')
+
+      const patchRes = await app.request('/media/1?draft=true', {
+        method: 'PATCH',
+        body: formData,
+      })
+      expect(patchRes.status).toBe(200)
+      const patchJson = (await patchRes.json()) as DocumentData
+      // Draft upload should receive a disambiguated filename so it does not collide with the live file
+      expect(patchJson.filename).toBe('old-1.png')
+
+      // The published file old.png bytes MUST remain completely unchanged!
+      expect(files.get('old.png')).toEqual(originalBytes)
+      // The new draft file must have the new bytes
+      expect(files.get('old-1.png')).toEqual(TINY_PNG_2)
+    })
+
+    it("a second document cannot take a filename held only by another document's draft", async () => {
+      const { app, files } = setupVersionsUpload()
+
+      // Doc #1 creates a draft upload named 'custom-draft.png'
+      const form1 = new FormData()
+      form1.append('file', new File([TINY_PNG], 'custom-draft.png', { type: 'image/png' }))
+      form1.append('alt', 'Doc 1 draft image')
+
+      const res1 = await app.request('/media/1?draft=true', {
+        method: 'PATCH',
+        body: form1,
+      })
+      expect(res1.status).toBe(200)
+      const json1 = (await res1.json()) as DocumentData
+      expect(json1.filename).toBe('custom-draft.png')
+      expect(files.get('custom-draft.png')).toEqual(TINY_PNG)
+
+      // The parent table still has 'old.png' for doc 1, not 'custom-draft.png'
+      const doc1Live = await app.request('/media/1')
+      const doc1LiveJson = (await doc1Live.json()) as DocumentData
+      expect(doc1LiveJson.filename).toBe('old.png')
+
+      // Now create doc #2 with a file also named 'custom-draft.png'
+      const form2 = new FormData()
+      form2.append('file', new File([TINY_PNG_2], 'custom-draft.png', { type: 'image/png' }))
+      form2.append('alt', 'Doc 2 image')
+
+      const res2 = await app.request('/media', {
+        method: 'POST',
+        body: form2,
+      })
+      expect(res2.status).toBe(201)
+      const json2 = (await res2.json()) as DocumentData
+      // Doc 2 must NOT overwrite doc 1's draft file 'custom-draft.png'
+      expect(json2.filename).toBe('custom-draft-1.png')
+      expect(files.get('custom-draft.png')).toEqual(TINY_PNG)
+      expect(files.get('custom-draft-1.png')).toEqual(TINY_PNG_2)
     })
   })
 })

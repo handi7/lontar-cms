@@ -2430,6 +2430,34 @@ describe('mysqlAdapter (integration)', () => {
     expect(versions.docs.map((d) => d.versionNumber)).toEqual([1, 2, 3, 4, 5])
   })
 
+  it('checks if a filename is referenced in any version snapshot via hasVersionWithFilename', async () => {
+    const parentDoc = await adapter.create({
+      collection: versionedPostsCollection,
+      data: { title: 'Upload Doc' },
+    })
+
+    await adapter.saveVersion!({
+      collection: versionedPostsCollection,
+      parentId: parentDoc.id,
+      snapshot: { ...parentDoc, filename: 'draft-file.png' },
+      status: 'draft',
+    })
+
+    expect(
+      await adapter.hasVersionWithFilename!({
+        collection: versionedPostsCollection,
+        filename: 'draft-file.png',
+      }),
+    ).toBe(true)
+
+    expect(
+      await adapter.hasVersionWithFilename!({
+        collection: versionedPostsCollection,
+        filename: 'nonexistent-file.png',
+      }),
+    ).toBe(false)
+  })
+
   it('publish of a missing id returns 404 on real MySQL adapter', async () => {
     const app = createLontar(config)
     const res = await app.request('/api/versioned_posts/999999/publish', { method: 'POST' })

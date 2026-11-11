@@ -134,6 +134,10 @@ export interface DatabaseAdapter {
     parentId?: number
     maxPerDoc: number
   }): Promise<number>
+  hasVersionWithFilename?(args: {
+    collection: CollectionConfig
+    filename: string
+  }): Promise<boolean>
 
   /**
    * Run operations within a database transaction.
