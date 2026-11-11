@@ -10,16 +10,20 @@ export interface MigrateCreateOptions {
   envFile?: string
 }
 
-export function inspectMigrationForStatusBackfills(sql: string): string[] {
-  const warnings: string[] = []
+function escapeRegex(str: string): string {
+  return str.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+}
 
+function inspectAddStatus(sql: string): string[] {
+  const warnings: string[] = []
   const addStatusMatches = sql.matchAll(
-    /ALTER\s+TABLE\s+[`"]?(\w+)[`"]?\s+ADD(?:\s+COLUMN)?\s+[`"]?_status[`"]?/gi,
+    /ALTER\s+TABLE\s+(?:[`"]([^`"]+)[`"]|([^\s`";]+))\s+ADD(?:\s+COLUMN)?\s+[`"]?_status[`"]?/gi,
   )
   for (const match of addStatusMatches) {
-    const table = match[1]
+    const table = match[1] ?? match[2]
+    if (!table) continue
     const hasBackfill = new RegExp(
-      `UPDATE\\s+[\`"]?${table}[\`"]?\\s+SET\\s+[\`"]?_status[\`"]?\\s*=\\s*['"]published['"]`,
+      `UPDATE\\s+[\`"]?${escapeRegex(table)}[\`"]?\\s+SET\\s+[\`"]?_status[\`"]?\\s*=\\s*['"]published['"]`,
       'i',
     ).test(sql)
     if (!hasBackfill) {
@@ -28,14 +32,19 @@ export function inspectMigrationForStatusBackfills(sql: string): string[] {
       )
     }
   }
+  return warnings
+}
 
+function inspectModifyStatus(sql: string): string[] {
+  const warnings: string[] = []
   const modifyStatusMatches = sql.matchAll(
-    /ALTER\s+TABLE\s+[`"]?(\w+)[`"]?\s+MODIFY(?:\s+COLUMN)?\s+[`"]?_status[`"]?[^;]*NOT\s+NULL/gi,
+    /ALTER\s+TABLE\s+(?:[`"]([^`"]+)[`"]|([^\s`";]+))\s+MODIFY(?:\s+COLUMN)?\s+[`"]?_status[`"]?[^;]*NOT\s+NULL/gi,
   )
   for (const match of modifyStatusMatches) {
-    const table = match[1]
+    const table = match[1] ?? match[2]
+    if (!table) continue
     const hasNullCheck = new RegExp(
-      `UPDATE\\s+[\`"]?${table}[\`"]?\\s+SET\\s+[\`"]?_status[\`"]?[^;]*WHERE\\s+[\`"]?_status[\`"]?\\s+IS\\s+NULL`,
+      `UPDATE\\s+[\`"]?${escapeRegex(table)}[\`"]?\\s+SET\\s+[\`"]?_status[\`"]?[^;]*WHERE\\s+[\`"]?_status[\`"]?\\s+IS\\s+NULL`,
       'i',
     ).test(sql)
     if (!hasNullCheck) {
@@ -44,8 +53,11 @@ export function inspectMigrationForStatusBackfills(sql: string): string[] {
       )
     }
   }
-
   return warnings
+}
+
+export function inspectMigrationForStatusBackfills(sql: string): string[] {
+  return [...inspectAddStatus(sql), ...inspectModifyStatus(sql)]
 }
 
 function getMigrationSqlFiles(migrationsDir: string): Map<string, number> {
