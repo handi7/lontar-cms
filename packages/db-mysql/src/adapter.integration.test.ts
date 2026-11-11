@@ -240,6 +240,15 @@ const versionHistoryCollection: CollectionConfig = {
   },
 }
 
+const longSlugVersionedCollection: CollectionConfig = {
+  slug: 'newsletter_campaign_delivery_schedules',
+  labels: { singular: 'Schedule', plural: 'Schedules' },
+  versions: { drafts: true },
+  fields: {
+    title: { type: 'text', required: true },
+  },
+}
+
 describe('mysqlAdapter (integration)', () => {
   let testDb: TestDatabase
   let testDatabaseUrl: string
@@ -266,6 +275,7 @@ describe('mysqlAdapter (integration)', () => {
         sharedBlocksCollection,
         versionedPostsCollection,
         versionHistoryCollection,
+        longSlugVersionedCollection,
       ],
       globals: [headerGlobal, versionedSettingsGlobal],
     }
@@ -2524,5 +2534,29 @@ describe('mysqlAdapter (integration)', () => {
     expect(pubBody.error).toBe('Validation failed')
     expect(pubBody.issues).toBeDefined()
     expect(pubBody.issues.length).toBeGreaterThan(0)
+  })
+
+  it('creates and versions documents on a collection with a long slug (> 37 chars) whose index names are capped', async () => {
+    const doc = await adapter.create({
+      collection: longSlugVersionedCollection,
+      data: { title: 'Long Slug Doc', _status: 'published' },
+    })
+    expect(doc.id).toBeDefined()
+
+    const version = await adapter.saveVersion!({
+      collection: longSlugVersionedCollection,
+      parentId: doc.id,
+      snapshot: { ...doc, title: 'Draft Long Slug' },
+      status: 'draft',
+    })
+    expect(version.versionNumber).toBe(1)
+    expect(version.snapshot.title).toBe('Draft Long Slug')
+
+    const latest = await adapter.findLatestDraftVersion!({
+      collection: longSlugVersionedCollection,
+      parentId: doc.id,
+    })
+    expect(latest).not.toBeNull()
+    expect(latest?.snapshot.title).toBe('Draft Long Slug')
   })
 })

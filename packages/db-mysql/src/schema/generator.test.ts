@@ -1,6 +1,13 @@
 import { describe, expect, it } from 'vitest'
+import { getTableConfig } from 'drizzle-orm/mysql-core'
 import type { CollectionConfig, Config, DatabaseAdapter } from '@lontar/core'
 import { generateSchemaFile, slugToIdentifier } from './generator'
+import {
+  collectionToTable,
+  createVersionsTable,
+  getVersionsParentIdIndexName,
+  getVersionsParentStatusIndexName,
+} from './table'
 
 const fakeAdapter: DatabaseAdapter = {
   name: 'mysql',
@@ -513,7 +520,7 @@ describe('generateSchemaFile', () => {
     expect(output).toMatch(/import \{.*foreignKey,.*unique.*\} from '.*drizzle-orm\/mysql-core/)
   })
 
-  it('truncates versions parent FK and unique constraint to at most 64 characters for long collection slugs', () => {
+  it('truncates versions parent FK, unique constraint, and index names to at most 64 characters for long collection slugs', () => {
     const longCol: CollectionConfig = {
       slug: 'very-long-newsletter-campaigns-and-marketing-slug',
       versions: { drafts: true },
@@ -538,5 +545,43 @@ describe('generateSchemaFile', () => {
     const uqName = uqMatch?.[1] ?? ''
     expect(uqName.length).toBeLessThanOrEqual(64)
     expect(uqName).toMatch(/_[a-f0-9]{8}_unique$/)
+
+    const parentIdIdx = getVersionsParentIdIndexName(longCol.slug)
+    const parentStatusIdx = getVersionsParentStatusIndexName(longCol.slug)
+    expect(parentIdIdx.length).toBeLessThanOrEqual(64)
+    expect(parentStatusIdx.length).toBeLessThanOrEqual(64)
+    expect(parentIdIdx).toMatch(/_[a-f0-9]{8}_idx$/)
+    expect(parentStatusIdx).toMatch(/_[a-f0-9]{8}_idx$/)
+    expect(output).toContain(`index('${parentIdIdx}').on(t.parentId, t.id)`)
+    expect(output).toContain(`index('${parentStatusIdx}').on(t.parentId, t._status)`)
+  })
+
+  it('runtime table and generated schema agree on versions index names for long slugs', () => {
+    const slug = 'newsletter-campaign-delivery-schedules'
+    const col: CollectionConfig = {
+      slug,
+      versions: { drafts: true },
+      fields: { title: { type: 'text' } },
+    }
+    const parentTable = collectionToTable(col)
+    const vTable = createVersionsTable(slug, parentTable)
+    const tableConf = getTableConfig(vTable)
+    const runtimeIdxNames = tableConf.indexes.map((idx) => idx.config.name).sort()
+
+    const config: Config = {
+      secret: 'test-secret',
+      db: fakeAdapter,
+      collections: [col],
+    }
+    const output = generateSchemaFile(config)
+    const genIdxMatches = [...output.matchAll(/index\('([^']+)'\)/g)]
+      .map((m) => m[1]!)
+      .filter((n) => n.includes('versions') || n.includes('parent'))
+      .sort()
+
+    expect(genIdxMatches).toEqual(runtimeIdxNames)
+    for (const name of genIdxMatches) {
+      expect(name.length).toBeLessThanOrEqual(64)
+    }
   })
 })

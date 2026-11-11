@@ -178,6 +178,24 @@ export function getVersionsParentVersionUniqueName(slug: string): string {
   return `${baseName.slice(0, 48)}_${hash}_unique`
 }
 
+export function getVersionsParentIdIndexName(slug: string): string {
+  const baseName = `${slug}_versions_parent_id_idx`
+  if (baseName.length <= 64) {
+    return baseName
+  }
+  const hash = createHash('sha256').update(baseName).digest('hex').slice(0, 8)
+  return `${baseName.slice(0, 51)}_${hash}_idx`
+}
+
+export function getVersionsParentStatusIndexName(slug: string): string {
+  const baseName = `${slug}_versions_parent_status_idx`
+  if (baseName.length <= 64) {
+    return baseName
+  }
+  const hash = createHash('sha256').update(baseName).digest('hex').slice(0, 8)
+  return `${baseName.slice(0, 51)}_${hash}_idx`
+}
+
 export type VersionsTable = MySqlTable & {
   id: AnyMySqlColumn
   parentId: AnyMySqlColumn
@@ -196,6 +214,8 @@ export function createVersionsTable(
   const tableName = getVersionsTableName(collectionSlug)
   const fkName = getVersionsParentForeignKeyName(collectionSlug)
   const uniqueName = getVersionsParentVersionUniqueName(collectionSlug)
+  const parentIdIdxName = getVersionsParentIdIndexName(collectionSlug)
+  const parentStatusIdxName = getVersionsParentStatusIndexName(collectionSlug)
 
   const columns = {
     id: int('id').autoincrement().primaryKey(),
@@ -210,8 +230,8 @@ export function createVersionsTable(
 
   return mysqlTable(tableName, columns, (t) => {
     const extra: MySqlTableExtraConfigValue[] = [
-      index(`${tableName}_parent_id_idx`).on(t.parentId, t.id),
-      index(`${tableName}_parent_status_idx`).on(t.parentId, t._status),
+      index(parentIdIdxName).on(t.parentId, t.id),
+      index(parentStatusIdxName).on(t.parentId, t._status),
       unique(uniqueName).on(t.parentId, t.versionNumber),
     ]
     if (parentTable) {

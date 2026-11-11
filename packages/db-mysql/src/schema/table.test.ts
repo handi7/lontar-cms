@@ -9,6 +9,8 @@ import {
   getCollectionVersionsTable,
   getVersionsParentForeignKeyName,
   getVersionsParentVersionUniqueName,
+  getVersionsParentIdIndexName,
+  getVersionsParentStatusIndexName,
   globalToTable,
 } from './table'
 
@@ -324,7 +326,7 @@ describe('collectionToTable', () => {
     expect(config.foreignKeys[0]?.getName()).toBe('posts_versions_parent_id_posts_id_fk')
   })
 
-  it('truncates foreign key and unique constraint names when they exceed MySQL 64-character identifier limit', () => {
+  it('truncates foreign key, unique constraint, and index names when they exceed MySQL 64-character identifier limit', () => {
     const slug = 'very-long-newsletter-campaigns-and-marketing-slug'
     const parentTable = collectionToTable({
       slug,
@@ -341,6 +343,13 @@ describe('collectionToTable', () => {
     const uqName = config.uniqueConstraints[0]?.name ?? ''
     expect(uqName.length).toBeLessThanOrEqual(64)
     expect(uqName).toMatch(/_[a-f0-9]{8}_unique$/)
+
+    expect(config.indexes).toHaveLength(2)
+    for (const idx of config.indexes) {
+      const idxName = idx.config.name
+      expect(idxName.length).toBeLessThanOrEqual(64)
+      expect(idxName).toMatch(/_[a-f0-9]{8}_idx$/)
+    }
   })
 
   it('getVersionsParentForeignKeyName returns exact name when <= 64 and hashes when > 64', () => {
@@ -359,6 +368,24 @@ describe('collectionToTable', () => {
     )
     expect(longName.length).toBeLessThanOrEqual(64)
     expect(longName).toMatch(/_[a-f0-9]{8}_unique$/)
+  })
+
+  it('getVersionsParentIdIndexName returns exact name when <= 64 and hashes when > 64', () => {
+    expect(getVersionsParentIdIndexName('posts')).toBe('posts_versions_parent_id_idx')
+    const longName = getVersionsParentIdIndexName(
+      'very-long-newsletter-campaigns-and-marketing-slug',
+    )
+    expect(longName.length).toBeLessThanOrEqual(64)
+    expect(longName).toMatch(/_[a-f0-9]{8}_idx$/)
+  })
+
+  it('getVersionsParentStatusIndexName returns exact name when <= 64 and hashes when > 64', () => {
+    expect(getVersionsParentStatusIndexName('posts')).toBe('posts_versions_parent_status_idx')
+    const slug38 = 'newsletter-campaign-delivery-schedules'
+    expect(slug38.length).toBe(38)
+    const longName = getVersionsParentStatusIndexName(slug38)
+    expect(longName.length).toBeLessThanOrEqual(64)
+    expect(longName).toMatch(/_[a-f0-9]{8}_idx$/)
   })
 
   it('getCollectionVersionsTable returns null when versions is not configured', () => {
