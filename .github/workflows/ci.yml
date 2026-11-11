@@ -46,6 +46,14 @@ jobs:
       - run: pnpm lint
       - run: pnpm typecheck
       - run: pnpm build
+      - name: Verify example migrations are up to date
+        run: |
+          pnpm --filter next-blog migrate:create
+          if [ -n "$(git status --porcelain examples/next-blog/migrations)" ]; then
+            echo "Uncommitted migration changes detected in examples/next-blog/migrations"
+            git status --porcelain examples/next-blog/migrations
+            exit 1
+          fi
       # Installs the packed tarballs outside the workspace, the way users get them.
       - name: Pack and smoke-test the packages
         run: |
