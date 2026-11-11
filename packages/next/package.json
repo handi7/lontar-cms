@@ -1,6 +1,6 @@
 {
   "name": "@lontar/next",
-  "version": "0.3.0",
+  "version": "0.4.0",
   "description": "Next.js adapter for Lontar: serve the API from App Router route handlers.",
   "keywords": [
     "lontar",

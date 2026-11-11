@@ -5,6 +5,40 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.4.0] - 2026-11-11
+
+Drafts, version history and publishing (M8, tracked in #146). Editors can save without publishing, compare and restore earlier versions, autosave, and preview unsaved changes on the real frontend. Content changes can notify other services through signed webhooks. Everything here is opt-in per collection or global: a config written against 0.3.0 keeps working, except that a field can no longer be named `_status`. `@lontar/preview` is a new package. `@lontar/next`, `@lontar/storage-local` and `@lontar/storage-s3` have no changes of their own; they are published so their `@lontar/core` peer range moves with the rest.
+
+### Upgrading
+
+- A field named `_status` is rejected by `defineConfig` in every collection and global, whether or not it has drafts ([ADR 0023](docs/adr/0023-version-storage-and-drafts.md)). Rename it before upgrading.
+- Turning on `versions` for an existing collection or global needs a migration: run `lontar migrate:create`, then `lontar migrate`. The migration adds a `<slug>_versions` table, and with `drafts` a `_status` column on the parent table.
+- A new `_status` column defaults to `'draft'`, so rows that were already live would disappear from public reads. Add ``UPDATE `<table>` SET `_status` = 'published';`` to the migration. `migrate:create` prints a warning that names each table that needs it (#229, #283).
+
+### Added
+
+- `versions: { drafts: true }` on collections and globals. Documents get an engine-managed `_status` (`'draft' | 'published'`), the parent table always holds the published document, and pending draft edits live in `<slug>_versions`. Reads return published content by default; `draft: true` (Local API) or `?draft=true` (REST) returns the latest draft and requires update access ([ADR 0023](docs/adr/0023-version-storage-and-drafts.md)) (#198, #206).
+- Version history: every save writes a snapshot, kept up to `versions.maxPerDoc` (default 50, `0` for unlimited). `GET /:id/versions`, a single version, and `POST /:id/versions/:versionId/restore` for collections and globals, plus `publish`, `unpublish`, `findVersions` and `restoreVersion` on the Local API. Version endpoints require read and update access (#199, #206, #226).
+- `beforeValidate`, `beforeDelete` and `afterDelete` hooks. `beforeDelete` can abort a delete; `afterDelete` runs after the transaction commits (#200).
+- `beforeChange` and `afterChange` receive `status`, `previousStatus` and `statusTransition`. With drafts on, they run on draft saves as well as publishes, so guard external side effects with `statusTransition === 'publish'` (#198, #244).
+- Admin: a two-column edit layout with a document sidebar showing status and timestamps (#212); Save draft, Publish and Unpublish controls, and a status badge and status filter in the list view (#201); version history with a field-by-field compare and restore (#202).
+- Admin autosave, enabled with `versions: { drafts: { autosave: true } }` or `{ autosave: { interval } }`. It debounces on edits, never writes to the published row, and a continuous editing session collapses into one autosave version instead of one per save (#203, #232, #252).
+- Live preview: `admin.preview.url` is a URL template such as `https://mysite.com/posts/{slug}?preview=1`. The admin shows the page in an iframe beside the form and posts unsaved form state to it ([ADR 0024](docs/adr/0024-live-preview-and-webhooks.md)) (#204).
+- `@lontar/preview`: a frontend helper that receives those updates, with `useLivePreview` for React in `@lontar/preview/react`. Updates are merged over `initialData`, so populated relationships survive (#204, #235, #285).
+- Outgoing webhooks, configured at the root or per collection or global, on `create`, `update`, `change`, `publish`, `unpublish` and `delete`. They are delivered after the transaction commits, retried up to 3 times with backoff, and never fail the save. Requests carry `x-lontar-timestamp` and an HMAC-SHA256 `x-lontar-signature-256` over `${timestamp}.${body}`; `verifyWebhookSignature` from `@lontar/core` checks both, rejects a timestamp more than 5 minutes off, and returns `false` when the secret is missing. Set `includeDoc: true` to send the document (#205, #231, #242).
+- `generate:types` adds `_status: 'draft' | 'published'` to collections and globals with drafts.
+- `examples/next-blog` uses draft preview, live preview and webhook revalidation, covered by e2e (#207).
+
+### Changed
+
+- The admin edit form uses the two-column layout for every collection and global, including those without drafts (#212).
+- With versions enabled, a field named `versions` is rejected, since it would collide with the `<slug>_versions` table (#241).
+- Generated names for version table indexes and foreign keys are shortened with a hash when they would pass MySQL's 64-character limit (#241, #281).
+
+### Fixed
+
+Bugs found in review of the M8 work before release, none of which reached 0.3.0, are fixed here: draft saves overwriting the live row or dropping pending draft fields (#225, #238, #280, #284), draft uploads replacing published files (#228, #278), draft content leaking through `depth` population (#239), publish validation, locking and error mapping (#237, #240, #245, #277), webhooks firing before commit or not at all (#231, #247, #279), version numbering races (#243), the preview pane loading the wrong URL (#236), and admin autosave, restore, status badge and layout bugs (#230, #233, #234, #246, #261, #286–#288).
+
 ## [0.3.0] - 2026-11-09
 
 Complex fields: `group`, `array` and `blocks`, with conditional fields on top of them (M7, tracked in #151). Documents can hold nested and repeating content, and the REST API filters, sorts and populates inside it. Configs written against 0.2.0 keep working, with one exception: a field name can no longer contain `__`. `@lontar/storage-local` and `@lontar/storage-s3` have no changes of their own; they are published so their `@lontar/core` peer range moves with the rest.
