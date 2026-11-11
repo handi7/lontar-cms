@@ -15,6 +15,7 @@ export type MutationExecutionResult =
       isDraftRevision?: boolean
       statusTransition?: DocStatusTransition
       previousStatus?: DocStatus
+      dispatchWebhooks?: () => void
     }
   | { success: false; status: 400 | 404; body: { error: string; issues?: unknown[] } }
 
@@ -553,6 +554,34 @@ function dispatchPostUpdateWebhooks(args: {
   })
 }
 
+function handlePostUpdateWebhooks(args: {
+  config?: Config
+  collection: CollectionConfig
+  result: Extract<MutationExecutionResult, { success: true }>
+  originalDoc: DocumentData
+  fallbackTransition?: DocStatusTransition
+  deferWebhooks?: boolean
+  autosave?: boolean
+}): MutationExecutionResult {
+  if (args.autosave) {
+    return args.result
+  }
+  const dispatch = () => {
+    dispatchPostUpdateWebhooks({
+      config: args.config,
+      collection: args.collection,
+      result: args.result,
+      originalDoc: args.originalDoc,
+      fallbackTransition: args.fallbackTransition,
+    })
+  }
+  if (args.deferWebhooks) {
+    return { ...args.result, dispatchWebhooks: dispatch }
+  }
+  dispatch()
+  return args.result
+}
+
 export async function executeUpdate(args: {
   collection: CollectionConfig
   db: DatabaseAdapter
@@ -566,6 +595,7 @@ export async function executeUpdate(args: {
   autosave?: boolean
   userId?: string | null
   config?: Config
+  deferWebhooks?: boolean
 }): Promise<MutationExecutionResult> {
   const clientCol = toClientCollection(args.collection)
   const run = async (txDb: DatabaseAdapter): Promise<MutationExecutionResult> => {
@@ -630,13 +660,15 @@ export async function executeUpdate(args: {
     throw err
   }
 
-  if (result.success && !args.autosave) {
-    dispatchPostUpdateWebhooks({
+  if (result.success) {
+    return handlePostUpdateWebhooks({
       config: args.config,
       collection: args.collection,
       result,
       originalDoc: args.originalDoc,
       fallbackTransition: args.statusTransition,
+      deferWebhooks: args.deferWebhooks,
+      autosave: args.autosave,
     })
   }
 
@@ -911,6 +943,36 @@ function dispatchPostGlobalWebhooks(args: {
   })
 }
 
+function handlePostGlobalWebhooks(args: {
+  config?: Config
+  global: GlobalConfig
+  result: Extract<MutationExecutionResult, { success: true }>
+  existing: DocumentData | null
+  statusTransition?: DocStatusTransition
+  previousStatus?: DocStatus
+  deferWebhooks?: boolean
+  autosave?: boolean
+}): MutationExecutionResult {
+  if (args.autosave) {
+    return args.result
+  }
+  const dispatch = () => {
+    dispatchPostGlobalWebhooks({
+      config: args.config,
+      global: args.global,
+      result: args.result,
+      existing: args.existing,
+      statusTransition: args.statusTransition,
+      previousStatus: args.previousStatus,
+    })
+  }
+  if (args.deferWebhooks) {
+    return { ...args.result, dispatchWebhooks: dispatch }
+  }
+  dispatch()
+  return args.result
+}
+
 export async function executeGlobalUpdate(args: {
   global: GlobalConfig
   db: DatabaseAdapter
@@ -923,6 +985,7 @@ export async function executeGlobalUpdate(args: {
   statusTransition?: DocStatusTransition
   autosave?: boolean
   userId?: string | null
+  deferWebhooks?: boolean
 }): Promise<MutationExecutionResult> {
   const clientGlobal = toClientGlobal(args.global)
   const { status, previousStatus, statusTransition } = resolveGlobalUpdateStatus({
@@ -998,14 +1061,16 @@ export async function executeGlobalUpdate(args: {
     throw err
   }
 
-  if (result.success && !args.autosave) {
-    dispatchPostGlobalWebhooks({
+  if (result.success) {
+    return handlePostGlobalWebhooks({
       config: args.config,
       global: args.global,
       result,
       existing: args.existing,
       statusTransition,
       previousStatus,
+      deferWebhooks: args.deferWebhooks,
+      autosave: args.autosave,
     })
   }
 

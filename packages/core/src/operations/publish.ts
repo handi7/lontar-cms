@@ -153,7 +153,11 @@ async function transitionDocumentStatus<T = DocumentData>(
 
   const runTransition = async (
     txDb: DatabaseAdapter,
-  ): Promise<{ resultDoc: DocumentData; originalDoc: DocumentData }> => {
+  ): Promise<{
+    resultDoc: DocumentData
+    originalDoc: DocumentData
+    dispatchWebhooks?: () => void
+  }> => {
     const originalDoc = await txDb.findByID({
       collection: args.collection,
       id: args.id,
@@ -191,18 +195,21 @@ async function transitionDocumentStatus<T = DocumentData>(
       statusTransition,
       userId: args.user?.id,
       config: args.config,
+      deferWebhooks: true,
     })
 
     if (!result.success) {
       handleMutationResult(result, args.id, action)
     }
 
-    return { resultDoc: result.doc, originalDoc }
+    return { resultDoc: result.doc, originalDoc, dispatchWebhooks: result.dispatchWebhooks }
   }
 
-  const { resultDoc, originalDoc } = args.config.db.transaction
+  const { resultDoc, originalDoc, dispatchWebhooks } = args.config.db.transaction
     ? await args.config.db.transaction(runTransition)
     : await runTransition(args.config.db)
+
+  dispatchWebhooks?.()
 
   await maybeCleanupPublishedMedia(args, originalDoc, resultDoc, statusTransition)
 
@@ -356,7 +363,9 @@ async function transitionGlobalStatus<T = DocumentData>(
     await assertGlobalPublishAccess(args.global, args.user)
   }
 
-  const runTransition = async (txDb: DatabaseAdapter): Promise<DocumentData> => {
+  const runTransition = async (
+    txDb: DatabaseAdapter,
+  ): Promise<{ resultDoc: DocumentData; dispatchWebhooks?: () => void }> => {
     const originalDoc = await txDb.findGlobal({ global: args.global, forUpdate: true })
     if (!originalDoc) {
       throw new NotFoundError(`Global "${args.global.slug}" not found`)
@@ -388,15 +397,18 @@ async function transitionGlobalStatus<T = DocumentData>(
       statusTransition,
       userId: args.user?.id,
       config: args.config,
+      deferWebhooks: true,
     })
 
     assertGlobalTransitionSuccess(result, action)
-    return result.doc
+    return { resultDoc: result.doc, dispatchWebhooks: result.dispatchWebhooks }
   }
 
-  const resultDoc = args.config.db.transaction
+  const { resultDoc, dispatchWebhooks } = args.config.db.transaction
     ? await args.config.db.transaction(runTransition)
     : await runTransition(args.config.db)
+
+  dispatchWebhooks?.()
 
   return populateGlobalTransitionDoc<T>({
     doc: resultDoc,
