@@ -297,7 +297,7 @@ test.describe('Next.js Blog M8: Drafts, Live Preview and Revalidation', () => {
     expect(box?.width).toBeGreaterThanOrEqual(400)
 
     // 2. Select Tablet preset and verify scale label appears
-    await page.getByRole('button', { name: 'Tablet (768px)' }).click()
+    await page.getByRole('button', { name: /Tablet/ }).click()
     const scaleBadge = page.locator('[data-testid="preview-scale"]')
     await expect(scaleBadge).toBeVisible()
 
@@ -306,12 +306,16 @@ test.describe('Next.js Blog M8: Drafts, Live Preview and Revalidation', () => {
     const viewToggle = page.locator('[role="tablist"][aria-label="Editor view"]')
     await expect(viewToggle).toBeVisible()
 
+    // Since preview was toggled open, Preview tab is active; preview iframe is visible and form is hidden
+    await expect(page.locator('iframe[title="Live Preview"]')).toBeVisible()
+    await expect(fieldCol).not.toBeVisible()
+
     // Switching to Edit shows the form and hides preview pane
     await page.getByRole('tab', { name: 'Edit' }).click()
     await expect(fieldCol).toBeVisible()
     await expect(page.locator('iframe[title="Live Preview"]')).not.toBeVisible()
 
-    // Switching to Preview shows preview pane and hides form
+    // Switching back to Preview shows preview pane and hides form
     await page.getByRole('tab', { name: 'Preview' }).click()
     await expect(page.locator('iframe[title="Live Preview"]')).toBeVisible()
     await expect(fieldCol).not.toBeVisible()
