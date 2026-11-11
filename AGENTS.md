@@ -186,7 +186,7 @@ approval on the `npm` environment. Don't run `pnpm publish` by hand; see `docs/r
     - [x] Admin editing: #230 (done), #232 (done), #233 (done), #234 (done)
     - [x] Webhooks and preview: #231 (done), #235 (done), #236 (done)
     - [x] Core lifecycle: #237 (done), #238 (done), #239 (done), #244 (done), #245 (done)
-    - [ ] API and schema: #240 (done), #241 (done), #243
+    - [x] API and schema: #240 (done), #241 (done), #243 (done)
     - [ ] Minor: #242, #246, #247, #248
     - [ ] ADR decisions to record: #249
 - [ ] **M9: Second database adapter** (tracking in #147)

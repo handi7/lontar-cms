@@ -30,7 +30,7 @@ function tryUpdateMockAutosave(
   versions: StoredVersion[],
   args: SaveVersionArgs,
 ): StoredVersion | null {
-  if (!args.autosave) return null
+  if (!args.autosave || args.status !== 'draft') return null
   const latest = [...versions].reverse().find((v) => v.parentId === args.parentId)
   if (latest && latest._status === 'draft' && latest.autosave) {
     latest.snapshot = args.snapshot

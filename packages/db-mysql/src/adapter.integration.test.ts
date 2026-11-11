@@ -220,6 +220,16 @@ const versionedPostsCollection: CollectionConfig = {
   },
 }
 
+const versionHistoryCollection: CollectionConfig = {
+  slug: 'version_history_posts',
+  labels: { singular: 'Version History Post', plural: 'Version History Posts' },
+  versions: { drafts: true, maxPerDoc: 10 },
+  fields: {
+    title: { type: 'text', required: true },
+    content: { type: 'textarea' },
+  },
+}
+
 describe('mysqlAdapter (integration)', () => {
   let testDb: TestDatabase
   let testDatabaseUrl: string
@@ -244,6 +254,7 @@ describe('mysqlAdapter (integration)', () => {
         conditionalPostsCollection,
         sharedBlocksCollection,
         versionedPostsCollection,
+        versionHistoryCollection,
       ],
       globals: [headerGlobal, versionedSettingsGlobal],
     }
@@ -2262,5 +2273,149 @@ describe('mysqlAdapter (integration)', () => {
     })
     expect(versionsAfterPrune.totalDocs).toBe(2)
     expect(versionsAfterPrune.docs.map((d) => d.id)).toEqual([v3.id, v2.id])
+  })
+
+  it('supports sorting on findVersions (#243)', async () => {
+    const parentDoc = await adapter.create({
+      collection: versionHistoryCollection,
+      data: {
+        title: 'Sortable Document',
+        content: 'Original content',
+        _status: 'published',
+      },
+    })
+
+    const v1 = await adapter.saveVersion!({
+      collection: versionHistoryCollection,
+      parentId: parentDoc.id,
+      snapshot: { ...parentDoc, title: 'Sort Post v1' },
+      status: 'published',
+    })
+    const v2 = await adapter.saveVersion!({
+      collection: versionHistoryCollection,
+      parentId: parentDoc.id,
+      snapshot: { ...parentDoc, title: 'Sort Post v2' },
+      status: 'published',
+    })
+    const v3 = await adapter.saveVersion!({
+      collection: versionHistoryCollection,
+      parentId: parentDoc.id,
+      snapshot: { ...parentDoc, title: 'Sort Post v3' },
+      status: 'draft',
+    })
+
+    // Default without sort: newest first (id desc)
+    const defaultList = await adapter.findVersions!({
+      collection: versionHistoryCollection,
+      parentId: parentDoc.id,
+    })
+    expect(defaultList.docs.map((d) => d.id)).toEqual([v3.id, v2.id, v1.id])
+
+    // Ascending by versionNumber
+    const ascList = await adapter.findVersions!({
+      collection: versionHistoryCollection,
+      parentId: parentDoc.id,
+      sort: 'versionNumber',
+    })
+    expect(ascList.docs.map((d) => d.id)).toEqual([v1.id, v2.id, v3.id])
+
+    // Descending by versionNumber
+    const descList = await adapter.findVersions!({
+      collection: versionHistoryCollection,
+      parentId: parentDoc.id,
+      sort: '-versionNumber',
+    })
+    expect(descList.docs.map((d) => d.id)).toEqual([v3.id, v2.id, v1.id])
+  })
+
+  it('does not collapse into an autosave row when incoming save has status: published (#243)', async () => {
+    const parentDoc = await adapter.create({
+      collection: versionHistoryCollection,
+      data: {
+        title: 'Draft Post Document',
+        content: 'Initial text',
+        _status: 'published',
+      },
+    })
+
+    // 1. Initial draft autosave
+    const draftAutosave = await adapter.saveVersion!({
+      collection: versionHistoryCollection,
+      parentId: parentDoc.id,
+      snapshot: { ...parentDoc, title: 'Unsaved Draft' },
+      status: 'draft',
+      autosave: true,
+    })
+    expect(draftAutosave._status).toBe('draft')
+    expect(draftAutosave.autosave).toBe(true)
+
+    // 2. Incoming save with autosave: true but status: 'published'
+    const publishedSave = await adapter.saveVersion!({
+      collection: versionHistoryCollection,
+      parentId: parentDoc.id,
+      snapshot: { ...parentDoc, title: 'Published Save' },
+      status: 'published',
+      autosave: true,
+    })
+    expect(publishedSave.id).not.toBe(draftAutosave.id)
+    expect(publishedSave.versionNumber).toBe(draftAutosave.versionNumber + 1)
+    expect(publishedSave._status).toBe('published')
+
+    // 3. findLatestDraftVersion correctly returns null because the latest version is published (no phantom draft)
+    const latestDraft = await adapter.findLatestDraftVersion!({
+      collection: versionHistoryCollection,
+      parentId: parentDoc.id,
+    })
+    expect(latestDraft).toBeNull()
+
+    // 4. Both versions exist independently in history without overwriting
+    const versions = await adapter.findVersions!({
+      collection: versionHistoryCollection,
+      parentId: parentDoc.id,
+      sort: 'versionNumber',
+    })
+    expect(versions.totalDocs).toBe(2)
+    expect(versions.docs[0]?.id).toBe(draftAutosave.id)
+    expect(versions.docs[0]?._status).toBe('draft')
+    expect(versions.docs[0]?.snapshot.title).toBe('Unsaved Draft')
+    expect(versions.docs[1]?.id).toBe(publishedSave.id)
+    expect(versions.docs[1]?._status).toBe('published')
+    expect(versions.docs[1]?.snapshot.title).toBe('Published Save')
+  })
+
+  it('serializes concurrent version saves on the same parent document (#243)', async () => {
+    const parentDoc = await adapter.create({
+      collection: versionHistoryCollection,
+      data: {
+        title: 'Concurrent Document',
+        content: 'Concurrent content',
+        _status: 'published',
+      },
+    })
+
+    // Run 5 saves in parallel inside transactions
+    const saves = await Promise.all(
+      Array.from({ length: 5 }, (_, i) =>
+        adapter.transaction!(async (txAdapter) => {
+          return txAdapter.saveVersion!({
+            collection: versionHistoryCollection,
+            parentId: parentDoc.id,
+            snapshot: { ...parentDoc, title: `Concurrent Save ${i + 1}` },
+            status: 'published',
+          })
+        }),
+      ),
+    )
+
+    const versionNumbers = saves.map((s) => s.versionNumber).sort((a, b) => a - b)
+    expect(versionNumbers).toEqual([1, 2, 3, 4, 5])
+
+    const versions = await adapter.findVersions!({
+      collection: versionHistoryCollection,
+      parentId: parentDoc.id,
+      sort: 'versionNumber',
+    })
+    expect(versions.totalDocs).toBe(5)
+    expect(versions.docs.map((d) => d.versionNumber)).toEqual([1, 2, 3, 4, 5])
   })
 })
