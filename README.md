@@ -7,7 +7,12 @@ An open source, TypeScript-first headless CMS. Define your schema in a config fi
 ## Installation
 
 ```bash
+# Using MySQL
 pnpm add @lontar/core @lontar/db-mysql @lontar/next @lontar/admin
+pnpm add -D @lontar/cli
+
+# Or using PostgreSQL
+pnpm add @lontar/core @lontar/db-postgres @lontar/next @lontar/admin
 pnpm add -D @lontar/cli
 ```
 
@@ -85,6 +90,23 @@ export default defineConfig({
   globals: [SiteSettings],
 })
 ```
+
+### Database adapters
+
+Lontar supports MySQL and PostgreSQL via dedicated adapters:
+
+- **MySQL**:
+  ```ts
+  import { mysqlAdapter } from '@lontar/db-mysql'
+
+  db: mysqlAdapter({ url: process.env.DATABASE_URL! })
+  ```
+- **PostgreSQL**:
+  ```ts
+  import { postgresAdapter } from '@lontar/db-postgres'
+
+  db: postgresAdapter({ url: process.env.DATABASE_URL! })
+  ```
 
 `fields` is deliberately an object rather than an array, which makes TypeScript type inference simpler.
 
