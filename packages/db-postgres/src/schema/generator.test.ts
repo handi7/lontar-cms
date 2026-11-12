@@ -456,7 +456,12 @@ describe('generateSchemaFile', () => {
     }
 
     const output = generateSchemaFile(allFieldsConfig)
-    expect(output).toMatchSnapshot()
+    // Normalize absolute drizzle-orm import path to ensure snapshot is environment-independent
+    const normalized = output.replace(
+      /from\s+['"][^'"]*drizzle-orm\/pg-core[^'"]*['"]/,
+      "from 'drizzle-orm/pg-core'",
+    )
+    expect(normalized).toMatchSnapshot()
   })
 
   it('drizzle-kit generate --dialect postgresql accepts the generated schema for every field type', () => {
