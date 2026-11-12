@@ -1,4 +1,5 @@
 export { registerAdapterConformanceSuite } from './suite'
+export { findDrizzleKitBin } from './drizzle-kit'
 export {
   postsCollection,
   categoriesCollection,
