@@ -81,14 +81,19 @@ export interface PaginatedDocs<T = StoredDoc> {
 
 /**
  * Everything core needs from a database. Core never imports Drizzle; each
- * database package implements this. See docs/adr/0002-drizzle-mysql-adapter.md.
+ * database package implements this. See docs/adr/0002-drizzle-mysql-adapter.md
+ * and docs/adr/0025-postgres-adapter.md.
  *
  * Runtime methods receive the collection config on every call, so an adapter
  * never holds a copy of the config that could go stale.
  */
 export interface DatabaseAdapter {
-  /** e.g. `mysql`. Used in error messages and CLI output. */
+  /** Human-readable adapter name, e.g. 'mysql' or 'postgres'. Used in error messages and logs. */
   readonly name: string
+  /** Drizzle Kit dialect identifier: 'mysql' | 'postgresql' | 'sqlite'. */
+  readonly dialect?: 'mysql' | 'postgresql' | 'sqlite'
+  /** Optional maximum VARCHAR length supported by the database engine. */
+  readonly maxStringLength?: number
   /** Underlying adapter for Better Auth (e.g. drizzleAdapter). */
   readonly authAdapter?: unknown
 

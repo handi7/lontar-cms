@@ -1647,6 +1647,8 @@ function createDatabaseOperations(
 ): DatabaseAdapter {
   return {
     name: 'mysql',
+    dialect: 'mysql',
+    maxStringLength: 16383,
     authAdapter,
     find: (args) => findDocs(executor, caches, args),
     findByID: ({ collection, id, forUpdate }) =>

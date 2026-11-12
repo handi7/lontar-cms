@@ -121,4 +121,37 @@ ALTER TABLE \`site-settings\` MODIFY COLUMN \`_status\` varchar(20) NOT NULL DEF
     const warnings = inspectMigrationForStatusBackfills(sql)
     expect(warnings).toHaveLength(0)
   })
+
+  it('warns when ADD _status is present in PostgreSQL without published backfill', () => {
+    const sql = `
+ALTER TABLE "pages" ADD COLUMN "_status" varchar(20) DEFAULT 'draft' NOT NULL;
+`
+    const warnings = inspectMigrationForStatusBackfills(sql, 'postgresql')
+    expect(warnings).toHaveLength(1)
+    expect(warnings[0]).toContain('Migration adds "_status" to table "pages"')
+    expect(warnings[0]).toContain('UPDATE "pages" SET "_status" = \'published\';')
+  })
+
+  it('warns when ALTER COLUMN _status SET NOT NULL is present in PostgreSQL without NULL check backfill', () => {
+    const sql = `
+ALTER TABLE "posts" RENAME COLUMN "status" TO "_status";
+ALTER TABLE "posts" ALTER COLUMN "_status" SET NOT NULL;
+`
+    const warnings = inspectMigrationForStatusBackfills(sql, 'postgresql')
+    expect(warnings).toHaveLength(1)
+    expect(warnings[0]).toContain('Migration modifies "_status" to NOT NULL on table "posts"')
+    expect(warnings[0]).toContain(
+      'UPDATE "posts" SET "_status" = \'draft\' WHERE "_status" IS NULL;',
+    )
+  })
+
+  it('does not warn when PostgreSQL backfills are present', () => {
+    const sql = `
+ALTER TABLE "posts" RENAME COLUMN "status" TO "_status";
+UPDATE "posts" SET "_status" = 'draft' WHERE "_status" IS NULL;
+ALTER TABLE "posts" ALTER COLUMN "_status" SET NOT NULL;
+`
+    const warnings = inspectMigrationForStatusBackfills(sql, 'postgresql')
+    expect(warnings).toHaveLength(0)
+  })
 })

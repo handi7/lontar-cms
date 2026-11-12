@@ -14,7 +14,7 @@ function escapeRegex(str: string): string {
   return str.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
 }
 
-function inspectAddStatus(sql: string): string[] {
+function inspectAddStatus(sql: string, dialect?: string): string[] {
   const warnings: string[] = []
   const addStatusMatches = sql.matchAll(
     /ALTER\s+TABLE\s+(?:[`"]([^`"]+)[`"]|([^\s`";]+))\s+ADD(?:\s+COLUMN)?\s+[`"]?_status[`"]?/gi,
@@ -27,18 +27,24 @@ function inspectAddStatus(sql: string): string[] {
       'i',
     ).test(sql)
     if (!hasBackfill) {
-      warnings.push(
-        `Migration adds \`_status\` to table "${table}". Pre-existing rows will default to 'draft' and be hidden from public queries. If existing rows should remain published, add: UPDATE \`${table}\` SET \`_status\` = 'published';`,
-      )
+      if (dialect === 'postgresql') {
+        warnings.push(
+          `Migration adds "_status" to table "${table}". Pre-existing rows will default to 'draft' and be hidden from public queries. If existing rows should remain published, add: UPDATE "${table}" SET "_status" = 'published';`,
+        )
+      } else {
+        warnings.push(
+          `Migration adds \`_status\` to table "${table}". Pre-existing rows will default to 'draft' and be hidden from public queries. If existing rows should remain published, add: UPDATE \`${table}\` SET \`_status\` = 'published';`,
+        )
+      }
     }
   }
   return warnings
 }
 
-function inspectModifyStatus(sql: string): string[] {
+function inspectModifyStatus(sql: string, dialect?: string): string[] {
   const warnings: string[] = []
   const modifyStatusMatches = sql.matchAll(
-    /ALTER\s+TABLE\s+(?:[`"]([^`"]+)[`"]|([^\s`";]+))\s+MODIFY(?:\s+COLUMN)?\s+[`"]?_status[`"]?[^;]*NOT\s+NULL/gi,
+    /ALTER\s+TABLE\s+(?:[`"]([^`"]+)[`"]|([^\s`";]+))\s+(?:MODIFY(?:\s+COLUMN)?\s+[`"]?_status[`"]?[^;]*NOT\s+NULL|ALTER(?:\s+COLUMN)?\s+[`"]?_status[`"]?\s+SET\s+NOT\s+NULL)/gi,
   )
   for (const match of modifyStatusMatches) {
     const table = match[1] ?? match[2]
@@ -48,16 +54,22 @@ function inspectModifyStatus(sql: string): string[] {
       'i',
     ).test(sql)
     if (!hasNullCheck) {
-      warnings.push(
-        `Migration modifies \`_status\` to NOT NULL on table "${table}". If existing rows contain NULL values, MySQL strict mode will fail. Add a backfill before MODIFY: UPDATE \`${table}\` SET \`_status\` = 'draft' WHERE \`_status\` IS NULL;`,
-      )
+      if (dialect === 'postgresql') {
+        warnings.push(
+          `Migration modifies "_status" to NOT NULL on table "${table}". If existing rows contain NULL values, the NOT NULL constraint will fail. Add a backfill before applying NOT NULL: UPDATE "${table}" SET "_status" = 'draft' WHERE "_status" IS NULL;`,
+        )
+      } else {
+        warnings.push(
+          `Migration modifies \`_status\` to NOT NULL on table "${table}". If existing rows contain NULL values, MySQL strict mode will fail. Add a backfill before MODIFY: UPDATE \`${table}\` SET \`_status\` = 'draft' WHERE \`_status\` IS NULL;`,
+        )
+      }
     }
   }
   return warnings
 }
 
-export function inspectMigrationForStatusBackfills(sql: string): string[] {
-  return [...inspectAddStatus(sql), ...inspectModifyStatus(sql)]
+export function inspectMigrationForStatusBackfills(sql: string, dialect?: string): string[] {
+  return [...inspectAddStatus(sql, dialect), ...inspectModifyStatus(sql, dialect)]
 }
 
 function getMigrationSqlFiles(migrationsDir: string): Map<string, number> {
@@ -75,6 +87,7 @@ function getMigrationSqlFiles(migrationsDir: string): Map<string, number> {
 function warnOnMissingStatusBackfills(
   migrationsDir: string,
   beforeFiles: Map<string, number>,
+  dialect?: string,
 ): void {
   if (!fs.existsSync(migrationsDir)) return
   for (const entry of fs.readdirSync(migrationsDir, { withFileTypes: true })) {
@@ -84,7 +97,7 @@ function warnOnMissingStatusBackfills(
       const curMtime = fs.statSync(fullPath).mtimeMs
       if (prevMtime === undefined || curMtime > prevMtime) {
         const sql = fs.readFileSync(fullPath, 'utf-8')
-        const warnings = inspectMigrationForStatusBackfills(sql)
+        const warnings = inspectMigrationForStatusBackfills(sql, dialect)
         for (const warn of warnings) {
           console.warn(`[lontar:migrate] Warning: ${warn}`)
         }
@@ -110,15 +123,8 @@ export async function migrateCreate(options: MigrateCreateOptions = {}): Promise
   const outDir = path.relative(cwd, migrationsDir) || 'migrations'
   const schemaRel = path.relative(cwd, schemaPath)
 
-  const args: string[] = [
-    'generate',
-    '--dialect',
-    config.db.name,
-    '--schema',
-    schemaRel,
-    '--out',
-    outDir,
-  ]
+  const dialect = config.db.dialect ?? config.db.name
+  const args: string[] = ['generate', '--dialect', dialect, '--schema', schemaRel, '--out', outDir]
   if (options.name) {
     args.push('--name', options.name)
   }
@@ -131,5 +137,5 @@ export async function migrateCreate(options: MigrateCreateOptions = {}): Promise
     execFileSync(bin, args, { cwd, stdio: 'inherit' })
   }
 
-  warnOnMissingStatusBackfills(migrationsDir, beforeFiles)
+  warnOnMissingStatusBackfills(migrationsDir, beforeFiles, dialect)
 }
