@@ -31,7 +31,8 @@
       "@lontar/cli": ["./packages/cli/src/cli.ts"],
       "@lontar/next": ["./packages/next/src/index.ts"],
       "@lontar/storage-local": ["./packages/storage-local/src/index.ts"],
-      "@lontar/storage-s3": ["./packages/storage-s3/src/index.ts"]
+      "@lontar/storage-s3": ["./packages/storage-s3/src/index.ts"],
+      "@lontar/db-test-suite": ["./packages/db-test-suite/src/index.ts"]
     },
 
     "noEmit": true

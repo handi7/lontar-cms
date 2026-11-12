@@ -47,6 +47,7 @@
   },
   "devDependencies": {
     "@lontar/core": "workspace:*",
+    "@lontar/db-test-suite": "workspace:*",
     "@types/node": "^26.6.6",
     "drizzle-kit": "^0.31.11"
   },
