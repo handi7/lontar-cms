@@ -467,6 +467,29 @@ describe('defineConfig', () => {
     )
   })
 
+  it('allows maxLength exceeding 16383 on adapters without maxStringLength limit (e.g. Postgres)', () => {
+    const postgresFakeAdapter = { ...fakeAdapter, name: 'postgres', maxStringLength: undefined }
+    const config = {
+      secret: SECRET,
+      db: postgresFakeAdapter,
+      collections: [notes({ fields: { title: f.text({ maxLength: 50000 }) } })],
+    }
+    expect(defineConfig(config)).toBe(config)
+  })
+
+  it('reports custom adapter name and limit when exceeding adapter maxStringLength', () => {
+    const customAdapter = { ...fakeAdapter, name: 'custom-db', maxStringLength: 1000 }
+    expect(() =>
+      defineConfig({
+        secret: SECRET,
+        db: customAdapter,
+        collections: [notes({ fields: { title: f.text({ maxLength: 2000 }) } })],
+      }),
+    ).toThrow(
+      'Collection "notes": text field "title" maxLength (2000) exceeds custom-db VARCHAR limit of 1000',
+    )
+  })
+
   it('rejects collection pagination with non-positive defaultLimit or maxLimit', () => {
     expect(issuesOf([notes({ pagination: { defaultLimit: 0 } })])).toEqual([
       'Collection "notes": pagination.defaultLimit must be a positive integer.',

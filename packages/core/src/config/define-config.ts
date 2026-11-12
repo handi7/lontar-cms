@@ -10,6 +10,7 @@ import type {
   TextField,
   UploadField,
 } from '../fields/types'
+import type { DatabaseAdapter } from '../database/adapter'
 import type { CollectionConfig, Config, GlobalConfig, PaginationConfig } from './types'
 
 const SLUG = /^[a-z][a-z0-9-]*$/
@@ -19,6 +20,10 @@ const RESERVED_SLUGS = new Set(['globals', 'auth', 'user', 'session', 'account',
 const SYSTEM_FIELD_NAMES = new Set<string>(SYSTEM_FIELDS)
 const UPLOAD_SYSTEM_FIELD_NAMES = new Set<string>(UPLOAD_SYSTEM_FIELDS)
 const TEXT_LIKE_FIELD_TYPES = new Set(['text', 'textarea', 'email', 'select'])
+/**
+ * Default MySQL VARCHAR limit.
+ * @deprecated Sourced from `adapter.maxStringLength` per ADR 0025.
+ */
 export const MAX_VARCHAR_LENGTH = 16383
 
 export class LontarConfigError extends Error {
@@ -44,9 +49,12 @@ export function defineConfig<C extends Config>(config: C): C {
 function validateConfig(config: Config): string[] {
   const issues = validateSecret(config.secret)
   issues.push(...validatePagination('Config', config.pagination))
-  const { issues: collectionIssues, collectionMap } = validateCollections(config.collections)
+  const { issues: collectionIssues, collectionMap } = validateCollections(
+    config.collections,
+    config.db,
+  )
   issues.push(...collectionIssues)
-  issues.push(...validateGlobals(config.globals, collectionMap))
+  issues.push(...validateGlobals(config.globals, collectionMap, config.db))
   issues.push(...validateStorage(config))
   issues.push(...validateRootWebhooks(config.webhooks, collectionMap, config.globals))
   return issues
@@ -69,7 +77,10 @@ function validateSecret(secret: unknown): string[] {
   ]
 }
 
-function validateCollections(collections: readonly CollectionConfig[]): {
+function validateCollections(
+  collections: readonly CollectionConfig[],
+  dbAdapter?: DatabaseAdapter,
+): {
   issues: string[]
   collectionMap: Map<string, CollectionConfig>
 } {
@@ -82,7 +93,7 @@ function validateCollections(collections: readonly CollectionConfig[]): {
     }
     slugs.add(collection.slug)
     collectionMap.set(collection.slug, collection)
-    issues.push(...validateCollection(collection))
+    issues.push(...validateCollection(collection, dbAdapter))
   }
   for (const collection of collections) {
     issues.push(
@@ -95,6 +106,7 @@ function validateCollections(collections: readonly CollectionConfig[]): {
 function validateGlobals(
   globals: readonly GlobalConfig[] | undefined,
   collectionMap: Map<string, CollectionConfig>,
+  dbAdapter?: DatabaseAdapter,
 ): string[] {
   if (!globals) return []
   const issues: string[] = []
@@ -107,7 +119,7 @@ function validateGlobals(
       issues.push(`Global slug "${global.slug}" collides with a collection slug.`)
     }
     seen.add(global.slug)
-    issues.push(...validateGlobal(global))
+    issues.push(...validateGlobal(global, dbAdapter))
     issues.push(...validateFieldTargets(`Global "${global.slug}"`, global.fields, collectionMap))
   }
   return issues
@@ -167,13 +179,13 @@ function validateRelationshipTarget(
   return []
 }
 
-function validateCollection(collection: CollectionConfig): string[] {
+function validateCollection(collection: CollectionConfig, dbAdapter?: DatabaseAdapter): string[] {
   const where = `Collection "${collection.slug}"`
   const isUpload = Boolean(collection.upload)
   const hasVersions = Boolean(collection.versions)
   return [
     ...validateSlug(collection.slug, 'Collection'),
-    ...validateFields(where, collection.fields, isUpload, 1, hasVersions),
+    ...validateFields(where, collection.fields, isUpload, 1, hasVersions, dbAdapter),
     ...validatePagination(where, collection.pagination),
     ...validateVersions(where, collection.versions),
     ...validateAdmin(where, collection),
@@ -265,12 +277,12 @@ function validatePagination(where: string, pagination: PaginationConfig | undefi
   return issues
 }
 
-function validateGlobal(global: GlobalConfig): string[] {
+function validateGlobal(global: GlobalConfig, dbAdapter?: DatabaseAdapter): string[] {
   const where = `Global "${global.slug}"`
   const hasVersions = Boolean(global.versions)
   return [
     ...validateSlug(global.slug, 'Global'),
-    ...validateFields(where, global.fields, false, 1, hasVersions),
+    ...validateFields(where, global.fields, false, 1, hasVersions, dbAdapter),
     ...validateVersions(where, global.versions),
     ...validatePreview(where, global.admin?.preview),
     ...validateGlobalAccess(where, global),
@@ -284,6 +296,7 @@ function validateFields(
   isUpload: boolean,
   depth: number,
   hasVersions = false,
+  dbAdapter?: DatabaseAdapter,
 ): string[] {
   const issues: string[] = []
   for (const [name, field] of Object.entries(fields)) {
@@ -293,7 +306,7 @@ function validateFields(
     if (depth > 1 && name === 'id') {
       issues.push(`${where}: field name "id" is reserved.`)
     }
-    issues.push(...validateField(where, name, field, fields, depth))
+    issues.push(...validateField(where, name, field, fields, depth, dbAdapter))
   }
   return issues
 }
@@ -406,6 +419,7 @@ function validateBlocksContent(
   name: string,
   field: BlocksField,
   depth: number,
+  dbAdapter?: DatabaseAdapter,
 ): string[] {
   const issues: string[] = []
   if (!field.blocks) return issues
@@ -426,6 +440,8 @@ function validateBlocksContent(
         block.fields,
         false,
         depth + 1,
+        false,
+        dbAdapter,
       ),
     )
   }
@@ -438,9 +454,10 @@ function validateField(
   field: Field,
   fields: Record<string, Field>,
   depth: number,
+  dbAdapter?: DatabaseAdapter,
 ): string[] {
   if (field.type === 'text') {
-    return validateTextField(where, name, field)
+    return validateTextField(where, name, field, dbAdapter)
   }
   if (field.type === 'textarea') {
     return validateTextareaField(where, name, field)
@@ -451,19 +468,33 @@ function validateField(
   if (field.type === 'group') {
     return [
       ...validateGroupField(where, name, depth),
-      ...validateFields(`${where} -> group "${name}"`, field.fields, false, depth + 1),
+      ...validateFields(
+        `${where} -> group "${name}"`,
+        field.fields,
+        false,
+        depth + 1,
+        false,
+        dbAdapter,
+      ),
     ]
   }
   if (field.type === 'array') {
     return [
       ...validateArrayField(where, name, field, depth),
-      ...validateFields(`${where} -> array "${name}"`, field.fields, false, depth + 1),
+      ...validateFields(
+        `${where} -> array "${name}"`,
+        field.fields,
+        false,
+        depth + 1,
+        false,
+        dbAdapter,
+      ),
     ]
   }
   if (field.type === 'blocks') {
     return [
       ...validateBlocksField(where, name, field, depth),
-      ...validateBlocksContent(where, name, field, depth),
+      ...validateBlocksContent(where, name, field, depth, dbAdapter),
     ]
   }
   return []
@@ -491,27 +522,53 @@ function validateSlugField(
   return []
 }
 
-function validateTextField(where: string, name: string, field: TextField): string[] {
-  const issues: string[] = []
-  if (field.maxLength !== undefined) {
-    if (!Number.isInteger(field.maxLength) || field.maxLength <= 0) {
-      issues.push(`${where}: text field "${name}" maxLength must be a positive integer.`)
-    } else if (field.maxLength > MAX_VARCHAR_LENGTH) {
-      issues.push(
-        `${where}: text field "${name}" maxLength (${field.maxLength}) exceeds MySQL VARCHAR limit of ${MAX_VARCHAR_LENGTH}. Use a textarea field for longer text.`,
-      )
-    }
+function validateTextMaxLength(
+  where: string,
+  name: string,
+  maxLength: number | undefined,
+  dbAdapter?: DatabaseAdapter,
+): string[] {
+  if (maxLength === undefined) return []
+  if (!Number.isInteger(maxLength) || maxLength <= 0) {
+    return [`${where}: text field "${name}" maxLength must be a positive integer.`]
   }
-  if (field.minLength !== undefined) {
-    if (!Number.isInteger(field.minLength) || field.minLength < 0) {
-      issues.push(`${where}: text field "${name}" minLength must be a non-negative integer.`)
-    } else if (field.maxLength !== undefined && field.minLength > field.maxLength) {
-      issues.push(
-        `${where}: text field "${name}" minLength (${field.minLength}) cannot be greater than maxLength (${field.maxLength}).`,
-      )
-    }
+  if (dbAdapter?.maxStringLength !== undefined && maxLength > dbAdapter.maxStringLength) {
+    const dbLabel = dbAdapter.name === 'mysql' ? 'MySQL' : dbAdapter.name
+    return [
+      `${where}: text field "${name}" maxLength (${maxLength}) exceeds ${dbLabel} VARCHAR limit of ${dbAdapter.maxStringLength}. Use a textarea field for longer text.`,
+    ]
   }
-  return issues
+  return []
+}
+
+function validateTextMinLength(
+  where: string,
+  name: string,
+  minLength: number | undefined,
+  maxLength: number | undefined,
+): string[] {
+  if (minLength === undefined) return []
+  if (!Number.isInteger(minLength) || minLength < 0) {
+    return [`${where}: text field "${name}" minLength must be a non-negative integer.`]
+  }
+  if (maxLength !== undefined && minLength > maxLength) {
+    return [
+      `${where}: text field "${name}" minLength (${minLength}) cannot be greater than maxLength (${maxLength}).`,
+    ]
+  }
+  return []
+}
+
+function validateTextField(
+  where: string,
+  name: string,
+  field: TextField,
+  dbAdapter?: DatabaseAdapter,
+): string[] {
+  return [
+    ...validateTextMaxLength(where, name, field.maxLength, dbAdapter),
+    ...validateTextMinLength(where, name, field.minLength, field.maxLength),
+  ]
 }
 
 function validateTextareaField(where: string, name: string, field: TextareaField): string[] {

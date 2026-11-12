@@ -28,7 +28,9 @@ function noDatabase(): never {
 }
 
 export const fakeAdapter: DatabaseAdapter = {
-  name: 'fake-adapter',
+  name: 'mysql',
+  dialect: 'mysql',
+  maxStringLength: 16383,
   find: noDatabase,
   findByID: noDatabase,
   create: noDatabase,
