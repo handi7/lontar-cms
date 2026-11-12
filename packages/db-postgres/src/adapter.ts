@@ -1,29 +1,1473 @@
 import { drizzleAdapter } from 'better-auth/adapters/drizzle'
-import { drizzle } from 'drizzle-orm/node-postgres'
+import {
+  and,
+  asc,
+  count,
+  desc,
+  eq,
+  gt,
+  gte,
+  ilike,
+  inArray,
+  isNotNull,
+  isNull,
+  lt,
+  lte,
+  max,
+  ne,
+  notInArray,
+  or,
+  sql,
+  type SQL,
+} from 'drizzle-orm'
+import { drizzle, type NodePgDatabase } from 'drizzle-orm/node-postgres'
+import { migrate } from 'drizzle-orm/node-postgres/migrator'
+import type { PgColumn } from 'drizzle-orm/pg-core'
 import pg from 'pg'
-import type { Config, DatabaseAdapter } from '@lontar/core'
+import {
+  DEFAULT_LIMIT,
+  DEFAULT_MAX_PER_DOC,
+  generateRowId,
+  parseSort,
+  type ArrayField,
+  type Block,
+  type BlocksField,
+  type CollectionConfig,
+  type Config,
+  type DatabaseAdapter,
+  type DocStatus,
+  type DocumentData,
+  type Field,
+  type Fields,
+  type FindArgs,
+  type FindVersionsArgs,
+  type GlobalConfig,
+  type GroupField,
+  type PaginatedDocs,
+  type PaginatedVersions,
+  type SaveVersionArgs,
+  type SortItem,
+  type StoredDoc,
+  type StoredVersion,
+  type Where,
+} from '@lontar/core'
 import { authTables } from './schema/auth'
 import { generateSchemaFile } from './schema/generator'
+import {
+  collectionToTable,
+  createVersionsTable,
+  flattenGroupFields,
+  getCollectionJunctionTables,
+  globalToTable,
+  type DynamicTable,
+  type JunctionTable,
+  type VersionsTable,
+} from './schema/table'
 
 export interface PostgresAdapterOptions {
   url: string
-  pool?: {
-    max?: number
-    idleTimeoutMillis?: number
-    connectionTimeoutMillis?: number
-  }
+  pool?: pg.PoolConfig
 }
 
 export type PostgresAdapter = DatabaseAdapter & {
   close(): Promise<void>
 }
 
+type AdapterDb = NodePgDatabase<typeof authTables>
+type TransactionCallback = Parameters<AdapterDb['transaction']>[0]
+type AdapterTx = Parameters<TransactionCallback>[0]
+type DbExecutor = AdapterDb | AdapterTx
+
+type InsertValues = Parameters<ReturnType<AdapterDb['insert']>['values']>[0]
+type UpdateSetValues = Parameters<ReturnType<AdapterDb['update']>['set']>[0]
+
+function unflattenSubField(
+  row: Record<string, unknown>,
+  colName: string,
+  subField: Field,
+): { value: unknown; hasValue: boolean } {
+  if (subField.type === 'group') {
+    const nested = unflattenGroupField(row, colName, subField)
+    return { value: nested, hasValue: nested !== null }
+  }
+  const val = row[colName]
+  const value = val instanceof Date ? val.toISOString() : (val ?? null)
+  return { value, hasValue: val !== null && val !== undefined }
+}
+
+function unflattenGroupField(
+  row: Record<string, unknown>,
+  prefix: string,
+  groupField: GroupField,
+): Record<string, unknown> | null {
+  const result: Record<string, unknown> = {}
+  let hasAnyNonNull = false
+  for (const [subName, subField] of Object.entries(groupField.fields)) {
+    const colName = `${prefix}__${subName}`
+    const { value, hasValue } = unflattenSubField(row, colName, subField)
+    result[subName] = value
+    if (hasValue) {
+      hasAnyNonNull = true
+    }
+  }
+  if (!hasAnyNonNull && !groupField.required) {
+    return null
+  }
+  return result
+}
+
+function unflattenDoc(doc: Record<string, unknown>, fields?: Fields): Record<string, unknown> {
+  if (!fields) return doc
+  const result: Record<string, unknown> = { ...doc }
+  for (const [fieldName, field] of Object.entries(fields)) {
+    if (field.type === 'group') {
+      result[fieldName] = unflattenGroupField(doc, fieldName, field)
+    }
+  }
+  for (const key of Object.keys(result)) {
+    if (key.includes('__')) {
+      delete result[key]
+    }
+  }
+  return result
+}
+
+function toStoredDoc(row: Record<string, unknown>, fields?: Fields): StoredDoc {
+  const converted: Record<string, unknown> = {}
+  for (const [key, value] of Object.entries(row)) {
+    if (value instanceof Date) {
+      converted[key] = value.toISOString()
+    } else {
+      converted[key] = value
+    }
+  }
+  const baseDoc = {
+    ...converted,
+    id: Number(row.id),
+    createdAt: row.createdAt instanceof Date ? row.createdAt.toISOString() : String(row.createdAt),
+    updatedAt: row.updatedAt instanceof Date ? row.updatedAt.toISOString() : String(row.updatedAt),
+  }
+  return unflattenDoc(baseDoc, fields) as StoredDoc
+}
+
+function normalizeDateString(str: string): string {
+  const trimmed = str.trim()
+  if (/^\d{4}-\d{2}-\d{2}[T ]\d{2}:\d{2}(:\d{2}(\.\d+)?)?$/.test(trimmed)) {
+    return `${trimmed.replace(' ', 'T')}Z`
+  }
+  return trimmed
+}
+
+function sanitizeDate(value: unknown): unknown {
+  if (value === '' || value === null || value === undefined) return null
+  if (typeof value === 'string') {
+    return new Date(normalizeDateString(value))
+  }
+  return value
+}
+
+function sanitizeRichText(value: unknown): unknown {
+  if (value === '' || value === null || value === undefined) return null
+  if (typeof value === 'string') {
+    try {
+      return JSON.parse(value)
+    } catch {
+      return null
+    }
+  }
+  return value
+}
+
+function sanitizeRelationship(
+  field: CollectionConfig['fields'][string] | undefined,
+  value: unknown,
+): unknown {
+  if (value === '' || value === null || value === undefined) return null
+  if (field?.type === 'relationship' && field.hasMany) {
+    if (Array.isArray(value)) {
+      return value.map((v) => Number(v)).filter((n) => !Number.isNaN(n))
+    }
+    return []
+  }
+  const num = Number(value)
+  return Number.isNaN(num) ? null : num
+}
+
+function parseJsonArray(value: unknown): unknown[] | null {
+  if (value === '' || value === null || value === undefined) return null
+  let arr: unknown = value
+  if (typeof arr === 'string') {
+    try {
+      arr = JSON.parse(arr) as unknown
+    } catch {
+      return null
+    }
+  }
+  return Array.isArray(arr) ? arr : null
+}
+
+function sanitizeArrayField(field: ArrayField, value: unknown): unknown {
+  const arr = parseJsonArray(value)
+  if (!arr) return null
+  return arr.map((item: unknown): unknown => {
+    if (!item || typeof item !== 'object' || Array.isArray(item)) return item
+    const record = { ...(item as Record<string, unknown>) }
+    if (!record.id) {
+      record.id = generateRowId()
+    }
+    for (const [subKey, subField] of Object.entries(field.fields)) {
+      if (subKey in record) {
+        record[subKey] = sanitizeFieldValue(subField, record[subKey])
+      }
+    }
+    return record
+  })
+}
+
+function sanitizeBlocksField(field: BlocksField, value: unknown): unknown {
+  const arr = parseJsonArray(value)
+  if (!arr) return null
+  return arr.map((item: unknown): unknown => {
+    if (!item || typeof item !== 'object' || Array.isArray(item)) return item
+    const record = { ...(item as Record<string, unknown>) }
+    if (!record.id) {
+      record.id = generateRowId()
+    }
+    const blockDef = field.blocks.find((b) => b.slug === record.blockType)
+    if (blockDef) {
+      for (const [subKey, subField] of Object.entries(blockDef.fields)) {
+        if (subKey in record) {
+          record[subKey] = sanitizeFieldValue(subField, record[subKey])
+        }
+      }
+    }
+    return record
+  })
+}
+
+function sanitizeGroupField(field: GroupField, value: unknown): unknown {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return value
+  const record = { ...(value as Record<string, unknown>) }
+  for (const [subKey, subField] of Object.entries(field.fields)) {
+    if (subKey in record) {
+      record[subKey] = sanitizeFieldValue(subField, record[subKey])
+    }
+  }
+  return record
+}
+
+function sanitizeFieldValue(
+  field: CollectionConfig['fields'][string] | undefined,
+  value: unknown,
+): unknown {
+  if (!field) return value
+  switch (field.type) {
+    case 'date':
+      return sanitizeDate(value)
+    case 'richText':
+      return sanitizeRichText(value)
+    case 'relationship':
+      return sanitizeRelationship(field, value)
+    case 'array':
+      return sanitizeArrayField(field, value)
+    case 'blocks':
+      return sanitizeBlocksField(field, value)
+    case 'group':
+      return sanitizeGroupField(field, value)
+    default:
+      return value
+  }
+}
+
+function flattenGroupValue(
+  groupField: GroupField,
+  val: unknown,
+  colName: string,
+): Record<string, unknown> {
+  const result: Record<string, unknown> = {}
+  if (val === null) {
+    const flatGroup = flattenGroupFields(groupField.fields, colName)
+    for (const flatCol of flatGroup) {
+      result[flatCol.name] = null
+    }
+    return result
+  }
+  if (!val || typeof val !== 'object') return result
+
+  for (const [subKey, subVal] of Object.entries(val as Record<string, unknown>)) {
+    const subField = groupField.fields[subKey]
+    if (!subField) continue
+    const fullCol = `${colName}__${subKey}`
+    if (subField.type === 'group') {
+      Object.assign(result, flattenGroupValue(subField, subVal, fullCol))
+    } else if (!(subField.type === 'relationship' && subField.hasMany)) {
+      result[fullCol] = sanitizeFieldValue(subField, subVal)
+    }
+  }
+  return result
+}
+
+function sanitizeEntry(
+  clean: Record<string, unknown>,
+  fields: Fields,
+  key: string,
+  value: unknown,
+): void {
+  const field = fields[key]
+  if (field?.type === 'group') {
+    Object.assign(clean, flattenGroupValue(field, value, key))
+  } else if (!(field?.type === 'relationship' && field.hasMany)) {
+    clean[key] = sanitizeFieldValue(field, value)
+  }
+}
+
+function sanitizeData(schema: { fields: Fields }, data: DocumentData): DocumentData {
+  const clean: DocumentData = {}
+  for (const [key, value] of Object.entries(data)) {
+    if (key !== 'id' && key !== 'createdAt' && key !== 'updatedAt') {
+      sanitizeEntry(clean, schema.fields, key, value)
+    }
+  }
+  return clean
+}
+
+function castSystemField(fieldName: string, value: unknown): unknown {
+  if (fieldName === 'id') {
+    const num = Number(value)
+    return Number.isNaN(num) ? value : num
+  }
+  if (fieldName === 'createdAt' || fieldName === 'updatedAt') {
+    return typeof value === 'string' ? new Date(value) : value
+  }
+  if (fieldName === '_status') {
+    return typeof value === 'string' ? value : String(value)
+  }
+  return undefined
+}
+
+function castCheckbox(value: unknown): boolean {
+  if (value === 'true' || value === '1' || value === 1 || value === true) return true
+  if (value === 'false' || value === '0' || value === 0 || value === false) return false
+  return Boolean(value)
+}
+
+function castConfigField(
+  field: CollectionConfig['fields'][string] | undefined,
+  value: unknown,
+): unknown {
+  if (!field) return value
+  if (field.type === 'number' || field.type === 'relationship') {
+    const num = Number(value)
+    return Number.isNaN(num) ? value : num
+  }
+  if (field.type === 'date') {
+    return typeof value === 'string' ? new Date(normalizeDateString(value)) : value
+  }
+  if (field.type === 'checkbox') {
+    return castCheckbox(value)
+  }
+  return value
+}
+
+function findFieldInBlocks(blocks: readonly Block[], name: string): Field | undefined {
+  for (const b of blocks) {
+    if (b.fields[name]) return b.fields[name]
+  }
+  return undefined
+}
+
+function resolveBlocksNext(
+  field: Field,
+  parts: string[],
+  currentIndex: number,
+): { nextFields?: Fields; foundField?: Field; skipCount: number } | null {
+  if (field.type !== 'blocks') return null
+  const nextPart = parts[currentIndex + 1] ?? ''
+  if (nextPart === 'id' || nextPart === 'blockType') {
+    return { foundField: { type: 'text', required: true }, skipCount: 1 }
+  }
+  const block = field.blocks.find((b) => b.slug === nextPart)
+  if (block) {
+    return { nextFields: block.fields, skipCount: 1 }
+  }
+  const found = findFieldInBlocks(field.blocks, nextPart)
+  if (!found) return null
+  if (currentIndex + 1 === parts.length - 1) {
+    return { foundField: found, skipCount: 1 }
+  }
+  if (found.type === 'group' || found.type === 'array') {
+    return { nextFields: found.fields, skipCount: 1 }
+  }
+  return null
+}
+
+interface ResolveStepResult {
+  done?: boolean
+  field?: Field
+  nextFields?: Fields
+  skipCount?: number
+}
+
+function resolveStep(f: Field, parts: string[], i: number): ResolveStepResult {
+  if (i === parts.length - 1) {
+    return { done: true, field: f }
+  }
+  if (f.type === 'group' || f.type === 'array') {
+    if (parts[i + 1] === 'id') {
+      return { done: true, field: { type: 'text', required: true } }
+    }
+    return { nextFields: f.fields, skipCount: 0 }
+  }
+  const blocksResult = resolveBlocksNext(f, parts, i)
+  if (!blocksResult) {
+    return { done: true, field: undefined }
+  }
+  if (blocksResult.foundField) {
+    return { done: true, field: blocksResult.foundField }
+  }
+  return { nextFields: blocksResult.nextFields, skipCount: blocksResult.skipCount }
+}
+
+function resolveField(fields: Fields, fieldPath: string): Field | undefined {
+  const parts = fieldPath.includes('.') ? fieldPath.split('.') : fieldPath.split('__')
+  let currentFields: Fields = fields
+
+  for (let i = 0; i < parts.length; i++) {
+    const part = parts[i]
+    if (!part) return undefined
+    const f: Field | undefined = currentFields[part]
+    if (!f) return undefined
+
+    const step = resolveStep(f, parts, i)
+    if (step.done) return step.field
+    if (step.nextFields) {
+      currentFields = step.nextFields
+      i += step.skipCount ?? 0
+    }
+  }
+  return undefined
+}
+
+function castFieldValue(collection: CollectionConfig, fieldName: string, value: unknown): unknown {
+  if (value === null || value === undefined) return value
+  const sysVal = castSystemField(fieldName, value)
+  if (sysVal !== undefined) return sysVal
+  const field = resolveField(collection.fields, fieldName)
+  return castConfigField(field, value)
+}
+
+function buildInCondition(column: PgColumn, operator: string, value: unknown): SQL | undefined {
+  if (operator === 'in') {
+    const arr = Array.isArray(value) ? value : [value]
+    return arr.length > 0 ? inArray(column, arr) : undefined
+  }
+  if (operator === 'not_in') {
+    const arr = Array.isArray(value) ? value : [value]
+    return arr.length > 0 ? notInArray(column, arr) : undefined
+  }
+  return undefined
+}
+
+function buildBasicCondition(column: PgColumn, operator: string, value: unknown): SQL | undefined {
+  switch (operator) {
+    case 'equals':
+      return eq(column, value)
+    case 'not_equals':
+      return ne(column, value)
+    case 'like':
+      return ilike(column, String(value))
+    case 'contains':
+      return ilike(column, `%${String(value)}%`)
+    case 'exists':
+      return value ? isNotNull(column) : isNull(column)
+    default:
+      return buildInCondition(column, operator, value)
+  }
+}
+
+function buildComparisonCondition(
+  column: PgColumn,
+  operator: string,
+  value: unknown,
+): SQL | undefined {
+  switch (operator) {
+    case 'greater_than':
+      return gt(column, value)
+    case 'less_than':
+      return lt(column, value)
+    case 'greater_than_equal':
+      return gte(column, value)
+    case 'less_than_equal':
+      return lte(column, value)
+    default:
+      return undefined
+  }
+}
+
+function buildCondition(column: PgColumn, operator: string, value: unknown): SQL | undefined {
+  return (
+    buildBasicCondition(column, operator, value) ??
+    buildComparisonCondition(column, operator, value)
+  )
+}
+
+function parseHasManyOpCondition(
+  table: DynamicTable,
+  junctionTable: JunctionTable,
+  op: string,
+  val: unknown,
+): SQL | undefined {
+  if (val === undefined || val === null) return undefined
+  if (op === 'equals') {
+    const id = Number(val)
+    return Number.isNaN(id)
+      ? undefined
+      : sql`${table.id} IN (SELECT ${junctionTable.parentId} FROM ${junctionTable} WHERE ${junctionTable.targetId} = ${id})`
+  }
+  if (op === 'not_equals') {
+    const id = Number(val)
+    return Number.isNaN(id)
+      ? undefined
+      : sql`${table.id} NOT IN (SELECT ${junctionTable.parentId} FROM ${junctionTable} WHERE ${junctionTable.targetId} = ${id})`
+  }
+  if (op === 'in') {
+    const arr = Array.isArray(val) ? val : [val]
+    const ids = arr.map(Number).filter((n) => !Number.isNaN(n))
+    return ids.length > 0
+      ? sql`${table.id} IN (SELECT ${junctionTable.parentId} FROM ${junctionTable} WHERE ${inArray(junctionTable.targetId, ids)})`
+      : undefined
+  }
+  return undefined
+}
+
+function parseHasManyConditions(
+  table: DynamicTable,
+  junctionTable: JunctionTable | undefined,
+  filter: unknown,
+): SQL[] {
+  if (!junctionTable) return []
+  if (filter === null || typeof filter !== 'object') {
+    const cond = parseHasManyOpCondition(table, junctionTable, 'equals', filter)
+    return cond ? [cond] : []
+  }
+
+  const conditions: SQL[] = []
+  for (const [op, rawVal] of Object.entries(filter as Record<string, unknown>)) {
+    const cond = parseHasManyOpCondition(table, junctionTable, op, rawVal)
+    if (cond) conditions.push(cond)
+  }
+  return conditions
+}
+
+function parseObjectFilterConditions(
+  collection: CollectionConfig,
+  column: PgColumn,
+  fieldName: string,
+  filter: Record<string, unknown>,
+): SQL[] {
+  const conditions: SQL[] = []
+  for (const [op, rawVal] of Object.entries(filter)) {
+    if (rawVal === undefined) continue
+    const val =
+      op === 'in' && Array.isArray(rawVal)
+        ? rawVal.map((v) => castFieldValue(collection, fieldName, v))
+        : castFieldValue(collection, fieldName, rawVal)
+
+    const cond = buildCondition(column, op, val)
+    if (cond) conditions.push(cond)
+  }
+  return conditions
+}
+
+function isContainerFilterObject(
+  field: Field | undefined,
+  filter: unknown,
+): filter is Record<string, unknown> {
+  const isContainer = field?.type === 'group' || field?.type === 'array' || field?.type === 'blocks'
+  return (
+    Boolean(isContainer) &&
+    filter !== null &&
+    typeof filter === 'object' &&
+    !Array.isArray(filter) &&
+    !(filter instanceof Date)
+  )
+}
+
+function parseGroupConditions(
+  collection: CollectionConfig,
+  table: DynamicTable,
+  junctionTables: Record<string, JunctionTable>,
+  fieldName: string,
+  filter: Record<string, unknown>,
+): SQL[] {
+  const conditions: SQL[] = []
+  for (const [subName, subVal] of Object.entries(filter)) {
+    if (subVal === undefined) continue
+    const nestedPath = `${fieldName}.${subName}`
+    conditions.push(...parseFieldConditions(collection, table, junctionTables, nestedPath, subVal))
+  }
+  return conditions
+}
+
+function parseStandardColumnConditions(
+  collection: CollectionConfig,
+  column: PgColumn,
+  fieldName: string,
+  filter: unknown,
+): SQL[] {
+  if (filter === null || typeof filter !== 'object') {
+    const val = castFieldValue(collection, fieldName, filter)
+    return [eq(column, val)]
+  }
+
+  return parseObjectFilterConditions(
+    collection,
+    column,
+    fieldName,
+    filter as Record<string, unknown>,
+  )
+}
+
+function parseFieldConditions(
+  collection: CollectionConfig,
+  table: DynamicTable,
+  junctionTables: Record<string, JunctionTable>,
+  fieldName: string,
+  filter: unknown,
+): SQL[] {
+  const field = resolveField(collection.fields, fieldName)
+  if (isContainerFilterObject(field, filter)) {
+    return parseGroupConditions(collection, table, junctionTables, fieldName, filter)
+  }
+
+  const colName = fieldName.replace(/\./g, '__')
+  if (field?.type === 'relationship' && field.hasMany) {
+    const jTable = junctionTables[colName] || junctionTables[fieldName]
+    return parseHasManyConditions(table, jTable, filter)
+  }
+
+  if (!Object.hasOwn(table, colName)) return []
+  const column = table[colName]
+  if (!column) return []
+
+  return parseStandardColumnConditions(collection, column, fieldName, filter)
+}
+
+function resolveLogicalGroup(
+  collection: CollectionConfig,
+  table: DynamicTable,
+  junctionTables: Record<string, JunctionTable>,
+  group: Where[],
+  combiner: (...conditions: SQL[]) => SQL | undefined,
+): SQL | undefined {
+  const clauses = group
+    .map((subWhere) => resolveWhere(collection, table, junctionTables, subWhere))
+    .filter((c): c is SQL => Boolean(c))
+  return clauses.length > 0 ? combiner(...clauses) : undefined
+}
+
+function resolveWhereEntry(
+  collection: CollectionConfig,
+  table: DynamicTable,
+  junctionTables: Record<string, JunctionTable>,
+  key: string,
+  val: unknown,
+): SQL | SQL[] | undefined {
+  if (key === 'or' && Array.isArray(val)) {
+    return resolveLogicalGroup(collection, table, junctionTables, val as Where[], or)
+  }
+  if (key === 'and' && Array.isArray(val)) {
+    return resolveLogicalGroup(collection, table, junctionTables, val as Where[], and)
+  }
+  return parseFieldConditions(collection, table, junctionTables, key, val)
+}
+
+function resolveWhere(
+  collection: CollectionConfig,
+  table: DynamicTable,
+  junctionTables: Record<string, JunctionTable>,
+  where?: Where,
+): SQL | undefined {
+  if (!where || typeof where !== 'object') return undefined
+
+  const clauses: SQL[] = []
+  for (const [key, val] of Object.entries(where)) {
+    if (val === undefined) continue
+    const resolved = resolveWhereEntry(collection, table, junctionTables, key, val)
+    if (Array.isArray(resolved)) {
+      clauses.push(...resolved)
+    } else if (resolved) {
+      clauses.push(resolved)
+    }
+  }
+
+  if (clauses.length === 0) return undefined
+  if (clauses.length === 1) return clauses[0]
+  return and(...clauses)
+}
+
+function resolveOrderBy(table: DynamicTable, sort?: string | SortItem[]): SQL[] {
+  const sortItems = Array.isArray(sort)
+    ? sort.filter((s): s is SortItem => typeof s === 'object' && 'field' in s)
+    : parseSort(sort)
+
+  if (sortItems.length === 0) {
+    const createdAtCol = table.createdAt
+    return createdAtCol ? [sql`${desc(createdAtCol)} NULLS LAST`] : []
+  }
+
+  const orderByList: SQL[] = []
+  for (const item of sortItems) {
+    const colName = item.field.replace(/\./g, '__')
+    if (!Object.hasOwn(table, colName)) continue
+    const column = table[colName]
+    if (column) {
+      orderByList.push(
+        item.direction === 'desc'
+          ? sql`${desc(column)} NULLS LAST`
+          : sql`${asc(column)} NULLS FIRST`,
+      )
+    }
+  }
+  return orderByList
+}
+
+interface AdapterCaches {
+  tableCache: Map<string, DynamicTable>
+  junctionTablesCache: Map<string, Record<string, JunctionTable>>
+  versionsTableCache: Map<string, VersionsTable>
+}
+
+function getTable(caches: AdapterCaches, collection: CollectionConfig): DynamicTable {
+  let table = caches.tableCache.get(collection.slug)
+  if (!table) {
+    table = collectionToTable(collection)
+    caches.tableCache.set(collection.slug, table)
+  }
+  return table
+}
+
+function getGlobalTable(caches: AdapterCaches, global: GlobalConfig): DynamicTable {
+  let table = caches.tableCache.get(global.slug)
+  if (!table) {
+    table = globalToTable(global)
+    caches.tableCache.set(global.slug, table)
+  }
+  return table
+}
+
+function getEntityVersionsTable(
+  caches: AdapterCaches,
+  args: { collection?: CollectionConfig; global?: GlobalConfig },
+): VersionsTable {
+  const target = args.collection ?? args.global
+  if (!target) {
+    throw new Error('Either collection or global must be provided to getEntityVersionsTable')
+  }
+  const versionsSlug = `${target.slug}_versions`
+  let table = caches.versionsTableCache.get(versionsSlug)
+  if (!table) {
+    const parentTable = args.collection
+      ? getTable(caches, args.collection)
+      : getGlobalTable(caches, args.global!)
+    table = createVersionsTable(target.slug, parentTable)
+    caches.versionsTableCache.set(versionsSlug, table)
+  }
+  return table
+}
+
+function getJunctionTables(
+  caches: AdapterCaches,
+  collection: CollectionConfig,
+): Record<string, JunctionTable> {
+  let tables = caches.junctionTablesCache.get(collection.slug)
+  if (!tables) {
+    tables = getCollectionJunctionTables(collection)
+    caches.junctionTablesCache.set(collection.slug, tables)
+  }
+  return tables
+}
+
+async function syncSingleHasManyRelation(
+  executor: DbExecutor,
+  jTable: JunctionTable,
+  parentId: number,
+  targetIds: unknown,
+): Promise<void> {
+  await executor.delete(jTable).where(eq(jTable.parentId, parentId))
+  if (!Array.isArray(targetIds) || targetIds.length === 0) return
+
+  const rows = targetIds
+    .map((tid, index) => ({
+      parentId,
+      targetId: Number(tid),
+      order: index,
+    }))
+    .filter((row) => !Number.isNaN(row.targetId))
+
+  if (rows.length > 0) {
+    await executor.insert(jTable).values(rows)
+  }
+}
+
+async function fetchJunctionRows(
+  executor: DbExecutor,
+  jTable: JunctionTable,
+  parentIds: number[],
+): Promise<Array<{ parentId: number; targetId: number }>> {
+  return (await executor
+    .select({
+      parentId: jTable.parentId,
+      targetId: jTable.targetId,
+    })
+    .from(jTable)
+    .where(inArray(jTable.parentId, parentIds))
+    .orderBy(asc(jTable.order))) as Array<{ parentId: number; targetId: number }>
+}
+
+function extractRelationData(data: DocumentData, name: string): unknown {
+  if (name in data) return data[name]
+  const parts = name.split('__')
+  let cur: unknown = data
+  for (const part of parts) {
+    if (!cur || typeof cur !== 'object') return undefined
+    cur = (cur as Record<string, unknown>)[part]
+  }
+  return cur
+}
+
+function setTargetRelationIds(doc: StoredDoc, fieldName: string, ids: number[]): void {
+  if (!fieldName.includes('__')) {
+    doc[fieldName] = ids
+    return
+  }
+  const parts = fieldName.split('__')
+  let cur: Record<string, unknown> = doc
+  for (let i = 0; i < parts.length - 1; i++) {
+    const p = parts[i]!
+    if (!cur[p] || typeof cur[p] !== 'object') {
+      cur[p] = {}
+    }
+    cur = cur[p] as Record<string, unknown>
+  }
+  cur[parts[parts.length - 1]!] = ids
+}
+
+function pushTargetRelationId(doc: StoredDoc, fieldName: string, targetId: number): void {
+  if (!fieldName.includes('__')) {
+    ;(doc[fieldName] as number[]).push(targetId)
+    return
+  }
+  const parts = fieldName.split('__')
+  let cur: unknown = doc
+  for (const p of parts) {
+    if (!cur || typeof cur !== 'object') return
+    cur = (cur as Record<string, unknown>)[p]
+  }
+  if (Array.isArray(cur)) {
+    cur.push(targetId)
+  }
+}
+
+async function syncHasManyRelations(
+  executor: DbExecutor,
+  caches: AdapterCaches,
+  collection: CollectionConfig,
+  parentId: number,
+  data: DocumentData,
+): Promise<void> {
+  const junctionTables = getJunctionTables(caches, collection)
+  for (const [name, jTable] of Object.entries(junctionTables)) {
+    const val = extractRelationData(data, name)
+    if (val !== undefined) {
+      await syncSingleHasManyRelation(executor, jTable, parentId, val)
+    }
+  }
+}
+
+async function populateHasManyRelations(
+  executor: DbExecutor,
+  caches: AdapterCaches,
+  collection: CollectionConfig,
+  docs: StoredDoc[],
+): Promise<void> {
+  if (docs.length === 0) return
+  const junctionTables = getJunctionTables(caches, collection)
+  const junctionEntries = Object.entries(junctionTables)
+  if (junctionEntries.length === 0) return
+
+  const parentIds = docs.map((d) => d.id)
+
+  for (const [fieldName, jTable] of junctionEntries) {
+    for (const doc of docs) {
+      setTargetRelationIds(doc, fieldName, [])
+    }
+    const rows = await fetchJunctionRows(executor, jTable, parentIds)
+    for (const row of rows) {
+      const doc = docs.find((d) => d.id === row.parentId)
+      if (doc) {
+        pushTargetRelationId(doc, fieldName, row.targetId)
+      }
+    }
+  }
+}
+
+async function findDocByID(
+  executor: DbExecutor,
+  caches: AdapterCaches,
+  collection: CollectionConfig,
+  id: number,
+  forUpdate?: boolean,
+): Promise<StoredDoc | null> {
+  const table = getTable(caches, collection)
+  const baseQuery = executor.select().from(table).where(eq(table.id, id)).limit(1)
+  const query = forUpdate ? baseQuery.for('update') : baseQuery
+  const [row] = (await query) as [Record<string, unknown> | undefined]
+  if (!row) return null
+  const doc = toStoredDoc(row, collection.fields)
+  await populateHasManyRelations(executor, caches, collection, [doc])
+  return doc
+}
+
+async function createDoc(
+  executor: DbExecutor,
+  caches: AdapterCaches,
+  collection: CollectionConfig,
+  data: DocumentData,
+): Promise<StoredDoc> {
+  return await executor.transaction(async (tx) => {
+    const table = getTable(caches, collection)
+    const values = sanitizeData(collection, data) as unknown as InsertValues
+    const [inserted] = (await tx
+      .insert(table)
+      .values(values)
+      .returning({ id: table.id })) as unknown as [{ id: number }]
+    const id = Number(inserted.id)
+    await syncHasManyRelations(tx, caches, collection, id, data)
+    const created = await findDocByID(tx, caches, collection, id)
+    if (!created) {
+      throw new Error(`Failed to retrieve created document in collection "${collection.slug}".`)
+    }
+    return created
+  })
+}
+
+async function updateDoc(
+  executor: DbExecutor,
+  caches: AdapterCaches,
+  collection: CollectionConfig,
+  id: number,
+  data: DocumentData,
+): Promise<StoredDoc | null> {
+  return await executor.transaction(async (tx) => {
+    const existing = await findDocByID(tx, caches, collection, id, true)
+    if (!existing) return null
+
+    const table = getTable(caches, collection)
+    const values = {
+      ...sanitizeData(collection, data),
+      updatedAt: new Date(),
+    } as unknown as UpdateSetValues
+    await tx.update(table).set(values).where(eq(table.id, id))
+    await syncHasManyRelations(tx, caches, collection, id, data)
+    return findDocByID(tx, caches, collection, id)
+  })
+}
+
+async function removeDoc(
+  executor: DbExecutor,
+  caches: AdapterCaches,
+  collection: CollectionConfig,
+  id: number,
+): Promise<StoredDoc | null> {
+  return await executor.transaction(async (tx) => {
+    const existing = await findDocByID(tx, caches, collection, id)
+    if (!existing) return null
+
+    const junctionTables = getJunctionTables(caches, collection)
+    for (const jTable of Object.values(junctionTables)) {
+      await tx.delete(jTable).where(eq(jTable.parentId, id))
+    }
+
+    const table = getTable(caches, collection)
+    await tx.delete(table).where(eq(table.id, id))
+    return existing
+  })
+}
+
+function computeSafeLimit(limit: number, maxLimit?: number, overrideLimit = false): number {
+  if (limit === 0) return 0
+  const positive = Math.max(1, limit)
+  if (overrideLimit) return positive
+  return maxLimit !== undefined ? Math.min(positive, maxLimit) : positive
+}
+
+async function countMatchingDocs(
+  executor: DbExecutor,
+  table: DynamicTable,
+  whereSql: SQL | undefined,
+): Promise<number> {
+  const countQuery = executor.select({ value: count() }).from(table)
+  if (whereSql) {
+    countQuery.where(whereSql)
+  }
+  const [countRow] = (await countQuery) as [{ value: number | string } | undefined]
+  return Number(countRow?.value ?? 0)
+}
+
+function buildFindDocsQuery(
+  executor: DbExecutor,
+  table: DynamicTable,
+  whereSql: SQL | undefined,
+  sort: string | SortItem[] | undefined,
+  safeLimit: number,
+  offset: number,
+) {
+  const query = executor.select().from(table)
+  if (whereSql) {
+    query.where(whereSql)
+  }
+  const orderByList = resolveOrderBy(table, sort)
+  if (orderByList.length > 0) {
+    query.orderBy(...orderByList)
+  }
+  if (safeLimit > 0) {
+    query.limit(safeLimit).offset(offset)
+  }
+  return query
+}
+
+async function findDocs(
+  executor: DbExecutor,
+  caches: AdapterCaches,
+  { collection, limit, page, sort, where, overrideLimit }: FindArgs,
+): Promise<PaginatedDocs> {
+  const table = getTable(caches, collection)
+  const junctionTables = getJunctionTables(caches, collection)
+  const safeLimit = computeSafeLimit(limit, collection.pagination?.maxLimit, overrideLimit)
+  const safePage = Math.max(1, page)
+  const offset = (safePage - 1) * safeLimit
+  const whereSql = resolveWhere(collection, table, junctionTables, where)
+
+  const totalDocs = await countMatchingDocs(executor, table, whereSql)
+  const totalPages = safeLimit === 0 ? 1 : Math.ceil(totalDocs / safeLimit)
+
+  const query = buildFindDocsQuery(executor, table, whereSql, sort, safeLimit, offset)
+  const rows = (await query) as Record<string, unknown>[]
+  const docs = rows.map((r) => toStoredDoc(r, collection.fields))
+  await populateHasManyRelations(executor, caches, collection, docs)
+  return {
+    docs,
+    totalDocs,
+    limit: safeLimit,
+    page: safePage,
+    totalPages,
+  }
+}
+
+async function findGlobalDoc(
+  executor: DbExecutor,
+  caches: AdapterCaches,
+  global: GlobalConfig,
+  forUpdate?: boolean,
+): Promise<StoredDoc | null> {
+  const table = getGlobalTable(caches, global)
+  const baseQuery = executor.select().from(table).limit(1)
+  const query = forUpdate ? baseQuery.for('update') : baseQuery
+  const [row] = (await query) as [Record<string, unknown> | undefined]
+  return row ? toStoredDoc(row, global.fields) : null
+}
+
+async function updateGlobalDoc(
+  executor: DbExecutor,
+  caches: AdapterCaches,
+  global: GlobalConfig,
+  data: DocumentData,
+): Promise<StoredDoc> {
+  return await executor.transaction(async (tx) => {
+    const table = getGlobalTable(caches, global)
+    const existing = await findGlobalDoc(tx, caches, global, true)
+    const values = sanitizeData(global, data)
+
+    if (existing) {
+      const setValues = values as unknown as UpdateSetValues
+      await tx
+        .update(table)
+        .set(setValues)
+        .where(eq(table.id, Number(existing.id)))
+    } else {
+      const insertValues = values as unknown as InsertValues
+      await tx.insert(table).values(insertValues)
+    }
+
+    const updated = await findGlobalDoc(tx, caches, global)
+    if (!updated) {
+      throw new Error(`Failed to retrieve global "${global.slug}".`)
+    }
+    return updated
+  })
+}
+
+function parseSnapshot(raw: unknown): DocumentData {
+  if (typeof raw === 'string') {
+    try {
+      return JSON.parse(raw) as DocumentData
+    } catch {
+      return {}
+    }
+  }
+  return (raw as DocumentData) ?? {}
+}
+
+function rowToVersionDoc(row: Record<string, unknown>): StoredVersion {
+  const createdAtVal = row.createdAt ?? row.created_at
+  let createdAt: string
+  if (createdAtVal instanceof Date) {
+    createdAt = createdAtVal.toISOString()
+  } else if (typeof createdAtVal === 'string') {
+    createdAt = createdAtVal
+  } else {
+    createdAt = new Date().toISOString()
+  }
+
+  return {
+    id: Number(row.id),
+    parentId: Number(row.parentId ?? row.parent_id),
+    versionNumber: Number(row.versionNumber ?? row.version_number),
+    snapshot: parseSnapshot(row.snapshot),
+    _status: (row._status ?? row.status ?? 'draft') as DocStatus,
+    autosave: Boolean(row.autosave),
+    createdAt,
+    createdBy: (row.createdBy ?? row.created_by ?? null) as string | null,
+  }
+}
+
+async function updateAutosaveVersion(
+  executor: DbExecutor,
+  vTable: VersionsTable,
+  latestRow: Record<string, unknown>,
+  snapshot: DocumentData,
+  userId?: string | null,
+): Promise<StoredVersion> {
+  const versionId = Number(latestRow.id)
+  await executor
+    .update(vTable)
+    .set({
+      snapshot,
+      createdAt: new Date(),
+      createdBy: userId ?? null,
+    })
+    .where(eq(vTable.id, versionId))
+
+  const updated = await executor.select().from(vTable).where(eq(vTable.id, versionId)).limit(1)
+
+  const row = updated[0]
+  if (!row) {
+    throw new Error('Failed to retrieve updated version row')
+  }
+  return rowToVersionDoc(row)
+}
+
+async function tryUpdateAutosave(
+  executor: DbExecutor,
+  vTable: VersionsTable,
+  args: SaveVersionArgs,
+): Promise<StoredVersion | null> {
+  if (!args.autosave || args.status !== 'draft') return null
+  const latest = await executor
+    .select()
+    .from(vTable)
+    .where(eq(vTable.parentId, args.parentId!))
+    .orderBy(desc(vTable.id))
+    .limit(1)
+
+  const latestRow = latest[0]
+  if (!latestRow) return null
+  const isDraft = (latestRow._status ?? latestRow.status) === 'draft'
+  const isAutosave = Boolean(latestRow.autosave)
+  if (isDraft && isAutosave) {
+    return await updateAutosaveVersion(executor, vTable, latestRow, args.snapshot, args.userId)
+  }
+  return null
+}
+
+async function insertNewVersion(
+  executor: DbExecutor,
+  vTable: VersionsTable,
+  args: SaveVersionArgs,
+): Promise<StoredVersion> {
+  const maxVerResult = await executor
+    .select({ maxVer: max(vTable.versionNumber) })
+    .from(vTable)
+    .where(eq(vTable.parentId, args.parentId))
+
+  const versionNumber = (Number(maxVerResult[0]?.maxVer) || 0) + 1
+
+  const [inserted] = (await executor
+    .insert(vTable)
+    .values({
+      parentId: args.parentId,
+      versionNumber,
+      snapshot: args.snapshot,
+      _status: args.status,
+      autosave: Boolean(args.autosave),
+      createdBy: args.userId ?? null,
+    })
+    .returning({ id: vTable.id })) as unknown as [{ id: number }]
+
+  const newId = Number(inserted?.id)
+  const [row] = await executor.select().from(vTable).where(eq(vTable.id, newId)).limit(1)
+
+  if (!row) {
+    throw new Error('Failed to retrieve inserted version row')
+  }
+  return rowToVersionDoc(row)
+}
+
+async function pruneVersionsInternal(
+  executor: DbExecutor,
+  vTable: VersionsTable,
+  parentId: number,
+  maxPerDoc: number,
+): Promise<number> {
+  const keepRows = await executor
+    .select({ id: vTable.id })
+    .from(vTable)
+    .where(eq(vTable.parentId, parentId))
+    .orderBy(desc(vTable.id))
+    .limit(maxPerDoc)
+
+  if (keepRows.length < maxPerDoc) return 0
+
+  const keepIds = keepRows.map((v) => Number(v.id))
+  const deleted = (await executor
+    .delete(vTable)
+    .where(and(eq(vTable.parentId, parentId), notInArray(vTable.id, keepIds)))
+    .returning({ id: vTable.id })) as unknown as Array<{ id: number }>
+
+  return deleted.length
+}
+
+async function saveVersion(
+  executor: DbExecutor,
+  caches: AdapterCaches,
+  args: SaveVersionArgs,
+): Promise<StoredVersion> {
+  const target = args.collection ?? args.global!
+  const parentId = args.parentId ?? 1
+  const parentTable = args.collection
+    ? getTable(caches, args.collection)
+    : getGlobalTable(caches, args.global!)
+
+  await executor.select().from(parentTable).where(eq(parentTable.id, parentId)).for('update')
+
+  const vTable = getEntityVersionsTable(caches, args)
+  const maxPerDoc = target.versions?.maxPerDoc ?? DEFAULT_MAX_PER_DOC
+
+  const autosaveResult = await tryUpdateAutosave(executor, vTable, { ...args, parentId })
+  if (autosaveResult) {
+    return autosaveResult
+  }
+
+  const saved = await insertNewVersion(executor, vTable, { ...args, parentId })
+  if (maxPerDoc > 0) {
+    await pruneVersionsInternal(executor, vTable, parentId, maxPerDoc)
+  }
+  return saved
+}
+
+type VersionsSortColumn =
+  'id' | 'parentId' | 'versionNumber' | '_status' | 'autosave' | 'createdAt' | 'createdBy'
+
+const VERSIONS_SORT_FIELDS: Record<string, VersionsSortColumn> = {
+  id: 'id',
+  parentId: 'parentId',
+  parent_id: 'parentId',
+  versionNumber: 'versionNumber',
+  version_number: 'versionNumber',
+  _status: '_status',
+  status: '_status',
+  autosave: 'autosave',
+  createdAt: 'createdAt',
+  created_at: 'createdAt',
+  createdBy: 'createdBy',
+  created_by: 'createdBy',
+}
+
+function resolveVersionsOrderBy(vTable: VersionsTable, sort?: string | SortItem[]): SQL[] {
+  const sortItems = Array.isArray(sort)
+    ? sort.filter((s): s is SortItem => typeof s === 'object' && 'field' in s)
+    : parseSort(sort)
+
+  const orderByList: SQL[] = []
+  for (const item of sortItems) {
+    const colKey = VERSIONS_SORT_FIELDS[item.field]
+    if (!colKey) continue
+    const column = vTable[colKey] as PgColumn | undefined
+    if (column) {
+      orderByList.push(
+        item.direction === 'desc'
+          ? sql`${desc(column)} NULLS LAST`
+          : sql`${asc(column)} NULLS FIRST`,
+      )
+    }
+  }
+
+  if (orderByList.length === 0) {
+    return [sql`${desc(vTable.id)} NULLS LAST`]
+  }
+  return orderByList
+}
+
+async function findVersions(
+  executor: DbExecutor,
+  caches: AdapterCaches,
+  args: FindVersionsArgs,
+): Promise<PaginatedVersions> {
+  const parentId = args.parentId ?? 1
+  const vTable = getEntityVersionsTable(caches, args)
+  const page = Math.max(1, args.page ?? 1)
+  const limit = args.limit ?? DEFAULT_LIMIT
+  const offset = (page - 1) * limit
+
+  const countResult = await executor
+    .select({ count: count() })
+    .from(vTable)
+    .where(eq(vTable.parentId, parentId))
+
+  const totalDocs = Number(countResult[0]?.count ?? 0)
+  const totalPages = Math.ceil(totalDocs / limit) || 1
+
+  const orderByList = resolveVersionsOrderBy(vTable, args.sort)
+
+  const rows = await executor
+    .select()
+    .from(vTable)
+    .where(eq(vTable.parentId, parentId))
+    .orderBy(...orderByList)
+    .limit(limit)
+    .offset(offset)
+
+  return {
+    docs: rows.map(rowToVersionDoc),
+    totalDocs,
+    limit,
+    page,
+    totalPages,
+  }
+}
+
+async function findVersionByID(
+  executor: DbExecutor,
+  caches: AdapterCaches,
+  args: {
+    collection?: CollectionConfig
+    global?: GlobalConfig
+    parentId?: number
+    versionId: number
+  },
+): Promise<StoredVersion | null> {
+  const parentId = args.parentId ?? 1
+  const vTable = getEntityVersionsTable(caches, args)
+  const rows = await executor
+    .select()
+    .from(vTable)
+    .where(and(eq(vTable.parentId, parentId), eq(vTable.id, args.versionId)))
+    .limit(1)
+
+  const row = rows[0]
+  if (!row) return null
+  return rowToVersionDoc(row)
+}
+
+async function findLatestDraftVersion(
+  executor: DbExecutor,
+  caches: AdapterCaches,
+  args: { collection?: CollectionConfig; global?: GlobalConfig; parentId?: number },
+): Promise<StoredVersion | null> {
+  const parentId = args.parentId ?? 1
+  const vTable = getEntityVersionsTable(caches, args)
+  const rows = await executor
+    .select()
+    .from(vTable)
+    .where(eq(vTable.parentId, parentId))
+    .orderBy(desc(vTable.id))
+    .limit(1)
+
+  const latest = rows[0]
+  if (!latest) return null
+  const status = (latest._status ?? latest.status) as DocStatus
+  if (status !== 'draft') {
+    return null
+  }
+  return rowToVersionDoc(latest)
+}
+
+async function hasVersionWithFilename(
+  executor: DbExecutor,
+  caches: AdapterCaches,
+  collection: CollectionConfig,
+  filename: string,
+): Promise<boolean> {
+  const vTable = getEntityVersionsTable(caches, { collection })
+  const result = await executor
+    .select({ id: vTable.id })
+    .from(vTable)
+    .where(sql`${vTable.snapshot}->>'filename' = ${filename}`)
+    .limit(1)
+  return result.length > 0
+}
+
+function createDatabaseOperations(
+  executor: DbExecutor,
+  caches: AdapterCaches,
+  authAdapter?: unknown,
+): DatabaseAdapter {
+  return {
+    name: 'postgres',
+    dialect: 'postgresql',
+    authAdapter,
+    find: (args) => findDocs(executor, caches, args),
+    findByID: ({ collection, id, forUpdate }) =>
+      findDocByID(executor, caches, collection, id, forUpdate),
+    create: ({ collection, data }) => createDoc(executor, caches, collection, data),
+    update: ({ collection, id, data }) => updateDoc(executor, caches, collection, id, data),
+    delete: ({ collection, id }) => removeDoc(executor, caches, collection, id),
+    findGlobal: ({ global, forUpdate }) => findGlobalDoc(executor, caches, global, forUpdate),
+    updateGlobal: ({ global, data }) => updateGlobalDoc(executor, caches, global, data),
+    saveVersion: (args) => saveVersion(executor, caches, args),
+    findVersions: (args) => findVersions(executor, caches, args),
+    findVersionByID: (args) => findVersionByID(executor, caches, args),
+    findLatestDraftVersion: (args) => findLatestDraftVersion(executor, caches, args),
+    pruneVersions: (args) =>
+      pruneVersionsInternal(
+        executor,
+        getEntityVersionsTable(caches, args),
+        args.parentId ?? 1,
+        args.maxPerDoc,
+      ),
+    hasVersionWithFilename: (args) =>
+      hasVersionWithFilename(executor, caches, args.collection, args.filename),
+    async transaction<T>(cb: (txDb: DatabaseAdapter) => Promise<T>): Promise<T> {
+      return await executor.transaction(async (tx) => {
+        const txOps = createDatabaseOperations(tx, caches, authAdapter)
+        return await cb(txOps)
+      })
+    },
+    toSchemaFile(config: Config): string {
+      return generateSchemaFile(config)
+    },
+    migrate(): Promise<void> {
+      return Promise.reject(new Error('Cannot run migrations inside a transaction'))
+    },
+  }
+}
+
 export function postgresAdapter(options: PostgresAdapterOptions): PostgresAdapter {
   const pool = new pg.Pool({
     connectionString: options.url,
-    max: options.pool?.max,
-    idleTimeoutMillis: options.pool?.idleTimeoutMillis,
-    connectionTimeoutMillis: options.pool?.connectionTimeoutMillis,
+    options: '-c timezone=UTC',
+    ...options.pool,
   })
 
   const db = drizzle(pool, { schema: authTables })
@@ -32,31 +1476,18 @@ export function postgresAdapter(options: PostgresAdapterOptions): PostgresAdapte
     schema: authTables,
   })
 
-  const notImplemented = () => Promise.reject(new Error('Not implemented yet'))
+  const caches: AdapterCaches = {
+    tableCache: new Map(),
+    junctionTablesCache: new Map(),
+    versionsTableCache: new Map(),
+  }
+
+  const ops = createDatabaseOperations(db, caches, authAdapter)
 
   return {
-    name: 'postgres',
-    dialect: 'postgresql',
-    authAdapter,
-    find: notImplemented,
-    findByID: notImplemented,
-    create: notImplemented,
-    update: notImplemented,
-    delete: notImplemented,
-    findGlobal: notImplemented,
-    updateGlobal: notImplemented,
-    saveVersion: notImplemented,
-    findVersions: notImplemented,
-    findVersionByID: notImplemented,
-    findLatestDraftVersion: notImplemented,
-    pruneVersions: notImplemented,
-    hasVersionWithFilename: notImplemented,
-    transaction: notImplemented,
-    toSchemaFile(config: Config): string {
-      return generateSchemaFile(config)
-    },
-    async migrate(): Promise<void> {
-      return Promise.reject(new Error('Migrations not implemented yet'))
+    ...ops,
+    async migrate({ migrationsDir }: { migrationsDir: string }): Promise<void> {
+      await migrate(db, { migrationsFolder: migrationsDir })
     },
     async close(): Promise<void> {
       await pool.end()

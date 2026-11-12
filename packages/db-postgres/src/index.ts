@@ -2,3 +2,4 @@ export { postgresAdapter, type PostgresAdapter, type PostgresAdapterOptions } fr
 export { account, authTables, session, user, verification } from './schema/auth'
 export { generateSchemaFile, slugToIdentifier } from './schema/generator'
 export { collectionToTable } from './schema/table'
+export { setupTestDatabase, isPostgresAvailable, type TestDatabase } from './test-database'

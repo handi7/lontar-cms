@@ -41,6 +41,18 @@ async function executeDatabaseCreate(adminClient: pg.Client, dbName: string): Pr
   }
 }
 
+export async function isPostgresAvailable(rawUrl?: string): Promise<boolean> {
+  const { serverConfig } = parseTestConnection(rawUrl)
+  const probe = new pg.Client({ connectionString: serverConfig.adminUrl })
+  try {
+    await probe.connect()
+    await probe.end()
+    return true
+  } catch {
+    return false
+  }
+}
+
 /**
  * Creates an isolated test database for integration testing.
  * Uses TEST_POSTGRES_URL or defaults to 'postgres://lontar:lontar@127.0.0.1:5432/lontar_test'.
