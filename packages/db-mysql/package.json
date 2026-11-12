@@ -1,6 +1,6 @@
 {
   "name": "@lontar/db-mysql",
-  "version": "0.3.0",
+  "version": "0.4.0",
   "description": "MySQL database adapter for Lontar, built on Drizzle ORM.",
   "keywords": [
     "lontar",

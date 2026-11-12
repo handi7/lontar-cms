@@ -46,7 +46,6 @@ The MVP is done when one real website can be fully managed through Lontar: colle
 
 The following are intentionally left out of v0.1 so the MVP can ship in 2–3 months.
 
-- **Versions, drafts, and live preview.**
 - **Localization** (multi-language content).
 - **GraphQL API.** REST only for now.
 - **Field-level access control** and complex role-based permissions.
@@ -55,7 +54,7 @@ The following are intentionally left out of v0.1 so the MVP can ship in 2–3 mo
 - **Public plugin system.** Internal hooks are enough for now.
 - **Multi-tenancy** and cloud hosting.
 
-Complex fields — `group`, `array`, `blocks`, and conditional fields — were on this list for v0.1. They shipped in 0.3.0 (M7, [#151](https://github.com/handi7/lontar-cms/issues/151)).
+Complex fields — `group`, `array`, `blocks`, and conditional fields — were on this list for v0.1. They shipped in 0.3.0 (M7, [#151](https://github.com/handi7/lontar-cms/issues/151)). Versions, drafts, and live preview were on it too, and shipped in 0.4.0 (M8, [#146](https://github.com/handi7/lontar-cms/issues/146)).
 
 ## Open questions & next steps
 
