@@ -1,0 +1,29 @@
+{
+  "name": "@lontar/db-test-suite",
+  "version": "0.4.0",
+  "description": "Shared database adapter conformance suite for Lontar.",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsdown",
+    "dev": "tsdown --watch",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@lontar/core": "workspace:*",
+    "drizzle-kit": "^0.31.11",
+    "vitest": "^5.0.5"
+  },
+  "devDependencies": {
+    "@types/node": "^26.6.6"
+  }
+}
