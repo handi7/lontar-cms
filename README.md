@@ -416,6 +416,8 @@ const Posts = collection({
 
 ## Migrations and type generation
 
+The CLI works with both MySQL (`@lontar/db-mysql`) and PostgreSQL (`@lontar/db-postgres`), detecting the configured adapter's dialect automatically:
+
 ```bash
 pnpm lontar migrate:create   # diff config against the DB schema, write a migration file
 pnpm lontar migrate          # run migrations

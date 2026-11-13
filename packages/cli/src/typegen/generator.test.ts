@@ -589,4 +589,46 @@ describe('generateTypes', () => {
     })
     expect(transpileResult.outputText).toBeDefined()
   })
+
+  it('generates identical output for the same config on both MySQL and PostgreSQL adapters (#308)', () => {
+    const baseConfig = {
+      secret: 'test-secret',
+      collections: [
+        {
+          slug: 'articles',
+          versions: { drafts: true },
+          fields: {
+            title: { type: 'text' as const, required: true },
+            content: { type: 'textarea' as const },
+            rating: { type: 'number' as const },
+          },
+        },
+      ],
+      globals: [
+        {
+          slug: 'header',
+          fields: {
+            brand: { type: 'text' as const, required: true },
+          },
+        },
+      ],
+    }
+
+    const mysqlConfig: Config = {
+      ...baseConfig,
+      db: { name: 'mysql', dialect: 'mysql' } as unknown as Config['db'],
+    }
+
+    const postgresConfig: Config = {
+      ...baseConfig,
+      db: { name: 'postgres', dialect: 'postgresql' } as unknown as Config['db'],
+    }
+
+    const mysqlOutput = generateTypes(mysqlConfig)
+    const postgresOutput = generateTypes(postgresConfig)
+
+    expect(mysqlOutput).toBe(postgresOutput)
+    expect(mysqlOutput).toContain('export interface Article {')
+    expect(mysqlOutput).toContain('export interface Header {')
+  })
 })

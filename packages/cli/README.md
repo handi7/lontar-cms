@@ -2,6 +2,8 @@
 
 Command-line tool for [Lontar](https://github.com/handi7/lontar-cms): database migrations and TypeScript type generation from your `lontar.config.ts`.
 
+Supports both MySQL (`@lontar/db-mysql`) and PostgreSQL (`@lontar/db-postgres`) adapters, automatically detecting the configured database dialect.
+
 ```bash
 pnpm add -D @lontar/cli
 ```
