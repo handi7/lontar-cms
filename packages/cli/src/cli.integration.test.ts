@@ -63,6 +63,9 @@ const postgresAvailable = await isPostgresAvailable()
 
 describe('CLI migrate:create + migrate integration (MySQL) (#308)', () => {
   if (!mysqlAvailable) {
+    if (process.env.CI) {
+      throw new Error('MySQL is not reachable in CI. CLI MySQL integration test cannot run.')
+    }
     it.skip('skipped because MySQL server is not reachable', () => {})
     return
   }
@@ -143,6 +146,11 @@ describe('CLI migrate:create + migrate integration (MySQL) (#308)', () => {
 
 describe('CLI migrate:create + migrate integration (PostgreSQL) (#308)', () => {
   if (!postgresAvailable) {
+    if (process.env.CI) {
+      throw new Error(
+        'PostgreSQL is not reachable in CI. CLI PostgreSQL integration test cannot run.',
+      )
+    }
     it.skip('skipped because PostgreSQL server is not reachable', () => {})
     return
   }
