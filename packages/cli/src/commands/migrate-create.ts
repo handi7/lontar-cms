@@ -123,7 +123,8 @@ export async function migrateCreate(options: MigrateCreateOptions = {}): Promise
   const outDir = path.relative(cwd, migrationsDir) || 'migrations'
   const schemaRel = path.relative(cwd, schemaPath)
 
-  const dialect = config.db.dialect ?? config.db.name
+  const dialect =
+    config.db.dialect ?? (config.db.name === 'postgres' ? 'postgresql' : config.db.name)
   const args: string[] = ['generate', '--dialect', dialect, '--schema', schemaRel, '--out', outDir]
   if (options.name) {
     args.push('--name', options.name)

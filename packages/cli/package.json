@@ -49,6 +49,8 @@
   },
   "devDependencies": {
     "@lontar/core": "workspace:*",
+    "@lontar/db-mysql": "workspace:*",
+    "@lontar/db-postgres": "workspace:*",
     "@types/node": "^26.6.6"
   },
   "engines": {

@@ -60,8 +60,8 @@ export async function isPostgresAvailable(rawUrl?: string): Promise<boolean> {
  * Each invocation generates a unique database `lontar_test_<hex>` so test files
  * can run concurrently without table collision or local dev data pollution.
  */
-export async function setupTestDatabase(): Promise<TestDatabase> {
-  const { url, serverConfig } = parseTestConnection()
+export async function setupTestDatabase(rawUrl?: string): Promise<TestDatabase> {
+  const { url, serverConfig } = parseTestConnection(rawUrl)
   const dbName = `lontar_test_${crypto.randomBytes(6).toString('hex')}`
 
   let adminClient: pg.Client | null = null

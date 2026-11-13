@@ -32,7 +32,7 @@ export async function loadConfig(cwd: string, options: LoadConfigOptions = {}): 
     )
   }
 
-  const jiti = createJiti(cwd)
+  const jiti = createJiti(cwd, { moduleCache: false, fsCache: false })
   const mod: unknown = await jiti.import(configPath)
   const config = extractConfig(mod)
 

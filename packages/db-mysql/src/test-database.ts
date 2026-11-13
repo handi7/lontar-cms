@@ -72,6 +72,17 @@ async function executeDatabaseCreate(
   }
 }
 
+export async function isMySqlAvailable(rawUrl?: string): Promise<boolean> {
+  try {
+    const { serverConfig } = parseTestConnection(rawUrl)
+    const conn = await mysql.createConnection(serverConfig)
+    await conn.end()
+    return true
+  } catch {
+    return false
+  }
+}
+
 /**
  * Creates an isolated test database for integration testing.
  * Uses TEST_DATABASE_URL or defaults to 'mysql://lontar:lontar@127.0.0.1:3306/lontar_test'.
@@ -79,8 +90,8 @@ async function executeDatabaseCreate(
  * Each invocation generates a unique database `lontar_test_<hex>` so test files
  * can run concurrently without table collision or local dev data pollution.
  */
-export async function setupTestDatabase(): Promise<TestDatabase> {
-  const { parsed, serverConfig } = parseTestConnection()
+export async function setupTestDatabase(rawUrl?: string): Promise<TestDatabase> {
+  const { parsed, serverConfig } = parseTestConnection(rawUrl)
   const dbName = `lontar_test_${crypto.randomBytes(6).toString('hex')}`
 
   const serverConn = await mysql.createConnection(serverConfig)

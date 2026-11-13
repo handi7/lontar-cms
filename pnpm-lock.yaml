@@ -233,6 +233,12 @@ importers:
       '@lontar/core':
         specifier: workspace:*
         version: link:../core
+      '@lontar/db-mysql':
+        specifier: workspace:*
+        version: link:../db-mysql
+      '@lontar/db-postgres':
+        specifier: workspace:*
+        version: link:../db-postgres
       '@types/node':
         specifier: ^26.6.6
         version: 26.6.6
