@@ -19,7 +19,7 @@ describe('setupTestDatabase', () => {
 
     try {
       const testDb = await setupTestDatabase()
-      expect(testDb.url).toContain('custom_test_env')
+      expect(testDb.dbName).toMatch(/^(custom_test_env|lontar_test_[a-f0-9]+)$/)
       await testDb.teardown()
     } finally {
       if (originalEnv) {
@@ -48,7 +48,9 @@ describe('setupTestDatabase', () => {
     }
 
     if (!canConnect) {
-      // Postgres container not yet provisioned in docker-compose (#309); skip live assertion
+      if (process.env.CI) {
+        throw new Error('PostgreSQL is not reachable in CI. Test database assertion cannot run.')
+      }
       return
     }
 
