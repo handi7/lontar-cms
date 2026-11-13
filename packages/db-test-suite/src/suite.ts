@@ -1653,7 +1653,7 @@ export function registerAdapterConformanceSuite(
           limit: 10,
           where: { 'layout.hero.heading': { not_equals: 'Alpha' } },
         })
-        expect(heroNotEquals.docs.map((d) => d.id)).toEqual([doc2.id, doc3.id].sort())
+        expect(heroNotEquals.docs.map((d) => d.id).sort()).toEqual([doc2.id, doc3.id].sort())
       },
     )
 
