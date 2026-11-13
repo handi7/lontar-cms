@@ -66,13 +66,15 @@ Do not implement these unless the current milestone says so: localization, Graph
 pnpm install      # install workspace dependencies
 cp .env.example .env
 
-pnpm db:up        # start MySQL via docker-compose.yml, wait until healthy
-pnpm db:down      # stop it
+pnpm db:up        # start MySQL and Postgres via docker-compose.yml, wait until healthy
+pnpm db:up:mysql  # start only MySQL
+pnpm db:up:postgres # start only Postgres
+pnpm db:down      # stop them
 
 pnpm build        # turbo: build every package
 pnpm dev          # turbo: watch-build every package
 pnpm typecheck    # turbo: tsc --noEmit per package
-pnpm test         # vitest across all packages (uses TEST_DATABASE_URL, safe for dev data)
+pnpm test         # vitest across all packages (uses TEST_DATABASE_URL and TEST_POSTGRES_URL, safe for dev data)
 pnpm lint         # eslint
 pnpm format       # prettier --write
 pnpm format:check # prettier --check
@@ -81,7 +83,7 @@ pnpm pack:packages <dir>   # pnpm pack every public package into <dir> (run pnpm
 pnpm smoke:packages <dir>  # install those tarballs outside the workspace and check imports, bins, types
 ```
 
-Integration tests connect using `TEST_DATABASE_URL` (defaults to `mysql://lontar:lontar@127.0.0.1:3306/lontar_test`). Each test file dynamically creates and drops its own isolated database (`lontar_test_<hex>`), completely protecting the local development database (`DATABASE_URL`).
+Integration tests connect using `TEST_DATABASE_URL` (defaults to `mysql://lontar:lontar@127.0.0.1:3306/lontar_test`) and `TEST_POSTGRES_URL` (defaults to `postgres://lontar:lontar@127.0.0.1:5432/lontar_test`). Each test file dynamically creates and drops its own isolated database (`lontar_test_<hex>`), completely protecting the local development database (`DATABASE_URL` / `POSTGRES_URL`).
 
 Packages build with tsdown, except `admin`, which is a Vite library build.
 `publint` runs as part of each tsdown build, so a `package.json` whose `exports`

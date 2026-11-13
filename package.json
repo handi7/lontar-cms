@@ -21,6 +21,8 @@
     "format": "prettier --write .",
     "format:check": "prettier --check .",
     "db:up": "docker compose up -d --wait",
+    "db:up:mysql": "docker compose up -d --wait mysql",
+    "db:up:postgres": "docker compose up -d --wait postgres",
     "db:down": "docker compose down",
     "prepare": "husky"
   },
