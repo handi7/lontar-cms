@@ -30,6 +30,7 @@ export default defineConfig({
       PLAYWRIGHT: 'true',
       DISABLE_AUTH_RATE_LIMIT: 'true',
       REVALIDATION_SECRET: 'dev-webhook-secret-key-12345',
+      ...(process.env.DATABASE_URL ? { DATABASE_URL: process.env.DATABASE_URL } : {}),
     },
   },
 })

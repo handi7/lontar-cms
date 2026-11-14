@@ -62,6 +62,9 @@ importers:
       '@lontar/db-mysql':
         specifier: workspace:*
         version: link:../../packages/db-mysql
+      '@lontar/db-postgres':
+        specifier: workspace:*
+        version: link:../../packages/db-postgres
       '@lontar/next':
         specifier: workspace:*
         version: link:../../packages/next

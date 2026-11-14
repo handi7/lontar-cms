@@ -64,6 +64,7 @@ jobs:
       - name: Verify example migrations are up to date
         run: |
           pnpm --filter next-blog migrate:create
+          DATABASE_URL="$POSTGRES_URL" pnpm --filter next-blog migrate:create
           if [ -n "$(git status --porcelain examples/next-blog/migrations)" ]; then
             echo "Uncommitted migration changes detected in examples/next-blog/migrations"
             git status --porcelain examples/next-blog/migrations
@@ -77,5 +78,7 @@ jobs:
       - run: pnpm test
       - name: Install Playwright Chromium
         run: pnpm --filter next-blog exec playwright install chromium --with-deps
-      - name: Run E2E tests
+      - name: Run E2E tests (MySQL)
         run: pnpm test:e2e
+      - name: Run E2E tests (PostgreSQL)
+        run: DATABASE_URL="$POSTGRES_URL" pnpm test:e2e
