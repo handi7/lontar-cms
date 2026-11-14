@@ -3,11 +3,13 @@ import fs from 'node:fs'
 import path from 'node:path'
 import { loadConfig } from '../config'
 import { findDrizzleKitBin } from '../utils/drizzle-kit'
+import { resolveMigrationsDir } from '../utils/migrations-dir'
 
 export interface MigrateCreateOptions {
   cwd?: string
   name?: string
   envFile?: string
+  migrationsDir?: string
 }
 
 function escapeRegex(str: string): string {
@@ -117,7 +119,8 @@ export async function migrateCreate(options: MigrateCreateOptions = {}): Promise
   const schemaPath = path.resolve(lontarDir, 'schema.ts')
   fs.writeFileSync(schemaPath, schemaContent, 'utf-8')
 
-  const migrationsDir = path.resolve(cwd, 'migrations')
+  const migrationsDir = resolveMigrationsDir(cwd, config.db, options.migrationsDir)
+  fs.mkdirSync(migrationsDir, { recursive: true })
   const bin = findDrizzleKitBin(cwd)
 
   const outDir = path.relative(cwd, migrationsDir) || 'migrations'

@@ -1,5 +1,6 @@
 import { block, collection, defineConfig, fields as f, global } from '@lontar/core'
 import { mysqlAdapter } from '@lontar/db-mysql'
+import { postgresAdapter } from '@lontar/db-postgres'
 import { localStorage } from '@lontar/storage-local'
 
 const authors = collection({
@@ -216,11 +217,23 @@ const revalidationSecret =
   process.env.REVALIDATION_SECRET ||
   (process.env.NODE_ENV !== 'production' ? 'dev-webhook-secret-key-12345' : undefined)
 
+function getDatabaseAdapter() {
+  const url =
+    process.env.DATABASE_URL ||
+    (process.env.POSTGRES_URL && !process.env.DATABASE_URL
+      ? process.env.POSTGRES_URL
+      : undefined) ||
+    'mysql://lontar:lontar@127.0.0.1:3306/lontar'
+
+  if (url.startsWith('postgres://') || url.startsWith('postgresql://')) {
+    return postgresAdapter({ url })
+  }
+  return mysqlAdapter({ url })
+}
+
 export default defineConfig({
   secret: process.env.LONTAR_SECRET || 'dev-secret-at-least-32-chars-long-12345',
-  db: mysqlAdapter({
-    url: process.env.DATABASE_URL || 'mysql://lontar:lontar@127.0.0.1:3306/lontar',
-  }),
+  db: getDatabaseAdapter(),
   storage: localStorage(),
   collections: [posts, pages, categories, authors, media],
   globals: [siteSettings],

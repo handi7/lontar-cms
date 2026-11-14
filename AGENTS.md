@@ -21,7 +21,7 @@ Detailed docs:
 
 - Monorepo: pnpm workspaces + Turborepo
 - Language: TypeScript (strict), ESM only
-- DB: Drizzle ORM, MySQL first (adapter interface must allow Postgres/SQLite later)
+- DB: Drizzle ORM, MySQL and Postgres (adapter interface allows SQLite later)
 - Validation: Zod, generated from field definitions and shared by server and admin
 - API: Hono (REST)
 - Auth: Better Auth, httpOnly session cookie
@@ -37,6 +37,7 @@ Detailed docs:
 packages/
   core/          defineConfig, field definitions, CRUD operations, hooks, access control, Local API
   db-mysql/      Drizzle-based MySQL adapter, schema generation, migrations
+  db-postgres/   Drizzle-based PostgreSQL adapter, schema generation, migrations
   storage-local/ Local disk storage adapter
   storage-s3/    S3-compatible storage adapter
   admin/         Vite + React SPA, ships prebuilt JS + scoped CSS

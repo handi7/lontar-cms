@@ -22,8 +22,8 @@ Usage:
   lontar <command> [options]
 
 Commands:
-  migrate:create   Generate a new SQL migration from config
-  migrate          Run pending migrations against the database
+  migrate:create   Generate a new SQL migration from config (--name <name>, --migrations-dir <path>)
+  migrate          Run pending migrations against the database (--migrations-dir <path>)
   generate:types   Generate TypeScript types from config (--output <path>)
   create-user      Create a new user with --email, --password, and --name
 
@@ -64,19 +64,54 @@ export function parseGlobalFlags(argv: string[]): {
   return { envFile, cleanArgv }
 }
 
-function parseMigrateCreateArgs(argv: string[]): { name?: string } {
-  let name: string | undefined
-  for (let i = 1; i < argv.length; i++) {
-    const arg = argv[i]
-    if (!arg) continue
-
-    if (arg === '--name' && argv[i + 1]) {
-      name = argv[++i]
-    } else if (arg.startsWith('--name=')) {
-      name = arg.slice('--name='.length)
+function parseNamedOption(
+  argv: string[],
+  index: number,
+  names: string[],
+): { value?: string; consumedNext: boolean } {
+  const arg = argv[index]
+  if (!arg) return { consumedNext: false }
+  for (const name of names) {
+    if (arg === name && argv[index + 1]) {
+      return { value: argv[index + 1], consumedNext: true }
+    }
+    if (arg.startsWith(`${name}=`)) {
+      return { value: arg.slice(name.length + 1), consumedNext: false }
     }
   }
-  return { name }
+  return { consumedNext: false }
+}
+
+function parseMigrateCreateArgs(argv: string[]): { name?: string; migrationsDir?: string } {
+  let name: string | undefined
+  let migrationsDir: string | undefined
+  for (let i = 1; i < argv.length; i++) {
+    const nameMatch = parseNamedOption(argv, i, ['--name'])
+    if (nameMatch.value !== undefined) {
+      name = nameMatch.value
+      if (nameMatch.consumedNext) i++
+      continue
+    }
+
+    const dirMatch = parseNamedOption(argv, i, ['--migrations-dir', '--out'])
+    if (dirMatch.value !== undefined) {
+      migrationsDir = dirMatch.value
+      if (dirMatch.consumedNext) i++
+    }
+  }
+  return { name, migrationsDir }
+}
+
+function parseMigrateArgs(argv: string[]): { migrationsDir?: string } {
+  let migrationsDir: string | undefined
+  for (let i = 1; i < argv.length; i++) {
+    const dirMatch = parseNamedOption(argv, i, ['--migrations-dir', '--out'])
+    if (dirMatch.value !== undefined) {
+      migrationsDir = dirMatch.value
+      if (dirMatch.consumedNext) i++
+    }
+  }
+  return { migrationsDir }
 }
 
 function parseGenerateTypesArgs(argv: string[]): { output?: string } {
@@ -124,8 +159,9 @@ const COMMAND_HANDLERS: Record<string, CommandHandler> = {
     const opts = parseMigrateCreateArgs(argv)
     await migrateCreate({ ...opts, envFile: globalOpts?.envFile })
   },
-  migrate: async (_argv, globalOpts) => {
-    await migrate({ envFile: globalOpts?.envFile })
+  migrate: async (argv, globalOpts) => {
+    const opts = parseMigrateArgs(argv)
+    await migrate({ ...opts, envFile: globalOpts?.envFile })
   },
   'generate:types': async (argv, globalOpts) => {
     const opts = parseGenerateTypesArgs(argv)

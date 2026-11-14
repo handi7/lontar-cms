@@ -14,6 +14,7 @@
     "typecheck": "turbo run typecheck",
     "test": "vitest run --passWithNoTests",
     "test:e2e": "pnpm --filter next-blog test:e2e",
+    "test:e2e:postgres": "pnpm --filter next-blog test:e2e:postgres",
     "test:watch": "vitest",
     "pack:packages": "node scripts/release/pack.mjs",
     "smoke:packages": "node scripts/release/smoke-test.mjs",

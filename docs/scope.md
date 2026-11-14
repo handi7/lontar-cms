@@ -10,7 +10,7 @@ Lontar is an open source, TypeScript-first headless CMS: you define your schema 
 
 - Code-first CMSs like Payload v3 are now tightly coupled to the Next.js App Router and RSC, so every Next upgrade affects the CMS.
 - GUI-based CMSs (Strapi, Directus) keep the schema in the database rather than in code, which makes it hard to review and version in Git.
-- Developers running MySQL in a Next.js/React stack need a lightweight CMS they can simply mount into an existing app.
+- Developers running MySQL or PostgreSQL in a Next.js/React stack need a lightweight CMS they can simply mount into an existing app.
 
 **Target users:** TypeScript/React developers building websites or internal apps for clients who want their content schema to live in code.
 
@@ -33,7 +33,7 @@ The MVP is done when one real website can be fully managed through Lontar: colle
 | -------------- | ------------------------------------------------------------------------------------------------------------------------------------------------- |
 | Config         | `defineConfig`, `collections`, `globals` (single documents, e.g. site settings)                                                                   |
 | Fields         | `text`, `textarea`, `number`, `checkbox`, `select`, `date`, `email`, `slug`, `richText` (Tiptap), `relationship` (one-way, single/many), `upload` |
-| Database       | MySQL via Drizzle, migrations generated from config via the CLI                                                                                   |
+| Database       | MySQL and PostgreSQL via Drizzle, migrations generated from config via the CLI                                                                    |
 | API            | REST: list (filter, sort, pagination), get, create, update, delete; `depth` param to populate relationships                                       |
 | Auth           | Email + password login for admin users via Better Auth, httpOnly session cookie                                                                   |
 | Access control | `read`, `create`, `update`, `delete` functions per collection (no field-level yet)                                                                |
