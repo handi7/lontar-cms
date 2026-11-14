@@ -193,7 +193,16 @@ approval on the `npm` environment. Don't run `pnpm publish` by hand; see `docs/r
     - [x] Minor: #242 (done), #246 (done), #247 (done), #248 (done)
     - [x] ADR decisions to record: #249 (done)
     - [x] Code review fixes from `main` @ 0069d5e: #285 (done), #286 (done), #287 (done), #288 (done)
-- [ ] **M9: Second database adapter** (tracking in #147)
+- [x] **M9: Second database adapter** (Done; tracking in #147)
+  - [x] #302 `docs: ADR for the Postgres adapter and dialect differences`
+  - [x] #303 `core: remove MySQL assumptions from core and CLI`
+  - [x] #304 `test: shared adapter conformance suite`
+  - [x] #305 `db-postgres: package scaffold and schema generation`
+  - [x] #306 `db-postgres: CRUD, filtering, relationships and transactions`
+  - [x] #307 `db-postgres: nested JSON filters, versions/drafts and error mapping`
+  - [x] #308 `cli: migrate and migrate:create for every adapter`
+  - [x] #309 `ci: Postgres in docker-compose, CI and release`
+  - [x] #310 `examples/next-blog: run on Postgres, e2e on both databases`
 - [ ] **M10: Users, roles & field-level access** (tracking in #148)
 - [ ] **M11: Localization** (tracking in #149)
 - [ ] **M12: Admin UX & extensibility** (tracking in #150)
