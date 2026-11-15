@@ -470,6 +470,10 @@ function buildInCondition(column: PgColumn, operator: string, value: unknown): S
   return undefined
 }
 
+function escapeLikeWildcards(value: string): string {
+  return value.replace(/[\\%_]/g, '\\$&')
+}
+
 function buildBasicCondition(column: PgColumn, operator: string, value: unknown): SQL | undefined {
   switch (operator) {
     case 'equals':
@@ -479,7 +483,7 @@ function buildBasicCondition(column: PgColumn, operator: string, value: unknown)
     case 'like':
       return ilike(column, String(value))
     case 'contains':
-      return ilike(column, `%${String(value)}%`)
+      return ilike(column, `%${escapeLikeWildcards(String(value))}%`)
     case 'exists':
       return value ? isNotNull(column) : isNull(column)
     default:
@@ -749,7 +753,11 @@ function buildJsonOpCondition(
   if (equality) return equality
   if (op === 'in') return buildJsonInCondition(column, pathInfo, rawVal)
   if (op === 'contains') {
-    return buildJsonTextPatternCondition(column, pathInfo, `%${toPatternString(rawVal)}%`)
+    return buildJsonTextPatternCondition(
+      column,
+      pathInfo,
+      `%${escapeLikeWildcards(toPatternString(rawVal))}%`,
+    )
   }
   if (op === 'like') {
     return buildJsonTextPatternCondition(column, pathInfo, toPatternString(rawVal))
