@@ -7,6 +7,7 @@ import {
   createVersionsTable,
   getCollectionJunctionTables,
   getCollectionVersionsTable,
+  getVersionsFilenameIndexName,
   getVersionsParentForeignKeyName,
   getVersionsParentIdIndexName,
   getVersionsParentStatusIndexName,
@@ -403,6 +404,48 @@ describe('collectionToTable', () => {
     const longName = getVersionsParentStatusIndexName(slug38)
     expect(longName.length).toBeLessThanOrEqual(63)
     expect(longName).toMatch(/_[a-f0-9]{8}_idx$/)
+  })
+
+  it('getVersionsFilenameIndexName returns exact name when <= 63 and hashes when > 63', () => {
+    expect(getVersionsFilenameIndexName('media')).toBe('media_versions_filename_idx')
+    const slug = 'very-long-newsletter-campaigns-and-marketing-slug'
+    const longName = getVersionsFilenameIndexName(slug)
+    expect(longName.length).toBeLessThanOrEqual(63)
+    expect(longName).toMatch(/_[a-f0-9]{8}_idx$/)
+  })
+
+  it('creates filename expression index on snapshot only when isUpload is true', () => {
+    const mediaTable = collectionToTable({
+      slug: 'media',
+      upload: true,
+      fields: { alt: { type: 'text' } },
+    })
+    const uploadVTable = createVersionsTable('media', mediaTable, true)
+    const uploadConfig = getTableConfig(uploadVTable)
+    expect(uploadConfig.indexes).toHaveLength(3)
+    const indexNames = uploadConfig.indexes.map((i) => i.config.name)
+    expect(indexNames).toContain('media_versions_filename_idx')
+
+    const regularVTable = createVersionsTable('media', mediaTable, false)
+    const regularConfig = getTableConfig(regularVTable)
+    expect(regularConfig.indexes).toHaveLength(2)
+    expect(regularConfig.indexes.map((i) => i.config.name)).not.toContain(
+      'media_versions_filename_idx',
+    )
+  })
+
+  it('getCollectionVersionsTable creates upload filename index when collection.upload is true', () => {
+    const uploadCol: CollectionConfig = {
+      slug: 'media',
+      upload: true,
+      versions: { drafts: true },
+      fields: { alt: { type: 'text' } },
+    }
+    const mediaTable = collectionToTable(uploadCol)
+    const vTable = getCollectionVersionsTable(uploadCol, mediaTable)
+    expect(vTable).not.toBeNull()
+    const config = getTableConfig(vTable!)
+    expect(config.indexes.map((i) => i.config.name)).toContain('media_versions_filename_idx')
   })
 
   it('getCollectionVersionsTable returns null when versions is not configured', () => {

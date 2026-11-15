@@ -330,6 +330,29 @@ describe('generateSchemaFile', () => {
       "unique('posts_versions_parent_version_unique').on(t.parentId, t.versionNumber)",
     )
     expect(output).toMatch(/import \{.*foreignKey,.*unique.*\} from '.*drizzle-orm\/pg-core/)
+    expect(output).not.toContain('import { sql }')
+    expect(output).not.toContain('filename_idx')
+  })
+
+  it('renders upload collection versions table with filename expression index and sql import', () => {
+    const media: CollectionConfig = {
+      slug: 'media',
+      upload: true,
+      versions: { drafts: true },
+      fields: { alt: { type: 'text' } },
+    }
+    const config: Config = {
+      secret: 'test-secret',
+      db: fakeAdapter,
+      collections: [media],
+    }
+
+    const output = generateSchemaFile(config)
+    expect(output).toContain("import { sql } from '")
+    expect(output).toContain("export const mediaVersions = pgTable(\n  'media_versions',")
+    expect(output).toContain(
+      "index('media_versions_filename_idx').on(sql`(${t.snapshot}->>'filename')`)",
+    )
   })
 
   it('truncates versions parent FK, unique constraint, and index names to at most 63 characters for long collection slugs', () => {
@@ -510,6 +533,7 @@ describe('generateSchemaFile', () => {
         {
           slug: 'media',
           upload: true,
+          versions: { drafts: true },
           fields: { alt: { type: 'text' } },
         },
       ],
@@ -548,11 +572,13 @@ describe('generateSchemaFile', () => {
       const sqlContent = fs.readFileSync(path.join(outDir, sqlFiles[0]!), 'utf8')
       expect(sqlContent).toContain('CREATE TABLE "posts"')
       expect(sqlContent).toContain('CREATE TABLE "media"')
+      expect(sqlContent).toContain('CREATE TABLE "media_versions"')
       expect(sqlContent).toContain('CREATE TABLE "posts_versions"')
       expect(sqlContent).toContain('CREATE TABLE "site_settings"')
       expect(sqlContent).toContain('CREATE TABLE "site_settings_versions"')
       expect(sqlContent).toContain('CREATE TABLE "posts_categories"')
       expect(sqlContent).toContain('CREATE TABLE "user"')
+      expect(sqlContent).toContain('media_versions_filename_idx')
     } finally {
       fs.rmSync(tmpDir, { recursive: true, force: true })
     }
