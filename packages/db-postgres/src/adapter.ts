@@ -68,6 +68,7 @@ import {
 export interface PostgresAdapterOptions {
   url: string
   pool?: pg.PoolConfig
+  onPoolError?: (err: Error, client?: pg.PoolClient) => void
 }
 
 export type PostgresAdapter = DatabaseAdapter & {
@@ -1702,6 +1703,14 @@ export function postgresAdapter(options: PostgresAdapterOptions): PostgresAdapte
     connectionString: options.url,
     options: '-c timezone=UTC',
     ...options.pool,
+  })
+
+  pool.on('error', (err: Error, client?: pg.PoolClient) => {
+    if (options.onPoolError) {
+      options.onPoolError(err, client)
+    } else {
+      console.error('[lontar] Unexpected error on idle Postgres client:', err)
+    }
   })
 
   const db = drizzle(pool, { schema: authTables })

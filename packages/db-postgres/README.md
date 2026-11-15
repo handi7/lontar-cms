@@ -33,10 +33,11 @@ export default defineConfig({
 
 `postgresAdapter` accepts an options object:
 
-| Option | Type            | Description                                                                                                                                          |
-| :----- | :-------------- | :--------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `url`  | `string`        | **Required.** PostgreSQL connection string (e.g. `postgres://user:password@localhost:5432/dbname` or SSL URL like `postgres://...?sslmode=require`). |
-| `pool` | `pg.PoolConfig` | Optional configuration object forwarded directly to `pg.Pool` (`max`, `idleTimeoutMillis`, `connectionTimeoutMillis`, `ssl`, etc.).                  |
+| Option        | Type                                           | Description                                                                                                                                          |
+| :------------ | :--------------------------------------------- | :--------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `url`         | `string`                                       | **Required.** PostgreSQL connection string (e.g. `postgres://user:password@localhost:5432/dbname` or SSL URL like `postgres://...?sslmode=require`). |
+| `pool`        | `pg.PoolConfig`                                | Optional configuration object forwarded directly to `pg.Pool` (`max`, `idleTimeoutMillis`, `connectionTimeoutMillis`, `ssl`, etc.).                  |
+| `onPoolError` | `(err: Error, client?: pg.PoolClient) => void` | Optional callback invoked when an idle client in the connection pool encounters an error. By default, logs to `console.error`.                       |
 
 ## Features & Dialect Differences
 
