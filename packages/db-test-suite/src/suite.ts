@@ -11,6 +11,7 @@ import {
 } from '@lontar/core'
 import { findDrizzleKitBin } from './drizzle-kit'
 import {
+  categoriesCollection,
   conditionalPostsCollection,
   createTestConfig,
   headerGlobal,
@@ -25,6 +26,24 @@ import {
   versionHistoryCollection,
 } from './fixtures'
 import type { ConformanceSuiteContext, ConformanceSuiteOptions, TestDatabaseHandle } from './types'
+
+async function collectPagedIds(
+  adapter: DatabaseAdapter,
+  options: { sort?: string; pageSize: number; totalPages: number },
+): Promise<number[]> {
+  const ids: number[] = []
+  for (let p = 1; p <= options.totalPages; p++) {
+    const res = await adapter.find({
+      collection: categoriesCollection,
+      limit: options.pageSize,
+      page: p,
+      ...(options.sort ? { sort: options.sort } : {}),
+    })
+    expect(res.docs).toHaveLength(options.pageSize)
+    ids.push(...res.docs.map((doc) => doc.id))
+  }
+  return ids
+}
 
 export function registerAdapterConformanceSuite(
   context: ConformanceSuiteContext,
@@ -205,6 +224,39 @@ export function registerAdapterConformanceSuite(
       expect(descSort.docs[0]?.id).toBe(2)
       expect(descSort.docs[1]?.id).toBe(1)
     })
+
+    testCase(
+      'appends unique id tiebreaker to ORDER BY for stable pagination across ties',
+      async () => {
+        const total = 15
+        for (let i = 0; i < total; i++) {
+          await adapter.create({
+            collection: categoriesCollection,
+            data: { name: 'Identical' },
+          })
+        }
+
+        const paging = { pageSize: 5, totalPages: 3 }
+
+        // 1. Ascending sort on non-unique field: id must break ties ascending
+        const ascIds = await collectPagedIds(adapter, { ...paging, sort: 'name' })
+        expect(ascIds).toHaveLength(total)
+        expect(new Set(ascIds).size).toBe(total)
+        expect(ascIds).toEqual([...ascIds].sort((a, b) => a - b))
+
+        // 2. Descending sort on non-unique field: id must break ties descending
+        const descIds = await collectPagedIds(adapter, { ...paging, sort: '-name' })
+        expect(descIds).toHaveLength(total)
+        expect(new Set(descIds).size).toBe(total)
+        expect(descIds).toEqual([...descIds].sort((a, b) => b - a))
+
+        // 3. Default sort (no explicit sort): id must break ties descending
+        const defaultIds = await collectPagedIds(adapter, paging)
+        expect(defaultIds).toHaveLength(total)
+        expect(new Set(defaultIds).size).toBe(total)
+        expect(defaultIds).toEqual([...defaultIds].sort((a, b) => b - a))
+      },
+    )
 
     testCase(
       'supports unlimited queries with limit: 0 and honors collection maxLimit',

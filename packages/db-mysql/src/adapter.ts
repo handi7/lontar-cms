@@ -883,26 +883,49 @@ function resolveWhere(
   return and(...clauses)
 }
 
-function resolveOrderBy(table: DynamicTable, sort?: string | SortItem[]): SQL[] {
-  const sortItems = Array.isArray(sort)
-    ? sort.filter((s): s is SortItem => typeof s === 'object' && 'field' in s)
-    : parseSort(sort)
-
-  if (sortItems.length === 0) {
-    const createdAtCol = table.createdAt
-    return createdAtCol ? [desc(createdAtCol)] : []
+function normalizeSortItems(sort?: string | SortItem[]): SortItem[] {
+  if (Array.isArray(sort)) {
+    return sort.filter((s): s is SortItem => typeof s === 'object' && 'field' in s)
   }
+  return parseSort(sort)
+}
 
+function defaultOrderBy(table: DynamicTable): SQL[] {
+  const list: SQL[] = []
+  if (table.createdAt) list.push(desc(table.createdAt))
+  if (table.id) list.push(desc(table.id))
+  return list
+}
+
+function explicitOrderBy(table: DynamicTable, sortItems: SortItem[]): SQL[] {
   const orderByList: SQL[] = []
+  let hasId = false
+  let lastDirection: 'asc' | 'desc' = 'desc'
+
   for (const item of sortItems) {
     const colName = item.field.replace(/\./g, '__')
+    if (colName === 'id') hasId = true
+    lastDirection = item.direction
     if (!Object.hasOwn(table, colName)) continue
     const column = table[colName]
     if (column) {
       orderByList.push(item.direction === 'desc' ? desc(column) : asc(column))
     }
   }
+
+  if (!hasId && table.id) {
+    orderByList.push(lastDirection === 'desc' ? desc(table.id) : asc(table.id))
+  }
+
   return orderByList
+}
+
+function resolveOrderBy(table: DynamicTable, sort?: string | SortItem[]): SQL[] {
+  const sortItems = normalizeSortItems(sort)
+  if (sortItems.length === 0) {
+    return defaultOrderBy(table)
+  }
+  return explicitOrderBy(table, sortItems)
 }
 
 type AdapterDb = MySql2Database<typeof authTables>
@@ -1502,23 +1525,31 @@ const VERSIONS_SORT_FIELDS: Record<string, VersionsSortColumn> = {
 }
 
 function resolveVersionsOrderBy(vTable: VersionsTable, sort?: string | SortItem[]): SQL[] {
-  const sortItems = Array.isArray(sort)
-    ? sort.filter((s): s is SortItem => typeof s === 'object' && 'field' in s)
-    : parseSort(sort)
+  const sortItems = normalizeSortItems(sort)
+
+  if (sortItems.length === 0) {
+    return [desc(vTable.id)]
+  }
 
   const orderByList: SQL[] = []
+  let hasId = false
+  let lastDirection: 'asc' | 'desc' = 'desc'
+
   for (const item of sortItems) {
     const colKey = VERSIONS_SORT_FIELDS[item.field]
     if (!colKey) continue
+    if (colKey === 'id') hasId = true
+    lastDirection = item.direction
     const column = vTable[colKey]
     if (column) {
       orderByList.push(item.direction === 'desc' ? desc(column) : asc(column))
     }
   }
 
-  if (orderByList.length === 0) {
-    return [desc(vTable.id)]
+  if (!hasId) {
+    orderByList.push(lastDirection === 'desc' ? desc(vTable.id) : asc(vTable.id))
   }
+
   return orderByList
 }
 
