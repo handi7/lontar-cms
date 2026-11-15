@@ -880,19 +880,29 @@ function resolveWhere(
   return and(...clauses)
 }
 
-function resolveOrderBy(table: DynamicTable, sort?: string | SortItem[]): SQL[] {
-  const sortItems = Array.isArray(sort)
-    ? sort.filter((s): s is SortItem => typeof s === 'object' && 'field' in s)
-    : parseSort(sort)
-
-  if (sortItems.length === 0) {
-    const createdAtCol = table.createdAt
-    return createdAtCol ? [sql`${desc(createdAtCol)} NULLS LAST`] : []
+function normalizeSortItems(sort?: string | SortItem[]): SortItem[] {
+  if (Array.isArray(sort)) {
+    return sort.filter((s): s is SortItem => typeof s === 'object' && 'field' in s)
   }
+  return parseSort(sort)
+}
 
+function defaultOrderBy(table: DynamicTable): SQL[] {
+  const list: SQL[] = []
+  if (table.createdAt) list.push(sql`${desc(table.createdAt)} NULLS LAST`)
+  if (table.id) list.push(sql`${desc(table.id)} NULLS LAST`)
+  return list
+}
+
+function explicitOrderBy(table: DynamicTable, sortItems: SortItem[]): SQL[] {
   const orderByList: SQL[] = []
+  let hasId = false
+  let lastDirection: 'asc' | 'desc' = 'desc'
+
   for (const item of sortItems) {
     const colName = item.field.replace(/\./g, '__')
+    if (colName === 'id') hasId = true
+    lastDirection = item.direction
     if (!Object.hasOwn(table, colName)) continue
     const column = table[colName]
     if (column) {
@@ -903,7 +913,24 @@ function resolveOrderBy(table: DynamicTable, sort?: string | SortItem[]): SQL[] 
       )
     }
   }
+
+  if (!hasId && table.id) {
+    orderByList.push(
+      lastDirection === 'desc'
+        ? sql`${desc(table.id)} NULLS LAST`
+        : sql`${asc(table.id)} NULLS FIRST`,
+    )
+  }
+
   return orderByList
+}
+
+function resolveOrderBy(table: DynamicTable, sort?: string | SortItem[]): SQL[] {
+  const sortItems = normalizeSortItems(sort)
+  if (sortItems.length === 0) {
+    return defaultOrderBy(table)
+  }
+  return explicitOrderBy(table, sortItems)
 }
 
 interface AdapterCaches {
@@ -1504,14 +1531,21 @@ const VERSIONS_SORT_FIELDS: Record<string, VersionsSortColumn> = {
 }
 
 function resolveVersionsOrderBy(vTable: VersionsTable, sort?: string | SortItem[]): SQL[] {
-  const sortItems = Array.isArray(sort)
-    ? sort.filter((s): s is SortItem => typeof s === 'object' && 'field' in s)
-    : parseSort(sort)
+  const sortItems = normalizeSortItems(sort)
+
+  if (sortItems.length === 0) {
+    return [sql`${desc(vTable.id)} NULLS LAST`]
+  }
 
   const orderByList: SQL[] = []
+  let hasId = false
+  let lastDirection: 'asc' | 'desc' = 'desc'
+
   for (const item of sortItems) {
     const colKey = VERSIONS_SORT_FIELDS[item.field]
     if (!colKey) continue
+    if (colKey === 'id') hasId = true
+    lastDirection = item.direction
     const column = vTable[colKey] as PgColumn | undefined
     if (column) {
       orderByList.push(
@@ -1522,9 +1556,14 @@ function resolveVersionsOrderBy(vTable: VersionsTable, sort?: string | SortItem[
     }
   }
 
-  if (orderByList.length === 0) {
-    return [sql`${desc(vTable.id)} NULLS LAST`]
+  if (!hasId) {
+    orderByList.push(
+      lastDirection === 'desc'
+        ? sql`${desc(vTable.id)} NULLS LAST`
+        : sql`${asc(vTable.id)} NULLS FIRST`,
+    )
   }
+
   return orderByList
 }
 
