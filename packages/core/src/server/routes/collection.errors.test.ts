@@ -3,7 +3,13 @@ import { collection } from '../../config/collection'
 import { defineConfig } from '../../config/define-config'
 import { global } from '../../config/global'
 import type { DatabaseAdapter } from '../../database/adapter'
-import { DatabaseError, UniqueConstraintError } from '../../database/errors'
+import {
+  CheckConstraintError,
+  DatabaseError,
+  ForeignKeyConstraintError,
+  NotNullConstraintError,
+  UniqueConstraintError,
+} from '../../database/errors'
 import { fields as f } from '../../fields'
 import { createLontar } from '../create-lontar'
 
@@ -183,6 +189,155 @@ describe('API Error Handling and SQL Leak Prevention', () => {
     expect(json.issues).toHaveLength(1)
     expect(json.issues[0]?.path).toEqual(['slug'])
     expect(json.issues[0]?.message).toBe('Value "taken-slug" is already taken')
+  })
+
+  it('maps NotNullConstraintError on create to 400 validation error with field issue', async () => {
+    const { db, mockCreate } = createErrorMockAdapter()
+    mockCreate.mockRejectedValue(
+      new NotNullConstraintError('Field "title" is required', {
+        field: 'title',
+        column: 'title',
+      }),
+    )
+
+    const lontar = createLontar(
+      defineConfig({
+        secret: 'test-secret',
+        db,
+        collections: [postsCol],
+      }),
+    )
+
+    const res = await lontar.fetch(
+      new Request('http://localhost/api/posts', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ title: 'A valid title' }),
+      }),
+    )
+
+    expect(res.status).toBe(400)
+    const json = (await res.json()) as {
+      error: string
+      issues: Array<{ path: string[]; message: string }>
+    }
+    expect(json.error).toBe('Validation failed')
+    expect(json.issues).toHaveLength(1)
+    expect(json.issues[0]?.path).toEqual(['title'])
+    expect(json.issues[0]?.message).toBe('Field "title" is required')
+  })
+
+  it('maps ForeignKeyConstraintError on create to 400 validation error with field issue', async () => {
+    const { db, mockCreate } = createErrorMockAdapter()
+    mockCreate.mockRejectedValue(
+      new ForeignKeyConstraintError('Referenced document for field "author" does not exist', {
+        field: 'author',
+        table: 'users',
+      }),
+    )
+
+    const lontar = createLontar(
+      defineConfig({
+        secret: 'test-secret',
+        db,
+        collections: [postsCol],
+      }),
+    )
+
+    const res = await lontar.fetch(
+      new Request('http://localhost/api/posts', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ title: 'A valid title' }),
+      }),
+    )
+
+    expect(res.status).toBe(400)
+    const json = (await res.json()) as {
+      error: string
+      issues: Array<{ path: string[]; message: string }>
+    }
+    expect(json.error).toBe('Validation failed')
+    expect(json.issues).toHaveLength(1)
+    expect(json.issues[0]?.path).toEqual(['author'])
+    expect(json.issues[0]?.message).toBe('Referenced document for field "author" does not exist')
+  })
+
+  it('maps CheckConstraintError on update to 400 validation error with field issue', async () => {
+    const { db, mockFindByID, mockUpdate } = createErrorMockAdapter()
+    mockFindByID.mockResolvedValue({
+      id: 1,
+      title: 'Existing Post',
+      createdAt: '2026-11-01T00:00:00.000Z',
+      updatedAt: '2026-11-01T00:00:00.000Z',
+    })
+
+    mockUpdate.mockRejectedValue(
+      new CheckConstraintError('Value violates check constraint for field "title"', {
+        field: 'title',
+        constraint: 'posts_title_check',
+      }),
+    )
+
+    const lontar = createLontar(
+      defineConfig({
+        secret: 'test-secret',
+        db,
+        collections: [postsCol],
+      }),
+    )
+
+    const res = await lontar.fetch(
+      new Request('http://localhost/api/posts/1', {
+        method: 'PATCH',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ title: 'New Title' }),
+      }),
+    )
+
+    expect(res.status).toBe(400)
+    const json = (await res.json()) as {
+      error: string
+      issues: Array<{ path: string[]; message: string }>
+    }
+    expect(json.error).toBe('Validation failed')
+    expect(json.issues).toHaveLength(1)
+    expect(json.issues[0]?.path).toEqual(['title'])
+    expect(json.issues[0]?.message).toBe('Value violates check constraint for field "title"')
+  })
+
+  it('maps ForeignKeyConstraintError on delete to 409 conflict error', async () => {
+    const { db, mockFindByID, mockDelete } = createErrorMockAdapter()
+    mockFindByID.mockResolvedValue({
+      id: 1,
+      title: 'Existing Post',
+      createdAt: '2026-11-01T00:00:00.000Z',
+      updatedAt: '2026-11-01T00:00:00.000Z',
+    })
+
+    mockDelete.mockRejectedValue(
+      new ForeignKeyConstraintError('Cannot delete or update row referenced by "posts"', {
+        table: 'posts',
+      }),
+    )
+
+    const lontar = createLontar(
+      defineConfig({
+        secret: 'test-secret',
+        db,
+        collections: [postsCol],
+      }),
+    )
+
+    const res = await lontar.fetch(
+      new Request('http://localhost/api/posts/1', {
+        method: 'DELETE',
+      }),
+    )
+
+    expect(res.status).toBe(409)
+    const json = (await res.json()) as { error: string }
+    expect(json.error).toBe('Cannot delete document referenced by "posts"')
   })
 
   it('does not leak SQL error messages and returns 500 JSON on database error during write', async () => {

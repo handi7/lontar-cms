@@ -1,6 +1,9 @@
 import { DrizzleError } from 'drizzle-orm'
 import {
+  CheckConstraintError,
   DatabaseError,
+  ForeignKeyConstraintError,
+  NotNullConstraintError,
   UniqueConstraintError,
   type CollectionConfig,
   type GlobalConfig,
@@ -74,6 +77,7 @@ interface PostgresRawError {
   routine?: string
   severity?: string
   message?: string
+  column?: string
 }
 
 function nextCause(current: object): unknown {
@@ -84,7 +88,9 @@ function nextCause(current: object): unknown {
 }
 
 function hasPostgresRawProps(raw: PostgresRawError): boolean {
-  return Boolean(raw.code || raw.detail || raw.constraint || raw.routine || raw.severity)
+  return Boolean(
+    raw.code || raw.detail || raw.constraint || raw.routine || raw.severity || raw.column,
+  )
 }
 
 function extractPostgresError(err: unknown): PostgresRawError | undefined {
@@ -114,7 +120,8 @@ function hasPostgresErrorProperties(err: unknown): boolean {
     typeof raw.constraint === 'string' ||
     typeof raw.detail === 'string' ||
     typeof raw.routine === 'string' ||
-    typeof raw.severity === 'string'
+    typeof raw.severity === 'string' ||
+    typeof raw.column === 'string'
   ) {
     return true
   }
@@ -179,8 +186,133 @@ function buildUniqueConstraintError(
   return new UniqueConstraintError(msg, { field, value, cause: err })
 }
 
+function parsePostgresFkDetail(detail?: string): {
+  keyName?: string
+  keyValue?: string
+  targetTable?: string
+  referencingTable?: string
+} {
+  if (!detail) return {}
+  const keyMatch = /Key \(([^)]+)\)=\((.*)\)/.exec(detail)
+  const missingMatch = /is not present in table "([^"]+)"/.exec(detail)
+  const referencedMatch = /is still referenced from table "([^"]+)"/.exec(detail)
+  return {
+    keyName: keyMatch?.[1],
+    keyValue: keyMatch?.[2],
+    targetTable: missingMatch?.[1],
+    referencingTable: referencedMatch?.[1],
+  }
+}
+
+function buildForeignKeyConstraintError(
+  pgErr: PostgresRawError,
+  err: unknown,
+  context?: ErrorContext,
+): ForeignKeyConstraintError {
+  const { keyName, targetTable, referencingTable } = parsePostgresFkDetail(pgErr.detail)
+  const table = referencingTable ?? targetTable ?? pgErr.table
+  const field = resolveFieldName(keyName, pgErr.constraint, context)
+
+  let msg = 'Foreign key constraint violation'
+  if (referencingTable) {
+    msg = `Cannot delete or update row referenced by "${referencingTable}"`
+  } else if (field) {
+    msg = `Referenced document for field "${field}" does not exist`
+  } else if (targetTable) {
+    msg = `Referenced row in table "${targetTable}" does not exist`
+  }
+
+  return new ForeignKeyConstraintError(msg, {
+    field,
+    table,
+    constraint: pgErr.constraint,
+    cause: err,
+  })
+}
+
+function parsePostgresNotNullColumn(pgErr: PostgresRawError, rawMsg: string): string | undefined {
+  if (pgErr.column) return pgErr.column
+  const match = /null value in column "([^"]+)"/.exec(rawMsg)
+  return match?.[1]
+}
+
+function buildNotNullConstraintError(
+  pgErr: PostgresRawError,
+  err: unknown,
+  context?: ErrorContext,
+): NotNullConstraintError {
+  const rawMsg = pgErr.message ?? (err instanceof Error ? err.message : '')
+  const column = parsePostgresNotNullColumn(pgErr, rawMsg)
+  const field =
+    column && context?.fields ? findFieldName(column, context.fields, context.slug) : column
+  const msg = field ? `Field "${field}" is required` : 'Not-null constraint violation'
+
+  return new NotNullConstraintError(msg, {
+    field,
+    column,
+    cause: err,
+  })
+}
+
+function parsePostgresCheckConstraint(pgErr: PostgresRawError, rawMsg: string): string | undefined {
+  if (pgErr.constraint) return pgErr.constraint
+  const match = /violates check constraint "([^"]+)"/.exec(rawMsg)
+  return match?.[1]
+}
+
+function buildCheckConstraintError(
+  pgErr: PostgresRawError,
+  err: unknown,
+  context?: ErrorContext,
+): CheckConstraintError {
+  const rawMsg = pgErr.message ?? (err instanceof Error ? err.message : '')
+  const constraint = parsePostgresCheckConstraint(pgErr, rawMsg)
+  const field =
+    constraint && context?.fields
+      ? findFieldName(constraint, context.fields, context.slug)
+      : undefined
+  const msg = field
+    ? `Value violates check constraint for field "${field}"`
+    : 'Check constraint violation'
+
+  return new CheckConstraintError(msg, {
+    field,
+    constraint,
+    cause: err,
+  })
+}
+
+function isKnownDatabaseError(err: unknown): err is DatabaseError {
+  return (
+    err instanceof UniqueConstraintError ||
+    err instanceof ForeignKeyConstraintError ||
+    err instanceof NotNullConstraintError ||
+    err instanceof CheckConstraintError ||
+    err instanceof DatabaseError
+  )
+}
+
+function mapPostgresError(
+  pgErr: PostgresRawError,
+  err: unknown,
+  context?: ErrorContext,
+): DatabaseError | null {
+  switch (pgErr.code) {
+    case '23505':
+      return buildUniqueConstraintError(pgErr, err, context)
+    case '23503':
+      return buildForeignKeyConstraintError(pgErr, err, context)
+    case '23502':
+      return buildNotNullConstraintError(pgErr, err, context)
+    case '23514':
+      return buildCheckConstraintError(pgErr, err, context)
+    default:
+      return null
+  }
+}
+
 export function handleDatabaseError(err: unknown, context?: ErrorContext): never {
-  if (err instanceof UniqueConstraintError || err instanceof DatabaseError) {
+  if (isKnownDatabaseError(err)) {
     throw err
   }
 
@@ -189,8 +321,9 @@ export function handleDatabaseError(err: unknown, context?: ErrorContext): never
   }
 
   const pgErr = extractPostgresError(err)
-  if (pgErr?.code === '23505') {
-    throw buildUniqueConstraintError(pgErr, err, context)
+  if (pgErr) {
+    const mapped = mapPostgresError(pgErr, err, context)
+    if (mapped) throw mapped
   }
 
   throw new DatabaseError('Database operation failed', { cause: err })

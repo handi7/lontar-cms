@@ -6,7 +6,7 @@ import type { AuthUser, LontarVariables } from '../../auth/types'
 import { clientFieldsToZod } from '../../client/zod'
 import { toClientCollection } from '../../config/to-client-config'
 import { DEFAULT_LIMIT, MAX_LIMIT, type CollectionConfig, type Config } from '../../config/types'
-import type { DocumentData } from '../../database/adapter'
+import { ForeignKeyConstraintError, type DocumentData } from '../../database/adapter'
 import {
   AccessDeniedError,
   createOperation,
@@ -373,6 +373,12 @@ async function handleDelete(c: Context<LontarEnv>, collection: CollectionConfig,
   } catch (err) {
     if (err instanceof AccessDeniedError) {
       return accessDenied(c, user)
+    }
+    if (err instanceof ForeignKeyConstraintError) {
+      const message = err.table
+        ? `Cannot delete document referenced by "${err.table}"`
+        : 'Cannot delete document referenced by other documents'
+      return c.json({ error: message }, 409)
     }
     throw err
   }
