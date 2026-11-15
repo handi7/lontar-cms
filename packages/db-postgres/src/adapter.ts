@@ -1289,7 +1289,10 @@ async function updateGlobalDoc(
       const values = sanitizeData(global, data)
 
       if (existing) {
-        const setValues = values as unknown as UpdateSetValues
+        const setValues = {
+          ...values,
+          updatedAt: new Date(),
+        } as unknown as UpdateSetValues
         await tx
           .update(table)
           .set(setValues)

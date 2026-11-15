@@ -140,8 +140,15 @@ export function registerAdapterConformanceSuite(
       const before = await adapter.findByID({ collection: postsCollection, id: 1 })
       expect(before).not.toBeNull()
 
-      // Wait 50ms so timestamp can advance
-      await new Promise((resolve) => setTimeout(resolve, 50))
+      // Wait for timestamp to advance (MySQL audit timestamp has 1s precision, Postgres has 1ms)
+      const beforeTime = new Date(before!.updatedAt).getTime()
+      if (context.dialect === 'mysql') {
+        while (Date.now() <= beforeTime + 1000) {
+          await new Promise((resolve) => setTimeout(resolve, 50))
+        }
+      } else {
+        await new Promise((resolve) => setTimeout(resolve, 20))
+      }
 
       const updated = await adapter.update({
         collection: postsCollection,
@@ -153,6 +160,9 @@ export function registerAdapterConformanceSuite(
       expect(updated?.id).toBe(1)
       expect(updated?.title).toBe('First Post (Updated)')
       expect(updated?.views).toBe(42)
+      expect(new Date(updated!.updatedAt).getTime()).toBeGreaterThan(
+        new Date(before!.updatedAt).getTime(),
+      )
 
       const notFound = await adapter.update({
         collection: postsCollection,
@@ -391,6 +401,16 @@ export function registerAdapterConformanceSuite(
       expect(found).not.toBeNull()
       expect(found?.siteTitle).toBe('My Blog')
 
+      // Wait for timestamp to advance (MySQL audit timestamp has 1s precision, Postgres has 1ms)
+      const createdTime = new Date(created.updatedAt).getTime()
+      if (context.dialect === 'mysql') {
+        while (Date.now() <= createdTime + 1000) {
+          await new Promise((resolve) => setTimeout(resolve, 50))
+        }
+      } else {
+        await new Promise((resolve) => setTimeout(resolve, 20))
+      }
+
       // Subsequent update modifies existing row
       const updated = await adapter.updateGlobal({
         global: headerGlobal,
@@ -399,6 +419,7 @@ export function registerAdapterConformanceSuite(
       expect(updated.id).toBe(1)
       expect(updated.siteTitle).toBe('My Updated Blog')
       expect(updated.announcement).toBe('Welcome!')
+      expect(new Date(updated.updatedAt).getTime()).toBeGreaterThan(createdTime)
 
       // Confirm only one row exists and has the new data
       const finalCheck = await adapter.findGlobal({ global: headerGlobal })
