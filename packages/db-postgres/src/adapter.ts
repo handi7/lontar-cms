@@ -1748,12 +1748,28 @@ function createDatabaseOperations(
   }
 }
 
+export function buildPoolConfig(url: string, userPool?: pg.PoolConfig): pg.PoolConfig {
+  const defaultOptions = '-c timezone=UTC'
+  const userOptions = userPool?.options?.trim()
+
+  let options: string
+  if (!userOptions) {
+    options = defaultOptions
+  } else if (userOptions.includes('timezone=')) {
+    options = userOptions
+  } else {
+    options = `${defaultOptions} ${userOptions}`
+  }
+
+  return {
+    connectionString: url,
+    ...userPool,
+    options,
+  }
+}
+
 export function postgresAdapter(options: PostgresAdapterOptions): PostgresAdapter {
-  const pool = new pg.Pool({
-    connectionString: options.url,
-    options: '-c timezone=UTC',
-    ...options.pool,
-  })
+  const pool = new pg.Pool(buildPoolConfig(options.url, options.pool))
 
   pool.on('error', (err: Error, client?: pg.PoolClient) => {
     if (options.onPoolError) {
