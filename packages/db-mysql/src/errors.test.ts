@@ -1,5 +1,13 @@
 import { describe, expect, it } from 'vitest'
-import { DatabaseError, NotFoundError, UniqueConstraintError, ValidationError } from '@lontar/core'
+import {
+  CheckConstraintError,
+  DatabaseError,
+  ForeignKeyConstraintError,
+  NotFoundError,
+  NotNullConstraintError,
+  UniqueConstraintError,
+  ValidationError,
+} from '@lontar/core'
 import { findFieldName, handleDatabaseError, isDriverError, toErrorContext } from './errors'
 
 describe('db-mysql errors', () => {
@@ -50,6 +58,21 @@ describe('db-mysql errors', () => {
       expect(() => handleDatabaseError(err, context)).toThrow(err)
     })
 
+    it('rethrows existing ForeignKeyConstraintError unchanged', () => {
+      const err = new ForeignKeyConstraintError('FK error', { field: 'author' })
+      expect(() => handleDatabaseError(err, context)).toThrow(err)
+    })
+
+    it('rethrows existing NotNullConstraintError unchanged', () => {
+      const err = new NotNullConstraintError('Not null', { field: 'title' })
+      expect(() => handleDatabaseError(err, context)).toThrow(err)
+    })
+
+    it('rethrows existing CheckConstraintError unchanged', () => {
+      const err = new CheckConstraintError('Check failed', { constraint: 'check_score' })
+      expect(() => handleDatabaseError(err, context)).toThrow(err)
+    })
+
     it('rethrows existing DatabaseError unchanged', () => {
       const err = new DatabaseError('Custom db error')
       expect(() => handleDatabaseError(err, context)).toThrow(err)
@@ -73,6 +96,106 @@ describe('db-mysql errors', () => {
         expect(uce.field).toBe('slug')
         expect(uce.value).toBe('duplicate-slug')
         expect(uce.message).toBe('Value "duplicate-slug" is already taken for field "slug"')
+      }
+    })
+
+    it('maps MySQL ER_NO_REFERENCED_ROW_2 to ForeignKeyConstraintError', () => {
+      const rawError = {
+        code: 'ER_NO_REFERENCED_ROW_2',
+        errno: 1452,
+        sqlMessage:
+          'Cannot add or update a child row: a foreign key constraint fails (`db`.`posts`, CONSTRAINT `posts_author_users_id_fk` FOREIGN KEY (`author`) REFERENCES `users` (`id`))',
+      }
+      const drizzleError = new Error('Failed query: insert into ...')
+      ;(drizzleError as unknown as { cause: unknown }).cause = rawError
+
+      const fkContext = toErrorContext({
+        slug: 'posts',
+        fields: {
+          author: { type: 'relationship' },
+        },
+      } as never)
+
+      try {
+        handleDatabaseError(drizzleError, fkContext)
+        expect.fail('should have thrown')
+      } catch (thrown) {
+        expect(thrown).toBeInstanceOf(ForeignKeyConstraintError)
+        const fke = thrown as ForeignKeyConstraintError
+        expect(fke.field).toBe('author')
+        expect(fke.table).toBe('posts')
+        expect(fke.constraint).toBe('posts_author_users_id_fk')
+        expect(fke.message).toBe('Referenced document for field "author" does not exist')
+      }
+    })
+
+    it('maps MySQL ER_ROW_IS_REFERENCED_2 to ForeignKeyConstraintError', () => {
+      const rawError = {
+        code: 'ER_ROW_IS_REFERENCED_2',
+        errno: 1451,
+        sqlMessage:
+          'Cannot delete or update a parent row: a foreign key constraint fails (`db`.`posts`, CONSTRAINT `posts_author_users_id_fk` FOREIGN KEY (`author`) REFERENCES `users` (`id`))',
+      }
+      const drizzleError = new Error('Failed query: delete from ...')
+      ;(drizzleError as unknown as { cause: unknown }).cause = rawError
+
+      try {
+        handleDatabaseError(drizzleError, context)
+        expect.fail('should have thrown')
+      } catch (thrown) {
+        expect(thrown).toBeInstanceOf(ForeignKeyConstraintError)
+        const fke = thrown as ForeignKeyConstraintError
+        expect(fke.table).toBe('posts')
+        expect(fke.message).toBe('Cannot delete or update row referenced by "posts"')
+      }
+    })
+
+    it('maps MySQL ER_BAD_NULL_ERROR to NotNullConstraintError', () => {
+      const rawError = {
+        code: 'ER_BAD_NULL_ERROR',
+        errno: 1048,
+        sqlMessage: "Column 'title' cannot be null",
+      }
+      const drizzleError = new Error('Failed query: insert into ...')
+      ;(drizzleError as unknown as { cause: unknown }).cause = rawError
+
+      try {
+        handleDatabaseError(drizzleError, context)
+        expect.fail('should have thrown')
+      } catch (thrown) {
+        expect(thrown).toBeInstanceOf(NotNullConstraintError)
+        const nne = thrown as NotNullConstraintError
+        expect(nne.field).toBe('title')
+        expect(nne.column).toBe('title')
+        expect(nne.message).toBe('Field "title" is required')
+      }
+    })
+
+    it('maps MySQL ER_CHECK_CONSTRAINT_VIOLATED to CheckConstraintError', () => {
+      const rawError = {
+        code: 'ER_CHECK_CONSTRAINT_VIOLATED',
+        errno: 3819,
+        sqlMessage: "Check constraint 'posts_score_check' is violated.",
+      }
+      const drizzleError = new Error('Failed query: insert into ...')
+      ;(drizzleError as unknown as { cause: unknown }).cause = rawError
+
+      const checkContext = toErrorContext({
+        slug: 'posts',
+        fields: {
+          score: { type: 'number' },
+        },
+      } as never)
+
+      try {
+        handleDatabaseError(drizzleError, checkContext)
+        expect.fail('should have thrown')
+      } catch (thrown) {
+        expect(thrown).toBeInstanceOf(CheckConstraintError)
+        const cce = thrown as CheckConstraintError
+        expect(cce.field).toBe('score')
+        expect(cce.constraint).toBe('posts_score_check')
+        expect(cce.message).toBe('Value violates check constraint for field "score"')
       }
     })
 

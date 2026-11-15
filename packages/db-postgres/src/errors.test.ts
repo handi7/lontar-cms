@@ -1,5 +1,13 @@
 import { describe, expect, it } from 'vitest'
-import { DatabaseError, NotFoundError, UniqueConstraintError, ValidationError } from '@lontar/core'
+import {
+  CheckConstraintError,
+  DatabaseError,
+  ForeignKeyConstraintError,
+  NotFoundError,
+  NotNullConstraintError,
+  UniqueConstraintError,
+  ValidationError,
+} from '@lontar/core'
 import { findFieldName, handleDatabaseError, isDriverError, toErrorContext } from './errors'
 
 describe('db-postgres errors', () => {
@@ -48,6 +56,21 @@ describe('db-postgres errors', () => {
       expect(() => handleDatabaseError(err, context)).toThrow(err)
     })
 
+    it('rethrows existing ForeignKeyConstraintError unchanged', () => {
+      const err = new ForeignKeyConstraintError('FK error', { field: 'author' })
+      expect(() => handleDatabaseError(err, context)).toThrow(err)
+    })
+
+    it('rethrows existing NotNullConstraintError unchanged', () => {
+      const err = new NotNullConstraintError('Not null', { field: 'title' })
+      expect(() => handleDatabaseError(err, context)).toThrow(err)
+    })
+
+    it('rethrows existing CheckConstraintError unchanged', () => {
+      const err = new CheckConstraintError('Check failed', { constraint: 'check_score' })
+      expect(() => handleDatabaseError(err, context)).toThrow(err)
+    })
+
     it('rethrows existing DatabaseError unchanged', () => {
       const err = new DatabaseError('Custom db error')
       expect(() => handleDatabaseError(err, context)).toThrow(err)
@@ -72,6 +95,112 @@ describe('db-postgres errors', () => {
         expect(uce.field).toBe('slug')
         expect(uce.value).toBe('duplicate-slug')
         expect(uce.message).toBe('Value "duplicate-slug" is already taken for field "slug"')
+      }
+    })
+
+    it('maps Postgres 23503 missing reference to ForeignKeyConstraintError', () => {
+      const rawError = {
+        code: '23503',
+        constraint: 'posts_author_users_id_fk',
+        detail: 'Key (author)=(999) is not present in table "users".',
+        table: 'posts',
+        message:
+          'insert or update on table "posts" violates foreign key constraint "posts_author_users_id_fk"',
+      }
+      const drizzleError = new Error('Failed query: insert into ...')
+      ;(drizzleError as unknown as { cause: unknown }).cause = rawError
+
+      const fkContext = toErrorContext({
+        slug: 'posts',
+        fields: {
+          author: { type: 'relationship' },
+        },
+      } as never)
+
+      try {
+        handleDatabaseError(drizzleError, fkContext)
+        expect.fail('should have thrown')
+      } catch (thrown) {
+        expect(thrown).toBeInstanceOf(ForeignKeyConstraintError)
+        const fke = thrown as ForeignKeyConstraintError
+        expect(fke.field).toBe('author')
+        expect(fke.table).toBe('users')
+        expect(fke.constraint).toBe('posts_author_users_id_fk')
+        expect(fke.message).toBe('Referenced document for field "author" does not exist')
+      }
+    })
+
+    it('maps Postgres 23503 referenced by other table to ForeignKeyConstraintError', () => {
+      const rawError = {
+        code: '23503',
+        constraint: 'posts_author_users_id_fk',
+        detail: 'Key (id)=(1) is still referenced from table "posts".',
+        table: 'users',
+        message:
+          'update or delete on table "users" violates foreign key constraint "posts_author_users_id_fk"',
+      }
+      const drizzleError = new Error('Failed query: delete from ...')
+      ;(drizzleError as unknown as { cause: unknown }).cause = rawError
+
+      try {
+        handleDatabaseError(drizzleError, context)
+        expect.fail('should have thrown')
+      } catch (thrown) {
+        expect(thrown).toBeInstanceOf(ForeignKeyConstraintError)
+        const fke = thrown as ForeignKeyConstraintError
+        expect(fke.table).toBe('posts')
+        expect(fke.message).toBe('Cannot delete or update row referenced by "posts"')
+      }
+    })
+
+    it('maps Postgres 23502 not-null violation to NotNullConstraintError', () => {
+      const rawError = {
+        code: '23502',
+        column: 'title',
+        table: 'posts',
+        message: 'null value in column "title" of relation "posts" violates not-null constraint',
+      }
+      const drizzleError = new Error('Failed query: insert into ...')
+      ;(drizzleError as unknown as { cause: unknown }).cause = rawError
+
+      try {
+        handleDatabaseError(drizzleError, context)
+        expect.fail('should have thrown')
+      } catch (thrown) {
+        expect(thrown).toBeInstanceOf(NotNullConstraintError)
+        const nne = thrown as NotNullConstraintError
+        expect(nne.field).toBe('title')
+        expect(nne.column).toBe('title')
+        expect(nne.message).toBe('Field "title" is required')
+      }
+    })
+
+    it('maps Postgres 23514 check constraint violation to CheckConstraintError', () => {
+      const rawError = {
+        code: '23514',
+        constraint: 'posts_score_check',
+        table: 'posts',
+        message: 'new row for relation "posts" violates check constraint "posts_score_check"',
+      }
+      const drizzleError = new Error('Failed query: insert into ...')
+      ;(drizzleError as unknown as { cause: unknown }).cause = rawError
+
+      const checkContext = toErrorContext({
+        slug: 'posts',
+        fields: {
+          score: { type: 'number' },
+        },
+      } as never)
+
+      try {
+        handleDatabaseError(drizzleError, checkContext)
+        expect.fail('should have thrown')
+      } catch (thrown) {
+        expect(thrown).toBeInstanceOf(CheckConstraintError)
+        const cce = thrown as CheckConstraintError
+        expect(cce.field).toBe('score')
+        expect(cce.constraint).toBe('posts_score_check')
+        expect(cce.message).toBe('Value violates check constraint for field "score"')
       }
     })
 
@@ -122,6 +251,10 @@ describe('db-postgres errors', () => {
 
     it('returns true when error or cause has postgres-specific properties', () => {
       expect(isDriverError({ code: '23505' })).toBe(true)
+      expect(isDriverError({ code: '23503' })).toBe(true)
+      expect(isDriverError({ code: '23502' })).toBe(true)
+      expect(isDriverError({ code: '23514' })).toBe(true)
+      expect(isDriverError({ column: 'title' })).toBe(true)
       expect(isDriverError({ code: '40P01' })).toBe(true)
       expect(isDriverError({ code: 'ECONNRESET' })).toBe(true)
       expect(isDriverError({ constraint: 'users_email_unique' })).toBe(true)

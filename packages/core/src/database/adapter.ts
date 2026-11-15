@@ -1,8 +1,14 @@
 export {
   DatabaseError,
   UniqueConstraintError,
+  ForeignKeyConstraintError,
+  NotNullConstraintError,
+  CheckConstraintError,
   type ValidationErrorResponse,
   formatUniqueConstraintError,
+  formatNotNullConstraintError,
+  formatForeignKeyConstraintError,
+  formatCheckConstraintError,
 } from './errors'
 import type { DocStatus, SystemFields } from '../client/system-fields'
 import type { CollectionConfig, Config, GlobalConfig } from '../config/types'

@@ -3,7 +3,17 @@ import type { DocStatus } from '../client/system-fields'
 import { toClientCollection, toClientGlobal } from '../config/to-client-config'
 import type { CollectionConfig, Config, GlobalConfig } from '../config/types'
 import type { DatabaseAdapter, DocumentData } from '../database/adapter'
-import { formatUniqueConstraintError, UniqueConstraintError } from '../database/errors'
+import {
+  formatCheckConstraintError,
+  formatForeignKeyConstraintError,
+  formatNotNullConstraintError,
+  formatUniqueConstraintError,
+  CheckConstraintError,
+  ForeignKeyConstraintError,
+  NotNullConstraintError,
+  UniqueConstraintError,
+  type ValidationErrorResponse,
+} from '../database/errors'
 import { runAfterChangeHooks, runBeforeChangeHooks } from '../hooks'
 import type { DocStatusTransition } from '../hooks/types'
 import { dispatchWebhooks, type WebhookAction } from '../webhooks'
@@ -30,6 +40,14 @@ export function buildRevertData(
     }
   }
   return revertData
+}
+
+function mapDatabaseValidationError(err: unknown): ValidationErrorResponse | null {
+  if (err instanceof UniqueConstraintError) return formatUniqueConstraintError(err)
+  if (err instanceof NotNullConstraintError) return formatNotNullConstraintError(err)
+  if (err instanceof ForeignKeyConstraintError) return formatForeignKeyConstraintError(err)
+  if (err instanceof CheckConstraintError) return formatCheckConstraintError(err)
+  return null
 }
 
 export function resolveCreateStatus(
@@ -213,8 +231,9 @@ export async function executeCreate(args: {
       result = await run(args.db)
     }
   } catch (err) {
-    if (err instanceof UniqueConstraintError) {
-      return { success: false, status: 400, body: formatUniqueConstraintError(err) }
+    const validationBody = mapDatabaseValidationError(err)
+    if (validationBody) {
+      return { success: false, status: 400, body: validationBody }
     }
     throw err
   }
@@ -691,8 +710,9 @@ export async function executeUpdate(args: {
       result = await run(args.db)
     }
   } catch (err) {
-    if (err instanceof UniqueConstraintError) {
-      return { success: false, status: 400, body: formatUniqueConstraintError(err) }
+    const validationBody = mapDatabaseValidationError(err)
+    if (validationBody) {
+      return { success: false, status: 400, body: validationBody }
     }
     throw err
   }
@@ -1117,8 +1137,9 @@ export async function executeGlobalUpdate(args: {
       result = await run(args.db)
     }
   } catch (err) {
-    if (err instanceof UniqueConstraintError) {
-      return { success: false, status: 400, body: formatUniqueConstraintError(err) }
+    const validationBody = mapDatabaseValidationError(err)
+    if (validationBody) {
+      return { success: false, status: 400, body: validationBody }
     }
     throw err
   }

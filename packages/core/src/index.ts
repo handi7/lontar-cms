@@ -151,8 +151,14 @@ export { DEFAULT_LIMIT, MAX_LIMIT, DEFAULT_MAX_PER_DOC } from './config/types'
 export {
   DatabaseError,
   UniqueConstraintError,
+  ForeignKeyConstraintError,
+  NotNullConstraintError,
+  CheckConstraintError,
   type ValidationErrorResponse,
   formatUniqueConstraintError,
+  formatNotNullConstraintError,
+  formatForeignKeyConstraintError,
+  formatCheckConstraintError,
 } from './database/errors'
 export type {
   DatabaseAdapter,

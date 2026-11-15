@@ -1,6 +1,9 @@
 import { DrizzleError } from 'drizzle-orm'
 import {
+  CheckConstraintError,
   DatabaseError,
+  ForeignKeyConstraintError,
+  NotNullConstraintError,
   UniqueConstraintError,
   type CollectionConfig,
   type GlobalConfig,
@@ -174,8 +177,170 @@ function buildUniqueConstraintError(
   return new UniqueConstraintError(msg, { field, value, cause: err })
 }
 
+function isForeignKeyError(err?: MysqlRawError): boolean {
+  if (!err) return false
+  return (
+    err.errno === 1451 ||
+    err.errno === 1452 ||
+    err.errno === 1216 ||
+    err.errno === 1217 ||
+    err.code === 'ER_ROW_IS_REFERENCED_2' ||
+    err.code === 'ER_NO_REFERENCED_ROW_2' ||
+    err.code === 'ER_ROW_IS_REFERENCED' ||
+    err.code === 'ER_NO_REFERENCED_ROW'
+  )
+}
+
+function parseMysqlFkMessage(rawMsg: string): {
+  constraint?: string
+  field?: string
+  table?: string
+  isReferencedParent?: boolean
+} {
+  const isReferencedParent =
+    rawMsg.includes('Cannot delete or update a parent row') || rawMsg.includes('a parent row')
+  const constraintMatch = /CONSTRAINT [`'"]?([^`'"\s,]+)[`'"]?/.exec(rawMsg)
+  const fkMatch = /FOREIGN KEY \([`'"]?([^`'"\s,]+)[`'"]?\)/.exec(rawMsg)
+  const tableMatch = /fails \((?:[`'"]?[^`'"\s()]+[`'"]?\.)?[`'"]?([^`'"\s(),]+)[`'"]?,/.exec(
+    rawMsg,
+  )
+
+  return {
+    constraint: constraintMatch?.[1],
+    field: fkMatch?.[1],
+    table: tableMatch?.[1],
+    isReferencedParent,
+  }
+}
+
+function buildMysqlForeignKeyConstraintError(
+  mysqlErr: MysqlRawError,
+  err: unknown,
+  context?: ErrorContext,
+): ForeignKeyConstraintError {
+  const rawMsg = resolveRawMessage(mysqlErr, err)
+  const parsed = parseMysqlFkMessage(rawMsg)
+  const rawField = parsed.field ?? parsed.constraint
+  const field =
+    rawField && context?.fields ? findFieldName(rawField, context.fields, context.slug) : rawField
+  const table = parsed.table
+
+  let msg = 'Foreign key constraint violation'
+  if (parsed.isReferencedParent) {
+    msg = table
+      ? `Cannot delete or update row referenced by "${table}"`
+      : 'Cannot delete document referenced by other documents'
+  } else if (field) {
+    msg = `Referenced document for field "${field}" does not exist`
+  }
+
+  return new ForeignKeyConstraintError(msg, {
+    field,
+    table,
+    constraint: parsed.constraint,
+    cause: err,
+  })
+}
+
+function isNotNullError(err?: MysqlRawError): boolean {
+  if (!err) return false
+  return (
+    err.errno === 1048 ||
+    err.errno === 1364 ||
+    err.code === 'ER_BAD_NULL_ERROR' ||
+    err.code === 'ER_NO_DEFAULT_FOR_FIELD'
+  )
+}
+
+function parseMysqlNotNullColumn(rawMsg: string): string | undefined {
+  const matchColumn = /Column ['"]([^'"]+)['"] cannot be null/.exec(rawMsg)
+  if (matchColumn) return matchColumn[1]
+  const matchField = /Field ['"]([^'"]+)['"] doesn't have a default value/.exec(rawMsg)
+  return matchField?.[1]
+}
+
+function buildMysqlNotNullConstraintError(
+  mysqlErr: MysqlRawError,
+  err: unknown,
+  context?: ErrorContext,
+): NotNullConstraintError {
+  const rawMsg = resolveRawMessage(mysqlErr, err)
+  const column = parseMysqlNotNullColumn(rawMsg)
+  const field =
+    column && context?.fields ? findFieldName(column, context.fields, context.slug) : column
+  const msg = field ? `Field "${field}" is required` : 'Not-null constraint violation'
+
+  return new NotNullConstraintError(msg, {
+    field,
+    column,
+    cause: err,
+  })
+}
+
+function isCheckConstraintError(err?: MysqlRawError): boolean {
+  if (!err) return false
+  return err.errno === 3819 || err.code === 'ER_CHECK_CONSTRAINT_VIOLATED'
+}
+
+function parseMysqlCheckConstraint(rawMsg: string): string | undefined {
+  const match = /Check constraint ['"]([^'"]+)['"] is violated/.exec(rawMsg)
+  return match?.[1]
+}
+
+function buildMysqlCheckConstraintError(
+  mysqlErr: MysqlRawError,
+  err: unknown,
+  context?: ErrorContext,
+): CheckConstraintError {
+  const rawMsg = resolveRawMessage(mysqlErr, err)
+  const constraint = parseMysqlCheckConstraint(rawMsg)
+  const field =
+    constraint && context?.fields
+      ? findFieldName(constraint, context.fields, context.slug)
+      : undefined
+  const msg = field
+    ? `Value violates check constraint for field "${field}"`
+    : 'Check constraint violation'
+
+  return new CheckConstraintError(msg, {
+    field,
+    constraint,
+    cause: err,
+  })
+}
+
+function isKnownDatabaseError(err: unknown): err is DatabaseError {
+  return (
+    err instanceof UniqueConstraintError ||
+    err instanceof ForeignKeyConstraintError ||
+    err instanceof NotNullConstraintError ||
+    err instanceof CheckConstraintError ||
+    err instanceof DatabaseError
+  )
+}
+
+function mapMysqlError(
+  mysqlErr: MysqlRawError,
+  err: unknown,
+  context?: ErrorContext,
+): DatabaseError | null {
+  if (isDuplicateEntryError(mysqlErr)) {
+    return buildUniqueConstraintError(mysqlErr, err, context)
+  }
+  if (isForeignKeyError(mysqlErr)) {
+    return buildMysqlForeignKeyConstraintError(mysqlErr, err, context)
+  }
+  if (isNotNullError(mysqlErr)) {
+    return buildMysqlNotNullConstraintError(mysqlErr, err, context)
+  }
+  if (isCheckConstraintError(mysqlErr)) {
+    return buildMysqlCheckConstraintError(mysqlErr, err, context)
+  }
+  return null
+}
+
 export function handleDatabaseError(err: unknown, context?: ErrorContext): never {
-  if (err instanceof UniqueConstraintError || err instanceof DatabaseError) {
+  if (isKnownDatabaseError(err)) {
     throw err
   }
 
@@ -184,8 +349,9 @@ export function handleDatabaseError(err: unknown, context?: ErrorContext): never
   }
 
   const mysqlErr = extractMysqlError(err)
-  if (isDuplicateEntryError(mysqlErr) && mysqlErr) {
-    throw buildUniqueConstraintError(mysqlErr, err, context)
+  if (mysqlErr) {
+    const mapped = mapMysqlError(mysqlErr, err, context)
+    if (mapped) throw mapped
   }
 
   throw new DatabaseError('Database operation failed', { cause: err })
