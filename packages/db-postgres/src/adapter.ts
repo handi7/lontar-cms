@@ -979,7 +979,8 @@ function getEntityVersionsTable(
     const parentTable = args.collection
       ? getTable(caches, args.collection)
       : getGlobalTable(caches, args.global!)
-    table = createVersionsTable(target.slug, parentTable)
+    const isUpload = Boolean(args.collection?.upload)
+    table = createVersionsTable(target.slug, parentTable, isUpload)
     caches.versionsTableCache.set(versionsSlug, table)
   }
   return table

@@ -1,4 +1,5 @@
 import { createHash } from 'node:crypto'
+import { sql } from 'drizzle-orm'
 import {
   boolean,
   doublePrecision,
@@ -196,6 +197,15 @@ export function getVersionsParentStatusIndexName(slug: string): string {
   return `${baseName.slice(0, 50)}_${hash}_idx`
 }
 
+export function getVersionsFilenameIndexName(slug: string): string {
+  const baseName = `${slug}_versions_filename_idx`
+  if (baseName.length <= 63) {
+    return baseName
+  }
+  const hash = createHash('sha256').update(baseName).digest('hex').slice(0, 8)
+  return `${baseName.slice(0, 50)}_${hash}_idx`
+}
+
 export type VersionsTable = PgTable & {
   id: AnyPgColumn
   parentId: AnyPgColumn
@@ -210,12 +220,14 @@ export type VersionsTable = PgTable & {
 export function createVersionsTable(
   collectionSlug: string,
   parentTable?: DynamicTable,
+  isUpload = false,
 ): VersionsTable {
   const tableName = getVersionsTableName(collectionSlug)
   const fkName = getVersionsParentForeignKeyName(collectionSlug)
   const uniqueName = getVersionsParentVersionUniqueName(collectionSlug)
   const parentIdIdxName = getVersionsParentIdIndexName(collectionSlug)
   const parentStatusIdxName = getVersionsParentStatusIndexName(collectionSlug)
+  const filenameIdxName = getVersionsFilenameIndexName(collectionSlug)
 
   const columns = {
     id: serial('id').primaryKey(),
@@ -236,6 +248,9 @@ export function createVersionsTable(
       index(parentStatusIdxName).on(t.parentId, t._status),
       unique(uniqueName).on(t.parentId, t.versionNumber),
     ]
+    if (isUpload) {
+      extra.push(index(filenameIdxName).on(sql`(${t.snapshot}->>'filename')`))
+    }
     if (parentTable) {
       extra.push(
         foreignKey({
@@ -254,7 +269,7 @@ export function getCollectionVersionsTable(
   parentTable?: DynamicTable,
 ): VersionsTable | null {
   if (!collection.versions) return null
-  return createVersionsTable(collection.slug, parentTable)
+  return createVersionsTable(collection.slug, parentTable, Boolean(collection.upload))
 }
 
 export function getGlobalVersionsTable(
