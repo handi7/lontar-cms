@@ -451,9 +451,19 @@ function castFieldValue(collection: CollectionConfig, fieldName: string, value: 
   return castConfigField(field, value)
 }
 
+function escapeLikeWildcards(value: string): string {
+  return value.replace(/[\\%_]/g, '\\$&')
+}
+
+function toPatternString(value: unknown): string {
+  if (typeof value === 'string') return value
+  if (typeof value === 'number' || typeof value === 'boolean') return String(value)
+  return ''
+}
+
 function buildBasicCondition(
   column: AnyMySqlColumn,
-  operator: FilterOperator,
+  operator: string,
   value: unknown,
 ): SQL | undefined {
   switch (operator) {
@@ -461,8 +471,10 @@ function buildBasicCondition(
       return eq(column, value)
     case 'not_equals':
       return ne(column, value)
+    case 'like':
+      return like(column, String(value))
     case 'contains':
-      return like(column, `%${String(value)}%`)
+      return like(column, `%${escapeLikeWildcards(String(value))}%`)
     case 'in': {
       const arr = Array.isArray(value) ? value : [value]
       return arr.length > 0 ? inArray(column, arr) : undefined
@@ -657,13 +669,12 @@ function buildBlockJsonOpCondition(
     return buildBlockInCondition(column, blockType, subSegments, rawVal)
   }
   if (op === 'contains') {
-    const strVal =
-      typeof rawVal === 'string'
-        ? rawVal
-        : typeof rawVal === 'number' || typeof rawVal === 'boolean'
-          ? String(rawVal)
-          : ''
-    const pattern = `%${strVal}%`
+    const pattern = `%${escapeLikeWildcards(toPatternString(rawVal))}%`
+    const safePath = `'$.${subSegments.join('.').replace(/[^a-zA-Z0-9_.]/g, '')}'`
+    return sql`(${column} IS NOT NULL AND (SELECT COUNT(*) FROM JSON_TABLE(${column}, '$[*]' COLUMNS (blockType VARCHAR(255) PATH '$.blockType', val TEXT PATH ${sql.raw(safePath)})) AS jt WHERE jt.blockType = ${blockType} AND jt.val LIKE ${pattern}) > 0)`
+  }
+  if (op === 'like') {
+    const pattern = toPatternString(rawVal)
     const safePath = `'$.${subSegments.join('.').replace(/[^a-zA-Z0-9_.]/g, '')}'`
     return sql`(${column} IS NOT NULL AND (SELECT COUNT(*) FROM JSON_TABLE(${column}, '$[*]' COLUMNS (blockType VARCHAR(255) PATH '$.blockType', val TEXT PATH ${sql.raw(safePath)})) AS jt WHERE jt.blockType = ${blockType} AND jt.val LIKE ${pattern}) > 0)`
   }
@@ -690,13 +701,11 @@ function buildStandardJsonOpCondition(
     return sql`(${column} IS NOT NULL AND JSON_OVERLAPS(JSON_EXTRACT(${column}, ${jsonPath}), CAST(${jsonVal} AS JSON)) = 1)`
   }
   if (op === 'contains') {
-    const strVal =
-      typeof rawVal === 'string'
-        ? rawVal
-        : typeof rawVal === 'number' || typeof rawVal === 'boolean'
-          ? String(rawVal)
-          : ''
-    const pattern = `%${strVal}%`
+    const pattern = `%${escapeLikeWildcards(toPatternString(rawVal))}%`
+    return sql`(${column} IS NOT NULL AND JSON_SEARCH(${column}, 'one', ${pattern}, NULL, ${jsonPath}) IS NOT NULL)`
+  }
+  if (op === 'like') {
+    const pattern = toPatternString(rawVal)
     return sql`(${column} IS NOT NULL AND JSON_SEARCH(${column}, 'one', ${pattern}, NULL, ${jsonPath}) IS NOT NULL)`
   }
   return undefined

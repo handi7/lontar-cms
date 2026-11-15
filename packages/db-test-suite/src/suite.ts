@@ -392,6 +392,123 @@ export function registerAdapterConformanceSuite(
       },
     )
 
+    testCase(
+      'escapes LIKE wildcards in contains operator for top-level and nested fields (#324)',
+      async () => {
+        // 1. Top-level text field with %, _ and \
+        await adapter.create({
+          collection: postsCollection,
+          data: { title: 'Special 50% discount' },
+        })
+        await adapter.create({
+          collection: postsCollection,
+          data: { title: 'Special 500 items' },
+        })
+        await adapter.create({
+          collection: postsCollection,
+          data: { title: 'Prefix a_b suffix' },
+        })
+        await adapter.create({
+          collection: postsCollection,
+          data: { title: 'Prefix axb suffix' },
+        })
+        await adapter.create({
+          collection: postsCollection,
+          data: { title: 'Path C:\\test\\file' },
+        })
+
+        // Literal '%' must not match '500'
+        const pctRes = await adapter.find({
+          collection: postsCollection,
+          limit: 10,
+          page: 1,
+          where: { title: { contains: '50%' } },
+        })
+        expect(pctRes.docs.map((d) => d.title)).toEqual(['Special 50% discount'])
+
+        // Literal '_' must not match 'axb'
+        const underscoreRes = await adapter.find({
+          collection: postsCollection,
+          limit: 10,
+          page: 1,
+          where: { title: { contains: 'a_b' } },
+        })
+        expect(underscoreRes.docs.map((d) => d.title)).toEqual(['Prefix a_b suffix'])
+
+        // Literal '\' must match literal backslash
+        const backslashRes = await adapter.find({
+          collection: postsCollection,
+          limit: 10,
+          page: 1,
+          where: { title: { contains: 'C:\\test' } },
+        })
+        expect(backslashRes.docs.map((d) => d.title)).toEqual(['Path C:\\test\\file'])
+
+        // 'like' operator preserves wildcards
+        const likePctRes = await adapter.find({
+          collection: postsCollection,
+          limit: 10,
+          page: 1,
+          where: { title: { like: '%50%' } },
+        })
+        const likeTitles = likePctRes.docs.map((d) => d.title)
+        expect(likeTitles).toContain('Special 50% discount')
+        expect(likeTitles).toContain('Special 500 items')
+
+        // 2. Nested array field
+        const docArrayPct = await adapter.create({
+          collection: nestedCollection,
+          data: {
+            title: 'Nested Array Percent',
+            gallery: [{ caption: 'Save 20% today' }],
+          },
+        })
+        const docArrayNonPct = await adapter.create({
+          collection: nestedCollection,
+          data: {
+            title: 'Nested Array Non-Percent',
+            gallery: [{ caption: 'Save 200 today' }],
+          },
+        })
+
+        const nestedArrayRes = await adapter.find({
+          collection: nestedCollection,
+          limit: 10,
+          page: 1,
+          where: { 'gallery.caption': { contains: '20%' } },
+        })
+        const arrayDocIds = nestedArrayRes.docs.map((d) => d.id)
+        expect(arrayDocIds).toContain(docArrayPct.id)
+        expect(arrayDocIds).not.toContain(docArrayNonPct.id)
+
+        // 3. Blocks field
+        const docBlockUnderscore = await adapter.create({
+          collection: nestedCollection,
+          data: {
+            title: 'Block Underscore',
+            layout: [{ blockType: 'hero', heading: 'Super item_1 deal' }],
+          },
+        })
+        const docBlockLetter = await adapter.create({
+          collection: nestedCollection,
+          data: {
+            title: 'Block Letter',
+            layout: [{ blockType: 'hero', heading: 'Super itemX1 deal' }],
+          },
+        })
+
+        const blockRes = await adapter.find({
+          collection: nestedCollection,
+          limit: 10,
+          page: 1,
+          where: { 'layout.heading': { contains: 'item_1' } },
+        })
+        const blockDocIds = blockRes.docs.map((d) => d.id)
+        expect(blockDocIds).toContain(docBlockUnderscore.id)
+        expect(blockDocIds).not.toContain(docBlockLetter.id)
+      },
+    )
+
     testCase('supports multi-column sorting', async () => {
       // Insert posts with same views
       await adapter.create({
