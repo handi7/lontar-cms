@@ -141,7 +141,7 @@ export function registerAdapterConformanceSuite(
       expect(before).not.toBeNull()
 
       // Wait for timestamp to advance (MySQL audit timestamp has 1s precision, Postgres has 1ms)
-      const beforeTime = new Date(before.updatedAt).getTime()
+      const beforeTime = new Date(before!.updatedAt).getTime()
       if (context.dialect === 'mysql') {
         while (Date.now() <= beforeTime + 1000) {
           await new Promise((resolve) => setTimeout(resolve, 50))
