@@ -2,6 +2,9 @@ import type {
   ClientConfig,
   ClientPaginatedVersions,
   ClientVersion,
+  CollectionPermission,
+  GlobalPermission,
+  PermissionsResponse,
   Where,
 } from '@lontar/core/client'
 
@@ -452,4 +455,35 @@ export async function restoreGlobalVersion(
     credentials: 'include',
   })
   return handleResponse<Record<string, unknown>>(res)
+}
+
+export async function fetchPermissions(apiBase: string): Promise<PermissionsResponse> {
+  const url = `${apiBase.replace(/\/+$/, '')}/_lontar/permissions`
+  const res = await fetch(url, { credentials: 'include' })
+  return handleResponse<PermissionsResponse>(res)
+}
+
+export async function fetchDocumentPermissions(
+  apiBase: string,
+  collection: string,
+  id: string | number,
+  options?: { draft?: boolean },
+): Promise<CollectionPermission> {
+  const base = apiBase.replace(/\/+$/, '')
+  const query = options?.draft ? '?draft=true' : ''
+  const res = await fetch(`${base}/_lontar/permissions/${collection}/${id}${query}`, {
+    credentials: 'include',
+  })
+  return handleResponse<CollectionPermission>(res)
+}
+
+export async function fetchGlobalPermissions(
+  apiBase: string,
+  slug: string,
+): Promise<GlobalPermission> {
+  const base = apiBase.replace(/\/+$/, '')
+  const res = await fetch(`${base}/_lontar/permissions/globals/${slug}`, {
+    credentials: 'include',
+  })
+  return handleResponse<GlobalPermission>(res)
 }

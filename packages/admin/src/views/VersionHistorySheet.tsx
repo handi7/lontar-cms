@@ -37,6 +37,7 @@ export interface VersionHistorySheetProps {
   id?: string | number
   currentDoc?: Record<string, unknown> | null
   onRestoreSuccess?: (restoredDoc: Record<string, unknown>) => void
+  canRestore?: boolean
 }
 
 function formatVersionDate(isoString: string): string {
@@ -197,6 +198,7 @@ interface VersionDiffPanelProps {
   currentDoc: Record<string, unknown> | null | undefined
   onAskRestore: () => void
   isRestoring: boolean
+  canRestore?: boolean
 }
 
 function VersionDiffPanel({
@@ -205,6 +207,7 @@ function VersionDiffPanel({
   currentDoc,
   onAskRestore,
   isRestoring,
+  canRestore = true,
 }: VersionDiffPanelProps) {
   if (!selectedVersion) {
     return (
@@ -227,16 +230,18 @@ function VersionDiffPanel({
             Recorded {formatVersionDate(selectedVersion.createdAt)}
           </span>
         </div>
-        <Button
-          type="button"
-          size="sm"
-          className="lt:gap-1.5"
-          onClick={onAskRestore}
-          disabled={isRestoring}
-        >
-          <RotateCcw className="lt:size-3.5" />
-          <span>Restore v{selectedVersion.versionNumber}</span>
-        </Button>
+        {canRestore && (
+          <Button
+            type="button"
+            size="sm"
+            className="lt:gap-1.5"
+            onClick={onAskRestore}
+            disabled={isRestoring}
+          >
+            <RotateCcw className="lt:size-3.5" />
+            <span>Restore v{selectedVersion.versionNumber}</span>
+          </Button>
+        )}
       </div>
 
       <div className="lt:flex-1 lt:overflow-y-auto lt:pr-1">
@@ -411,6 +416,7 @@ interface VersionHistoryContentProps {
   currentDoc: Record<string, unknown> | null | undefined
   onAskRestore: () => void
   isRestoring: boolean
+  canRestore?: boolean
   page: number
   totalPages: number
   onPageChange: (page: number) => void
@@ -439,6 +445,7 @@ function VersionHistoryContent(props: VersionHistoryContentProps) {
           currentDoc={props.currentDoc}
           onAskRestore={props.onAskRestore}
           isRestoring={props.isRestoring}
+          canRestore={props.canRestore}
         />
       </div>
     </div>
@@ -626,6 +633,7 @@ export function VersionHistorySheet(props: VersionHistorySheetProps) {
             currentDoc={currentDoc}
             onAskRestore={() => setConfirmRestoreOpen(true)}
             isRestoring={restoreMutation.isPending}
+            canRestore={props.canRestore}
             page={page}
             totalPages={totalPages}
             onPageChange={setPage}

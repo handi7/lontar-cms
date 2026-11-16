@@ -25,6 +25,7 @@ export interface RelationshipPickerProps {
   register: UseFormRegister<Record<string, unknown>>
   setValue?: UseFormSetValue<Record<string, unknown>>
   watch?: UseFormWatch<Record<string, unknown>>
+  disabled?: boolean
 }
 
 function getNonEmptyString(val: unknown): string | null {
@@ -186,13 +187,15 @@ function SingleSelectedView({
   relationTo,
   changeButton,
   onRemove,
+  disabled,
 }: {
   selectedId: number
   title: string
   basePath: string
   relationTo: string
-  changeButton: ReactNode
-  onRemove: () => void
+  changeButton?: ReactNode
+  onRemove?: () => void
+  disabled?: boolean
 }) {
   const editUrl = getDocEditUrl(basePath, relationTo, selectedId)
   return (
@@ -203,16 +206,24 @@ function SingleSelectedView({
       </div>
       <div className={pickerActionsClass}>
         <PickerViewLink href={editUrl} testId="relationship-link" />
-        {changeButton}
-        <PickerButton destructive onClick={onRemove} data-testid="relationship-clear">
-          Remove
-        </PickerButton>
+        {!disabled && changeButton}
+        {!disabled && onRemove && (
+          <PickerButton destructive onClick={onRemove} data-testid="relationship-clear">
+            Remove
+          </PickerButton>
+        )}
       </div>
     </PickerCard>
   )
 }
 
-function SingleRelationshipPicker({ field, register, setValue, watch }: RelationshipPickerProps) {
+function SingleRelationshipPicker({
+  field,
+  register,
+  setValue,
+  watch,
+  disabled,
+}: RelationshipPickerProps) {
   const { apiBase, basePath, titleField, singularLabel, pluralLabel } = useRelationshipConfig(
     field.relationTo,
   )
@@ -255,6 +266,7 @@ function SingleRelationshipPicker({ field, register, setValue, watch }: Relation
         title={title}
         basePath={basePath}
         relationTo={field.relationTo}
+        disabled={disabled}
         changeButton={
           <PickerPopover
             open={isSearching}
@@ -267,6 +279,10 @@ function SingleRelationshipPicker({ field, register, setValue, watch }: Relation
         onRemove={() => setValue?.(field.name, null, { shouldValidate: true, shouldDirty: true })}
       />
     )
+  }
+
+  if (disabled) {
+    return <span className="lt:text-xs lt:text-muted-foreground">—</span>
   }
 
   return (
@@ -327,6 +343,7 @@ function ManyItemRow({
   relationTo,
   onMove,
   onRemove,
+  disabled,
 }: {
   id: number
   index: number
@@ -336,6 +353,7 @@ function ManyItemRow({
   relationTo: string
   onMove: (from: number, to: number) => void
   onRemove: (idx: number) => void
+  disabled?: boolean
 }) {
   const editUrl = getDocEditUrl(basePath, relationTo, id)
   return (
@@ -349,30 +367,34 @@ function ManyItemRow({
       </div>
       <div className={pickerActionsClass}>
         <PickerViewLink href={editUrl} testId={`relationship-link-${id}`} />
-        <PickerIconButton
-          label="Move Up"
-          disabled={index === 0}
-          onClick={() => onMove(index, index - 1)}
-          testId={`relationship-move-up-${id}`}
-        >
-          ↑
-        </PickerIconButton>
-        <PickerIconButton
-          label="Move Down"
-          disabled={index === total - 1}
-          onClick={() => onMove(index, index + 1)}
-          testId={`relationship-move-down-${id}`}
-        >
-          ↓
-        </PickerIconButton>
-        <PickerIconButton
-          label="Remove"
-          destructive
-          onClick={() => onRemove(index)}
-          testId={`relationship-remove-${id}`}
-        >
-          ✕
-        </PickerIconButton>
+        {!disabled && (
+          <>
+            <PickerIconButton
+              label="Move Up"
+              disabled={index === 0}
+              onClick={() => onMove(index, index - 1)}
+              testId={`relationship-move-up-${id}`}
+            >
+              ↑
+            </PickerIconButton>
+            <PickerIconButton
+              label="Move Down"
+              disabled={index === total - 1}
+              onClick={() => onMove(index, index + 1)}
+              testId={`relationship-move-down-${id}`}
+            >
+              ↓
+            </PickerIconButton>
+            <PickerIconButton
+              label="Remove"
+              destructive
+              onClick={() => onRemove(index)}
+              testId={`relationship-remove-${id}`}
+            >
+              ✕
+            </PickerIconButton>
+          </>
+        )}
       </div>
     </PickerCard>
   )
@@ -415,6 +437,7 @@ function ManySelectedList({
   relationTo,
   onMove,
   onRemove,
+  disabled,
 }: {
   ids: number[]
   docsMap: Map<number, Record<string, unknown>>
@@ -423,6 +446,7 @@ function ManySelectedList({
   relationTo: string
   onMove: (from: number, to: number) => void
   onRemove: (idx: number) => void
+  disabled?: boolean
 }) {
   return (
     <div className="lt:flex lt:flex-col lt:gap-1.5" data-testid="relationship-many-list">
@@ -440,6 +464,7 @@ function ManySelectedList({
             relationTo={relationTo}
             onMove={onMove}
             onRemove={onRemove}
+            disabled={disabled}
           />
         )
       })}
@@ -447,7 +472,13 @@ function ManySelectedList({
   )
 }
 
-function ManyRelationshipPicker({ field, register, setValue, watch }: RelationshipPickerProps) {
+function ManyRelationshipPicker({
+  field,
+  register,
+  setValue,
+  watch,
+  disabled,
+}: RelationshipPickerProps) {
   const { apiBase, basePath, titleField, singularLabel, pluralLabel } = useRelationshipConfig(
     field.relationTo,
   )
@@ -495,6 +526,7 @@ function ManyRelationshipPicker({ field, register, setValue, watch }: Relationsh
           relationTo={field.relationTo}
           onMove={handleMove}
           onRemove={handleRemove}
+          disabled={disabled}
         />
       ) : (
         <div className="lt:text-muted-foreground" data-testid="relationship-empty-hint">
@@ -502,26 +534,28 @@ function ManyRelationshipPicker({ field, register, setValue, watch }: Relationsh
         </div>
       )}
 
-      <PickerPopover
-        open={isSearching}
-        onOpenChange={setIsSearching}
-        trigger={
-          <PickerButton className="lt:w-fit" data-testid="relationship-add-btn">
-            + Add {singularLabel}
-          </PickerButton>
-        }
-      >
-        <RelationshipSearchDropdown
-          relationTo={field.relationTo}
-          titleField={titleField}
-          singularLabel={singularLabel}
-          pluralLabel={pluralLabel}
-          apiBase={apiBase}
-          excludeIds={selectedIds}
-          onSelect={handleAdd}
-          onCancel={() => setIsSearching(false)}
-        />
-      </PickerPopover>
+      {!disabled && (
+        <PickerPopover
+          open={isSearching}
+          onOpenChange={setIsSearching}
+          trigger={
+            <PickerButton className="lt:w-fit" data-testid="relationship-add-btn">
+              + Add {singularLabel}
+            </PickerButton>
+          }
+        >
+          <RelationshipSearchDropdown
+            relationTo={field.relationTo}
+            titleField={titleField}
+            singularLabel={singularLabel}
+            pluralLabel={pluralLabel}
+            apiBase={apiBase}
+            excludeIds={selectedIds}
+            onSelect={handleAdd}
+            onCancel={() => setIsSearching(false)}
+          />
+        </PickerPopover>
+      )}
     </div>
   )
 }

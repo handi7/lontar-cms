@@ -3,6 +3,7 @@ import {
   sanitizeConditionalFields,
   type ClientArrayField,
   type ClientField,
+  type FieldPermission,
 } from '@lontar/core/client'
 
 /**
@@ -173,6 +174,8 @@ export function formatDocForSubmit(
   fields: readonly ClientField[],
   data: Record<string, unknown>,
   isRoot: boolean = true,
+  permissions?: Record<string, FieldPermission>,
+  mode: 'create' | 'edit' = 'edit',
 ): Record<string, unknown> {
   const formatted = { ...data }
   if (isRoot) {
@@ -186,7 +189,123 @@ export function formatDocForSubmit(
       formatted[f.name] = formatFieldValueForSubmit(f, formatted[f.name])
     }
   }
-  return sanitizeConditionalFields(fields, formatted)
+  const sanitized = sanitizeConditionalFields(fields, formatted)
+  if (permissions) {
+    return stripReadOnlyFields(fields, sanitized, permissions, mode)
+  }
+  return sanitized
+}
+
+export function isFieldReadOnly(
+  fieldPerm: FieldPermission | undefined,
+  mode: 'create' | 'edit' = 'edit',
+  readOnlyDoc?: boolean,
+): boolean {
+  if (readOnlyDoc) return true
+  if (!fieldPerm) return false
+  return mode === 'create' ? fieldPerm.create === false : fieldPerm.update === false
+}
+
+export function isFieldVisible(fieldPerm: FieldPermission | undefined): boolean {
+  if (!fieldPerm) return true
+  return fieldPerm.read !== false
+}
+
+function stripNestedReadOnly(
+  f: ClientField,
+  val: unknown,
+  perm: FieldPermission,
+  mode: 'create' | 'edit',
+): unknown {
+  if (f.type === 'group' && val && typeof val === 'object' && !Array.isArray(val)) {
+    return stripReadOnlyFromObject(f.fields, val as Record<string, unknown>, perm.fields, mode)
+  }
+  if (f.type === 'array' && Array.isArray(val)) {
+    return (val as Array<Record<string, unknown>>).map((row) =>
+      row && typeof row === 'object'
+        ? stripReadOnlyFromObject(f.fields, row, perm.fields, mode)
+        : row,
+    )
+  }
+  if (f.type === 'blocks' && Array.isArray(val)) {
+    return (val as Array<Record<string, unknown>>).map((row) => {
+      if (!row || typeof row !== 'object') return row
+      const blockDef = f.blocks.find((b) => b.slug === row.blockType)
+      const blockPerms = perm.blocks?.[row.blockType as string]?.fields
+      return blockDef ? stripReadOnlyFromObject(blockDef.fields, row, blockPerms, mode) : row
+    })
+  }
+  return val
+}
+
+function stripReadOnlyFromObject(
+  fields: readonly ClientField[],
+  data: Record<string, unknown>,
+  permissions?: Record<string, FieldPermission>,
+  mode: 'create' | 'edit' = 'edit',
+): Record<string, unknown> {
+  if (!permissions) return data
+  const formatted = { ...data }
+  for (const f of fields) {
+    if (!(f.name in formatted)) continue
+    const perm = permissions[f.name]
+    if (!perm) continue
+
+    if (isFieldReadOnly(perm, mode)) {
+      delete formatted[f.name]
+      continue
+    }
+
+    formatted[f.name] = stripNestedReadOnly(f, formatted[f.name], perm, mode)
+  }
+  return formatted
+}
+
+export function stripReadOnlyFields(
+  fields: readonly ClientField[],
+  data: Record<string, unknown>,
+  permissions?: Record<string, FieldPermission>,
+  mode: 'create' | 'edit' = 'edit',
+): Record<string, unknown> {
+  return stripReadOnlyFromObject(fields, data, permissions, mode)
+}
+
+function mapSubfieldPermissions(f: ClientField, perm: FieldPermission | undefined): ClientField {
+  if (f.type === 'group') {
+    return {
+      ...f,
+      fields: filterReadableFields(f.fields, perm?.fields),
+    }
+  }
+  if (f.type === 'array') {
+    return {
+      ...f,
+      fields: filterReadableFields(f.fields, perm?.fields),
+    }
+  }
+  if (f.type === 'blocks') {
+    return {
+      ...f,
+      blocks: f.blocks.map((b) => ({
+        ...b,
+        fields: filterReadableFields(b.fields, perm?.blocks?.[b.slug]?.fields),
+      })),
+    }
+  }
+  return f
+}
+
+export function filterReadableFields(
+  fields: readonly ClientField[],
+  permissions?: Record<string, FieldPermission>,
+): ClientField[] {
+  if (!permissions) return [...fields]
+  return fields
+    .filter((f) => {
+      const perm = permissions[f.name]
+      return perm ? perm.read !== false : true
+    })
+    .map((f) => mapSubfieldPermissions(f, permissions[f.name]))
 }
 
 function getExplicitDefault(f: ClientField): unknown {

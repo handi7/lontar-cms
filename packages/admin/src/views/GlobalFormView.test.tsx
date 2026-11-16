@@ -263,3 +263,167 @@ describe('Global form draft and publish (#234)', () => {
     })
   })
 })
+
+describe('GlobalFormView permissions (#341)', () => {
+  beforeEach(() => {
+    vi.restoreAllMocks()
+  })
+
+  afterEach(cleanup)
+
+  it('renders NotFoundView when user cannot read global', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockImplementation((url: string) => {
+        if (url.includes('/_lontar/config')) {
+          return mockJsonResponse(mockConfigWithDrafts)
+        }
+        if (url.includes('/auth/get-session')) {
+          return mockJsonResponse({ user: mockAuthUser, session: mockAuthSession })
+        }
+        if (url.includes('/api/_lontar/permissions/globals/settings')) {
+          return mockJsonResponse({ read: false, update: false })
+        }
+        if (url.includes('/api/_lontar/permissions')) {
+          return mockJsonResponse({
+            collections: {},
+            globals: {
+              settings: { read: false, update: false },
+            },
+          })
+        }
+        if (url.includes('/api/globals/settings')) {
+          return mockJsonResponse({
+            siteTitle: 'My Title',
+            _status: 'published',
+          })
+        }
+        return Promise.reject(new Error(`Unhandled URL: ${url}`))
+      }),
+    )
+
+    const history = createMemoryHistory({ initialEntries: ['/admin/globals/settings'] })
+    render(<Admin apiBase="/api" basePath="/admin" history={history} />)
+
+    expect(await screen.findByText('Page Not Found')).toBeTruthy()
+  })
+
+  it('renders view-only form when global update is false', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockImplementation((url: string) => {
+        if (url.includes('/_lontar/config')) {
+          return mockJsonResponse(mockConfigWithDrafts)
+        }
+        if (url.includes('/auth/get-session')) {
+          return mockJsonResponse({ user: mockAuthUser, session: mockAuthSession })
+        }
+        if (url.includes('/api/_lontar/permissions/globals/settings')) {
+          return mockJsonResponse({ read: true, update: false })
+        }
+        if (url.includes('/api/_lontar/permissions')) {
+          return mockJsonResponse({
+            collections: {},
+            globals: {
+              settings: { read: true, update: false },
+            },
+          })
+        }
+        if (url.includes('/api/globals/settings/versions')) {
+          return mockJsonResponse({ docs: [], totalDocs: 0, limit: 10, page: 1, totalPages: 1 })
+        }
+        if (url.includes('/api/globals/settings')) {
+          return mockJsonResponse({
+            siteTitle: 'Read Only Site',
+            description: 'Read only description',
+            _status: 'published',
+            createdAt: '2026-01-01T00:00:00.000Z',
+            updatedAt: '2026-01-01T00:00:00.000Z',
+          })
+        }
+        return Promise.reject(new Error(`Unhandled URL: ${url}`))
+      }),
+    )
+
+    const history = createMemoryHistory({ initialEntries: ['/admin/globals/settings'] })
+    render(<Admin apiBase="/api" basePath="/admin" history={history} />)
+
+    const titleInput = await screen.findByLabelText<HTMLInputElement>(/site title/i)
+    await waitFor(() => {
+      expect(titleInput.value).toBe('Read Only Site')
+    })
+
+    // Input should be disabled and have padlock indicator
+    expect(titleInput.disabled).toBe(true)
+    expect(screen.getByTestId('locked-icon-siteTitle')).toBeTruthy()
+
+    // Submit and publish buttons should be hidden
+    expect(screen.queryByRole('button', { name: /^Publish$/ })).toBeNull()
+    expect(screen.queryByRole('button', { name: /Save Draft/i })).toBeNull()
+  })
+
+  it('hides unreadable field and locks read-only field in global', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockImplementation((url: string) => {
+        if (url.includes('/_lontar/config')) {
+          return mockJsonResponse(mockConfigWithDrafts)
+        }
+        if (url.includes('/auth/get-session')) {
+          return mockJsonResponse({ user: mockAuthUser, session: mockAuthSession })
+        }
+        if (url.includes('/api/_lontar/permissions/globals/settings')) {
+          return mockJsonResponse({
+            read: true,
+            update: true,
+            fields: {
+              siteTitle: { read: true, update: true },
+              description: { read: false },
+            },
+          })
+        }
+        if (url.includes('/api/_lontar/permissions')) {
+          return mockJsonResponse({
+            collections: {},
+            globals: {
+              settings: {
+                read: true,
+                update: true,
+                fields: {
+                  siteTitle: { read: true, update: true },
+                  description: { read: false },
+                },
+              },
+            },
+          })
+        }
+        if (url.includes('/api/globals/settings/versions')) {
+          return mockJsonResponse({ docs: [], totalDocs: 0, limit: 10, page: 1, totalPages: 1 })
+        }
+        if (url.includes('/api/globals/settings')) {
+          return mockJsonResponse({
+            siteTitle: 'My Site',
+            description: 'Secret Description',
+            _status: 'published',
+            createdAt: '2026-01-01T00:00:00.000Z',
+            updatedAt: '2026-01-01T00:00:00.000Z',
+          })
+        }
+        return Promise.reject(new Error(`Unhandled URL: ${url}`))
+      }),
+    )
+
+    const history = createMemoryHistory({ initialEntries: ['/admin/globals/settings'] })
+    render(<Admin apiBase="/api" basePath="/admin" history={history} />)
+
+    const titleInput = await screen.findByLabelText<HTMLInputElement>(/site title/i)
+    expect(titleInput.disabled).toBe(false)
+    expect(screen.queryByTestId('locked-icon-siteTitle')).toBeNull()
+
+    // Description is unreadable (read: false) -> not in the document
+    expect(screen.queryByLabelText(/description/i)).toBeNull()
+
+    // Publish button is present
+    expect(screen.getByRole('button', { name: /^Publish$/ })).toBeTruthy()
+  })
+})

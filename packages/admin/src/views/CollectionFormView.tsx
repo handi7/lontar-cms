@@ -15,8 +15,15 @@ import {
 } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
 import type { z } from 'zod'
-import { clientFieldsToZod, type ClientCollection, type ClientField } from '@lontar/core/client'
+import {
+  clientFieldsToZod,
+  type ClientCollection,
+  type ClientField,
+  type CollectionPermission,
+  type FieldPermission,
+} from '@lontar/core/client'
 import { useAdmin, useCollection } from '../context/AdminContext'
+import { usePermissions, useDocumentPermissions } from '../context/PermissionsContext'
 import {
   fetchDoc,
   createDoc,
@@ -102,6 +109,8 @@ export interface FormFieldsProps {
   onFileChange: (file: File | null) => void
   fileError: string | null
   doc?: Record<string, unknown> | null
+  permissions?: Record<string, FieldPermission>
+  readOnlyDoc?: boolean
 }
 
 function FormFields({
@@ -116,6 +125,8 @@ function FormFields({
   onFileChange,
   fileError,
   doc,
+  permissions,
+  readOnlyDoc,
 }: FormFieldsProps) {
   const uploadConfig = typeof collection.upload === 'object' ? collection.upload : undefined
   const accept = uploadConfig?.mimeTypes?.join(',')
@@ -150,18 +161,24 @@ function FormFields({
         )}
 
         <div className="lt:flex lt:flex-col lt:gap-6">
-          {collection.fields.map((field) => (
-            <FieldRenderer
-              key={field.name}
-              field={field}
-              control={control}
-              register={register}
-              setValue={setValue}
-              watch={watch}
-              mode={mode}
-              error={errors[field.name]}
-            />
-          ))}
+          {collection.fields.map((field) => {
+            const fieldPerm = permissions?.[field.name]
+            if (fieldPerm?.read === false) return null
+            return (
+              <FieldRenderer
+                key={field.name}
+                field={field}
+                control={control}
+                register={register}
+                setValue={setValue}
+                watch={watch}
+                mode={mode}
+                error={errors[field.name]}
+                permissions={fieldPerm}
+                readOnlyDoc={readOnlyDoc}
+              />
+            )
+          })}
         </div>
       </Card>
     </div>
@@ -411,6 +428,7 @@ interface UseCollectionFormSubmitOptions {
   }
   handleSubmit: UseFormHandleSubmit<Record<string, unknown>>
   onBeforeSubmit?: () => Promise<void> | void
+  permissions?: Record<string, FieldPermission>
 }
 
 function useCollectionFormSubmit({
@@ -422,11 +440,12 @@ function useCollectionFormSubmit({
   saveMutation,
   handleSubmit,
   onBeforeSubmit,
+  permissions,
 }: UseCollectionFormSubmitOptions) {
   const submitWithDraft = (draft: boolean) => {
     void handleSubmit(async (v) => {
       await onBeforeSubmit?.()
-      const payload = formatDocForSubmit(collection.fields, v)
+      const payload = formatDocForSubmit(collection.fields, v, true, permissions, mode)
       if (!collection.upload) {
         saveMutation.mutate({ data: payload, draft: hasDrafts ? draft : undefined })
         return
@@ -467,13 +486,17 @@ interface UseCollectionAutosaveOptions {
   selectedFile: File | null
   reset: UseFormReset<Record<string, unknown>>
   onDocApplied?: (doc: Record<string, unknown>) => void
+  permissions?: Record<string, FieldPermission>
+  readOnlyDoc?: boolean
 }
 
 function isCollectionAutosaveEnabled(
   mode: 'create' | 'edit',
   versions?: ClientCollection['versions'],
   id?: string,
+  readOnlyDoc?: boolean,
 ): boolean {
+  if (readOnlyDoc) return false
   if (mode !== 'edit' || !id) return false
   return Boolean(versions?.drafts && versions?.autosave)
 }
@@ -500,26 +523,38 @@ function useCollectionAutosave({
   selectedFile,
   reset,
   onDocApplied,
+  permissions,
+  readOnlyDoc,
 }: UseCollectionAutosaveOptions) {
   const queryClient = useQueryClient()
-  const autosaveEnabled = isCollectionAutosaveEnabled(mode, collection.versions, id)
+  const autosaveEnabled = isCollectionAutosaveEnabled(mode, collection.versions, id, readOnlyDoc)
   const autosaveInterval = collection.versions?.autosave?.interval ?? 2000
 
   const isValid = useMemo(() => {
     if (Object.keys(errors).length > 0) return false
     const values = formValues && Object.keys(formValues).length > 0 ? formValues : getValues()
-    const payload = formatDocForSubmit(collection.fields, values)
+    const payload = formatDocForSubmit(collection.fields, values, true, permissions, mode)
     return schema.safeParse(payload).success
-  }, [errors, formValues, getValues, collection.fields, schema])
+  }, [errors, formValues, getValues, collection.fields, permissions, mode, schema])
 
   const onSave = useCallback(async () => {
     if (!id) throw new Error('Missing document id')
     const values = getValues()
-    const payload = formatDocForSubmit(collection.fields, values)
+    const payload = formatDocForSubmit(collection.fields, values, true, permissions, mode)
     const data =
       collection.upload && selectedFile ? buildUploadFormData(payload, selectedFile) : payload
     return updateDoc(apiBase, collection.slug, id, data, { autosave: true })
-  }, [apiBase, collection.fields, collection.slug, collection.upload, id, getValues, selectedFile])
+  }, [
+    apiBase,
+    collection.fields,
+    collection.slug,
+    collection.upload,
+    id,
+    getValues,
+    selectedFile,
+    permissions,
+    mode,
+  ])
 
   const onSuccess = useCallback(
     (savedDoc: Record<string, unknown>) => {
@@ -574,6 +609,7 @@ interface VersionHistorySheetWrapperProps {
   collection: ClientCollection
   currentDoc?: Record<string, unknown> | null
   onRestoreSuccess: (doc: Record<string, unknown>) => void
+  canRestore?: boolean
 }
 
 function VersionHistorySheetWrapper(props: VersionHistorySheetWrapperProps) {
@@ -587,6 +623,7 @@ function VersionHistorySheetWrapper(props: VersionHistorySheetWrapperProps) {
       id={props.id}
       currentDoc={props.currentDoc}
       onRestoreSuccess={props.onRestoreSuccess}
+      canRestore={props.canRestore}
     />
   )
 }
@@ -696,6 +733,165 @@ function useResetFormOnDocLoaded({
   }, [currentKey, doc, fields, isDirty, lastAppliedDocRef, onDocReset, reset])
 }
 
+function resolveEditDocPermissions(
+  docPermissions: CollectionPermission | undefined,
+  canDelete: boolean,
+  baseFields?: Record<string, FieldPermission>,
+) {
+  return {
+    readOnlyDoc: docPermissions?.update === false,
+    canDeleteDoc: docPermissions?.delete !== false && canDelete,
+    canReadVersions: docPermissions?.readVersions !== false,
+    fieldPermissions: docPermissions?.fields ?? baseFields,
+    isUnreadable: docPermissions?.read === false,
+  }
+}
+
+function useCollectionEditorPermissions(
+  slug: string,
+  mode: 'create' | 'edit',
+  docPermissions?: CollectionPermission,
+) {
+  const { permissions, canDeleteInCollection } = usePermissions()
+  const baseFields = permissions?.collections?.[slug]?.fields
+
+  if (mode !== 'edit') {
+    return {
+      readOnlyDoc: false,
+      canDeleteDoc: false,
+      canReadVersions: true,
+      fieldPermissions: baseFields,
+      isUnreadable: false,
+    }
+  }
+
+  return resolveEditDocPermissions(docPermissions, canDeleteInCollection(slug), baseFields)
+}
+
+function resolveSubmitLabel(
+  isSubmitting: boolean,
+  savePending: boolean,
+  mode: 'create' | 'edit',
+  singular: string,
+): string {
+  return getSubmitLabel(isSubmitting || savePending, mode, singular)
+}
+
+interface CollectionEditorSplitLayoutProps {
+  collection: ClientCollection
+  mode: 'create' | 'edit'
+  hasPreview: boolean
+  preview: ReturnType<typeof usePreviewState>
+  editorView: ReturnType<typeof useEditorView>
+  previewUrlTemplate?: string
+  fieldPermissions?: Record<string, FieldPermission>
+  formValues: Record<string, unknown>
+  doc?: Record<string, unknown> | null
+  onPublish: () => void
+  control: Control<Record<string, unknown>>
+  register: UseFormRegister<Record<string, unknown>>
+  setValue: UseFormSetValue<Record<string, unknown>>
+  watch: UseFormWatch<Record<string, unknown>>
+  errors: FieldErrors<Record<string, unknown>>
+  selectedFile: File | null
+  onFileChange: (file: File | null) => void
+  fileError: string | null
+  readOnlyDoc: boolean
+  submitLabel: string
+  isSubmitting: boolean
+  savePending: boolean
+  unpublishPending: boolean
+  deletePending: boolean
+  onDeleteClick: () => void
+  canDeleteDoc: boolean
+  hasDrafts: boolean
+  hasVersions: boolean
+  canReadVersions: boolean
+  onOpenHistory: () => void
+  autosaveSidebar?: ReturnType<typeof useCollectionAutosave>['sidebarAutosave']
+  onSaveDraft: () => void
+  onUnpublish: () => void
+  isPublishing: boolean
+  isSavingDraft: boolean
+}
+
+function CollectionEditorSplitLayout(props: CollectionEditorSplitLayoutProps) {
+  return (
+    <EditorSplitLayout
+      hasPreview={props.hasPreview}
+      isPreviewOpen={props.preview.isOpen}
+      activeView={props.editorView.activeView}
+      onViewChange={props.editorView.setActiveView}
+      preview={
+        <PreviewPaneWrapper
+          collection={props.collection}
+          isOpen={props.preview.isOpen}
+          urlTemplate={props.previewUrlTemplate}
+          values={formatDocForSubmit(
+            props.collection.fields,
+            props.formValues,
+            true,
+            props.fieldPermissions,
+            props.mode,
+          )}
+          savedValues={props.doc}
+          onClose={props.editorView.close}
+          activeView={props.editorView.activeView}
+        />
+      }
+    >
+      <form
+        onSubmit={(e) => {
+          e.preventDefault()
+          props.onPublish()
+        }}
+        className="lt:flex lt:flex-col lt:@3xl:flex-row lt:gap-8 lt:items-start"
+      >
+        <FormFields
+          collection={props.collection}
+          mode={props.mode}
+          control={props.control}
+          register={props.register}
+          setValue={props.setValue}
+          watch={props.watch}
+          errors={props.errors}
+          selectedFile={props.selectedFile}
+          onFileChange={props.onFileChange}
+          fileError={props.fileError}
+          doc={props.doc}
+          permissions={props.fieldPermissions}
+          readOnlyDoc={props.readOnlyDoc}
+        />
+
+        <DocumentSidebar
+          mode={props.mode}
+          submitLabel={props.submitLabel}
+          isPending={props.isSubmitting || props.savePending || props.unpublishPending}
+          isDeleting={props.deletePending}
+          onDelete={props.onDeleteClick}
+          showDelete={props.canDeleteDoc}
+          canDelete={props.canDeleteDoc}
+          doc={props.doc}
+          hasDrafts={props.hasDrafts}
+          hasVersions={props.hasVersions && props.canReadVersions}
+          hasPreview={props.hasPreview}
+          isPreviewOpen={props.preview.isOpen}
+          onTogglePreview={props.editorView.toggle}
+          onOpenHistory={props.onOpenHistory}
+          autosave={props.autosaveSidebar}
+          onPublish={props.onPublish}
+          onSaveDraft={props.onSaveDraft}
+          onUnpublish={props.onUnpublish}
+          isPublishing={props.isPublishing}
+          isSavingDraft={props.isSavingDraft}
+          isUnpublishing={props.unpublishPending}
+          readOnly={props.readOnlyDoc}
+        />
+      </form>
+    </EditorSplitLayout>
+  )
+}
+
 export interface CollectionEditorProps {
   collection: ClientCollection
   mode: 'create' | 'edit'
@@ -720,6 +916,17 @@ function CollectionEditor({ collection, mode, id }: CollectionEditorProps) {
   const editorView = useEditorView(preview)
 
   const docQuery = useDocumentQuery(mode, apiBase, collection.slug, id, hasDrafts)
+  const { data: docPermissions, isLoading: isDocPermsLoading } = useDocumentPermissions(
+    apiBase,
+    collection.slug,
+    id,
+    hasDrafts,
+  )
+
+  const isPermsLoading = mode === 'edit' && isDocPermsLoading
+  const { readOnlyDoc, canDeleteDoc, canReadVersions, fieldPermissions, isUnreadable } =
+    useCollectionEditorPermissions(collection.slug, mode, docPermissions)
+
   const schema = useMemo(() => clientFieldsToZod(collection.fields), [collection])
   const defaultValues = useMemo(() => computeDefaultValues(collection.fields), [collection])
 
@@ -758,6 +965,8 @@ function CollectionEditor({ collection, mode, id }: CollectionEditorProps) {
     selectedFile,
     reset,
     onDocApplied,
+    permissions: fieldPermissions,
+    readOnlyDoc,
   })
 
   useResetFormOnDocLoaded({
@@ -801,10 +1010,20 @@ function CollectionEditor({ collection, mode, id }: CollectionEditorProps) {
     saveMutation,
     handleSubmit,
     onBeforeSubmit: autosave.cancelAutosave,
+    permissions: fieldPermissions,
   })
 
-  if (shouldShowQueryState(mode, docQuery.isLoading, docQuery.error)) {
-    return <CollectionQueryState isLoading={docQuery.isLoading} error={docQuery.error} />
+  if (shouldShowQueryState(mode, docQuery.isLoading || isPermsLoading, docQuery.error)) {
+    return (
+      <CollectionQueryState
+        isLoading={docQuery.isLoading || isPermsLoading}
+        error={docQuery.error}
+      />
+    )
+  }
+
+  if (isUnreadable) {
+    return <NotFoundView />
   }
 
   const title = getFormTitle(mode, collection.labels.singular, id)
@@ -814,8 +1033,9 @@ function CollectionEditor({ collection, mode, id }: CollectionEditorProps) {
     collection.labels.singular,
     id,
   )
-  const submitLabel = getSubmitLabel(
-    isSubmitting || saveMutation.isPending,
+  const submitLabel = resolveSubmitLabel(
+    isSubmitting,
+    saveMutation.isPending,
     mode,
     collection.labels.singular,
   )
@@ -844,79 +1064,54 @@ function CollectionEditor({ collection, mode, id }: CollectionEditorProps) {
 
       <CollectionStatusAlerts apiError={apiError} successMsg={successMsg} />
 
-      <EditorSplitLayout
+      <CollectionEditorSplitLayout
+        collection={collection}
+        mode={mode}
         hasPreview={hasPreview}
-        isPreviewOpen={preview.isOpen}
-        activeView={editorView.activeView}
-        onViewChange={editorView.setActiveView}
-        preview={
-          <PreviewPaneWrapper
-            collection={collection}
-            isOpen={preview.isOpen}
-            urlTemplate={previewUrlTemplate}
-            values={formatDocForSubmit(collection.fields, formValues)}
-            savedValues={docQuery.data}
-            onClose={editorView.close}
-            activeView={editorView.activeView}
-          />
-        }
-      >
-        <form
-          onSubmit={(e) => {
-            e.preventDefault()
-            onPublish()
-          }}
-          className="lt:flex lt:flex-col lt:@3xl:flex-row lt:gap-8 lt:items-start"
-        >
-          <FormFields
-            collection={collection}
-            mode={mode}
-            control={control}
-            register={register}
-            setValue={setValue}
-            watch={watch}
-            errors={errors}
-            selectedFile={selectedFile}
-            onFileChange={(file) => {
-              setSelectedFile(file)
-              setFileError(null)
-            }}
-            fileError={fileError}
-            doc={docQuery.data}
-          />
-
-          <DocumentSidebar
-            mode={mode}
-            submitLabel={submitLabel}
-            isPending={isSubmitting || saveMutation.isPending || unpublishMutation.isPending}
-            isDeleting={deleteMutation.isPending}
-            onDelete={() => setConfirmOpen(true)}
-            showDelete={mode === 'edit'}
-            doc={docQuery.data}
-            hasDrafts={hasDrafts}
-            hasVersions={hasVersions}
-            hasPreview={hasPreview}
-            isPreviewOpen={preview.isOpen}
-            onTogglePreview={editorView.toggle}
-            onOpenHistory={() => setHistoryOpen(true)}
-            autosave={autosave.sidebarAutosave}
-            onPublish={onPublish}
-            onSaveDraft={onSaveDraft}
-            onUnpublish={() => {
-              void (async () => {
-                await autosave.cancelAutosave()
-                unpublishMutation.mutate()
-              })()
-            }}
-            isPublishing={isPublishing}
-            isSavingDraft={isSavingDraft}
-            isUnpublishing={unpublishMutation.isPending}
-          />
-        </form>
-      </EditorSplitLayout>
+        preview={preview}
+        editorView={editorView}
+        previewUrlTemplate={previewUrlTemplate}
+        fieldPermissions={fieldPermissions}
+        formValues={formValues}
+        doc={docQuery.data}
+        onPublish={onPublish}
+        control={control}
+        register={register}
+        setValue={setValue}
+        watch={watch}
+        errors={errors}
+        selectedFile={selectedFile}
+        onFileChange={(file) => {
+          setSelectedFile(file)
+          setFileError(null)
+        }}
+        fileError={fileError}
+        readOnlyDoc={readOnlyDoc}
+        submitLabel={submitLabel}
+        isSubmitting={isSubmitting}
+        savePending={saveMutation.isPending}
+        unpublishPending={unpublishMutation.isPending}
+        deletePending={deleteMutation.isPending}
+        onDeleteClick={() => setConfirmOpen(true)}
+        canDeleteDoc={canDeleteDoc}
+        hasDrafts={hasDrafts}
+        hasVersions={hasVersions}
+        canReadVersions={canReadVersions}
+        onOpenHistory={() => setHistoryOpen(true)}
+        autosaveSidebar={autosave.sidebarAutosave}
+        onSaveDraft={onSaveDraft}
+        onUnpublish={() => {
+          void (async () => {
+            await autosave.cancelAutosave()
+            unpublishMutation.mutate()
+          })()
+        }}
+        isPublishing={isPublishing}
+        isSavingDraft={isSavingDraft}
+      />
 
       <VersionHistorySheetWrapper
-        hasVersions={hasVersions}
+        hasVersions={hasVersions && canReadVersions}
         id={id}
         open={historyOpen}
         onOpenChange={setHistoryOpen}
@@ -934,6 +1129,7 @@ function CollectionEditor({ collection, mode, id }: CollectionEditorProps) {
           reset(formatDocForForm(collection.fields, restoredDoc))
           setSuccessMsg('Version restored successfully!')
         }}
+        canRestore={!readOnlyDoc}
       />
     </div>
   )
@@ -946,8 +1142,11 @@ export interface CollectionFormViewProps {
 export function CollectionFormView({ mode }: CollectionFormViewProps) {
   const { collection: slug, id } = useParams({ strict: false })
   const collection = useCollection(slug)
+  const { canCreateInCollection, canReadCollection } = usePermissions()
 
-  if (!collection) return <NotFoundView />
+  if (!collection || !slug) return <NotFoundView />
+  if (mode === 'create' && !canCreateInCollection(slug)) return <NotFoundView />
+  if (mode === 'edit' && !canReadCollection(slug)) return <NotFoundView />
 
   return <CollectionEditor collection={collection} mode={mode} id={id} />
 }

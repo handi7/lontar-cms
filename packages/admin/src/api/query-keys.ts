@@ -26,4 +26,22 @@ export const queryKeys = {
     page !== undefined
       ? (['global-versions', apiBase, slug, page] as const)
       : (['global-versions', apiBase, slug] as const),
+
+  /** Base permissions for user or anonymous */
+  permissions: (apiBase: string, userId?: string | null) =>
+    ['_lontar_permissions', apiBase, userId ?? 'anonymous'] as const,
+
+  /** Document-specific permissions */
+  documentPermissions: (apiBase: string, slug: string, id: string | number, hasDrafts?: boolean) =>
+    [
+      '_lontar_document_permissions',
+      apiBase,
+      slug,
+      String(id),
+      hasDrafts ? 'draft' : 'published',
+    ] as const,
+
+  /** Global-specific permissions */
+  globalPermissions: (apiBase: string, slug: string) =>
+    ['_lontar_global_permissions', apiBase, slug] as const,
 }

@@ -9,8 +9,15 @@ import {
   type Table,
   type SortingState,
 } from '@tanstack/react-table'
-import type { ClientCollection, ClientField, ClientSelectField, Where } from '@lontar/core/client'
+import type {
+  ClientCollection,
+  ClientField,
+  ClientSelectField,
+  FieldPermission,
+  Where,
+} from '@lontar/core/client'
 import { useAdmin, useCollection } from '../context/AdminContext'
+import { usePermissions } from '../context/PermissionsContext'
 import { cn } from '../lib/utils'
 import {
   fetchCollectionDocs,
@@ -235,10 +242,41 @@ function DataCellRenderer({
   return <>{content}</>
 }
 
+function isSystemColumn(key: string): boolean {
+  return key === 'id' || key === '_status' || key === 'createdAt' || key === 'updatedAt'
+}
+
+function isNestedPathReadable(
+  parts: string[],
+  fieldPermissions: Record<string, FieldPermission>,
+): boolean {
+  let curr: FieldPermission | undefined = fieldPermissions[parts[0] ?? '']
+  for (let i = 0; i < parts.length; i++) {
+    if (i > 0) {
+      curr = curr?.fields?.[parts[i] ?? '']
+    }
+    if (curr?.read === false) return false
+  }
+  return true
+}
+
+function isColumnReadable(
+  key: string,
+  fieldPermissions?: Record<string, FieldPermission>,
+): boolean {
+  if (!fieldPermissions || isSystemColumn(key)) return true
+  if (key.includes('.')) {
+    return isNestedPathReadable(key.split('.'), fieldPermissions)
+  }
+  return fieldPermissions[key]?.read !== false
+}
+
 function buildColumns(
   collection: ClientCollection,
   onDelete: (id: number | string) => void,
   isDeleting: boolean,
+  canDelete: boolean = true,
+  fieldPermissions?: Record<string, FieldPermission>,
 ): ColumnDef<Record<string, unknown>>[] {
   const columnKeys =
     collection.admin.defaultColumns.length > 0
@@ -254,9 +292,10 @@ function buildColumns(
     }
   }
 
+  const visibleColumnKeys = columnKeys.filter((key) => isColumnReadable(key, fieldPermissions))
   const titleKey = collection.admin.useAsTitle || 'id'
 
-  const dataColumns: ColumnDef<Record<string, unknown>>[] = columnKeys.map((key) => {
+  const dataColumns: ColumnDef<Record<string, unknown>>[] = visibleColumnKeys.map((key) => {
     const field = collection.fields.find((f) => f.name === key)
     return {
       id: key,
@@ -300,21 +339,23 @@ function buildColumns(
               Edit
             </Link>
           </Button>
-          <Button
-            type="button"
-            variant="ghost"
-            size="sm"
-            className={cn(
-              rowActionClass,
-              'lt:text-destructive lt:hover:bg-error-bg lt:hover:text-destructive',
-            )}
-            disabled={isDeleting}
-            onClick={() => {
-              onDelete(id)
-            }}
-          >
-            Delete
-          </Button>
+          {canDelete && (
+            <Button
+              type="button"
+              variant="ghost"
+              size="sm"
+              className={cn(
+                rowActionClass,
+                'lt:text-destructive lt:hover:bg-error-bg lt:hover:text-destructive',
+              )}
+              disabled={isDeleting}
+              onClick={() => {
+                onDelete(id)
+              }}
+            >
+              Delete
+            </Button>
+          )}
         </div>
       )
     },
@@ -412,15 +453,23 @@ function CollectionTable({
   )
 }
 
-function EmptyState({ collection }: { collection: ClientCollection }) {
+function EmptyState({
+  collection,
+  canCreate = true,
+}: {
+  collection: ClientCollection
+  canCreate?: boolean
+}) {
   return (
     <EmptyCard>
       <p className={emptyTextClass}>No {collection.labels.plural.toLowerCase()} found.</p>
-      <Button asChild variant="outline">
-        <Link to="/$collection/create" params={{ collection: collection.slug }}>
-          Create the first {collection.labels.singular.toLowerCase()}
-        </Link>
-      </Button>
+      {canCreate && (
+        <Button asChild variant="outline">
+          <Link to="/$collection/create" params={{ collection: collection.slug }}>
+            Create the first {collection.labels.singular.toLowerCase()}
+          </Link>
+        </Button>
+      )}
     </EmptyCard>
   )
 }
@@ -431,6 +480,7 @@ function ListContent({
   docsCount,
   hasActiveFilters,
   collection,
+  canCreate = true,
   onClearFilters,
   table,
   data,
@@ -441,6 +491,7 @@ function ListContent({
   docsCount: number
   hasActiveFilters: boolean
   collection: ClientCollection
+  canCreate?: boolean
   onClearFilters: () => void
   table: Table<Record<string, unknown>>
   data?: PaginatedDocs
@@ -463,7 +514,7 @@ function ListContent({
         </EmptyCard>
       )
     }
-    return <EmptyState collection={collection} />
+    return <EmptyState collection={collection} canCreate={canCreate} />
   }
   return <CollectionTable table={table} data={data} onPageChange={onPageChange} />
 }
@@ -609,6 +660,26 @@ function useCollectionDocsQuery(
   })
 }
 
+function computeHasActiveFilters(
+  searchTerm: string,
+  filterCount: number,
+  hasDrafts: boolean,
+  statusFilter: string,
+): boolean {
+  if (searchTerm.trim().length > 0) return true
+  if (filterCount > 0) return true
+  return hasDrafts && statusFilter !== 'all'
+}
+
+function useCollectionPermissionsState(slug: string) {
+  const { getCollectionPermission, canCreateInCollection, canDeleteInCollection } = usePermissions()
+  return {
+    collectionPerm: getCollectionPermission(slug),
+    canCreate: canCreateInCollection(slug),
+    canDelete: canDeleteInCollection(slug),
+  }
+}
+
 interface CollectionListTableProps {
   collection: ClientCollection
 }
@@ -662,9 +733,11 @@ function CollectionListTable({ collection }: CollectionListTableProps) {
     hasDrafts,
   )
 
+  const { collectionPerm, canCreate, canDelete } = useCollectionPermissionsState(collection.slug)
+
   const columns = useMemo(() => {
-    return buildColumns(collection, handleDelete, isDeleting)
-  }, [collection, handleDelete, isDeleting])
+    return buildColumns(collection, handleDelete, isDeleting, canDelete, collectionPerm?.fields)
+  }, [collection, handleDelete, isDeleting, canDelete, collectionPerm?.fields])
 
   const docs = useMemo(() => data?.docs ?? [], [data?.docs])
 
@@ -682,8 +755,11 @@ function CollectionListTable({ collection }: CollectionListTableProps) {
     getCoreRowModel: getCoreRowModel(),
   })
 
-  const hasActiveFilters = Boolean(
-    searchTerm.trim() || activeFilters.length > 0 || (hasDrafts && statusFilter !== 'all'),
+  const hasActiveFilters = computeHasActiveFilters(
+    searchTerm,
+    activeFilters.length,
+    hasDrafts,
+    statusFilter,
   )
 
   return (
@@ -691,11 +767,13 @@ function CollectionListTable({ collection }: CollectionListTableProps) {
       <ViewHeader
         title={collection.labels.plural}
         actions={
-          <Button asChild>
-            <Link to="/$collection/create" params={{ collection: collection.slug }}>
-              Create {collection.labels.singular}
-            </Link>
-          </Button>
+          canCreate ? (
+            <Button asChild>
+              <Link to="/$collection/create" params={{ collection: collection.slug }}>
+                Create {collection.labels.singular}
+              </Link>
+            </Button>
+          ) : undefined
         }
       >
         <Badge variant="secondary" className="lt:mt-1.5">
@@ -714,6 +792,7 @@ function CollectionListTable({ collection }: CollectionListTableProps) {
         hasDrafts={hasDrafts}
         statusFilter={statusFilter}
         onStatusFilterChange={handleStatusFilterChange}
+        fieldPermissions={collectionPerm?.fields}
       />
 
       <ListAlerts queryError={error} deleteError={deleteError} />
@@ -732,6 +811,7 @@ function CollectionListTable({ collection }: CollectionListTableProps) {
         docsCount={docs.length}
         hasActiveFilters={hasActiveFilters}
         collection={collection}
+        canCreate={canCreate}
         onClearFilters={handleClearAll}
         table={table}
         data={data ?? undefined}
@@ -744,8 +824,9 @@ function CollectionListTable({ collection }: CollectionListTableProps) {
 export function CollectionListView() {
   const { collection: slug } = useParams({ strict: false })
   const collection = useCollection(slug)
+  const { canReadCollection } = usePermissions()
 
-  if (!collection) {
+  if (!collection || !canReadCollection(collection.slug)) {
     return <NotFoundView />
   }
 

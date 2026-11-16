@@ -8,6 +8,9 @@ import {
   formatApiErrorMessage,
   publishDoc,
   restoreDocVersion,
+  fetchPermissions,
+  fetchDocumentPermissions,
+  fetchGlobalPermissions,
   setOnUnauthorized,
   signOut,
   unpublishDoc,
@@ -250,6 +253,47 @@ describe('ApiClientError and API Client error handling', () => {
         '/api/posts/1?draft=true&autosave=true',
         expect.objectContaining({ method: 'PATCH' }),
       )
+    })
+  })
+
+  describe('permissions operations (#341)', () => {
+    it('fetches base permissions from /_lontar/permissions', async () => {
+      const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue({
+        ok: true,
+        json: vi.fn().mockResolvedValue({ collections: {}, globals: {} }),
+      } as unknown as Response)
+
+      const result = await fetchPermissions('/api')
+      expect(fetchSpy).toHaveBeenLastCalledWith('/api/_lontar/permissions', {
+        credentials: 'include',
+      })
+      expect(result).toEqual({ collections: {}, globals: {} })
+    })
+
+    it('fetches document-specific permissions', async () => {
+      const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue({
+        ok: true,
+        json: vi.fn().mockResolvedValue({ create: true, read: true, update: false, delete: false }),
+      } as unknown as Response)
+
+      const result = await fetchDocumentPermissions('/api', 'posts', 1, { draft: true })
+      expect(fetchSpy).toHaveBeenLastCalledWith('/api/_lontar/permissions/posts/1?draft=true', {
+        credentials: 'include',
+      })
+      expect(result.update).toBe(false)
+    })
+
+    it('fetches global permissions', async () => {
+      const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue({
+        ok: true,
+        json: vi.fn().mockResolvedValue({ read: true, update: true, fields: {} }),
+      } as unknown as Response)
+
+      const result = await fetchGlobalPermissions('/api', 'site-settings')
+      expect(fetchSpy).toHaveBeenLastCalledWith('/api/_lontar/permissions/globals/site-settings', {
+        credentials: 'include',
+      })
+      expect(result.read).toBe(true)
     })
   })
 })

@@ -11,6 +11,7 @@ import {
   type ClientCheckboxField,
   type ClientDateField,
   type ClientEmailField,
+  type ClientGroupField,
   type ClientNumberField,
   type ClientRelationshipField,
   type ClientRichTextField,
@@ -19,6 +20,7 @@ import {
   type ClientTextareaField,
   type ClientTextField,
   type ClientUploadField,
+  type FieldPermission,
 } from '@lontar/core/client'
 import { computeDefaultValues } from '../utils/form-utils'
 import { PortalContainerProvider } from '../context/PortalContainer'
@@ -1935,6 +1937,235 @@ describe('group field rendering and binding', () => {
       expect(blockRow?.className).toContain('lt:border-border')
       expect(blockRow?.className).toContain('lt:bg-card')
       expect(blockRow?.className).not.toContain('lt:bg-[var(--lontar-card)]')
+    })
+  })
+
+  describe('Field permissions and locking (#341)', () => {
+    it('omits field when permissions.read is false', () => {
+      const field: ClientTextField = {
+        name: 'secretKey',
+        type: 'text',
+        label: 'Secret Key',
+        required: false,
+      }
+
+      const { container } = render(
+        <FormWrapper>
+          {({ control, register }) => (
+            <FieldRenderer
+              field={field}
+              control={control}
+              register={register}
+              permissions={{ read: false, create: false, update: false }}
+            />
+          )}
+        </FormWrapper>,
+      )
+
+      expect(container.querySelector('input[name="secretKey"]')).toBeNull()
+      expect(screen.queryByText('Secret Key')).toBeNull()
+    })
+
+    it('renders disabled input with padlock indicator when permissions.update is false in edit mode', () => {
+      const field: ClientTextField = {
+        name: 'username',
+        type: 'text',
+        label: 'Username',
+        required: true,
+      }
+
+      render(
+        <FormWrapper defaultValues={{ username: 'alice' }}>
+          {({ control, register }) => (
+            <FieldRenderer
+              field={field}
+              control={control}
+              register={register}
+              mode="edit"
+              permissions={{ read: true, create: true, update: false }}
+            />
+          )}
+        </FormWrapper>,
+      )
+
+      const input = screen.getByRole<HTMLInputElement>('textbox')
+      expect(input.disabled).toBe(true)
+      expect(screen.getByTestId('locked-icon-username')).toBeTruthy()
+    })
+
+    it('renders disabled input with padlock indicator when permissions.create is false in create mode', () => {
+      const field: ClientTextField = {
+        name: 'managedField',
+        type: 'text',
+        label: 'Managed Field',
+        required: false,
+      }
+
+      render(
+        <FormWrapper>
+          {({ control, register }) => (
+            <FieldRenderer
+              field={field}
+              control={control}
+              register={register}
+              mode="create"
+              permissions={{ read: true, create: false, update: true }}
+            />
+          )}
+        </FormWrapper>,
+      )
+
+      const input = screen.getByRole<HTMLInputElement>('textbox')
+      expect(input.disabled).toBe(true)
+      expect(screen.getByTestId('locked-icon-managedField')).toBeTruthy()
+    })
+
+    it('renders disabled input with padlock when readOnlyDoc is true', () => {
+      const field: ClientTextField = {
+        name: 'title',
+        type: 'text',
+        label: 'Title',
+        required: true,
+      }
+
+      render(
+        <FormWrapper defaultValues={{ title: 'Post 1' }}>
+          {({ control, register }) => (
+            <FieldRenderer
+              field={field}
+              control={control}
+              register={register}
+              mode="edit"
+              readOnlyDoc={true}
+              permissions={{ read: true, create: true, update: true }}
+            />
+          )}
+        </FormWrapper>,
+      )
+
+      const input = screen.getByRole<HTMLInputElement>('textbox')
+      expect(input.disabled).toBe(true)
+      expect(screen.getByTestId('locked-icon-title')).toBeTruthy()
+    })
+
+    it('handles nested group field permissions', () => {
+      const groupField: ClientGroupField = {
+        name: 'meta',
+        type: 'group',
+        label: 'Metadata',
+        required: false,
+        fields: [
+          { name: 'publicNote', type: 'text', label: 'Public Note', required: false },
+          { name: 'secretInternal', type: 'text', label: 'Secret Internal', required: false },
+          { name: 'readOnlyCode', type: 'text', label: 'Read-only Code', required: false },
+        ],
+      }
+
+      const permissions: FieldPermission = {
+        read: true,
+        create: true,
+        update: true,
+        fields: {
+          publicNote: { read: true, create: true, update: true },
+          secretInternal: { read: false, create: false, update: false },
+          readOnlyCode: { read: true, create: false, update: false },
+        },
+      }
+
+      render(
+        <FormWrapper defaultValues={{ meta: { publicNote: 'hello', readOnlyCode: 'ABC' } }}>
+          {({ control, register }) => (
+            <FieldRenderer
+              field={groupField}
+              control={control}
+              register={register}
+              mode="edit"
+              permissions={permissions}
+            />
+          )}
+        </FormWrapper>,
+      )
+
+      expect(screen.getByText('Metadata')).toBeTruthy()
+      expect(screen.getByText('Public Note')).toBeTruthy()
+      expect(screen.queryByText('Secret Internal')).toBeNull()
+      expect(screen.getByText('Read-only Code')).toBeTruthy()
+      expect(screen.getByTestId('locked-icon-meta.readOnlyCode')).toBeTruthy()
+    })
+
+    it('handles array field permissions: disables adding/editing when array is locked, filters subfields', () => {
+      const arrayField: ClientArrayField = {
+        name: 'items',
+        type: 'array',
+        label: 'Items',
+        required: false,
+        fields: [
+          { name: 'name', type: 'text', label: 'Name', required: false },
+          { name: 'hiddenId', type: 'text', label: 'Hidden ID', required: false },
+        ],
+      }
+
+      const permissions: FieldPermission = {
+        read: true,
+        create: false,
+        update: false,
+        fields: {
+          name: { read: true, create: false, update: false },
+          hiddenId: { read: false, create: false, update: false },
+        },
+      }
+
+      render(
+        <FormWrapper defaultValues={{ items: [{ id: '1', name: 'First', hiddenId: 'X' }] }}>
+          {({ control, register, watch }) => (
+            <FieldRenderer
+              field={arrayField}
+              control={control}
+              register={register}
+              watch={watch}
+              mode="edit"
+              permissions={permissions}
+            />
+          )}
+        </FormWrapper>,
+      )
+
+      // Add Row button should be disabled
+      const addBtn = screen.getByRole('button', { name: /Add Item/i })
+      expect((addBtn as HTMLButtonElement).disabled).toBe(true)
+
+      // Lock icon on array header
+      expect(screen.getByTestId('locked-icon-items')).toBeTruthy()
+
+      // Subfield hiddenId should not be rendered
+      expect(screen.queryByText('Hidden ID')).toBeNull()
+      expect(screen.getByText('Name')).toBeTruthy()
+    })
+
+    it('omits unreadable conditional field even if condition is satisfied', () => {
+      const conditionField: ClientTextField = {
+        name: 'conditionalSecret',
+        type: 'text',
+        label: 'Conditional Secret',
+        required: false,
+        condition: { field: 'showSecret', equals: true },
+      }
+
+      render(
+        <FormWrapper defaultValues={{ showSecret: true }}>
+          {({ control, register, watch }) => (
+            <FieldRenderer
+              field={conditionField}
+              control={control}
+              register={register}
+              watch={watch}
+              permissions={{ read: false, create: false, update: false }}
+            />
+          )}
+        </FormWrapper>,
+      )
+
+      expect(screen.queryByText('Conditional Secret')).toBeNull()
     })
   })
 })

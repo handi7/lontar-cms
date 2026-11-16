@@ -4,6 +4,7 @@ import type { RouterHistory } from '@tanstack/history'
 import { RouterProvider } from '@tanstack/react-router'
 import { AdminContext } from './context/AdminContext'
 import { AuthProvider } from './context/AuthContext'
+import { PermissionsProvider } from './context/PermissionsContext'
 import { FullPageError, FullPageLoading } from './layout/FullPageState'
 import { PortalContainerProvider } from './context/PortalContainer'
 import { ThemeContext, useThemePreference } from './context/ThemeContext'
@@ -74,11 +75,13 @@ function AdminInner({
     <ThemeContext.Provider value={{ theme, setTheme }}>
       <AdminContext.Provider value={{ config, apiBase, basePath }}>
         <AuthProvider apiBase={apiBase}>
-          <div className="lontar-admin" data-theme={dataTheme}>
-            <PortalContainerProvider>
-              <RouterProvider router={router} />
-            </PortalContainerProvider>
-          </div>
+          <PermissionsProvider apiBase={apiBase}>
+            <div className="lontar-admin" data-theme={dataTheme}>
+              <PortalContainerProvider>
+                <RouterProvider router={router} />
+              </PortalContainerProvider>
+            </div>
+          </PermissionsProvider>
         </AuthProvider>
       </AdminContext.Provider>
     </ThemeContext.Provider>

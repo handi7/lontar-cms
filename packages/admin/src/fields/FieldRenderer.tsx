@@ -22,10 +22,20 @@ import {
   type ClientSlugField,
   type ClientTextareaField,
   type ClientTextField,
+  type FieldPermission,
 } from '@lontar/core/client'
-import { ArrowDown, ArrowUp, ChevronDown, ChevronRight, Copy, Plus, Trash2 } from 'lucide-react'
+import {
+  ArrowDown,
+  ArrowUp,
+  ChevronDown,
+  ChevronRight,
+  Copy,
+  Lock,
+  Plus,
+  Trash2,
+} from 'lucide-react'
 import { Button } from '../components/ui/button'
-import { computeDefaultValues } from '../utils/form-utils'
+import { computeDefaultValues, isFieldReadOnly } from '../utils/form-utils'
 import { Field, FieldError, FieldLabel } from '../components/ui/field'
 import { Checkbox } from '../components/ui/checkbox'
 import { Input } from '../components/ui/input'
@@ -53,6 +63,9 @@ export interface FieldRendererProps {
   watch?: UseFormWatch<Record<string, unknown>>
   mode?: 'create' | 'edit'
   pathPrefix?: string
+  permissions?: FieldPermission
+  disabled?: boolean
+  readOnlyDoc?: boolean
 }
 
 /**
@@ -107,9 +120,10 @@ interface ControlledProps<T extends ClientField> {
   field: T
   control: Control<Record<string, unknown>>
   a11y: FieldA11y
+  disabled?: boolean
 }
 
-function TextFieldInput({ field, control, a11y }: ControlledProps<ClientTextField>) {
+function TextFieldInput({ field, control, a11y, disabled }: ControlledProps<ClientTextField>) {
   return (
     <Controller
       control={control}
@@ -120,6 +134,7 @@ function TextFieldInput({ field, control, a11y }: ControlledProps<ClientTextFiel
           type="text"
           minLength={field.minLength}
           maxLength={field.maxLength}
+          disabled={disabled || controlled.disabled}
           {...a11yProps(a11y)}
           {...controlled}
           value={asInputValue(controlled.value)}
@@ -129,7 +144,7 @@ function TextFieldInput({ field, control, a11y }: ControlledProps<ClientTextFiel
   )
 }
 
-function NumberFieldInput({ field, control, a11y }: ControlledProps<ClientNumberField>) {
+function NumberFieldInput({ field, control, a11y, disabled }: ControlledProps<ClientNumberField>) {
   return (
     <Controller
       control={control}
@@ -141,6 +156,7 @@ function NumberFieldInput({ field, control, a11y }: ControlledProps<ClientNumber
           step={field.integer ? '1' : 'any'}
           min={field.min}
           max={field.max}
+          disabled={disabled || controlled.disabled}
           {...a11yProps(a11y)}
           {...controlled}
           value={asInputValue(controlled.value)}
@@ -154,7 +170,12 @@ function NumberFieldInput({ field, control, a11y }: ControlledProps<ClientNumber
   )
 }
 
-function TextareaFieldInput({ field, control, a11y }: ControlledProps<ClientTextareaField>) {
+function TextareaFieldInput({
+  field,
+  control,
+  a11y,
+  disabled,
+}: ControlledProps<ClientTextareaField>) {
   return (
     <Controller
       control={control}
@@ -165,6 +186,7 @@ function TextareaFieldInput({ field, control, a11y }: ControlledProps<ClientText
           rows={field.rows ?? 4}
           minLength={field.minLength}
           maxLength={field.maxLength}
+          disabled={disabled || controlled.disabled}
           {...a11yProps(a11y)}
           {...controlled}
           value={asInputValue(controlled.value)}
@@ -174,7 +196,7 @@ function TextareaFieldInput({ field, control, a11y }: ControlledProps<ClientText
   )
 }
 
-function EmailFieldInput({ field, control, a11y }: ControlledProps<ClientEmailField>) {
+function EmailFieldInput({ field, control, a11y, disabled }: ControlledProps<ClientEmailField>) {
   return (
     <Controller
       control={control}
@@ -184,6 +206,7 @@ function EmailFieldInput({ field, control, a11y }: ControlledProps<ClientEmailFi
           id={field.name}
           type="email"
           maxLength={field.maxLength}
+          disabled={disabled || controlled.disabled}
           {...a11yProps(a11y)}
           {...controlled}
           value={asInputValue(controlled.value)}
@@ -197,10 +220,14 @@ function CheckboxFieldInput({
   field,
   control,
   a11y,
+  disabled,
+  isLocked,
 }: {
   field: ClientCheckboxField
   control: Control<Record<string, unknown>>
   a11y: FieldA11y
+  disabled?: boolean
+  isLocked?: boolean
 }) {
   // `defaultValue={false}` matches what react-hook-form read from the native
   // checkbox this replaced when the form had no default. A stored null is left
@@ -219,12 +246,24 @@ function CheckboxFieldInput({
             checked={controlled.value === true}
             onCheckedChange={(checked) => controlled.onChange(checked === true)}
             onBlur={controlled.onBlur}
-            disabled={controlled.disabled}
+            disabled={disabled || controlled.disabled}
             {...a11yProps(a11y)}
           />
-          <Label htmlFor={field.name} className="lt:cursor-pointer lt:select-none">
+          <Label
+            htmlFor={field.name}
+            className="lt:cursor-pointer lt:select-none lt:flex lt:items-center lt:gap-1.5"
+          >
             <span>{field.label}</span>
             {field.required && <span className="lontar-required">*</span>}
+            {isLocked && (
+              <span title="Read-only" className="lt:inline-flex lt:items-center">
+                <Lock
+                  className="lt:size-3.5 lt:text-muted-foreground lt:ml-1"
+                  data-testid={`locked-icon-${field.name}`}
+                  aria-label="Read-only"
+                />
+              </span>
+            )}
           </Label>
         </div>
       )}
@@ -241,10 +280,12 @@ function SelectFieldInput({
   field,
   control,
   a11y,
+  disabled,
 }: {
   field: ClientSelectField
   control: Control<Record<string, unknown>>
   a11y: FieldA11y
+  disabled?: boolean
 }) {
   // The native <select> this replaced was bound with `register`, so
   // react-hook-form read its DOM value as the initial one: the first option for
@@ -266,7 +307,7 @@ function SelectFieldInput({
             onValueChange={(next) => {
               controlled.onChange(next === EMPTY_SELECT_VALUE ? '' : next)
             }}
-            disabled={controlled.disabled}
+            disabled={disabled || controlled.disabled}
           >
             <SelectTrigger
               id={field.name}
@@ -295,10 +336,12 @@ function DateFieldInput({
   field,
   control,
   a11y,
+  disabled,
 }: {
   field: ClientDateField
   control: Control<Record<string, unknown>>
   a11y: FieldA11y
+  disabled?: boolean
 }) {
   // The form holds the same local datetime string the native
   // <input type="datetime-local"> did (formatDateForInput in, formatDateForSubmit
@@ -316,7 +359,7 @@ function DateFieldInput({
           value={typeof controlled.value === 'string' ? controlled.value : ''}
           onChange={controlled.onChange}
           onBlur={controlled.onBlur}
-          disabled={controlled.disabled}
+          disabled={disabled || controlled.disabled}
           clearable={!field.required}
           {...a11yProps(a11y)}
         />
@@ -332,6 +375,7 @@ function SlugFieldInput({
   watch,
   mode,
   a11y,
+  disabled,
 }: ControlledProps<ClientSlugField> & {
   setValue?: UseFormSetValue<Record<string, unknown>>
   watch?: UseFormWatch<Record<string, unknown>>
@@ -369,6 +413,7 @@ function SlugFieldInput({
             id={field.name}
             type="text"
             maxLength={field.maxLength}
+            disabled={disabled || controlled.disabled}
             {...a11yProps(a11y)}
             {...controlled}
             value={asInputValue(controlled.value)}
@@ -382,6 +427,7 @@ function SlugFieldInput({
       {field.from && (
         <button
           type="button"
+          disabled={disabled}
           className="lontar-btn lontar-btn-secondary lontar-slug-sync-btn"
           onClick={handleSync}
           title={`Sync from ${field.from}`}
@@ -398,11 +444,13 @@ function RichTextFieldInput({
   register,
   setValue,
   watch,
+  disabled,
 }: {
   field: ClientRichTextField
   register: UseFormRegister<Record<string, unknown>>
   setValue?: UseFormSetValue<Record<string, unknown>>
   watch?: UseFormWatch<Record<string, unknown>>
+  disabled?: boolean
 }) {
   useEffect(() => {
     register(field.name)
@@ -414,6 +462,7 @@ function RichTextFieldInput({
     <RichTextEditor
       name={field.name}
       value={value}
+      disabled={disabled}
       onChange={(newVal) => {
         setValue?.(field.name, newVal, { shouldValidate: true, shouldDirty: true })
       }}
@@ -428,26 +477,38 @@ function StandardFieldInput({
   field,
   control,
   a11y,
+  disabled,
+  isLocked,
 }: {
   field: ClientField
   control: Control<Record<string, unknown>>
   a11y: FieldA11y
+  disabled?: boolean
+  isLocked?: boolean
 }) {
   switch (field.type) {
     case 'text':
-      return <TextFieldInput field={field} control={control} a11y={a11y} />
+      return <TextFieldInput field={field} control={control} a11y={a11y} disabled={disabled} />
     case 'number':
-      return <NumberFieldInput field={field} control={control} a11y={a11y} />
+      return <NumberFieldInput field={field} control={control} a11y={a11y} disabled={disabled} />
     case 'textarea':
-      return <TextareaFieldInput field={field} control={control} a11y={a11y} />
+      return <TextareaFieldInput field={field} control={control} a11y={a11y} disabled={disabled} />
     case 'email':
-      return <EmailFieldInput field={field} control={control} a11y={a11y} />
+      return <EmailFieldInput field={field} control={control} a11y={a11y} disabled={disabled} />
     case 'checkbox':
-      return <CheckboxFieldInput field={field} control={control} a11y={a11y} />
+      return (
+        <CheckboxFieldInput
+          field={field}
+          control={control}
+          a11y={a11y}
+          disabled={disabled}
+          isLocked={isLocked}
+        />
+      )
     case 'select':
-      return <SelectFieldInput field={field} control={control} a11y={a11y} />
+      return <SelectFieldInput field={field} control={control} a11y={a11y} disabled={disabled} />
     case 'date':
-      return <DateFieldInput field={field} control={control} a11y={a11y} />
+      return <DateFieldInput field={field} control={control} a11y={a11y} disabled={disabled} />
     default:
       return null
   }
@@ -461,6 +522,8 @@ function FieldInput({
   watch,
   mode,
   a11y,
+  disabled,
+  isLocked,
 }: {
   field: ClientField
   control: Control<Record<string, unknown>>
@@ -469,6 +532,8 @@ function FieldInput({
   watch?: UseFormWatch<Record<string, unknown>>
   mode?: 'create' | 'edit'
   a11y: FieldA11y
+  disabled?: boolean
+  isLocked?: boolean
 }) {
   if (field.type === 'slug') {
     return (
@@ -479,23 +544,52 @@ function FieldInput({
         watch={watch}
         mode={mode}
         a11y={a11y}
+        disabled={disabled}
       />
     )
   }
   if (field.type === 'richText') {
     return (
-      <RichTextFieldInput field={field} register={register} setValue={setValue} watch={watch} />
+      <RichTextFieldInput
+        field={field}
+        register={register}
+        setValue={setValue}
+        watch={watch}
+        disabled={disabled}
+      />
     )
   }
   if (field.type === 'relationship') {
     return (
-      <RelationshipPicker field={field} register={register} setValue={setValue} watch={watch} />
+      <RelationshipPicker
+        field={field}
+        register={register}
+        setValue={setValue}
+        watch={watch}
+        disabled={disabled}
+      />
     )
   }
   if (field.type === 'upload') {
-    return <UploadPicker field={field} register={register} setValue={setValue} watch={watch} />
+    return (
+      <UploadPicker
+        field={field}
+        register={register}
+        setValue={setValue}
+        watch={watch}
+        disabled={disabled}
+      />
+    )
   }
-  return <StandardFieldInput field={field} control={control} a11y={a11y} />
+  return (
+    <StandardFieldInput
+      field={field}
+      control={control}
+      a11y={a11y}
+      disabled={disabled}
+      isLocked={isLocked}
+    />
+  )
 }
 
 interface GroupFieldRendererProps {
@@ -507,6 +601,10 @@ interface GroupFieldRendererProps {
   setValue?: UseFormSetValue<Record<string, unknown>>
   watch?: UseFormWatch<Record<string, unknown>>
   mode?: 'create' | 'edit'
+  permissions?: FieldPermission
+  disabled?: boolean
+  readOnlyDoc?: boolean
+  isLocked?: boolean
 }
 
 function GroupFieldRenderer({
@@ -518,17 +616,33 @@ function GroupFieldRenderer({
   setValue,
   watch,
   mode,
+  permissions,
+  disabled,
+  readOnlyDoc,
+  isLocked,
 }: GroupFieldRendererProps) {
   return (
     <fieldset
       className="lontar-field-group lt:rounded-lg lt:border lt:border-border lt:p-4 lt:flex lt:flex-col lt:gap-4"
       data-group={fullName}
     >
-      <legend className="lt:text-sm lt:font-semibold lt:text-foreground lt:px-1">
+      <legend className="lt:text-sm lt:font-semibold lt:text-foreground lt:px-1 lt:flex lt:items-center lt:gap-1.5">
         <span>{field.label}</span>
         {field.required && <span className="lontar-required lt:ml-1 lt:text-destructive">*</span>}
+        {isLocked && (
+          <span title="Read-only" className="lt:inline-flex lt:items-center">
+            <Lock
+              className="lt:size-3.5 lt:text-muted-foreground lt:ml-1"
+              data-testid={`locked-icon-${fullName}`}
+              aria-label="Read-only"
+            />
+          </span>
+        )}
       </legend>
       {field.fields.map((subField) => {
+        const subPerm = permissions?.fields?.[subField.name]
+        if (subPerm && subPerm.read === false) return null
+
         const subError =
           error && typeof error === 'object' && Object.hasOwn(error, subField.name)
             ? (error as Record<string, unknown>)[subField.name]
@@ -544,6 +658,9 @@ function GroupFieldRenderer({
             mode={mode}
             pathPrefix={fullName}
             error={subError as { message?: string } | undefined}
+            permissions={subPerm}
+            disabled={disabled}
+            readOnlyDoc={readOnlyDoc}
           />
         )
       })}
@@ -573,6 +690,9 @@ interface ArrayFieldRendererProps {
   setValue?: UseFormSetValue<Record<string, unknown>>
   watch?: UseFormWatch<Record<string, unknown>>
   mode?: 'create' | 'edit'
+  permissions?: FieldPermission
+  disabled?: boolean
+  readOnlyDoc?: boolean
 }
 
 interface ArrayRowRendererProps {
@@ -588,6 +708,9 @@ interface ArrayRowRendererProps {
   setValue?: UseFormSetValue<Record<string, unknown>>
   watch?: UseFormWatch<Record<string, unknown>>
   mode?: 'create' | 'edit'
+  permissions?: FieldPermission
+  disabled?: boolean
+  readOnlyDoc?: boolean
   onMoveUp: () => void
   onMoveDown: () => void
   onRemove: () => void
@@ -646,6 +769,9 @@ function ArrayRowRenderer({
   setValue,
   watch,
   mode,
+  permissions,
+  disabled,
+  readOnlyDoc,
   onMoveUp,
   onMoveDown,
   onRemove,
@@ -681,7 +807,7 @@ function ArrayRowRenderer({
             variant="ghost"
             size="icon"
             className="lt:size-7"
-            disabled={index === 0}
+            disabled={index === 0 || disabled}
             onClick={(e) => {
               e.stopPropagation()
               onMoveUp()
@@ -696,7 +822,7 @@ function ArrayRowRenderer({
             variant="ghost"
             size="icon"
             className="lt:size-7"
-            disabled={index === totalRows - 1}
+            disabled={index === totalRows - 1 || disabled}
             onClick={(e) => {
               e.stopPropagation()
               onMoveDown()
@@ -711,7 +837,7 @@ function ArrayRowRenderer({
             variant="ghost"
             size="icon"
             className="lt:size-7"
-            disabled={totalRows >= maxRows}
+            disabled={totalRows >= maxRows || disabled}
             onClick={(e) => {
               e.stopPropagation()
               onDuplicate()
@@ -726,7 +852,7 @@ function ArrayRowRenderer({
             variant="ghost"
             size="icon"
             className="lt:size-7 lt:text-destructive lt:hover:bg-destructive/10"
-            disabled={totalRows <= minRows}
+            disabled={totalRows <= minRows || disabled}
             onClick={(e) => {
               e.stopPropagation()
               onRemove()
@@ -742,6 +868,10 @@ function ArrayRowRenderer({
       {!collapsed && (
         <div className="lt:p-4 lt:flex lt:flex-col lt:gap-4">
           {field.fields.map((subField) => {
+            const subPerm = permissions?.fields?.[subField.name]
+            if (subPerm?.read === false) {
+              return null
+            }
             const subError =
               rowError && typeof rowError === 'object' && Object.hasOwn(rowError, subField.name)
                 ? rowError[subField.name]
@@ -757,6 +887,9 @@ function ArrayRowRenderer({
                 mode={mode}
                 pathPrefix={rowPath}
                 error={subError as { message?: string } | undefined}
+                permissions={subPerm}
+                disabled={disabled}
+                readOnlyDoc={readOnlyDoc}
               />
             )
           })}
@@ -773,6 +906,8 @@ function ArrayHeader({
   rowCount,
   maxRows,
   hasBounds,
+  isLocked,
+  fullName,
 }: {
   label: string
   required: boolean
@@ -780,13 +915,24 @@ function ArrayHeader({
   rowCount: number
   maxRows: number
   hasBounds: boolean
+  isLocked?: boolean
+  fullName?: string
 }) {
   return (
     <div className="lt:flex lt:items-center lt:justify-between lt:gap-2">
       <div>
-        <legend className="lt:text-sm lt:font-semibold lt:text-foreground lt:px-1">
+        <legend className="lt:text-sm lt:font-semibold lt:text-foreground lt:px-1 lt:flex lt:items-center lt:gap-1.5">
           <span>{label}</span>
-          {required && <span className="lontar-required lt:ml-1 lt:text-destructive">*</span>}
+          {required && <span className="lontar-required lt:text-destructive">*</span>}
+          {isLocked && (
+            <span title="Read-only" className="lt:inline-flex lt:items-center">
+              <Lock
+                className="lt:size-3.5 lt:text-muted-foreground"
+                data-testid={fullName ? `locked-icon-${fullName}` : undefined}
+                aria-label="Read-only"
+              />
+            </span>
+          )}
         </legend>
         {description && (
           <p className="lt:text-xs lt:text-muted-foreground lt:px-1 lt:mt-0.5">{description}</p>
@@ -812,6 +958,23 @@ function getRowError(
   return (error as Record<string, unknown>)[index] as Record<string, unknown> | undefined
 }
 
+function getArrayBounds(field: ClientArrayField) {
+  const minRows = field.minRows ?? (field.required ? 1 : 0)
+  const maxRows = field.maxRows ?? 100
+  const hasBounds = field.minRows !== undefined || field.maxRows !== undefined
+  const singular = field.labels?.singular || field.label || 'Row'
+  return { minRows, maxRows, hasBounds, singular }
+}
+
+function cloneRowData(data: unknown, fields: ClientField[]): Record<string, unknown> {
+  const cloned =
+    data && typeof data === 'object'
+      ? { ...(data as Record<string, unknown>) }
+      : computeDefaultValues(fields)
+  cloned.id = generateRowId()
+  return cloned
+}
+
 function ArrayFieldRenderer({
   field,
   fullName,
@@ -821,17 +984,20 @@ function ArrayFieldRenderer({
   setValue,
   watch,
   mode,
+  permissions,
+  disabled,
+  readOnlyDoc,
 }: ArrayFieldRendererProps) {
   const { fields, append, remove, move, insert } = useFieldArray({
     control,
     name: fullName as never,
   })
 
-  const minRows = field.minRows ?? (field.required ? 1 : 0)
-  const maxRows = field.maxRows ?? 100
-  const singular = field.labels?.singular || field.label || 'Row'
+  const { minRows, maxRows, hasBounds, singular } = getArrayBounds(field)
   const rootErrorMessage = getErrorMessage(error)
-  const hasBounds = field.minRows !== undefined || field.maxRows !== undefined
+
+  const isLocked = isFieldReadOnly(permissions, mode, readOnlyDoc)
+  const effectiveDisabled = disabled || isLocked
 
   return (
     <fieldset
@@ -845,6 +1011,8 @@ function ArrayFieldRenderer({
         rowCount={fields.length}
         maxRows={maxRows}
         hasBounds={hasBounds}
+        isLocked={isLocked}
+        fullName={fullName}
       />
 
       {rootErrorMessage && (
@@ -871,17 +1039,15 @@ function ArrayFieldRenderer({
               setValue={setValue}
               watch={watch}
               mode={mode}
+              permissions={permissions}
+              disabled={effectiveDisabled}
+              readOnlyDoc={readOnlyDoc}
               onMoveUp={() => move(index, index - 1)}
               onMoveDown={() => move(index, index + 1)}
               onRemove={() => remove(index)}
               onDuplicate={() => {
                 const currentData: unknown = watch ? watch(rowPath as never) : undefined
-                const cloned =
-                  currentData && typeof currentData === 'object'
-                    ? { ...(currentData as Record<string, unknown>) }
-                    : computeDefaultValues(field.fields)
-                cloned.id = generateRowId()
-                insert(index + 1, cloned)
+                insert(index + 1, cloneRowData(currentData, field.fields))
               }}
             />
           )
@@ -893,7 +1059,7 @@ function ArrayFieldRenderer({
           type="button"
           variant="outline"
           size="sm"
-          disabled={fields.length >= maxRows}
+          disabled={fields.length >= maxRows || effectiveDisabled}
           onClick={() => {
             const defaults = computeDefaultValues(field.fields)
             append({ ...defaults, id: generateRowId() })
@@ -921,6 +1087,9 @@ interface BlockRowRendererProps {
   setValue?: UseFormSetValue<Record<string, unknown>>
   watch?: UseFormWatch<Record<string, unknown>>
   mode?: 'create' | 'edit'
+  permissions?: FieldPermission
+  disabled?: boolean
+  readOnlyDoc?: boolean
   onMoveUp: () => void
   onMoveDown: () => void
   onRemove: () => void
@@ -961,6 +1130,9 @@ function BlockRowRenderer({
   setValue,
   watch,
   mode,
+  permissions,
+  disabled,
+  readOnlyDoc,
   onMoveUp,
   onMoveDown,
   onRemove,
@@ -1001,7 +1173,7 @@ function BlockRowRenderer({
             variant="ghost"
             size="icon"
             className="lt:size-7"
-            disabled={index === 0}
+            disabled={index === 0 || disabled}
             onClick={(e) => {
               e.stopPropagation()
               onMoveUp()
@@ -1016,7 +1188,7 @@ function BlockRowRenderer({
             variant="ghost"
             size="icon"
             className="lt:size-7"
-            disabled={index === totalRows - 1}
+            disabled={index === totalRows - 1 || disabled}
             onClick={(e) => {
               e.stopPropagation()
               onMoveDown()
@@ -1031,7 +1203,7 @@ function BlockRowRenderer({
             variant="ghost"
             size="icon"
             className="lt:size-7"
-            disabled={totalRows >= maxRows}
+            disabled={totalRows >= maxRows || disabled}
             onClick={(e) => {
               e.stopPropagation()
               onDuplicate()
@@ -1046,7 +1218,7 @@ function BlockRowRenderer({
             variant="ghost"
             size="icon"
             className="lt:size-7 lt:text-destructive lt:hover:bg-destructive/10"
-            disabled={totalRows <= minRows}
+            disabled={totalRows <= minRows || disabled}
             onClick={(e) => {
               e.stopPropagation()
               onRemove()
@@ -1063,6 +1235,11 @@ function BlockRowRenderer({
         <div className="lt:p-4 lt:flex lt:flex-col lt:gap-4">
           <input type="hidden" value={block.slug} {...register(`${rowPath}.blockType` as never)} />
           {block.fields.map((subField) => {
+            const blockPerm = permissions?.blocks?.[block.slug]
+            const subPerm = blockPerm?.fields?.[subField.name]
+            if (subPerm?.read === false) {
+              return null
+            }
             const subError =
               rowError && typeof rowError === 'object' && Object.hasOwn(rowError, subField.name)
                 ? rowError[subField.name]
@@ -1078,6 +1255,9 @@ function BlockRowRenderer({
                 mode={mode}
                 pathPrefix={rowPath}
                 error={subError as { message?: string } | undefined}
+                permissions={subPerm}
+                disabled={disabled}
+                readOnlyDoc={readOnlyDoc}
               />
             )
           })}
@@ -1141,6 +1321,9 @@ interface BlocksFieldRendererProps {
   setValue?: UseFormSetValue<Record<string, unknown>>
   watch?: UseFormWatch<Record<string, unknown>>
   mode?: 'create' | 'edit'
+  permissions?: FieldPermission
+  disabled?: boolean
+  readOnlyDoc?: boolean
 }
 
 function BlocksFieldRenderer({
@@ -1152,6 +1335,9 @@ function BlocksFieldRenderer({
   setValue,
   watch,
   mode,
+  permissions,
+  disabled,
+  readOnlyDoc,
 }: BlocksFieldRendererProps) {
   const { fields, append, remove, move, insert } = useFieldArray({
     control,
@@ -1162,6 +1348,9 @@ function BlocksFieldRenderer({
   const maxRows = field.maxRows ?? 100
   const rootErrorMessage = getErrorMessage(error)
   const hasBounds = field.minRows !== undefined || field.maxRows !== undefined
+
+  const isLocked = isFieldReadOnly(permissions, mode, readOnlyDoc)
+  const effectiveDisabled = disabled || isLocked
 
   return (
     <fieldset
@@ -1175,6 +1364,8 @@ function BlocksFieldRenderer({
         rowCount={fields.length}
         maxRows={maxRows}
         hasBounds={hasBounds}
+        isLocked={isLocked}
+        fullName={fullName}
       />
 
       {rootErrorMessage && (
@@ -1209,6 +1400,9 @@ function BlocksFieldRenderer({
               setValue={setValue}
               watch={watch}
               mode={mode}
+              permissions={permissions}
+              disabled={effectiveDisabled}
+              readOnlyDoc={readOnlyDoc}
               onMoveUp={() => move(index, index - 1)}
               onMoveDown={() => move(index, index + 1)}
               onRemove={() => remove(index)}
@@ -1229,7 +1423,7 @@ function BlocksFieldRenderer({
       <div>
         <AddBlockPicker
           blocks={field.blocks}
-          disabled={fields.length >= maxRows}
+          disabled={fields.length >= maxRows || effectiveDisabled}
           onSelectBlock={(block) => {
             const defaults = computeDefaultValues(block.fields)
             append({ ...defaults, id: generateRowId(), blockType: block.slug })
@@ -1249,6 +1443,8 @@ interface StandardFieldRendererProps {
   setValue?: UseFormSetValue<Record<string, unknown>>
   watch?: UseFormWatch<Record<string, unknown>>
   mode?: 'create' | 'edit'
+  disabled?: boolean
+  isLocked?: boolean
 }
 
 function StandardFieldRenderer({
@@ -1260,6 +1456,8 @@ function StandardFieldRenderer({
   setValue,
   watch,
   mode,
+  disabled,
+  isLocked,
 }: StandardFieldRendererProps) {
   const errorId = `${fullName}-error`
   const hasError = Boolean(errorMessage)
@@ -1275,6 +1473,15 @@ function StandardFieldRenderer({
         <FieldLabel htmlFor={fullName} className="lontar-label">
           <span>{field.label}</span>
           {field.required && <span className="lontar-required">*</span>}
+          {isLocked && (
+            <span title="Read-only" className="lt:inline-flex lt:items-center">
+              <Lock
+                className="lt:size-3.5 lt:text-muted-foreground lt:ml-1"
+                data-testid={`locked-icon-${fullName}`}
+                aria-label="Read-only"
+              />
+            </span>
+          )}
         </FieldLabel>
       )}
       <FieldInput
@@ -1285,6 +1492,8 @@ function StandardFieldRenderer({
         watch={watch}
         mode={mode}
         a11y={a11y}
+        disabled={disabled}
+        isLocked={isLocked}
       />
       <FieldError
         id={errorId}
@@ -1304,6 +1513,9 @@ function UnconditionalFieldRenderer({
   watch,
   mode,
   pathPrefix,
+  permissions,
+  disabled,
+  readOnlyDoc,
 }: FieldRendererProps) {
   const fullName = pathPrefix ? `${pathPrefix}.${field.name}` : field.name
 
@@ -1318,6 +1530,9 @@ function UnconditionalFieldRenderer({
         setValue={setValue}
         watch={watch}
         mode={mode}
+        permissions={permissions}
+        disabled={disabled}
+        readOnlyDoc={readOnlyDoc}
       />
     )
   }
@@ -1333,6 +1548,9 @@ function UnconditionalFieldRenderer({
         setValue={setValue}
         watch={watch}
         mode={mode}
+        permissions={permissions}
+        disabled={disabled}
+        readOnlyDoc={readOnlyDoc}
       />
     )
   }
@@ -1348,10 +1566,15 @@ function UnconditionalFieldRenderer({
         setValue={setValue}
         watch={watch}
         mode={mode}
+        permissions={permissions}
+        disabled={disabled}
+        readOnlyDoc={readOnlyDoc}
       />
     )
   }
 
+  const isLocked = isFieldReadOnly(permissions, mode, readOnlyDoc)
+  const effectiveDisabled = disabled || isLocked
   const boundField = pathPrefix ? { ...field, name: fullName } : field
   const errorMessage = getErrorMessage(error)
 
@@ -1365,6 +1588,8 @@ function UnconditionalFieldRenderer({
       setValue={setValue}
       watch={watch}
       mode={mode}
+      disabled={effectiveDisabled}
+      isLocked={isLocked}
     />
   )
 }
@@ -1420,6 +1645,9 @@ function ConditionalFieldRenderer(props: FieldRendererProps & { condition: Field
 }
 
 export function FieldRenderer(props: FieldRendererProps) {
+  if (props.permissions?.read === false) {
+    return null
+  }
   if (props.field.condition) {
     return <ConditionalFieldRenderer {...props} condition={props.field.condition} />
   }

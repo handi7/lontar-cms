@@ -1,13 +1,15 @@
 import { Navigate, Outlet, useRouter } from '@tanstack/react-router'
 import { useAuth } from '../context/AuthContext'
+import { usePermissions } from '../context/PermissionsContext'
 import { FullPageLoading } from './FullPageState'
 import { Sidebar } from './Sidebar'
 
 export function AdminLayout() {
-  const { user, isLoading } = useAuth()
+  const { user, isLoading: isAuthLoading } = useAuth()
+  const { isLoading: isPermissionsLoading } = usePermissions()
   const router = useRouter()
 
-  if (isLoading) {
+  if (isAuthLoading) {
     return <FullPageLoading>Checking authentication...</FullPageLoading>
   }
 
@@ -22,6 +24,10 @@ export function AdminLayout() {
         replace
       />
     )
+  }
+
+  if (isPermissionsLoading) {
+    return <FullPageLoading>Loading permissions...</FullPageLoading>
   }
 
   return (

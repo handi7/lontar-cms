@@ -153,4 +153,23 @@ describe('CollectionFilterBar', () => {
     fireEvent.click(clearStatusBtn)
     expect(onStatusFilterChange).toHaveBeenCalledWith('all')
   })
+
+  it('omits unreadable fields and subfields from filter options (#341)', () => {
+    const fields = collectFilterFields(testCollection.fields, '', '', {
+      title: { read: true, create: true, update: true },
+      seo: {
+        read: true,
+        create: true,
+        update: true,
+        fields: {
+          metaTitle: { read: true, create: true, update: true },
+          metaDescription: { read: false, create: false, update: false },
+        },
+      },
+    })
+    expect(fields).toEqual([
+      { name: 'title', label: 'Title' },
+      { name: 'seo.metaTitle', label: 'SEO > Meta Title' },
+    ])
+  })
 })
