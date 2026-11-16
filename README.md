@@ -112,6 +112,42 @@ Lontar supports MySQL and PostgreSQL via dedicated adapters:
 
 By default, operations on collections and globals require an authenticated user (`({ user }) => Boolean(user)`). To allow public or anonymous access, define the access rule explicitly (for example, `read: () => true`).
 
+### Users and roles
+
+Configure roles and user defaults via the `auth` option in `defineConfig`:
+
+```ts
+export default defineConfig({
+  auth: {
+    roles: ['admin', 'editor', 'author'] as const,
+    defaultRole: 'editor',
+    adminRole: 'admin',
+  },
+  // ...
+})
+```
+
+- `roles`: Allowed role strings. Defaults to `['admin', 'editor']`.
+- `defaultRole`: Assigned to newly invited or created users (defaults to `'editor'`).
+- `adminRole`: Privileged role permitted to manage users, roles, and administrative settings (defaults to `'admin'`).
+
+Access rules on collections and fields receive `{ user }`, with `user.role` typed from the configured roles:
+
+```ts
+const Posts = collection({
+  slug: 'posts',
+  access: {
+    read: () => true,
+    create: ({ user }) => Boolean(user),
+    update: ({ user }) => user?.role === 'admin' || user?.role === 'editor',
+    delete: ({ user }) => user?.role === 'admin',
+  },
+  // ...
+})
+```
+
+See [ADR 0026](docs/adr/0026-users-and-roles.md) for full details on the auth data model.
+
 ### Complex fields (group, array, blocks)
 
 Collections and globals support nested data structures for grouped metadata, repeating items, and modular block layouts:

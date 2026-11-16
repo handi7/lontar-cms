@@ -205,6 +205,18 @@ approval on the `npm` environment. Don't run `pnpm publish` by hand; see `docs/r
   - [x] #310 `examples/next-blog: run on Postgres, e2e on both databases`
   - [x] Code review fixes from `main` @ f6e784b: #321 (done), #322 (done), #323 (done), #324 (done), #325 (done), #326 (done), #327 (done)
 - [ ] **M10: Users, roles & field-level access** (tracking in #148)
+  - [x] #336 `docs: ADR for users, roles and the auth data model`
+  - [ ] #337 `docs: ADR for field-level access control`
+  - [ ] #338 `auth: roles on users, stored on both adapters`
+  - [ ] #339 `access: enforce field-level access in operations`
+  - [ ] #340 `api: permissions endpoint for the admin`
+  - [ ] #341 `admin: hide and lock UI by collection and field permissions`
+  - [ ] #342 `auth: user management API`
+  - [ ] #343 `admin: users screen and account page`
+  - [ ] #344 `auth: email transport, password reset, invites and verification`
+  - [ ] #345 `auth: API keys for machine-to-machine REST access`
+  - [ ] #346 `auth: rate limiting for Lontar auth routes and multi-instance storage`
+  - [ ] #347 `examples/next-blog: roles and field-level access, with e2e`
 - [ ] **M11: Localization** (tracking in #149)
 - [ ] **M12: Admin UX & extensibility** (tracking in #150)
 
