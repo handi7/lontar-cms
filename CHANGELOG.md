@@ -5,6 +5,34 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.5.0] - 2026-11-16
+
+PostgreSQL support (M9, tracked in #147). `@lontar/db-postgres` is a new package: the same collections, globals, nested fields, drafts and versions now run on PostgreSQL as well as MySQL, and both adapters are held to one shared conformance suite. A config written against 0.4.0 keeps working on MySQL, apart from the behaviour changes under Upgrading. `@lontar/admin`, `@lontar/next`, `@lontar/preview`, `@lontar/storage-local` and `@lontar/storage-s3` have no changes of their own; they are published so their `@lontar/core` peer range moves with the rest.
+
+### Upgrading
+
+- `contains` now matches `%`, `_` and `\` literally. It used to pass them to `LIKE` as wildcards, so a filter such as `{ title: { contains: '50%' } }` also matched `500 items`. Queries that relied on wildcards inside `contains` return fewer rows (#324).
+- Deleting a document that another row still references through a database foreign key now returns `409` with a message, where it used to fail with a generic error. A write that breaks a not-null or check constraint returns a `400` validation response instead of a generic error (#327).
+- Text field `maxLength` is validated against the adapter's `maxStringLength` rather than a MySQL-only constant. `@lontar/db-mysql` reports the same limit as before (16383), so MySQL projects see no difference. The exported `MAX_VARCHAR_LENGTH` is deprecated (#303).
+- If you wrote your own `DatabaseAdapter`: it gains an optional `dialect` (`'mysql' | 'postgresql' | 'sqlite'`, the Drizzle Kit dialect) and an optional `maxStringLength`. `name` is now documented as a human-readable label ([ADR 0025](docs/adr/0025-postgres-adapter.md)) (#303).
+- Existing MySQL projects need no change: the CLI keeps using `migrations/` unless a `migrations/<adapter>` folder (`migrations/mysql`, `migrations/postgres`) exists.
+- SQL migrations cannot run across dialects, and switching an existing project from MySQL to PostgreSQL does not move its data. Create an empty `migrations/postgres` folder (or pass `--migrations-dir`), configure `postgresAdapter`, and run `lontar migrate:create` to generate a fresh baseline for the new database ([ADR 0025](docs/adr/0025-postgres-adapter.md)).
+
+### Added
+
+- `@lontar/db-postgres`: a PostgreSQL adapter on Drizzle and `pg`. Complex fields and version snapshots are stored as `jsonb`, with nested filters on `array` and `blocks` fields using containment and JSON path queries. Dates are `timestamptz(3)` in UTC, and publishing and version retention lock rows with `SELECT ... FOR UPDATE`. `like` and `contains` use `ILIKE`, so the same `where` returns the same rows on both databases. Errors are mapped onto the same typed errors as MySQL. Options are `url`, `pool` (merged with a UTC session time zone) and `onPoolError`; an idle connection that drops no longer crashes the process. Upload collections with versions get an index on the snapshot filename (#305, #306, #307, #321, #322, #325, #326).
+- `lontar migrate` and `lontar migrate:create` work with any adapter and pick the dialect from the configured one. Both take `--migrations-dir <path>` (alias `--out`) (#308).
+- `ForeignKeyConstraintError`, `NotNullConstraintError` and `CheckConstraintError`, exported from `@lontar/core` with `formatForeignKeyConstraintError`, `formatNotNullConstraintError` and `formatCheckConstraintError`. Both adapters raise them (#327).
+- `examples/next-blog` runs on MySQL or PostgreSQL, with e2e on both, and CI starts both databases (#309, #310).
+
+### Changed
+
+- Core and the CLI no longer assume MySQL in validation, messages or migration handling (#303).
+
+### Fixed
+
+- Paging through results sorted by a field that is not unique could repeat or skip documents, because ties had no defined order. Every sort now ends with an `id` tiebreaker on both adapters, including version history (#323).
+
 ## [0.4.0] - 2026-11-11
 
 Drafts, version history and publishing (M8, tracked in #146). Editors can save without publishing, compare and restore earlier versions, autosave, and preview unsaved changes on the real frontend. Content changes can notify other services through signed webhooks. Everything here is opt-in per collection or global: a config written against 0.3.0 keeps working, except that a field can no longer be named `_status`. `@lontar/preview` is a new package. `@lontar/next`, `@lontar/storage-local` and `@lontar/storage-s3` have no changes of their own; they are published so their `@lontar/core` peer range moves with the rest.
