@@ -281,4 +281,130 @@ describe('Better Auth MySQL adapter (integration)', () => {
     })
     expect(adminDelete.status).toBe(200)
   })
+
+  it('manages users over REST API with database persistence and security guards', async () => {
+    const app = createLontar(testConfig, { baseURL: 'http://localhost:3000' })
+
+    // 1. Admin lists users
+    const listRes = await app.request('/api/_lontar/users', {
+      headers: { cookie: adminCookie },
+    })
+    expect(listRes.status).toBe(200)
+    const listBody = (await listRes.json()) as { docs: Array<{ id: string; email: string }> }
+    expect(listBody.docs.length).toBeGreaterThanOrEqual(1)
+
+    // 2. Admin creates a new user
+    const createRes = await app.request('/api/_lontar/users', {
+      method: 'POST',
+      headers: { cookie: adminCookie, 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        email: 'mysql-managed@example.com',
+        name: 'MySQL Managed User',
+        password: 'password123456',
+        role: 'editor',
+      }),
+    })
+    expect(createRes.status).toBe(201)
+    const createBody = (await createRes.json()) as {
+      user: { id: string; email: string; role: string; banned: boolean }
+    }
+    const managedUserId = createBody.user.id
+    expect(createBody.user.role).toBe('editor')
+
+    // Verify in MySQL
+    const [createdRows] = (await pool.query(
+      'SELECT id, name, role, banned FROM user WHERE id = ?',
+      [managedUserId],
+    )) as [Array<{ id: string; name: string; role: string; banned: number }>, unknown]
+    expect(createdRows[0]?.name).toBe('MySQL Managed User')
+    expect(createdRows[0]?.role).toBe('editor')
+    expect(createdRows[0]?.banned).toBe(0)
+
+    // Sign in as managed user to create active session
+    const managedSignIn = await app.request('/api/auth/sign-in/email', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        email: 'mysql-managed@example.com',
+        password: 'password123456',
+      }),
+    })
+    expect(managedSignIn.status).toBe(200)
+    const managedCookie = managedSignIn.headers.get('set-cookie')!
+
+    const [activeSessions] = (await pool.query('SELECT id FROM session WHERE user_id = ?', [
+      managedUserId,
+    ])) as [Array<{ id: string }>, unknown]
+    expect(activeSessions.length).toBeGreaterThanOrEqual(1)
+
+    // 3. Admin updates name and role
+    const updateRes = await app.request(`/api/_lontar/users/${managedUserId}`, {
+      method: 'PATCH',
+      headers: { cookie: adminCookie, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name: 'MySQL Updated Name' }),
+    })
+    expect(updateRes.status).toBe(200)
+
+    // 4. Admin disables user -> revokes sessions immediately
+    const disableRes = await app.request(`/api/_lontar/users/${managedUserId}/disable`, {
+      method: 'POST',
+      headers: { cookie: adminCookie, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ reason: 'Account deactivated' }),
+    })
+    expect(disableRes.status).toBe(200)
+
+    // Verify banned in MySQL and sessions removed
+    const [bannedRows] = (await pool.query('SELECT banned, ban_reason FROM user WHERE id = ?', [
+      managedUserId,
+    ])) as [Array<{ banned: number; ban_reason: string }>, unknown]
+    expect(bannedRows[0]?.banned).toBe(1)
+    expect(bannedRows[0]?.ban_reason).toBe('Account deactivated')
+
+    const [sessionsAfterBan] = (await pool.query('SELECT id FROM session WHERE user_id = ?', [
+      managedUserId,
+    ])) as [Array<{ id: string }>, unknown]
+    expect(sessionsAfterBan).toHaveLength(0)
+
+    // Attempting request with old cookie sees user: null
+    const bannedMeRes = await app.request('/api/_lontar/me', {
+      headers: { cookie: managedCookie },
+    })
+    const bannedMeBody = (await bannedMeRes.json()) as { user: unknown }
+    expect(bannedMeBody.user).toBeNull()
+
+    // 5. Admin enables user
+    const enableRes = await app.request(`/api/_lontar/users/${managedUserId}/enable`, {
+      method: 'POST',
+      headers: { cookie: adminCookie },
+    })
+    expect(enableRes.status).toBe(200)
+
+    // 6. Admin deletes user
+    const deleteRes = await app.request(`/api/_lontar/users/${managedUserId}`, {
+      method: 'DELETE',
+      headers: { cookie: adminCookie },
+    })
+    expect(deleteRes.status).toBe(200)
+
+    // Verify removed from MySQL
+    const [deletedRows] = (await pool.query('SELECT id FROM user WHERE id = ?', [
+      managedUserId,
+    ])) as [Array<{ id: string }>, unknown]
+    expect(deletedRows).toHaveLength(0)
+
+    // 7. Security guards: cannot delete self, cannot disable self
+    const selfDelete = await app.request(`/api/_lontar/users/${adminUser.id}`, {
+      method: 'DELETE',
+      headers: { cookie: adminCookie },
+    })
+    expect(selfDelete.status).toBe(400)
+    expect(await selfDelete.json()).toEqual({ error: 'You cannot delete your own account' })
+
+    const selfDisable = await app.request(`/api/_lontar/users/${adminUser.id}/disable`, {
+      method: 'POST',
+      headers: { cookie: adminCookie },
+    })
+    expect(selfDisable.status).toBe(400)
+    expect(await selfDisable.json()).toEqual({ error: 'You cannot disable your own account' })
+  })
 })

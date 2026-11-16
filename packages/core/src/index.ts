@@ -135,10 +135,26 @@ export type {
   UserRoleType,
 } from './auth/types'
 export {
+  cleanUser,
+  countActiveAdmins,
+  countTotalAdmins,
   countTotalUsers,
   createUserWithCredential,
+  deleteUser,
+  disableUser,
+  enableUser,
+  getUserByEmail,
+  getUserById,
+  listUsers,
+  revokeUserSessions,
+  setUserPassword,
+  updateUser,
+  verifyAndChangePassword,
+  type CleanUser,
   type CreateUserData,
   type CreatedUserResult,
+  type ListUsersOptions,
+  type PaginatedUsers,
 } from './auth/user'
 export {
   accessDenied,
