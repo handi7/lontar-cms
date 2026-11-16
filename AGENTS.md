@@ -206,7 +206,7 @@ approval on the `npm` environment. Don't run `pnpm publish` by hand; see `docs/r
   - [x] Code review fixes from `main` @ f6e784b: #321 (done), #322 (done), #323 (done), #324 (done), #325 (done), #326 (done), #327 (done)
 - [ ] **M10: Users, roles & field-level access** (tracking in #148)
   - [x] #336 `docs: ADR for users, roles and the auth data model`
-  - [ ] #337 `docs: ADR for field-level access control`
+  - [x] #337 `docs: ADR for field-level access control`
   - [ ] #338 `auth: roles on users, stored on both adapters`
   - [ ] #339 `access: enforce field-level access in operations`
   - [ ] #340 `api: permissions endpoint for the admin`
