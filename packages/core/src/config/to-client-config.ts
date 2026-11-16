@@ -187,8 +187,15 @@ const toClientField = {
  * no adapter, no secret. See docs/adr/0003-client-config-format.md.
  */
 export function toClientConfig(config: Config): ClientConfig {
+  const roles = config.auth?.roles ? [...config.auth.roles] : ['admin', 'editor']
+  const defaultRole = config.auth?.defaultRole ?? 'editor'
+
   return {
     version: CLIENT_CONFIG_VERSION,
+    auth: {
+      roles,
+      defaultRole,
+    },
     collections: config.collections.map(toClientCollection),
     globals: (config.globals ?? []).map(toClientGlobal),
   }

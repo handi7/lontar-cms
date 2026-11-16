@@ -324,15 +324,23 @@ function renderGlobal(global: GlobalConfig): string {
 }
 
 function renderAuthTables(): string {
-  return `export const user = mysqlTable('user', {
-  id: varchar('id', { length: 36 }).primaryKey(),
-  name: varchar('name', { length: 255 }).notNull(),
-  email: varchar('email', { length: 255 }).notNull().unique(),
-  emailVerified: boolean('email_verified').default(false).notNull(),
-  image: text('image'),
-  createdAt: timestamp('created_at').defaultNow().notNull(),
-  updatedAt: timestamp('updated_at').defaultNow().onUpdateNow().notNull(),
-})
+  return `export const user = mysqlTable(
+  'user',
+  {
+    id: varchar('id', { length: 36 }).primaryKey(),
+    name: varchar('name', { length: 255 }).notNull(),
+    email: varchar('email', { length: 255 }).notNull().unique(),
+    emailVerified: boolean('email_verified').default(false).notNull(),
+    image: text('image'),
+    role: varchar('role', { length: 50 }).default('editor').notNull(),
+    banned: boolean('banned').default(false).notNull(),
+    banReason: text('ban_reason'),
+    banExpires: timestamp('ban_expires'),
+    createdAt: timestamp('created_at').defaultNow().notNull(),
+    updatedAt: timestamp('updated_at').defaultNow().onUpdateNow().notNull(),
+  },
+  (table) => [index('user_role_idx').on(table.role)],
+)
 
 export const session = mysqlTable(
   'session',
@@ -347,6 +355,7 @@ export const session = mysqlTable(
     userId: varchar('user_id', { length: 36 })
       .notNull()
       .references(() => user.id, { onDelete: 'cascade' }),
+    impersonatedBy: text('impersonated_by'),
   },
   (table) => [index('session_userId_idx').on(table.userId)],
 )

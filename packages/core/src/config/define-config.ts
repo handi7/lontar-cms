@@ -48,6 +48,7 @@ export function defineConfig<C extends Config>(config: C): C {
 
 function validateConfig(config: Config): string[] {
   const issues = validateSecret(config.secret)
+  issues.push(...validateAuth(config.auth))
   issues.push(...validatePagination('Config', config.pagination))
   const { issues: collectionIssues, collectionMap } = validateCollections(
     config.collections,
@@ -75,6 +76,80 @@ function validateSecret(secret: unknown): string[] {
   return [
     '`secret` must be a non-empty string. Check that the environment variable it reads is set.',
   ]
+}
+
+function validateRoleList(roles: unknown): { issues: string[]; effectiveRoles: string[] } {
+  if (roles === undefined) {
+    return { issues: [], effectiveRoles: ['admin', 'editor'] }
+  }
+  if (!Array.isArray(roles)) {
+    return { issues: ['`auth.roles` must be an array of role name strings.'], effectiveRoles: [] }
+  }
+  if (roles.length === 0) {
+    return { issues: ['`auth.roles` must contain at least one role.'], effectiveRoles: [] }
+  }
+  const issues: string[] = []
+  const seen = new Set<string>()
+  const validatedRoles: string[] = []
+  for (const role of roles) {
+    if (typeof role !== 'string' || !role.trim()) {
+      issues.push('Each role in `auth.roles` must be a non-empty string.')
+    } else if (seen.has(role)) {
+      issues.push(`Role "${role}" is duplicated in auth.roles.`)
+    } else {
+      seen.add(role)
+      validatedRoles.push(role)
+    }
+  }
+  return { issues, effectiveRoles: validatedRoles }
+}
+
+function validateDefaultRole(
+  defaultRole: unknown,
+  roles: string[],
+  rolesProvided: boolean,
+): string[] {
+  if (defaultRole !== undefined) {
+    if (typeof defaultRole !== 'string' || !defaultRole.trim()) {
+      return ['`auth.defaultRole` must be a non-empty string.']
+    }
+    if (!roles.includes(defaultRole)) {
+      return [`Default role "${defaultRole}" is not in auth.roles.`]
+    }
+    return []
+  }
+  if (rolesProvided && !roles.includes('editor')) {
+    return ['Default role "editor" is not in auth.roles. Specify auth.defaultRole.']
+  }
+  return []
+}
+
+function validateAdminRole(adminRole: unknown, roles: string[], rolesProvided: boolean): string[] {
+  if (adminRole !== undefined) {
+    if (typeof adminRole !== 'string' || !adminRole.trim()) {
+      return ['`auth.adminRole` must be a non-empty string.']
+    }
+    if (!roles.includes(adminRole)) {
+      return [`Admin role "${adminRole}" is not in auth.roles.`]
+    }
+    return []
+  }
+  if (rolesProvided && !roles.includes('admin')) {
+    return ['Admin role "admin" is not in auth.roles. Specify auth.adminRole.']
+  }
+  return []
+}
+
+function validateAuth(auth: Config['auth']): string[] {
+  if (auth === undefined) return []
+  if (typeof auth !== 'object' || auth === null || Array.isArray(auth)) {
+    return ['`auth` must be an object.']
+  }
+  const { issues, effectiveRoles } = validateRoleList(auth.roles)
+  const rolesProvided = auth.roles !== undefined
+  issues.push(...validateDefaultRole(auth.defaultRole, effectiveRoles, rolesProvided))
+  issues.push(...validateAdminRole(auth.adminRole, effectiveRoles, rolesProvided))
+  return issues
 }
 
 function validateCollections(

@@ -281,8 +281,11 @@ describe('generateSchemaFile', () => {
     }
 
     const output = generateSchemaFile(config)
-    expect(output).toContain("export const user = mysqlTable('user', {")
+    expect(output).toContain("export const user = mysqlTable(\n  'user',")
+    expect(output).toContain("role: varchar('role', { length: 50 }).default('editor').notNull(),")
+    expect(output).toContain("index('user_role_idx').on(table.role)")
     expect(output).toContain('export const session = mysqlTable(')
+    expect(output).toContain("impersonatedBy: text('impersonated_by'),")
     expect(output).toContain('export const account = mysqlTable(')
     expect(output).toContain('export const verification = mysqlTable(')
     expect(output).toContain("emailVerified: boolean('email_verified').default(false).notNull(),")

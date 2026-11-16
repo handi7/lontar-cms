@@ -70,6 +70,44 @@ function inspectModifyStatus(sql: string, dialect?: string): string[] {
   return warnings
 }
 
+export function applyRoleBackfill(
+  sql: string,
+  dialect?: string,
+  options?: { adminRole?: string; defaultRole?: string },
+): { sql: string; applied: boolean } {
+  const adminRole = options?.adminRole ?? 'admin'
+  const defaultRole = options?.defaultRole ?? 'editor'
+
+  const hasAddRole =
+    /ALTER\s+TABLE\s+(?:[`"]user[`"]|user)\s+ADD(?:\s+COLUMN)?\s+[`"]?role[`"]?/i.test(sql)
+  if (!hasAddRole) {
+    return { sql, applied: false }
+  }
+
+  const hasBackfill = new RegExp(
+    `UPDATE\\s+[\`"]?user[\`"]?\\s+SET\\s+[\`"]?role[\`"]?\\s*=\\s*['"]${escapeRegex(adminRole)}['"]`,
+    'i',
+  ).test(sql)
+  if (hasBackfill) {
+    return { sql, applied: false }
+  }
+
+  const isPostgres = dialect === 'postgresql'
+  const backfillStatements = isPostgres
+    ? [
+        `UPDATE "user" SET "role" = '${defaultRole}';`,
+        `UPDATE "user" SET "role" = '${adminRole}' WHERE "id" = (SELECT "id" FROM "user" ORDER BY "created_at" ASC LIMIT 1);`,
+      ].join('\n--> statement-breakpoint\n')
+    : [
+        `UPDATE \`user\` SET \`role\` = '${defaultRole}';`,
+        `UPDATE \`user\` SET \`role\` = '${adminRole}' ORDER BY \`created_at\` ASC LIMIT 1;`,
+      ].join('\n--> statement-breakpoint\n')
+
+  const trimmed = sql.trimEnd()
+  const updatedSql = `${trimmed}\n--> statement-breakpoint\n${backfillStatements}\n`
+  return { sql: updatedSql, applied: true }
+}
+
 export function inspectMigrationForStatusBackfills(sql: string, dialect?: string): string[] {
   return [...inspectAddStatus(sql, dialect), ...inspectModifyStatus(sql, dialect)]
 }
@@ -86,24 +124,38 @@ function getMigrationSqlFiles(migrationsDir: string): Map<string, number> {
   return map
 }
 
-function warnOnMissingStatusBackfills(
+function processSingleMigrationFile(
+  fullPath: string,
+  prevMtime: number | undefined,
+  dialect?: string,
+  rolesConfig?: { adminRole?: string; defaultRole?: string },
+): void {
+  const curMtime = fs.statSync(fullPath).mtimeMs
+  if (prevMtime !== undefined && curMtime <= prevMtime) return
+
+  let sql = fs.readFileSync(fullPath, 'utf-8')
+  const { sql: updatedSql, applied } = applyRoleBackfill(sql, dialect, rolesConfig)
+  if (applied) {
+    fs.writeFileSync(fullPath, updatedSql, 'utf-8')
+    sql = updatedSql
+  }
+  const warnings = inspectMigrationForStatusBackfills(sql, dialect)
+  for (const warn of warnings) {
+    console.warn(`[lontar:migrate] Warning: ${warn}`)
+  }
+}
+
+function processMigrationFiles(
   migrationsDir: string,
   beforeFiles: Map<string, number>,
   dialect?: string,
+  rolesConfig?: { adminRole?: string; defaultRole?: string },
 ): void {
   if (!fs.existsSync(migrationsDir)) return
   for (const entry of fs.readdirSync(migrationsDir, { withFileTypes: true })) {
     if (entry.isFile() && entry.name.endsWith('.sql')) {
       const fullPath = path.join(migrationsDir, entry.name)
-      const prevMtime = beforeFiles.get(fullPath)
-      const curMtime = fs.statSync(fullPath).mtimeMs
-      if (prevMtime === undefined || curMtime > prevMtime) {
-        const sql = fs.readFileSync(fullPath, 'utf-8')
-        const warnings = inspectMigrationForStatusBackfills(sql, dialect)
-        for (const warn of warnings) {
-          console.warn(`[lontar:migrate] Warning: ${warn}`)
-        }
-      }
+      processSingleMigrationFile(fullPath, beforeFiles.get(fullPath), dialect, rolesConfig)
     }
   }
 }
@@ -141,5 +193,5 @@ export async function migrateCreate(options: MigrateCreateOptions = {}): Promise
     execFileSync(bin, args, { cwd, stdio: 'inherit' })
   }
 
-  warnOnMissingStatusBackfills(migrationsDir, beforeFiles, dialect)
+  processMigrationFiles(migrationsDir, beforeFiles, dialect, config.auth)
 }

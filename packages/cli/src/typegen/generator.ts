@@ -377,6 +377,12 @@ function renderGlobalInterface(
   return lines.join('\n')
 }
 
+function renderUserRole(roles?: readonly string[]): string {
+  const roleList = roles && roles.length > 0 ? roles : ['admin', 'editor']
+  const union = roleList.map((r) => JSON.stringify(r)).join(' | ')
+  return `export type UserRole = ${union}`
+}
+
 function renderConfigInterface(
   collections: readonly CollectionConfig[],
   globals: readonly GlobalConfig[],
@@ -402,7 +408,7 @@ function renderModuleAugmentation(
   )
   const globLines = globals.map((g) => `    ${formatFieldName(g.slug)}: ${globalMap.get(g.slug)!}`)
 
-  return `declare module '@lontar/core' {\n  interface LontarCollections {\n${colLines.join('\n')}\n  }\n  interface LontarGlobals {\n${globLines.join('\n')}\n  }\n}`
+  return `declare module '@lontar/core' {\n  interface UserRoleExtension {\n    role: UserRole\n  }\n  interface LontarCollections {\n${colLines.join('\n')}\n  }\n  interface LontarGlobals {\n${globLines.join('\n')}\n  }\n}`
 }
 
 function buildEntityNameMap<T extends { slug: string }>(
@@ -427,7 +433,13 @@ export function generateTypes(config: Config): string {
   const collections = config.collections ?? []
   const globals = config.globals ?? []
 
-  const usedNames = new Set<string>(['Config', 'LontarCollections', 'LontarGlobals'])
+  const usedNames = new Set<string>([
+    'Config',
+    'LontarCollections',
+    'LontarGlobals',
+    'UserRole',
+    'UserRoleExtension',
+  ])
   const collectionMap = buildEntityNameMap(
     collections,
     resolveCollectionInterfaceName,
@@ -452,6 +464,7 @@ export function generateTypes(config: Config): string {
     sections.push(renderGlobalInterface(glob, ifaceName, collectionMap))
   }
 
+  sections.push(renderUserRole(config.auth?.roles))
   sections.push(renderConfigInterface(collections, globals, collectionMap, globalMap))
   sections.push(renderModuleAugmentation(collections, globals, collectionMap, globalMap))
 

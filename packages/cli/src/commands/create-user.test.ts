@@ -1,5 +1,5 @@
 import * as coreModule from '@lontar/core'
-import type { AuthUser, Config, LontarApp } from '@lontar/core'
+import type { Config, LontarApp } from '@lontar/core'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import * as configModule from '../config'
 import { createUser } from './create-user'
@@ -26,14 +26,15 @@ describe('createUser command', () => {
     const mockDb = { close: closeSpy }
     const mockConfig = { secret: 'test-secret', db: mockDb, collections: [] }
     const mockAuth = {}
-    const mockUser = { id: 1, email: 'admin@example.com', name: 'Admin' }
+    const mockUser = { id: 1, email: 'admin@example.com', name: 'Admin', role: 'admin' }
 
     vi.spyOn(configModule, 'loadConfig').mockResolvedValue(mockConfig as unknown as Config)
     vi.spyOn(coreModule, 'createLontar').mockReturnValue({
       auth: mockAuth,
     } as unknown as LontarApp)
+    vi.spyOn(coreModule, 'countTotalUsers').mockResolvedValue(0)
     vi.spyOn(coreModule, 'createUserWithCredential').mockResolvedValue(
-      mockUser as unknown as AuthUser,
+      mockUser as unknown as coreModule.CreatedUserResult,
     )
     const logSpy = vi.spyOn(console, 'log').mockImplementation(() => {})
 
@@ -47,6 +48,7 @@ describe('createUser command', () => {
       email: 'admin@example.com',
       password: 'password123',
       name: 'Admin',
+      role: 'admin',
     })
     expect(closeSpy).toHaveBeenCalledTimes(1)
     expect(logSpy).toHaveBeenCalledWith(expect.stringContaining('Created user admin@example.com'))
@@ -62,6 +64,7 @@ describe('createUser command', () => {
     vi.spyOn(coreModule, 'createLontar').mockReturnValue({
       auth: mockAuth,
     } as unknown as LontarApp)
+    vi.spyOn(coreModule, 'countTotalUsers').mockResolvedValue(0)
     vi.spyOn(coreModule, 'createUserWithCredential').mockRejectedValue(
       new Error('User already exists'),
     )
@@ -81,14 +84,15 @@ describe('createUser command', () => {
     const mockDb = {}
     const mockConfig = { secret: 'test-secret', db: mockDb, collections: [] }
     const mockAuth = {}
-    const mockUser = { id: 1, email: 'admin@example.com', name: 'Admin' }
+    const mockUser = { id: 1, email: 'admin@example.com', name: 'Admin', role: 'admin' }
 
     vi.spyOn(configModule, 'loadConfig').mockResolvedValue(mockConfig as unknown as Config)
     vi.spyOn(coreModule, 'createLontar').mockReturnValue({
       auth: mockAuth,
     } as unknown as LontarApp)
+    vi.spyOn(coreModule, 'countTotalUsers').mockResolvedValue(0)
     vi.spyOn(coreModule, 'createUserWithCredential').mockResolvedValue(
-      mockUser as unknown as AuthUser,
+      mockUser as unknown as coreModule.CreatedUserResult,
     )
     vi.spyOn(console, 'log').mockImplementation(() => {})
 
@@ -99,5 +103,97 @@ describe('createUser command', () => {
         name: 'Admin',
       }),
     ).resolves.toBeUndefined()
+  })
+
+  it('defaults to defaultRole when users already exist in the database', async () => {
+    const mockDb = { close: vi.fn().mockResolvedValue(undefined) }
+    const mockConfig = { secret: 'test-secret', db: mockDb, collections: [] }
+    const mockAuth = {}
+    const mockUser = { id: 2, email: 'editor@example.com', name: 'Editor', role: 'editor' }
+
+    vi.spyOn(configModule, 'loadConfig').mockResolvedValue(mockConfig as unknown as Config)
+    vi.spyOn(coreModule, 'createLontar').mockReturnValue({
+      auth: mockAuth,
+    } as unknown as LontarApp)
+    vi.spyOn(coreModule, 'countTotalUsers').mockResolvedValue(1)
+    vi.spyOn(coreModule, 'createUserWithCredential').mockResolvedValue(
+      mockUser as unknown as coreModule.CreatedUserResult,
+    )
+    vi.spyOn(console, 'log').mockImplementation(() => {})
+
+    await createUser({
+      email: 'editor@example.com',
+      password: 'password123',
+      name: 'Editor',
+    })
+
+    expect(coreModule.createUserWithCredential).toHaveBeenCalledWith(mockAuth, {
+      email: 'editor@example.com',
+      password: 'password123',
+      name: 'Editor',
+      role: 'editor',
+    })
+  })
+
+  it('accepts an explicit valid --role flag', async () => {
+    const mockDb = { close: vi.fn().mockResolvedValue(undefined) }
+    const mockConfig = {
+      secret: 'test-secret',
+      db: mockDb,
+      collections: [],
+      auth: { roles: ['admin', 'editor', 'author'] as const },
+    }
+    const mockAuth = {}
+    const mockUser = { id: 3, email: 'author@example.com', name: 'Author', role: 'author' }
+
+    vi.spyOn(configModule, 'loadConfig').mockResolvedValue(mockConfig as unknown as Config)
+    vi.spyOn(coreModule, 'createLontar').mockReturnValue({
+      auth: mockAuth,
+    } as unknown as LontarApp)
+    vi.spyOn(coreModule, 'countTotalUsers').mockResolvedValue(1)
+    vi.spyOn(coreModule, 'createUserWithCredential').mockResolvedValue(
+      mockUser as unknown as coreModule.CreatedUserResult,
+    )
+    vi.spyOn(console, 'log').mockImplementation(() => {})
+
+    await createUser({
+      email: 'author@example.com',
+      password: 'password123',
+      name: 'Author',
+      role: 'author',
+    })
+
+    expect(coreModule.createUserWithCredential).toHaveBeenCalledWith(mockAuth, {
+      email: 'author@example.com',
+      password: 'password123',
+      name: 'Author',
+      role: 'author',
+    })
+  })
+
+  it('rejects an unknown --role flag against configured roles', async () => {
+    const mockDb = { close: vi.fn().mockResolvedValue(undefined) }
+    const mockConfig = {
+      secret: 'test-secret',
+      db: mockDb,
+      collections: [],
+      auth: { roles: ['admin', 'editor'] as const },
+    }
+    const mockAuth = {}
+
+    vi.spyOn(configModule, 'loadConfig').mockResolvedValue(mockConfig as unknown as Config)
+    vi.spyOn(coreModule, 'createLontar').mockReturnValue({
+      auth: mockAuth,
+    } as unknown as LontarApp)
+    vi.spyOn(coreModule, 'countTotalUsers').mockResolvedValue(0)
+
+    await expect(
+      createUser({
+        email: 'invalid@example.com',
+        password: 'password123',
+        name: 'Invalid Role',
+        role: 'superadmin',
+      }),
+    ).rejects.toThrow('Unknown role "superadmin". Permitted roles: admin, editor')
   })
 })

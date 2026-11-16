@@ -3,6 +3,11 @@ import type { FieldCondition } from './condition'
 /** Bumped whenever the shape below changes incompatibly. */
 export const CLIENT_CONFIG_VERSION = 2
 
+export interface ClientAuthConfig {
+  roles: string[]
+  defaultRole: string
+}
+
 /**
  * Everything the admin knows about the config, served as JSON from
  * `GET /api/_lontar/config`. Plain data only: it must survive
@@ -10,6 +15,7 @@ export const CLIENT_CONFIG_VERSION = 2
  */
 export interface ClientConfig {
   version: typeof CLIENT_CONFIG_VERSION
+  auth?: ClientAuthConfig
   collections: ClientCollection[]
   globals: ClientGlobal[]
 }

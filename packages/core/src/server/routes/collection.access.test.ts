@@ -227,8 +227,8 @@ describe('Collection Access Control', () => {
     const posts = collection({
       slug: 'posts',
       access: {
-        // Only admin role allowed
-        delete: ({ user }) => user?.role === 'admin',
+        // Only superadmin role allowed (first user gets 'admin')
+        delete: ({ user }) => user?.role === 'superadmin',
       },
       fields: { title: f.text({ required: true }) },
     })
@@ -246,7 +246,7 @@ describe('Collection Access Control', () => {
     expect(unauthRes.status).toBe(401)
     expect(await unauthRes.json()).toEqual({ error: 'Unauthorized' })
 
-    // Authenticated (default user has no admin role) -> 403
+    // Authenticated (first user has 'admin' role, not 'superadmin') -> 403
     const signUpRes = await app.request('/api/_lontar/first-user', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },

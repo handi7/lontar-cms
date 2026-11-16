@@ -25,7 +25,7 @@ Commands:
   migrate:create   Generate a new SQL migration from config (--name <name>, --migrations-dir <path>)
   migrate          Run pending migrations against the database (--migrations-dir <path>)
   generate:types   Generate TypeScript types from config (--output <path>)
-  create-user      Create a new user with --email, --password, and --name
+  create-user      Create a new user with --email, --password, --name, and optional --role
 
 Options:
   --env-file <path>   Load environment variables from specified file
@@ -125,27 +125,37 @@ function parseGenerateTypesArgs(argv: string[]): { output?: string } {
   return { output }
 }
 
+const CREATE_USER_KEYS = ['email', 'password', 'name', 'role'] as const
+type CreateUserKey = (typeof CREATE_USER_KEYS)[number]
+
+function matchCreateUserOption(
+  argv: string[],
+  i: number,
+): { key: CreateUserKey; value: string; consumedNext: boolean } | null {
+  for (const key of CREATE_USER_KEYS) {
+    const match = parseNamedOption(argv, i, [`--${key}`])
+    if (match.value !== undefined) {
+      return { key, value: match.value, consumedNext: match.consumedNext }
+    }
+  }
+  return null
+}
+
 function parseCreateUserArgs(argv: string[]): {
   email?: string
   password?: string
   name?: string
+  role?: string
 } {
-  let email: string | undefined
-  let password: string | undefined
-  let name: string | undefined
-
+  const result: Record<string, string | undefined> = {}
   for (let i = 1; i < argv.length; i++) {
-    const arg = argv[i]
-    if (arg === '--email' && argv[i + 1]) {
-      email = argv[++i]
-    } else if (arg === '--password' && argv[i + 1]) {
-      password = argv[++i]
-    } else if (arg === '--name' && argv[i + 1]) {
-      name = argv[++i]
+    const matched = matchCreateUserOption(argv, i)
+    if (matched) {
+      result[matched.key] = matched.value
+      if (matched.consumedNext) i++
     }
   }
-
-  return { email, password, name }
+  return result
 }
 
 export interface GlobalCliOptions {

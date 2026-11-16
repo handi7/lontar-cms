@@ -27,6 +27,10 @@ describe('toClientConfig', () => {
   it('serializes the posts collection', () => {
     expect(toClientConfig(postsConfig)).toStrictEqual({
       version: CLIENT_CONFIG_VERSION,
+      auth: {
+        roles: ['admin', 'editor'],
+        defaultRole: 'editor',
+      },
       collections: [
         {
           slug: 'posts',
@@ -46,6 +50,20 @@ describe('toClientConfig', () => {
         },
       ],
       globals: [],
+    })
+  })
+
+  it('serializes custom auth roles configuration', () => {
+    const config = defineConfig({
+      ...postsConfig,
+      auth: {
+        roles: ['admin', 'editor', 'author'],
+        defaultRole: 'author',
+      },
+    })
+    expect(toClientConfig(config).auth).toStrictEqual({
+      roles: ['admin', 'editor', 'author'],
+      defaultRole: 'author',
     })
   })
 

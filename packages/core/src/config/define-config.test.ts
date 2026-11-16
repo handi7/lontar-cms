@@ -1174,4 +1174,108 @@ describe('defineConfig', () => {
       }),
     ).not.toThrow()
   })
+
+  describe('auth validation', () => {
+    it('accepts a valid auth roles configuration', () => {
+      const config = {
+        secret: SECRET,
+        db: fakeAdapter,
+        collections: [Posts],
+        auth: {
+          roles: ['admin', 'editor', 'author'] as const,
+          defaultRole: 'author',
+          adminRole: 'admin',
+        },
+      }
+      expect(defineConfig(config)).toBe(config)
+    })
+
+    it('rejects auth if it is not an object', () => {
+      expect(() =>
+        defineConfig({
+          secret: SECRET,
+          db: fakeAdapter,
+          collections: [Posts],
+          auth: 'invalid' as unknown as undefined,
+        }),
+      ).toThrow('`auth` must be an object.')
+    })
+
+    it('rejects empty roles array', () => {
+      expect(() =>
+        defineConfig({
+          secret: SECRET,
+          db: fakeAdapter,
+          collections: [Posts],
+          auth: { roles: [] },
+        }),
+      ).toThrow('`auth.roles` must contain at least one role.')
+    })
+
+    it('rejects duplicate roles in roles array', () => {
+      expect(() =>
+        defineConfig({
+          secret: SECRET,
+          db: fakeAdapter,
+          collections: [Posts],
+          auth: { roles: ['admin', 'admin'] },
+        }),
+      ).toThrow('Role "admin" is duplicated in auth.roles.')
+    })
+
+    it('rejects non-string or empty role values', () => {
+      expect(() =>
+        defineConfig({
+          secret: SECRET,
+          db: fakeAdapter,
+          collections: [Posts],
+          auth: { roles: ['admin', '   '] },
+        }),
+      ).toThrow('Each role in `auth.roles` must be a non-empty string.')
+    })
+
+    it('rejects defaultRole not in roles', () => {
+      expect(() =>
+        defineConfig({
+          secret: SECRET,
+          db: fakeAdapter,
+          collections: [Posts],
+          auth: { roles: ['admin', 'viewer'], defaultRole: 'editor' },
+        }),
+      ).toThrow('Default role "editor" is not in auth.roles.')
+    })
+
+    it('requires defaultRole when editor is not in roles', () => {
+      expect(() =>
+        defineConfig({
+          secret: SECRET,
+          db: fakeAdapter,
+          collections: [Posts],
+          auth: { roles: ['admin', 'viewer'] },
+        }),
+      ).toThrow('Default role "editor" is not in auth.roles. Specify auth.defaultRole.')
+    })
+
+    it('rejects adminRole not in roles', () => {
+      expect(() =>
+        defineConfig({
+          secret: SECRET,
+          db: fakeAdapter,
+          collections: [Posts],
+          auth: { roles: ['admin', 'editor'], adminRole: 'root' },
+        }),
+      ).toThrow('Admin role "root" is not in auth.roles.')
+    })
+
+    it('requires adminRole when admin is not in roles', () => {
+      expect(() =>
+        defineConfig({
+          secret: SECRET,
+          db: fakeAdapter,
+          collections: [Posts],
+          auth: { roles: ['manager', 'editor'], defaultRole: 'editor' },
+        }),
+      ).toThrow('Admin role "admin" is not in auth.roles. Specify auth.adminRole.')
+    })
+  })
 })

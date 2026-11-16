@@ -388,4 +388,33 @@ export const items = mysqlTable('items', {
       }
     })
   })
+
+  describe('create-user routing', () => {
+    it('routes create-user args including --role', async () => {
+      const createUserSpy = vi
+        .spyOn(await import('./commands/create-user'), 'createUser')
+        .mockResolvedValue(undefined)
+
+      await run([
+        'create-user',
+        '--email',
+        'admin@example.com',
+        '--password',
+        'password123',
+        '--name',
+        'Admin',
+        '--role',
+        'admin',
+      ])
+
+      expect(createUserSpy).toHaveBeenCalledWith({
+        email: 'admin@example.com',
+        password: 'password123',
+        name: 'Admin',
+        role: 'admin',
+        envFile: undefined,
+      })
+      createUserSpy.mockRestore()
+    })
+  })
 })
