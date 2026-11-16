@@ -481,4 +481,26 @@ describe('VersionHistorySheet', () => {
     // v1 is an old published row, so on page 2 it must NOT be labeled Published
     expect(screen.queryByText('Published')).toBeNull()
   })
+
+  it('hides Restore button when canRestore is false (#341)', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockImplementation((url: string) => {
+        if (url.includes('/api/posts/1/versions')) {
+          return mockJsonResponse(mockVersions)
+        }
+        return mockJsonResponse({}, 404)
+      }),
+    )
+
+    renderVersionHistorySheet({
+      canRestore: false,
+    })
+
+    await waitFor(() => {
+      expect(screen.getByText('v2')).toBeTruthy()
+    })
+
+    expect(screen.queryByRole('button', { name: /Restore v2/i })).toBeNull()
+  })
 })

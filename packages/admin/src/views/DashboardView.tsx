@@ -1,8 +1,9 @@
+import { useMemo, type ReactNode } from 'react'
 import { Link } from '@tanstack/react-router'
-import type { ReactNode } from 'react'
 import { Button } from '../components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '../components/ui/card'
 import { useAdmin } from '../context/AdminContext'
+import { usePermissions } from '../context/PermissionsContext'
 import { ViewHeader, ViewSubtitle } from './ViewHeader'
 
 const gridClass = 'lt:grid lt:grid-cols-[repeat(auto-fill,minmax(280px,1fr))] lt:gap-5'
@@ -31,6 +32,17 @@ function EntityCard({
 
 export function DashboardView() {
   const { config } = useAdmin()
+  const { canReadCollection, canCreateInCollection, canReadGlobal } = usePermissions()
+
+  const visibleCollections = useMemo(
+    () => config.collections.filter((col) => canReadCollection(col.slug)),
+    [config.collections, canReadCollection],
+  )
+
+  const visibleGlobals = useMemo(
+    () => config.globals?.filter((g) => canReadGlobal(g.slug)) ?? [],
+    [config.globals, canReadGlobal],
+  )
 
   return (
     <div>
@@ -39,29 +51,34 @@ export function DashboardView() {
       </ViewHeader>
 
       <div className={gridClass}>
-        {config.collections.map((col) => (
-          <EntityCard key={col.slug} title={col.labels.plural} slug={col.slug}>
-            <Button asChild variant="outline">
-              <Link to="/$collection" params={{ collection: col.slug }}>
-                View {col.labels.plural}
-              </Link>
-            </Button>
-            <Button asChild>
-              <Link to="/$collection/create" params={{ collection: col.slug }}>
-                Create {col.labels.singular}
-              </Link>
-            </Button>
-          </EntityCard>
-        ))}
+        {visibleCollections.map((col) => {
+          const canCreate = canCreateInCollection(col.slug)
+          return (
+            <EntityCard key={col.slug} title={col.labels.plural} slug={col.slug}>
+              <Button asChild variant="outline">
+                <Link to="/$collection" params={{ collection: col.slug }}>
+                  View {col.labels.plural}
+                </Link>
+              </Button>
+              {canCreate && (
+                <Button asChild>
+                  <Link to="/$collection/create" params={{ collection: col.slug }}>
+                    Create {col.labels.singular}
+                  </Link>
+                </Button>
+              )}
+            </EntityCard>
+          )
+        })}
       </div>
 
-      {config.globals && config.globals.length > 0 && (
+      {visibleGlobals.length > 0 && (
         <div className="lt:mt-8">
           <ViewHeader title="Globals" level={2}>
             <ViewSubtitle>Manage singleton content documents</ViewSubtitle>
           </ViewHeader>
           <div className={gridClass}>
-            {config.globals.map((g) => (
+            {visibleGlobals.map((g) => (
               <EntityCard key={g.slug} title={g.label} slug={g.slug}>
                 <Button asChild>
                   <Link to="/globals/$slug" params={{ slug: g.slug }}>

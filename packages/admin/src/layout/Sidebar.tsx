@@ -1,10 +1,11 @@
-import { useState } from 'react'
+import { useState, useMemo } from 'react'
 import { Link } from '@tanstack/react-router'
 import type { ClientGlobal } from '@lontar/core/client'
 import type { AdminUser } from '../api/client'
 import { Button } from '../components/ui/button'
 import { useAdmin } from '../context/AdminContext'
 import { useAuth } from '../context/AuthContext'
+import { usePermissions } from '../context/PermissionsContext'
 import { BrandMark } from './BrandMark'
 import { ThemeToggle } from './ThemeToggle'
 
@@ -82,8 +83,19 @@ function SidebarUserProfile({
 
 export function Sidebar() {
   const { config } = useAdmin()
+  const { canReadCollection, canReadGlobal } = usePermissions()
   const { user, signOut } = useAuth()
   const [isSigningOut, setIsSigningOut] = useState(false)
+
+  const visibleCollections = useMemo(
+    () => config.collections.filter((col) => canReadCollection(col.slug)),
+    [config.collections, canReadCollection],
+  )
+
+  const visibleGlobals = useMemo(
+    () => config.globals?.filter((g) => canReadGlobal(g.slug)),
+    [config.globals, canReadGlobal],
+  )
 
   const handleSignOut = async () => {
     setIsSigningOut(true)
@@ -119,21 +131,23 @@ export function Sidebar() {
           </Link>
         </div>
 
-        <div className={navGroupClass}>
-          <NavTitle>Collections</NavTitle>
-          {config.collections.map((col) => (
-            <Link
-              key={col.slug}
-              to="/$collection"
-              params={{ collection: col.slug }}
-              className={navLinkClass}
-            >
-              {col.labels.plural}
-            </Link>
-          ))}
-        </div>
+        {visibleCollections.length > 0 && (
+          <div className={navGroupClass}>
+            <NavTitle>Collections</NavTitle>
+            {visibleCollections.map((col) => (
+              <Link
+                key={col.slug}
+                to="/$collection"
+                params={{ collection: col.slug }}
+                className={navLinkClass}
+              >
+                {col.labels.plural}
+              </Link>
+            ))}
+          </div>
+        )}
 
-        <GlobalsNav globals={config.globals} />
+        <GlobalsNav globals={visibleGlobals} />
       </nav>
 
       {user && (

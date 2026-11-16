@@ -20,8 +20,15 @@ import {
 } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
 import type { z } from 'zod'
-import { clientFieldsToZod, type ClientField, type ClientGlobal } from '@lontar/core/client'
+import {
+  clientFieldsToZod,
+  type ClientField,
+  type ClientGlobal,
+  type FieldPermission,
+  type GlobalPermission,
+} from '@lontar/core/client'
 import { useAdmin, useGlobal } from '../context/AdminContext'
+import { usePermissions, useGlobalPermissions } from '../context/PermissionsContext'
 import { fetchGlobal, saveGlobal, unpublishGlobal, ApiClientError, queryKeys } from '../api/client'
 import { FieldRenderer } from '../fields/FieldRenderer'
 import {
@@ -50,6 +57,8 @@ export interface GlobalFormFieldsProps {
   setValue: UseFormSetValue<Record<string, unknown>>
   watch: UseFormWatch<Record<string, unknown>>
   errors: FieldErrors<Record<string, unknown>>
+  permissions?: Record<string, FieldPermission>
+  readOnlyDoc?: boolean
 }
 
 function GlobalFormFields({
@@ -59,6 +68,8 @@ function GlobalFormFields({
   setValue,
   watch,
   errors,
+  permissions,
+  readOnlyDoc,
 }: GlobalFormFieldsProps) {
   return (
     <div
@@ -67,18 +78,24 @@ function GlobalFormFields({
     >
       <Card className="lt:block lt:p-8 lt:shadow-none">
         <div className="lt:flex lt:flex-col lt:gap-6">
-          {fields.map((field) => (
-            <FieldRenderer
-              key={field.name}
-              field={field}
-              control={control}
-              register={register}
-              setValue={setValue}
-              watch={watch}
-              mode="edit"
-              error={errors[field.name]}
-            />
-          ))}
+          {fields.map((field) => {
+            const fieldPerm = permissions?.[field.name]
+            if (fieldPerm?.read === false) return null
+            return (
+              <FieldRenderer
+                key={field.name}
+                field={field}
+                control={control}
+                register={register}
+                setValue={setValue}
+                watch={watch}
+                mode="edit"
+                error={errors[field.name]}
+                permissions={fieldPerm}
+                readOnlyDoc={readOnlyDoc}
+              />
+            )
+          })}
         </div>
       </Card>
     </div>
@@ -130,6 +147,7 @@ export interface UseGlobalMutationsOptions {
   setSuccessMsg: (msg: string | null) => void
   onSaveSuccess?: () => void
   onDocApplied?: (doc: Record<string, unknown>) => void
+  permissions?: Record<string, FieldPermission>
 }
 
 function handleValidationError(
@@ -159,6 +177,7 @@ function useGlobalMutations({
   setSuccessMsg,
   onSaveSuccess,
   onDocApplied,
+  permissions,
 }: UseGlobalMutationsOptions) {
   const queryClient = useQueryClient()
 
@@ -166,7 +185,12 @@ function useGlobalMutations({
     mutationFn: async ({ values, draft }: { values: Record<string, unknown>; draft?: boolean }) => {
       setApiError(null)
       setSuccessMsg(null)
-      return saveGlobal(apiBase, slug, formatDocForSubmit(fields, values), { draft })
+      return saveGlobal(
+        apiBase,
+        slug,
+        formatDocForSubmit(fields, values, true, permissions, 'edit'),
+        { draft },
+      )
     },
     onSuccess: (saved, vars) => {
       onDocApplied?.(saved)
@@ -250,6 +274,8 @@ export interface UseGlobalEditorAutosaveProps {
   schema: z.ZodTypeAny
   reset: UseFormReset<Record<string, unknown>>
   onDocApplied?: (doc: Record<string, unknown>) => void
+  permissions?: Record<string, FieldPermission>
+  readOnlyDoc?: boolean
 }
 
 function useGlobalEditorAutosave({
@@ -263,24 +289,26 @@ function useGlobalEditorAutosave({
   schema,
   reset,
   onDocApplied,
+  permissions,
+  readOnlyDoc,
 }: UseGlobalEditorAutosaveProps) {
   const queryClient = useQueryClient()
   const hasDrafts = Boolean(global.versions?.drafts)
-  const autosaveEnabled = hasDrafts && Boolean(global.versions?.autosave)
+  const autosaveEnabled = !readOnlyDoc && hasDrafts && Boolean(global.versions?.autosave)
   const autosaveInterval = global.versions?.autosave?.interval ?? 2000
 
   const isValid = useMemo(() => {
     if (Object.keys(errors).length > 0) return false
     const values = formValues && Object.keys(formValues).length > 0 ? formValues : getValues()
-    const payload = formatDocForSubmit(global.fields, values)
+    const payload = formatDocForSubmit(global.fields, values, true, permissions, 'edit')
     return schema.safeParse(payload).success
-  }, [errors, formValues, getValues, global.fields, schema])
+  }, [errors, formValues, getValues, global.fields, permissions, schema])
 
   const onAutosave = useCallback(async () => {
     const values = getValues()
-    const payload = formatDocForSubmit(global.fields, values)
+    const payload = formatDocForSubmit(global.fields, values, true, permissions, 'edit')
     return saveGlobal(apiBase, slug, payload, { draft: true, autosave: true })
-  }, [apiBase, global.fields, slug, getValues])
+  }, [apiBase, global.fields, slug, getValues, permissions])
 
   const onAutosaveSuccess = useCallback(
     (savedDoc: Record<string, unknown>) => {
@@ -365,6 +393,7 @@ export interface GlobalEditorSidebarProps {
   isPublishing: boolean
   isSavingDraft: boolean
   isUnpublishing: boolean
+  readOnly?: boolean
 }
 
 function GlobalEditorSidebar(props: GlobalEditorSidebarProps) {
@@ -389,6 +418,7 @@ function GlobalEditorSidebar(props: GlobalEditorSidebarProps) {
       isPublishing={props.isPublishing}
       isSavingDraft={props.isSavingDraft}
       isUnpublishing={props.isUnpublishing}
+      readOnly={props.readOnly}
     />
   )
 }
@@ -466,6 +496,7 @@ export interface GlobalVersionHistoryProps {
   global: ClientGlobal
   currentDoc: Record<string, unknown> | null | undefined
   onRestore: (restored: Record<string, unknown>) => void
+  canRestore?: boolean
 }
 
 function GlobalVersionHistory({
@@ -476,6 +507,7 @@ function GlobalVersionHistory({
   global,
   currentDoc,
   onRestore,
+  canRestore,
 }: GlobalVersionHistoryProps) {
   if (!hasVersions) return null
   return (
@@ -486,8 +518,29 @@ function GlobalVersionHistory({
       global={global}
       currentDoc={currentDoc}
       onRestoreSuccess={onRestore}
+      canRestore={canRestore}
     />
   )
+}
+
+function useGlobalPermissionsState(globalPermissions?: GlobalPermission) {
+  const readOnlyDoc = globalPermissions?.update === false
+  const canReadVersions = globalPermissions?.readVersions !== false
+  const fieldPermissions = globalPermissions?.fields
+  const isUnreadable = Boolean(globalPermissions && globalPermissions.read === false)
+  return { readOnlyDoc, canReadVersions, fieldPermissions, isUnreadable }
+}
+
+function shouldShowGlobalQueryState(
+  isLoadingQuery: boolean,
+  isLoadingPerms: boolean,
+  error: unknown,
+): boolean {
+  return isLoadingQuery || isLoadingPerms || Boolean(error)
+}
+
+function getGlobalSubmitLabel(isSaving: boolean): string {
+  return isSaving ? 'Saving...' : 'Save Changes'
 }
 
 export interface GlobalEditorProps {
@@ -514,6 +567,14 @@ function GlobalEditor({ global, slug, apiBase }: GlobalEditorProps) {
     queryFn: () => fetchGlobal(apiBase, slug, { draft: hasDrafts }),
     refetchOnWindowFocus: false,
   })
+
+  const { data: globalPermissions, isLoading: isGlobalPermsLoading } = useGlobalPermissions(
+    apiBase,
+    slug,
+  )
+
+  const { readOnlyDoc, canReadVersions, fieldPermissions, isUnreadable } =
+    useGlobalPermissionsState(globalPermissions)
 
   const schema = useMemo(() => clientFieldsToZod(global.fields), [global])
   const defaultValues = useMemo(() => computeDefaultValues(global.fields), [global])
@@ -560,6 +621,8 @@ function GlobalEditor({ global, slug, apiBase }: GlobalEditorProps) {
     schema,
     reset,
     onDocApplied,
+    permissions: fieldPermissions,
+    readOnlyDoc,
   })
 
   const { saveMutation, unpublishMutation } = useGlobalMutations({
@@ -572,6 +635,7 @@ function GlobalEditor({ global, slug, apiBase }: GlobalEditorProps) {
     setApiError,
     setSuccessMsg,
     onDocApplied,
+    permissions: fieldPermissions,
     onSaveSuccess: () => {
       void autosave.cancelAutosave()
     },
@@ -586,12 +650,21 @@ function GlobalEditor({ global, slug, apiBase }: GlobalEditorProps) {
       unpublishMutation,
     })
 
-  if (globalQuery.isLoading || globalQuery.error) {
-    return <GlobalQueryState isLoading={globalQuery.isLoading} error={globalQuery.error} />
+  if (shouldShowGlobalQueryState(globalQuery.isLoading, isGlobalPermsLoading, globalQuery.error)) {
+    return (
+      <GlobalQueryState
+        isLoading={globalQuery.isLoading || isGlobalPermsLoading}
+        error={globalQuery.error}
+      />
+    )
+  }
+
+  if (isUnreadable) {
+    return <NotFoundView />
   }
 
   const isSaving = isSubmitting || saveMutation.isPending
-  const submitLabel = isSaving ? 'Saving...' : 'Save Changes'
+  const submitLabel = getGlobalSubmitLabel(isSaving)
 
   return (
     <div>
@@ -610,7 +683,7 @@ function GlobalEditor({ global, slug, apiBase }: GlobalEditorProps) {
             isOpen={preview.isOpen}
             urlTemplate={previewUrlTemplate}
             slug={global.slug}
-            values={formatDocForSubmit(global.fields, formValues)}
+            values={formatDocForSubmit(global.fields, formValues, true, fieldPermissions, 'edit')}
             savedValues={globalQuery.data}
             onClose={editorView.close}
             activeView={editorView.activeView}
@@ -631,6 +704,8 @@ function GlobalEditor({ global, slug, apiBase }: GlobalEditorProps) {
             setValue={setValue}
             watch={watch}
             errors={errors}
+            permissions={fieldPermissions}
+            readOnlyDoc={readOnlyDoc}
           />
 
           <GlobalEditorSidebar
@@ -638,7 +713,7 @@ function GlobalEditor({ global, slug, apiBase }: GlobalEditorProps) {
             isSaving={isSaving}
             doc={globalQuery.data}
             hasDrafts={hasDrafts}
-            hasVersions={hasVersions}
+            hasVersions={hasVersions && canReadVersions}
             hasPreview={hasPreview}
             preview={{
               isOpen: preview.isOpen,
@@ -654,12 +729,13 @@ function GlobalEditor({ global, slug, apiBase }: GlobalEditorProps) {
             isPublishing={isPublishing}
             isSavingDraft={isSavingDraft}
             isUnpublishing={unpublishMutation.isPending}
+            readOnly={readOnlyDoc}
           />
         </form>
       </EditorSplitLayout>
 
       <GlobalVersionHistory
-        hasVersions={hasVersions}
+        hasVersions={hasVersions && canReadVersions}
         open={isHistoryOpen}
         onOpenChange={setIsHistoryOpen}
         apiBase={apiBase}
@@ -671,6 +747,7 @@ function GlobalEditor({ global, slug, apiBase }: GlobalEditorProps) {
           reset(formatDocForForm(global.fields, restored))
           setSuccessMsg('Version restored successfully.')
         }}
+        canRestore={!readOnlyDoc}
       />
     </div>
   )
@@ -680,8 +757,10 @@ export function GlobalFormView() {
   const { apiBase } = useAdmin()
   const { slug } = useParams({ strict: false })
   const global = useGlobal(slug)
+  const { canReadGlobal } = usePermissions()
 
   if (!global || !slug) return <NotFoundView />
+  if (!canReadGlobal(slug)) return <NotFoundView />
 
   return <GlobalEditor global={global} slug={slug} apiBase={apiBase} />
 }

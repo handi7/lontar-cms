@@ -66,6 +66,7 @@ export interface SidebarActionsProps {
   isSavingDraft?: boolean
   isUnpublishing?: boolean
   isSavingAutosave?: boolean
+  readOnly?: boolean
 }
 
 interface DraftPublishActionsProps {
@@ -212,22 +213,23 @@ function SidebarActions(props: SidebarActionsProps) {
 
   return (
     <div className="lt:flex lt:flex-col lt:gap-2">
-      {!props.hasDrafts ? (
-        <Button type="submit" disabled={props.isPending} className="lt:w-full">
-          {props.submitLabel}
-        </Button>
-      ) : (
-        <DraftPublishActions
-          isBusy={isBusy}
-          isPublishing={props.isPublishing}
-          isSavingDraft={props.isSavingDraft}
-          isUnpublishing={props.isUnpublishing}
-          canUnpublish={props.canUnpublish}
-          onPublish={props.onPublish}
-          onSaveDraft={props.onSaveDraft}
-          onUnpublish={props.onUnpublish}
-        />
-      )}
+      {!props.readOnly &&
+        (!props.hasDrafts ? (
+          <Button type="submit" disabled={props.isPending} className="lt:w-full">
+            {props.submitLabel}
+          </Button>
+        ) : (
+          <DraftPublishActions
+            isBusy={isBusy}
+            isPublishing={props.isPublishing}
+            isSavingDraft={props.isSavingDraft}
+            isUnpublishing={props.isUnpublishing}
+            canUnpublish={props.canUnpublish}
+            onPublish={props.onPublish}
+            onSaveDraft={props.onSaveDraft}
+            onUnpublish={props.onUnpublish}
+          />
+        ))}
 
       <PreviewToggleButton
         hasPreview={props.hasPreview}
@@ -289,6 +291,8 @@ export interface DocumentSidebarProps {
   isSavingDraft?: boolean
   isUnpublishing?: boolean
   isSavingAutosave?: boolean
+  readOnly?: boolean
+  canDelete?: boolean
 }
 
 interface ResolvedSidebarFlags {
@@ -299,19 +303,38 @@ interface ResolvedSidebarFlags {
   hasVersions: boolean
   isSavingAutosave: boolean
   showMetadata: boolean
+  readOnly: boolean
+}
+
+function resolveCanDelete(
+  mode: string,
+  showDelete?: boolean,
+  canDelete?: boolean,
+  readOnly?: boolean,
+): boolean {
+  if (readOnly || mode !== 'edit') return false
+  return Boolean(showDelete) && (canDelete ?? true)
+}
+
+function resolveIsSavingAutosave(props: DocumentSidebarProps, readOnly: boolean): boolean {
+  if (readOnly) return false
+  if (props.isSavingAutosave !== undefined) return props.isSavingAutosave
+  return props.autosave?.status === 'saving'
 }
 
 function resolveSidebarFlags(props: DocumentSidebarProps): ResolvedSidebarFlags {
   const mode = props.mode ?? 'edit'
   const resolvedStatus: DocumentStatus = props.status ?? getDocumentStatus(props.doc)
+  const readOnly = Boolean(props.readOnly)
   return {
     mode,
     resolvedStatus,
-    canUnpublish: resolveCanUnpublish(mode, resolvedStatus, props.doc),
-    canDelete: mode === 'edit' && Boolean(props.showDelete),
+    canUnpublish: !readOnly && resolveCanUnpublish(mode, resolvedStatus, props.doc),
+    canDelete: resolveCanDelete(mode, props.showDelete, props.canDelete, readOnly),
     hasVersions: mode === 'edit' && Boolean(props.hasVersions),
-    isSavingAutosave: props.isSavingAutosave ?? props.autosave?.status === 'saving',
+    isSavingAutosave: resolveIsSavingAutosave(props, readOnly),
     showMetadata: mode === 'edit' && Boolean(props.doc),
+    readOnly,
   }
 }
 
@@ -332,7 +355,7 @@ export function DocumentSidebar(props: DocumentSidebarProps) {
         )}
 
         {/* Slot: Autosave indicator (#203) */}
-        {props.autosave && (
+        {!flags.readOnly && props.autosave && (
           <AutosaveIndicator
             status={props.autosave.status}
             lastSavedAt={props.autosave.lastSavedAt}
@@ -360,6 +383,7 @@ export function DocumentSidebar(props: DocumentSidebarProps) {
           isSavingDraft={props.isSavingDraft}
           isUnpublishing={props.isUnpublishing}
           isSavingAutosave={flags.isSavingAutosave}
+          readOnly={flags.readOnly}
         />
 
         {flags.showMetadata && props.doc && (

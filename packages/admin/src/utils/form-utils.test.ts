@@ -1,12 +1,16 @@
 import { describe, expect, it } from 'vitest'
-import type { ClientField } from '@lontar/core/client'
+import type { ClientField, FieldPermission } from '@lontar/core/client'
 import {
   computeDefaultValues,
+  filterReadableFields,
   formatDateForInput,
   formatDateForSubmit,
   formatDocForForm,
   formatDocForSubmit,
+  isFieldReadOnly,
+  isFieldVisible,
   isSameDoc,
+  stripReadOnlyFields,
 } from './form-utils'
 
 describe('form-utils', () => {
@@ -633,6 +637,151 @@ describe('form-utils', () => {
       const docA = { id: 1, updatedAt: '2026-01-01T00:00:00.000Z' }
       const docB = { id: 1, updatedAt: '2026-01-02T00:00:00.000Z' }
       expect(isSameDoc(docA, docB)).toBe(false)
+    })
+  })
+
+  describe('permissions form helpers (#341)', () => {
+    it('isFieldReadOnly evaluates create vs edit mode and readOnlyDoc', () => {
+      const perm: FieldPermission = { read: true, create: false, update: true }
+      expect(isFieldReadOnly(perm, 'create')).toBe(true)
+      expect(isFieldReadOnly(perm, 'edit')).toBe(false)
+      expect(isFieldReadOnly(perm, 'edit', true)).toBe(true)
+      expect(isFieldReadOnly(undefined, 'create')).toBe(false)
+    })
+
+    it('isFieldVisible returns true unless read is explicitly false', () => {
+      expect(isFieldVisible(undefined)).toBe(true)
+      expect(isFieldVisible({ read: true, create: true, update: true })).toBe(true)
+      expect(isFieldVisible({ read: false, create: true, update: true })).toBe(false)
+    })
+
+    it('filterReadableFields omits unreadable fields and nested subfields', () => {
+      const fields: ClientField[] = [
+        { name: 'title', type: 'text', label: 'Title', required: true },
+        { name: 'secret', type: 'text', label: 'Secret', required: false },
+        {
+          name: 'meta',
+          type: 'group',
+          label: 'Meta',
+          required: false,
+          fields: [
+            { name: 'visibleSub', type: 'text', label: 'Visible Sub', required: false },
+            { name: 'secretSub', type: 'text', label: 'Secret Sub', required: false },
+          ],
+        },
+      ]
+
+      const perms: Record<string, FieldPermission> = {
+        title: { read: true, create: true, update: true },
+        secret: { read: false, create: false, update: false },
+        meta: {
+          read: true,
+          create: true,
+          update: true,
+          fields: {
+            visibleSub: { read: true, create: true, update: true },
+            secretSub: { read: false, create: false, update: false },
+          },
+        },
+      }
+
+      const filtered = filterReadableFields(fields, perms)
+      expect(filtered.map((f) => f.name)).toEqual(['title', 'meta'])
+      const groupField = filtered[1] as { fields: ClientField[] }
+      expect(groupField.fields.map((f) => f.name)).toEqual(['visibleSub'])
+    })
+
+    it('stripReadOnlyFields drops non-writable fields in create and edit mode', () => {
+      const fields: ClientField[] = [
+        { name: 'title', type: 'text', label: 'Title', required: true },
+        { name: 'author', type: 'text', label: 'Author', required: false },
+        {
+          name: 'groupField',
+          type: 'group',
+          label: 'Group',
+          required: false,
+          fields: [
+            { name: 'editable', type: 'text', label: 'Editable', required: false },
+            { name: 'locked', type: 'text', label: 'Locked', required: false },
+          ],
+        },
+        {
+          name: 'arrayField',
+          type: 'array',
+          label: 'Array',
+          required: false,
+          fields: [
+            { name: 'text', type: 'text', label: 'Text', required: false },
+            { name: 'readOnlyText', type: 'text', label: 'ReadOnly', required: false },
+          ],
+        },
+      ]
+
+      const perms: Record<string, FieldPermission> = {
+        title: { read: true, create: true, update: true },
+        author: { read: true, create: false, update: true },
+        groupField: {
+          read: true,
+          create: true,
+          update: true,
+          fields: {
+            editable: { read: true, create: true, update: true },
+            locked: { read: true, create: true, update: false },
+          },
+        },
+        arrayField: {
+          read: true,
+          create: true,
+          update: true,
+          fields: {
+            text: { read: true, create: true, update: true },
+            readOnlyText: { read: true, create: true, update: false },
+          },
+        },
+      }
+
+      const inputDoc = {
+        title: 'New Post',
+        author: 'John',
+        groupField: { editable: 'yes', locked: 'no' },
+        arrayField: [{ text: 'item 1', readOnlyText: 'locked 1' }],
+      }
+
+      // In create mode: author has create: false, so it is stripped
+      const createStripped = stripReadOnlyFields(fields, inputDoc, perms, 'create')
+      expect(createStripped.title).toBe('New Post')
+      expect(createStripped.author).toBeUndefined()
+      // In create mode, locked inside group has create: true, so it is kept
+      expect(createStripped.groupField).toEqual({ editable: 'yes', locked: 'no' })
+
+      // In edit mode: author has update: true, so it is kept
+      // groupField.locked has update: false, so it is stripped!
+      // arrayField[0].readOnlyText has update: false, so it is stripped!
+      const editStripped = stripReadOnlyFields(fields, inputDoc, perms, 'edit')
+      expect(editStripped.title).toBe('New Post')
+      expect(editStripped.author).toBe('John')
+      expect(editStripped.groupField).toEqual({ editable: 'yes' })
+      expect(editStripped.arrayField).toEqual([{ text: 'item 1' }])
+    })
+
+    it('formatDocForSubmit incorporates stripReadOnlyFields when permissions passed', () => {
+      const fields: ClientField[] = [
+        { name: 'title', type: 'text', label: 'Title', required: true },
+        { name: 'views', type: 'number', label: 'Views', required: false },
+      ]
+      const perms: Record<string, FieldPermission> = {
+        title: { read: true, create: true, update: true },
+        views: { read: true, create: false, update: false },
+      }
+
+      const submitted = formatDocForSubmit(
+        fields,
+        { title: 'Hello', views: 100 },
+        true,
+        perms,
+        'edit',
+      )
+      expect(submitted).toEqual({ title: 'Hello' })
     })
   })
 })

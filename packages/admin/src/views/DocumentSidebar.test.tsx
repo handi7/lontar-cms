@@ -304,4 +304,50 @@ describe('DocumentSidebar', () => {
     )
     expect(screen.getByRole('button', { name: 'Hide Preview' })).toBeTruthy()
   })
+
+  it('hides submit and draft/publish buttons when readOnly is true (#341)', () => {
+    render(
+      <DocumentSidebar
+        mode="edit"
+        submitLabel="Save Changes"
+        isPending={false}
+        hasDrafts={false}
+        readOnly={true}
+        doc={{ id: 1 }}
+      />,
+    )
+
+    expect(screen.queryByRole('button', { name: 'Save Changes' })).toBeNull()
+
+    cleanup()
+
+    renderWithPortal(
+      <DocumentSidebar
+        mode="edit"
+        submitLabel="Save Changes"
+        isPending={false}
+        hasDrafts={true}
+        readOnly={true}
+        doc={{ id: 1, _status: 'published' }}
+      />,
+    )
+
+    expect(screen.queryByRole('button', { name: 'Publish' })).toBeNull()
+    expect(screen.queryByRole('button', { name: 'Publishing options' })).toBeNull()
+  })
+
+  it('hides delete button when canDelete is false (#341)', () => {
+    render(
+      <DocumentSidebar
+        mode="edit"
+        submitLabel="Save Changes"
+        isPending={false}
+        showDelete={true}
+        canDelete={false}
+        doc={{ id: 1 }}
+      />,
+    )
+
+    expect(screen.queryByRole('button', { name: /delete/i })).toBeNull()
+  })
 })

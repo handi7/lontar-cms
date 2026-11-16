@@ -25,6 +25,7 @@ export interface UploadPickerProps {
   register: UseFormRegister<Record<string, unknown>>
   setValue?: UseFormSetValue<Record<string, unknown>>
   watch?: UseFormWatch<Record<string, unknown>>
+  disabled?: boolean
 }
 
 function extractNumericId(item: unknown): number | null {
@@ -59,6 +60,39 @@ function formatMediaDimensions(doc?: Record<string, unknown> | null): string {
   return w && h ? ` • ${w}×${h}px` : ''
 }
 
+function getMediaFilesizeStr(doc?: Record<string, unknown> | null): string {
+  return typeof doc?.filesize === 'number' ? ` • ${formatFilesize(doc.filesize)}` : ''
+}
+
+function resolveViewUrl(basePath: string, relationTo: string, id: number): string {
+  const base = basePath && basePath !== '/' ? basePath.replace(/\/+$/, '') : ''
+  return `${base}/${relationTo}/${id}`
+}
+
+function SelectedMediaActions({
+  viewUrl,
+  changeButton,
+  onRemove,
+  disabled,
+}: {
+  viewUrl: string
+  changeButton: ReactNode
+  onRemove: () => void
+  disabled?: boolean
+}) {
+  return (
+    <div className={pickerActionsClass}>
+      <PickerViewLink href={viewUrl} testId="upload-picker-link" />
+      {!disabled && changeButton}
+      {!disabled && (
+        <PickerButton destructive onClick={onRemove} data-testid="upload-picker-remove">
+          Remove
+        </PickerButton>
+      )}
+    </div>
+  )
+}
+
 function SelectedMediaView({
   doc,
   id,
@@ -66,6 +100,7 @@ function SelectedMediaView({
   relationTo,
   changeButton,
   onRemove,
+  disabled,
 }: {
   doc: Record<string, unknown> | null | undefined
   id: number
@@ -73,13 +108,13 @@ function SelectedMediaView({
   relationTo: string
   changeButton: ReactNode
   onRemove: () => void
+  disabled?: boolean
 }) {
   const url = typeof doc?.url === 'string' ? doc.url : ''
   const isImage = isMediaImage(doc)
   const title = getMediaTitle(doc) || `#${id}`
-  const base = basePath && basePath !== '/' ? basePath.replace(/\/+$/, '') : ''
-  const viewUrl = `${base}/${relationTo}/${id}`
-  const filesizeStr = typeof doc?.filesize === 'number' ? ` • ${formatFilesize(doc.filesize)}` : ''
+  const viewUrl = resolveViewUrl(basePath, relationTo, id)
+  const filesizeStr = getMediaFilesizeStr(doc)
   const dimStr = formatMediaDimensions(doc)
 
   return (
@@ -95,13 +130,12 @@ function SelectedMediaView({
           {dimStr}
         </span>
       </div>
-      <div className={pickerActionsClass}>
-        <PickerViewLink href={viewUrl} testId="upload-picker-link" />
-        {changeButton}
-        <PickerButton destructive onClick={onRemove} data-testid="upload-picker-remove">
-          Remove
-        </PickerButton>
-      </div>
+      <SelectedMediaActions
+        viewUrl={viewUrl}
+        changeButton={changeButton}
+        onRemove={onRemove}
+        disabled={disabled}
+      />
     </PickerCard>
   )
 }
@@ -277,7 +311,7 @@ function getTargetUploadAccept(
   return mimeTypes && mimeTypes.length > 0 ? mimeTypes.join(',') : undefined
 }
 
-export function UploadPicker({ field, register, setValue, watch }: UploadPickerProps) {
+export function UploadPicker({ field, register, setValue, watch, disabled }: UploadPickerProps) {
   const adminCtx = useContext(AdminContext)
   const apiBase = adminCtx?.apiBase ?? '/api'
   const basePath = adminCtx?.basePath ?? '/admin'
@@ -343,12 +377,17 @@ export function UploadPicker({ field, register, setValue, watch }: UploadPickerP
         id={selectedId}
         basePath={basePath}
         relationTo={field.relationTo}
+        disabled={disabled}
         changeButton={searchPopover(
           <PickerButton data-testid="upload-picker-change">Change</PickerButton>,
         )}
         onRemove={handleRemove}
       />
     )
+  }
+
+  if (disabled) {
+    return <span className="lt:text-xs lt:text-muted-foreground">—</span>
   }
 
   return (

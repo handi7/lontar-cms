@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import type { ClientCollection, ClientField } from '@lontar/core/client'
+import type { ClientCollection, ClientField, FieldPermission } from '@lontar/core/client'
 import { Badge } from '../components/ui/badge'
 import { Button } from '../components/ui/button'
 import { Input } from '../components/ui/input'
@@ -36,20 +36,31 @@ export interface FilterFieldOption {
   label: string
 }
 
+function formatFieldPath(prefix: string, name: string): string {
+  return prefix ? `${prefix}.${name}` : name
+}
+
+function formatFieldLabel(labelPrefix: string, label?: string, name?: string): string {
+  const base = label || name || ''
+  return labelPrefix ? `${labelPrefix} > ${base}` : base
+}
+
 export function collectFilterFields(
   fields: ClientField[],
   prefix = '',
   labelPrefix = '',
+  fieldPermissions?: Record<string, FieldPermission>,
 ): FilterFieldOption[] {
   const options: FilterFieldOption[] = []
   for (const field of fields) {
-    const fieldPath = prefix ? `${prefix}.${field.name}` : field.name
-    const fieldLabel = labelPrefix
-      ? `${labelPrefix} > ${field.label || field.name}`
-      : field.label || field.name
+    const perm = fieldPermissions?.[field.name]
+    if (perm?.read === false) continue
+
+    const fieldPath = formatFieldPath(prefix, field.name)
+    const fieldLabel = formatFieldLabel(labelPrefix, field.label, field.name)
 
     if (field.type === 'group') {
-      options.push(...collectFilterFields(field.fields, fieldPath, fieldLabel))
+      options.push(...collectFilterFields(field.fields, fieldPath, fieldLabel, perm?.fields))
     } else {
       options.push({ name: fieldPath, label: fieldLabel })
     }
@@ -68,6 +79,7 @@ export interface CollectionFilterBarProps {
   hasDrafts?: boolean
   statusFilter?: 'all' | 'published' | 'draft'
   onStatusFilterChange?: (val: 'all' | 'published' | 'draft') => void
+  fieldPermissions?: Record<string, FieldPermission>
 }
 
 function resolveInitialField(candidate: string, fields: FilterFieldOption[]): string {
@@ -232,8 +244,11 @@ function StatusFilterSelect({ statusFilter, onChange }: StatusFilterSelectProps)
   )
 }
 
-function buildFilterFields(collection: ClientCollection): FilterFieldOption[] {
-  const fields = collectFilterFields(collection.fields)
+function buildFilterFields(
+  collection: ClientCollection,
+  fieldPermissions?: Record<string, FieldPermission>,
+): FilterFieldOption[] {
+  const fields = collectFilterFields(collection.fields, '', '', fieldPermissions)
   const draftOption = collection.versions?.drafts ? [{ name: '_status', label: 'Status' }] : []
   return [
     { name: 'id', label: 'ID' },
@@ -253,11 +268,12 @@ export function CollectionFilterBar(props: CollectionFilterBarProps) {
     onRemoveFilter,
     onClearAll,
     onStatusFilterChange,
+    fieldPermissions,
   } = props
   const [isOpen, setIsOpen] = useState(false)
   const hasDrafts = Boolean(props.hasDrafts)
   const statusFilter = props.statusFilter ?? 'all'
-  const filterFields = buildFilterFields(collection)
+  const filterFields = buildFilterFields(collection, fieldPermissions)
   const defaultField = resolveInitialField(collection.admin.useAsTitle || '', filterFields)
   const hasStatusFilter = hasDrafts && statusFilter !== 'all'
   const filterButtonLabel =
