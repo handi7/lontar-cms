@@ -1,0 +1,310 @@
+import type { AuthUser } from '../auth/types'
+import type { CollectionConfig, Config, GlobalConfig } from '../config/types'
+import type { DocumentData } from '../database/adapter'
+import type { ArrayField, BlocksField, Field, Fields, GroupField } from '../fields/types'
+import type {
+  CollectionPermission,
+  FieldPermission,
+  GlobalPermission,
+  PermissionsResponse,
+} from '../client/permissions'
+import { checkAccess } from './index'
+import { checkFieldAccess } from './field-access'
+
+export type { CollectionPermission, FieldPermission, GlobalPermission, PermissionsResponse }
+
+interface EvalContext {
+  user: AuthUser | null
+  id?: number
+  doc?: DocumentData
+  data?: DocumentData
+  siblingData?: unknown
+  req?: Request
+}
+
+interface AllowedTriad {
+  read: boolean
+  create: boolean
+  update: boolean
+}
+
+async function evalFieldPermission(
+  field: Field,
+  args: {
+    user: AuthUser | null
+    id?: number
+    doc?: DocumentData
+    data?: DocumentData
+    siblingData?: unknown
+  },
+  parentAllowed: AllowedTriad = { read: true, create: true, update: true },
+): Promise<AllowedTriad> {
+  const read = parentAllowed.read ? await checkFieldAccess(field.access?.read, args) : false
+  const create = parentAllowed.create ? await checkFieldAccess(field.access?.create, args) : false
+  const update = parentAllowed.update ? await checkFieldAccess(field.access?.update, args) : false
+  return { read, create, update }
+}
+
+async function evalGroupFields(
+  field: GroupField,
+  key: string,
+  prefix: string,
+  ctx: EvalContext,
+  parentAllowed: AllowedTriad,
+  flatPerms: Record<string, FieldPermission>,
+): Promise<FieldPermission> {
+  const groupData =
+    ctx.doc && typeof ctx.doc[key] === 'object' && ctx.doc[key] !== null
+      ? (ctx.doc[key] as DocumentData)
+      : undefined
+
+  const groupPerm = await evalFieldPermission(
+    field,
+    { ...ctx, siblingData: groupData },
+    parentAllowed,
+  )
+
+  const childPerms: Record<string, FieldPermission> = {}
+  for (const [childKey, childField] of Object.entries(field.fields)) {
+    const childPerm = await evalSingleField(
+      childField,
+      childKey,
+      `${prefix}${key}.${childKey}`,
+      `${prefix}${key}.`,
+      { ...ctx, siblingData: groupData },
+      groupPerm,
+      flatPerms,
+    )
+    childPerms[childKey] = childPerm
+  }
+
+  const result: FieldPermission = { ...groupPerm, fields: childPerms }
+  flatPerms[`${prefix}${key}`] = result
+  return result
+}
+
+async function evalArrayRows(
+  field: ArrayField,
+  key: string,
+  prefix: string,
+  ctx: EvalContext,
+  arrayPerm: AllowedTriad,
+  flatPerms: Record<string, FieldPermission>,
+): Promise<void> {
+  if (!ctx.doc || !Array.isArray(ctx.doc[key])) return
+  const rows = ctx.doc[key] as Array<Record<string, unknown>>
+  for (let i = 0; i < rows.length; i++) {
+    const row = rows[i]
+    for (const [rowKey, rowField] of Object.entries(field.fields)) {
+      const rowPerm = await evalFieldPermission(rowField, { ...ctx, siblingData: row }, arrayPerm)
+      flatPerms[`${prefix}${key}.${i}.${rowKey}`] = rowPerm
+    }
+  }
+}
+
+async function evalArrayFields(
+  field: ArrayField,
+  key: string,
+  prefix: string,
+  ctx: EvalContext,
+  parentAllowed: AllowedTriad,
+  flatPerms: Record<string, FieldPermission>,
+): Promise<FieldPermission> {
+  const arrayPerm = await evalFieldPermission(
+    field,
+    { ...ctx, siblingData: ctx.doc?.[key] },
+    parentAllowed,
+  )
+
+  const childPerms: Record<string, FieldPermission> = {}
+  for (const [childKey, childField] of Object.entries(field.fields)) {
+    const childPerm = await evalFieldPermission(
+      childField,
+      { ...ctx, siblingData: undefined },
+      arrayPerm,
+    )
+    childPerms[childKey] = childPerm
+    flatPerms[`${prefix}${key}.${childKey}`] = childPerm
+  }
+
+  await evalArrayRows(field, key, prefix, ctx, arrayPerm, flatPerms)
+
+  const result: FieldPermission = { ...arrayPerm, fields: childPerms }
+  flatPerms[`${prefix}${key}`] = result
+  return result
+}
+
+async function evalBlockItems(
+  field: BlocksField,
+  key: string,
+  prefix: string,
+  ctx: EvalContext,
+  blocksPerm: AllowedTriad,
+  flatPerms: Record<string, FieldPermission>,
+): Promise<void> {
+  if (!ctx.doc || !Array.isArray(ctx.doc[key])) return
+  const items = ctx.doc[key] as Array<{ blockType?: string; [k: string]: unknown }>
+  for (let i = 0; i < items.length; i++) {
+    const item = items[i]
+    const blockDef = field.blocks.find((b) => b.slug === item?.blockType)
+    if (!blockDef) continue
+    for (const [fieldKey, blockField] of Object.entries(blockDef.fields)) {
+      const itemFieldPerm = await evalFieldPermission(
+        blockField,
+        { ...ctx, siblingData: item },
+        blocksPerm,
+      )
+      flatPerms[`${prefix}${key}.${i}.${fieldKey}`] = itemFieldPerm
+    }
+  }
+}
+
+async function evalBlocksFields(
+  field: BlocksField,
+  key: string,
+  prefix: string,
+  ctx: EvalContext,
+  parentAllowed: AllowedTriad,
+  flatPerms: Record<string, FieldPermission>,
+): Promise<FieldPermission> {
+  const blocksPerm = await evalFieldPermission(
+    field,
+    { ...ctx, siblingData: ctx.doc?.[key] },
+    parentAllowed,
+  )
+
+  const blocksObj: Record<string, { fields: Record<string, FieldPermission> }> = {}
+  for (const block of field.blocks) {
+    const blockFieldsObj: Record<string, FieldPermission> = {}
+    for (const [fieldKey, blockField] of Object.entries(block.fields)) {
+      const fieldPerm = await evalFieldPermission(
+        blockField,
+        { ...ctx, siblingData: undefined },
+        blocksPerm,
+      )
+      blockFieldsObj[fieldKey] = fieldPerm
+      flatPerms[`${prefix}${key}.${block.slug}.${fieldKey}`] = fieldPerm
+    }
+    blocksObj[block.slug] = { fields: blockFieldsObj }
+  }
+
+  await evalBlockItems(field, key, prefix, ctx, blocksPerm, flatPerms)
+
+  const result: FieldPermission = { ...blocksPerm, blocks: blocksObj }
+  flatPerms[`${prefix}${key}`] = result
+  return result
+}
+
+async function evalSingleField(
+  field: Field,
+  key: string,
+  _flatKey: string,
+  prefix: string,
+  ctx: EvalContext,
+  parentAllowed: AllowedTriad,
+  flatPerms: Record<string, FieldPermission>,
+): Promise<FieldPermission> {
+  if (field.type === 'group') {
+    return evalGroupFields(field, key, prefix, ctx, parentAllowed, flatPerms)
+  }
+  if (field.type === 'array') {
+    return evalArrayFields(field, key, prefix, ctx, parentAllowed, flatPerms)
+  }
+  if (field.type === 'blocks') {
+    return evalBlocksFields(field, key, prefix, ctx, parentAllowed, flatPerms)
+  }
+
+  const perm = await evalFieldPermission(field, { ...ctx, siblingData: ctx.doc }, parentAllowed)
+  flatPerms[`${prefix}${key}`] = perm
+  return perm
+}
+
+export async function evalFieldsPermissions(
+  fields: Fields,
+  ctx: EvalContext,
+): Promise<Record<string, FieldPermission>> {
+  const flatPerms: Record<string, FieldPermission> = {}
+  const rootAllowed = { read: true, create: true, update: true }
+
+  for (const [key, field] of Object.entries(fields)) {
+    await evalSingleField(field, key, key, '', ctx, rootAllowed, flatPerms)
+  }
+
+  return flatPerms
+}
+
+export async function getDocumentPermissions(
+  collection: CollectionConfig,
+  ctx: EvalContext,
+): Promise<CollectionPermission> {
+  const user = ctx.user
+  const id = ctx.id
+  const doc = ctx.doc
+
+  const [create, read, update, del] = await Promise.all([
+    checkAccess(collection.access?.create, { user }),
+    checkAccess(collection.access?.read, { user, id, data: doc }),
+    checkAccess(collection.access?.update, { user, id, data: doc }),
+    checkAccess(collection.access?.delete, { user, id, data: doc }),
+  ])
+
+  const readVersions = Boolean(collection.versions) && read && update
+  const fields = await evalFieldsPermissions(collection.fields, ctx)
+
+  return {
+    create,
+    read,
+    update,
+    delete: del,
+    readVersions,
+    fields,
+  }
+}
+
+export async function getGlobalPermissions(
+  global: GlobalConfig,
+  ctx: EvalContext,
+): Promise<GlobalPermission> {
+  const user = ctx.user
+  const doc = ctx.doc
+
+  const [read, update] = await Promise.all([
+    checkAccess(global.access?.read, { user, data: doc }),
+    checkAccess(global.access?.update, { user, data: doc }),
+  ])
+
+  const readVersions = Boolean(global.versions) && read && update
+  const fields = await evalFieldsPermissions(global.fields, ctx)
+
+  return {
+    read,
+    update,
+    readVersions,
+    fields,
+  }
+}
+
+export async function getPermissions(
+  config: Config,
+  user: AuthUser | null,
+  options?: { req?: Request },
+): Promise<PermissionsResponse> {
+  const collections: Record<string, CollectionPermission> = {}
+  const globals: Record<string, GlobalPermission> = {}
+
+  for (const col of config.collections ?? []) {
+    collections[col.slug] = await getDocumentPermissions(col, { user, req: options?.req })
+  }
+
+  for (const glob of config.globals ?? []) {
+    let doc: DocumentData | undefined
+    try {
+      doc = (await config.db.findGlobal({ global: glob })) ?? undefined
+    } catch {
+      doc = undefined
+    }
+    globals[glob.slug] = await getGlobalPermissions(glob, { user, doc, req: options?.req })
+  }
+
+  return { collections, globals }
+}

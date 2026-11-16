@@ -50,6 +50,12 @@ export type {
   UploadSystemFieldName,
   UploadSystemFields,
 } from './system-fields'
+export type {
+  CollectionPermission,
+  FieldPermission,
+  GlobalPermission,
+  PermissionsResponse,
+} from './permissions'
 export type { FieldFilter, FilterOperator, SortItem, Where, WhereClause, WhereField } from './query'
 export type {
   ConditionField,

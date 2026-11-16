@@ -520,6 +520,15 @@ export default function AdminPage() {
 
 On load, the admin fetches the `ClientConfig` from `/api/_lontar/config` and renders lists and forms from it.
 
+### Admin endpoints
+
+Lontar serves internal endpoints under `/api/_lontar/` consumed by the admin panel:
+
+- `GET /api/_lontar/config`: Returns the serialized `ClientConfig` (collections, globals, field definitions without server functions).
+- `GET /api/_lontar/me`: Returns the current session and authenticated user (`{ user, session }`).
+- `GET /api/_lontar/permissions` (alias: `GET /api/_lontar/access`): Returns collection- and global-level permissions (`create`, `read`, `update`, `delete`, `readVersions`) and field-level permissions (`{ read, create, update }`) for the current caller (including anonymous visitors, restricted roles, and administrators).
+- `GET /api/_lontar/permissions/:collection/:id` (alias: `GET /api/_lontar/access/:collection/:id`): Returns document-specific permissions, including dynamic and row-conditional field permissions for `group`, `array`, and `blocks` fields.
+
 ### Admin theming
 
 The CSS custom properties below are the supported theming surface. Override them on

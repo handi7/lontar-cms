@@ -8,6 +8,7 @@ import type { Config } from '../config/types'
 import { registerCollectionRoutes } from './routes/collection'
 import { registerFirstUserRoutes } from './routes/first-user'
 import { registerGlobalRoutes } from './routes/global'
+import { registerPermissionsRoutes } from './routes/permissions'
 
 export interface CreateLontarOptions {
   basePath?: string
@@ -139,6 +140,9 @@ export function createLontar(config: Config, options: CreateLontarOptions = {}):
       session: c.get('session'),
     })
   })
+
+  // Permissions endpoint
+  registerPermissionsRoutes(router, config)
 
   // First-user onboarding routes
   registerFirstUserRoutes(router, auth, config)

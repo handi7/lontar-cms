@@ -23,4 +23,5 @@ export type AuthUser = NonNullable<Awaited<ReturnType<Auth['api']['getSession']>
 export interface LontarVariables {
   user: AuthUser | null
   session: AuthSession | null
+  permissions?: unknown
 }
