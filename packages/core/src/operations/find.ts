@@ -1,4 +1,4 @@
-import { checkAccess } from '../access'
+import { checkAccess, sanitizeDocRead, validateQueryAccess } from '../access'
 import type { AuthUser } from '../auth/types'
 import { DEFAULT_LIMIT, MAX_LIMIT, type CollectionConfig, type Config } from '../config/types'
 import type { DocumentData, PaginatedDocs } from '../database/adapter'
@@ -69,6 +69,18 @@ function assertValidSort(
   }
 }
 
+async function assertValidQueryAccess(
+  where: Where | undefined,
+  sort: string | SortItem[] | undefined,
+  collection: CollectionConfig,
+  user: AuthUser | null,
+): Promise<void> {
+  const issues = await validateQueryAccess(where, sort, collection, user)
+  if (issues.length > 0) {
+    throw new ValidationError('Validation failed', { issues })
+  }
+}
+
 async function assertFindAccess(
   collection: CollectionConfig,
   user: AuthUser | null,
@@ -127,6 +139,7 @@ export async function findOperation<T = DocumentData>(
 ): Promise<PaginatedDocs<T>> {
   if (!args.overrideAccess) {
     await assertFindAccess(args.collection, args.user ?? null, args.draft)
+    await assertValidQueryAccess(args.where, args.sort, args.collection, args.user ?? null)
   }
 
   const { page, limit } = resolveLimits(args.collection, args.config, args.page, args.limit)
@@ -161,5 +174,16 @@ export async function findOperation<T = DocumentData>(
     draft: args.draft,
   })
 
-  return { ...result, docs: populated as T[] }
+  const docsToReturn = args.overrideAccess
+    ? populated
+    : await Promise.all(
+        populated.map((doc) =>
+          sanitizeDocRead(args.collection.fields, doc, args.user ?? null, {
+            id: doc.id as string | number | undefined,
+            doc,
+          }),
+        ),
+      )
+
+  return { ...result, docs: docsToReturn as T[] }
 }

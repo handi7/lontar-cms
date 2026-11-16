@@ -1,4 +1,4 @@
-import { checkAccess } from '../access'
+import { checkAccess, sanitizeDocRead, sanitizeDocWrite } from '../access'
 import type { AuthUser } from '../auth/types'
 import { clientFieldsToZod } from '../client/zod'
 import { toClientGlobal } from '../config/to-client-config'
@@ -125,7 +125,7 @@ export async function findGlobalOperation<T = DocumentData>(
     req: args.req,
   })
 
-  return populateGlobalDoc<T>({
+  const populated = await populateGlobalDoc<T>({
     doc: transformed,
     global: args.global,
     config: args.config,
@@ -135,6 +135,19 @@ export async function findGlobalOperation<T = DocumentData>(
     overrideAccess: args.overrideAccess,
     draft: args.draft,
   })
+
+  if (args.overrideAccess) {
+    return populated
+  }
+
+  const sanitized = await sanitizeDocRead(
+    args.global.fields,
+    populated as DocumentData,
+    args.user ?? null,
+    { doc: populated as DocumentData },
+  )
+
+  return sanitized as T
 }
 
 function assertGlobalUpdateSuccess(
@@ -183,7 +196,15 @@ export async function updateGlobalOperation<T = DocumentData>(
 
   const draft = resolveDraftFlag(args.global, args.draft, args.autosave)
   const existing = await resolveOriginalGlobalDoc(args.config.db, args.global, draft)
-  const { _status: _ignoredStatus, ...cleanData } = args.data
+  const writeData = args.overrideAccess
+    ? args.data
+    : await sanitizeDocWrite(args.global.fields, args.data, 'update', {
+        user: args.user ?? null,
+        data: args.data,
+        doc: existing ?? undefined,
+      })
+
+  const { _status: _ignoredStatus, ...cleanData } = writeData
   const { status, previousStatus, statusTransition } = resolveGlobalUpdateStatus({
     global: args.global,
     data: cleanData,
@@ -219,7 +240,7 @@ export async function updateGlobalOperation<T = DocumentData>(
 
   assertGlobalUpdateSuccess(result)
 
-  return populateGlobalDoc<T>({
+  const populated = await populateGlobalDoc<T>({
     doc: result.doc,
     global: args.global,
     config: args.config,
@@ -229,4 +250,17 @@ export async function updateGlobalOperation<T = DocumentData>(
     overrideAccess: args.overrideAccess,
     draft,
   })
+
+  if (args.overrideAccess) {
+    return populated
+  }
+
+  const sanitized = await sanitizeDocRead(
+    args.global.fields,
+    populated as DocumentData,
+    args.user ?? null,
+    { doc: populated as DocumentData },
+  )
+
+  return sanitized as T
 }

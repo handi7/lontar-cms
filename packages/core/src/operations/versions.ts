@@ -1,4 +1,4 @@
-import { checkAccess } from '../access'
+import { checkAccess, sanitizeDocRead } from '../access'
 import type { AuthUser } from '../auth/types'
 import type { CollectionConfig, GlobalConfig } from '../config/types'
 import type { DocumentData, PaginatedVersions, StoredVersion } from '../database/adapter'
@@ -98,13 +98,27 @@ export async function findVersionsOperation(
     throw new Error('Database adapter does not support version history')
   }
 
-  return args.config.db.findVersions({
+  const result = await args.config.db.findVersions({
     collection: args.collection,
     parentId: args.id,
     page: args.page,
     limit: args.limit,
     sort: args.sort,
   })
+
+  if (args.overrideAccess) return result
+
+  const docs = await Promise.all(
+    result.docs.map(async (v) => ({
+      ...v,
+      snapshot: await sanitizeDocRead(args.collection.fields, v.snapshot, args.user ?? null, {
+        id: args.id,
+        doc: v.snapshot,
+      }),
+    })),
+  )
+
+  return { ...result, docs }
 }
 
 export async function findVersionByIDOperation(
@@ -131,7 +145,16 @@ export async function findVersionByIDOperation(
     )
   }
 
-  return version
+  if (args.overrideAccess) return version
+
+  const sanitizedSnapshot = await sanitizeDocRead(
+    args.collection.fields,
+    version.snapshot,
+    args.user ?? null,
+    { id: args.id, doc: version.snapshot },
+  )
+
+  return { ...version, snapshot: sanitizedSnapshot }
 }
 
 export async function restoreVersionOperation<T = DocumentData>(
@@ -211,13 +234,27 @@ export async function findGlobalVersionsOperation(
   const existing = await args.config.db.findGlobal({ global: args.global })
   const parentId = Number(existing?.id ?? 1)
 
-  return args.config.db.findVersions({
+  const result = await args.config.db.findVersions({
     global: args.global,
     parentId,
     page: args.page,
     limit: args.limit,
     sort: args.sort,
   })
+
+  if (args.overrideAccess) return result
+
+  const docs = await Promise.all(
+    result.docs.map(async (v) => ({
+      ...v,
+      snapshot: await sanitizeDocRead(args.global.fields, v.snapshot, args.user ?? null, {
+        id: parentId,
+        doc: v.snapshot,
+      }),
+    })),
+  )
+
+  return { ...result, docs }
 }
 
 export async function findGlobalVersionByIDOperation(
@@ -245,7 +282,16 @@ export async function findGlobalVersionByIDOperation(
     throw new NotFoundError(`Version ${args.versionId} not found for global "${args.global.slug}"`)
   }
 
-  return version
+  if (args.overrideAccess) return version
+
+  const sanitizedSnapshot = await sanitizeDocRead(
+    args.global.fields,
+    version.snapshot,
+    args.user ?? null,
+    { id: parentId, doc: version.snapshot },
+  )
+
+  return { ...version, snapshot: sanitizedSnapshot }
 }
 
 export async function restoreGlobalVersionOperation<T = DocumentData>(

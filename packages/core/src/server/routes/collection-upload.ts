@@ -1,7 +1,7 @@
 import type { Context } from 'hono'
 import { fileTypeFromBuffer } from 'file-type'
 import type { z } from 'zod'
-import { accessDenied, checkAccess } from '../../access'
+import { accessDenied, checkAccess, sanitizeDocRead, sanitizeDocWrite } from '../../access'
 import type { AuthUser, LontarVariables } from '../../auth/types'
 import { clientFieldsToZod } from '../../client'
 import { toClientCollection } from '../../config/to-client-config'
@@ -478,9 +478,18 @@ async function parseAndValidateFields(
     originalDoc?: DocumentData
     req?: Request
     draft?: boolean
+    user?: AuthUser | null
   },
 ): Promise<{ success: true; data: DocumentData } | { success: false; issues: z.ZodIssue[] }> {
   let parsedFields = parseFormDataFields(rawBody, collection.fields)
+  if (hookArgs?.user !== undefined) {
+    parsedFields = await sanitizeDocWrite(collection.fields, parsedFields, hookArgs.operation, {
+      user: hookArgs.user,
+      id: hookArgs.originalDoc?.id as string | number | undefined,
+      data: parsedFields,
+      doc: hookArgs.originalDoc,
+    })
+  }
   if (hookArgs) {
     parsedFields = await applyBeforeValidateOnFormData(collection, parsedFields, hookArgs)
   }
@@ -511,7 +520,11 @@ async function respondPopulatedDoc(
     req: c.req.raw,
     draft,
   })
-  return c.json(populated, status)
+  const sanitized = await sanitizeDocRead(collection.fields, populated, user, {
+    id: doc.id as string | number | undefined,
+    doc: populated,
+  })
+  return c.json(sanitized, status)
 }
 
 interface UploadCreateContext {
@@ -605,6 +618,7 @@ export async function handleUploadCreate(ctx: UploadCreateContext): Promise<Resp
     operation: 'create',
     req: c.req.raw,
     draft: Boolean(draft),
+    user,
   })
   if (!validation.success) {
     await safeDeleteMedia(config, processed.uploadDoc)
@@ -752,6 +766,7 @@ export async function handleUploadUpdate(ctx: UploadUpdateContext): Promise<Resp
     originalDoc,
     req: c.req.raw,
     draft: Boolean(draft),
+    user,
   })
   if (!validation.success) {
     await rollbackNewMedia(config, uploadResult.doc)

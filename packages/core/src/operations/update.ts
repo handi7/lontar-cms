@@ -1,5 +1,6 @@
-import { checkAccess } from '../access'
+import { checkAccess, sanitizeDocRead, sanitizeDocWrite } from '../access'
 import type { AuthUser } from '../auth/types'
+import type { DocStatus } from '../client/system-fields'
 import { clientFieldsToZod } from '../client/zod'
 import { toClientCollection } from '../config/to-client-config'
 import type { CollectionConfig } from '../config/types'
@@ -14,6 +15,7 @@ import {
 } from './mutation'
 import { cleanupReplacedMedia } from '../server/routes/collection-upload'
 import { runBeforeValidateHooks } from '../hooks'
+import type { DocStatusTransition } from '../hooks/types'
 import type { UpdateOperationArgs } from './types'
 
 async function assertUpdateAccess(
@@ -58,18 +60,25 @@ function handleUpdateError(
   throw new Error(fallback)
 }
 
-export async function updateOperation<T = DocumentData>(args: UpdateOperationArgs): Promise<T> {
-  if (!args.overrideAccess) {
-    await assertUpdateAccess(args.collection, args.id, args.data, args.user)
-  }
+async function prepareUpdatePayload(
+  args: UpdateOperationArgs,
+  originalDoc: DocumentData,
+  draft?: boolean,
+): Promise<{
+  validatedData: DocumentData
+  status: DocStatus | undefined
+  statusTransition: DocStatusTransition | undefined
+}> {
+  const writeData = args.overrideAccess
+    ? args.data
+    : await sanitizeDocWrite(args.collection.fields, args.data, 'update', {
+        user: args.user ?? null,
+        id: args.id,
+        data: args.data,
+        doc: originalDoc,
+      })
 
-  const draft = resolveDraftFlag(args.collection, args.draft, args.autosave)
-  const originalDoc = await resolveOriginalDoc(args.config.db, args.collection, args.id, draft)
-  if (!originalDoc) {
-    throw new NotFoundError(`Document with ID ${args.id} not found`)
-  }
-
-  const { _status: _ignoredStatus, ...cleanData } = args.data
+  const { _status: _ignoredStatus, ...cleanData } = writeData
   const { status, previousStatus, statusTransition } = resolveUpdateStatus({
     collection: args.collection,
     data: cleanData,
@@ -89,6 +98,61 @@ export async function updateOperation<T = DocumentData>(args: UpdateOperationArg
   })
 
   const validatedData = validateUpdateData(args.collection, hookData, originalDoc)
+  return { validatedData, status, statusTransition }
+}
+
+async function finalizeUpdateDoc<T>(
+  args: UpdateOperationArgs,
+  resultDoc: DocumentData,
+  originalDoc: DocumentData,
+  draft?: boolean,
+  status?: DocStatus,
+  isDraftRevision?: boolean,
+): Promise<T> {
+  const isDraftUpdate = status === 'draft' || Boolean(isDraftRevision)
+  if (args.collection.upload && !isDraftUpdate) {
+    await cleanupReplacedMedia(args.config, originalDoc, resultDoc)
+  }
+
+  const populated = await populateDoc(resultDoc, {
+    collection: args.collection,
+    depth: args.depth ?? 0,
+    collections: args.config.collections,
+    db: args.config.db,
+    user: args.user ?? null,
+    req: args.req,
+    overrideAccess: args.overrideAccess,
+    draft,
+  })
+
+  if (args.overrideAccess) {
+    return populated as T
+  }
+
+  const sanitized = await sanitizeDocRead(args.collection.fields, populated, args.user ?? null, {
+    id: args.id,
+    doc: populated,
+  })
+
+  return sanitized as T
+}
+
+export async function updateOperation<T = DocumentData>(args: UpdateOperationArgs): Promise<T> {
+  if (!args.overrideAccess) {
+    await assertUpdateAccess(args.collection, args.id, args.data, args.user)
+  }
+
+  const draft = resolveDraftFlag(args.collection, args.draft, args.autosave)
+  const originalDoc = await resolveOriginalDoc(args.config.db, args.collection, args.id, draft)
+  if (!originalDoc) {
+    throw new NotFoundError(`Document with ID ${args.id} not found`)
+  }
+
+  const { validatedData, status, statusTransition } = await prepareUpdatePayload(
+    args,
+    originalDoc,
+    draft,
+  )
 
   const result = await executeUpdate({
     collection: args.collection,
@@ -109,21 +173,5 @@ export async function updateOperation<T = DocumentData>(args: UpdateOperationArg
     handleUpdateError(result, args.id)
   }
 
-  const isDraftUpdate = status === 'draft' || Boolean(result.isDraftRevision)
-  if (args.collection.upload && !isDraftUpdate) {
-    await cleanupReplacedMedia(args.config, originalDoc, result.doc)
-  }
-
-  const populated = await populateDoc(result.doc, {
-    collection: args.collection,
-    depth: args.depth ?? 0,
-    collections: args.config.collections,
-    db: args.config.db,
-    user: args.user ?? null,
-    req: args.req,
-    overrideAccess: args.overrideAccess,
-    draft,
-  })
-
-  return populated as T
+  return finalizeUpdateDoc<T>(args, result.doc, originalDoc, draft, status, result.isDraftRevision)
 }

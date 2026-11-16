@@ -83,6 +83,8 @@ export interface WebhookConfig {
   secret?: string
   /** Whether to include the full document snapshot in the payload. Defaults to false. */
   includeDoc?: boolean
+  /** Whether to bypass access control when generating payload.doc. Defaults to true. */
+  overrideAccess?: boolean
 }
 
 export interface CollectionWebhookConfig {
@@ -94,6 +96,8 @@ export interface CollectionWebhookConfig {
   secret?: string
   /** Whether to include the full document snapshot in the payload. Defaults to false. */
   includeDoc?: boolean
+  /** Whether to bypass access control when generating payload.doc. Defaults to true. */
+  overrideAccess?: boolean
 }
 
 export interface GlobalWebhookConfig {
@@ -105,6 +109,8 @@ export interface GlobalWebhookConfig {
   secret?: string
   /** Whether to include the full document snapshot in the payload. Defaults to false. */
   includeDoc?: boolean
+  /** Whether to bypass access control when generating payload.doc. Defaults to true. */
+  overrideAccess?: boolean
 }
 
 export interface PreviewConfig {

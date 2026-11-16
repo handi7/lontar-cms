@@ -1,7 +1,7 @@
 import type { Context, Hono, Next } from 'hono'
 import { bodyLimit } from 'hono/body-limit'
 import type { z } from 'zod'
-import { accessDenied, checkAccess } from '../../access'
+import { accessDenied, checkAccess, validateQueryAccess } from '../../access'
 import type { AuthUser, LontarVariables } from '../../auth/types'
 import { clientFieldsToZod } from '../../client/zod'
 import { toClientCollection } from '../../config/to-client-config'
@@ -25,6 +25,7 @@ import {
   ValidationError,
 } from '../../operations'
 import { parseDepth } from '../../populate'
+import type { Where } from '../../query/types'
 import { parseWhereFromSearchParams } from '../../query/parser'
 import { validateSort, validateWhere } from '../../query/validator'
 import { DEFAULT_MAX_FILE_SIZE } from '../../storage'
@@ -86,6 +87,69 @@ function resolveWhereFilter(rawUrl: string, collection: CollectionConfig) {
   return issues.length > 0 ? { issues } : { where }
 }
 
+function extractFirstIssueMessage(issues: unknown[] | undefined, fallback: string): string {
+  if (!issues || issues.length === 0) return fallback
+  const first = issues[0]
+  if (
+    typeof first === 'object' &&
+    first !== null &&
+    'message' in first &&
+    typeof first.message === 'string'
+  ) {
+    return first.message
+  }
+  return fallback
+}
+
+interface FindQueryCheck {
+  where?: Where
+  errorResponse?: { error: string; message?: string; issues: unknown[] }
+}
+
+async function validateFindQuery(
+  rawUrl: string,
+  sort: string | undefined,
+  collection: CollectionConfig,
+  user: AuthUser | null,
+): Promise<FindQueryCheck> {
+  const whereResult = resolveWhereFilter(rawUrl, collection)
+  if ('issues' in whereResult && whereResult.issues) {
+    return {
+      errorResponse: {
+        error: 'Validation failed',
+        message: whereResult.issues[0]?.message,
+        issues: whereResult.issues,
+      },
+    }
+  }
+
+  if (sort) {
+    const sortIssues = validateSort(sort, collection)
+    if (sortIssues.length > 0) {
+      return {
+        errorResponse: {
+          error: 'Validation failed',
+          message: sortIssues[0]?.message,
+          issues: sortIssues,
+        },
+      }
+    }
+  }
+
+  const accessIssues = await validateQueryAccess(whereResult.where, sort, collection, user)
+  if (accessIssues.length > 0) {
+    return {
+      errorResponse: {
+        error: 'Validation failed',
+        message: accessIssues[0]?.message,
+        issues: accessIssues,
+      },
+    }
+  }
+
+  return { where: whereResult.where }
+}
+
 async function handleFind(c: Context<LontarEnv>, collection: CollectionConfig, config: Config) {
   const user = c.get('user') ?? null
   const { page, limit } = resolvePagination((k) => c.req.query(k), collection, config)
@@ -93,23 +157,16 @@ async function handleFind(c: Context<LontarEnv>, collection: CollectionConfig, c
   const depth = parseDepth(c.req.query('depth'))
   const draft = c.req.query('draft') === 'true'
 
-  const whereResult = resolveWhereFilter(c.req.raw.url, collection)
-  if ('issues' in whereResult && whereResult.issues) {
-    return c.json({ error: 'Validation failed', issues: whereResult.issues }, 400)
-  }
-
-  if (sort) {
-    const sortIssues = validateSort(sort, collection)
-    if (sortIssues.length > 0) {
-      return c.json({ error: 'Validation failed', issues: sortIssues }, 400)
-    }
+  const queryCheck = await validateFindQuery(c.req.raw.url, sort, collection, user)
+  if (queryCheck.errorResponse) {
+    return c.json(queryCheck.errorResponse, 400)
   }
 
   try {
     const result = await findOperation({
       config,
       collection,
-      where: whereResult.where,
+      where: queryCheck.where,
       sort,
       page,
       limit,
@@ -125,7 +182,14 @@ async function handleFind(c: Context<LontarEnv>, collection: CollectionConfig, c
       return accessDenied(c, user)
     }
     if (err instanceof ValidationError) {
-      return c.json({ error: 'Validation failed', issues: err.issues }, 400)
+      return c.json(
+        {
+          error: 'Validation failed',
+          message: extractFirstIssueMessage(err.issues, err.message),
+          issues: err.issues,
+        },
+        400,
+      )
     }
     throw err
   }
@@ -212,7 +276,14 @@ async function handleCreate(
       return accessDenied(c, user)
     }
     if (err instanceof ValidationError) {
-      return c.json({ error: 'Validation failed', issues: err.issues }, 400)
+      return c.json(
+        {
+          error: 'Validation failed',
+          message: extractFirstIssueMessage(err.issues, err.message),
+          issues: err.issues,
+        },
+        400,
+      )
     }
     throw err
   }
@@ -266,7 +337,14 @@ function handleMutationError(err: unknown, c: Context<LontarEnv>, user: AuthUser
   }
   if (err instanceof ValidationError) {
     if (err.issues && err.issues.length > 0) {
-      return c.json({ error: err.message, issues: err.issues }, 400)
+      return c.json(
+        {
+          error: err.message,
+          message: extractFirstIssueMessage(err.issues, err.message),
+          issues: err.issues,
+        },
+        400,
+      )
     }
     return c.json({ error: err.message }, 400)
   }
