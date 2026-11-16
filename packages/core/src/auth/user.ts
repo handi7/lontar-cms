@@ -8,6 +8,12 @@ export interface CreateUserData {
   role?: string
 }
 
+export interface CreateUserInviteData {
+  email: string
+  name: string
+  role?: string
+}
+
 export interface CreatedUserResult {
   id: string
   email: string
@@ -120,6 +126,39 @@ export async function createUserWithCredential(
     name: user.name,
     role: (user as { role?: string }).role ?? data.role ?? 'editor',
   }
+}
+
+export async function createUserForInvite(
+  auth: Auth,
+  data: CreateUserInviteData,
+): Promise<CreatedUserResult> {
+  const ctx = await auth.$context
+
+  const user = await ctx.internalAdapter.createUser(
+    {
+      email: data.email.trim().toLowerCase(),
+      name: data.name.trim(),
+      ...(data.role ? { role: data.role } : {}),
+      banned: false,
+      emailVerified: false,
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    },
+    { method: 'email-password' },
+  )
+
+  return {
+    id: user.id,
+    email: user.email,
+    name: user.name,
+    role: (user as { role?: string }).role ?? data.role ?? 'editor',
+  }
+}
+
+export async function hasCredentialAccount(auth: Auth, userId: string): Promise<boolean> {
+  const ctx = await auth.$context
+  const acc = await ctx.internalAdapter.findCredentialAccount(userId)
+  return Boolean(acc)
 }
 
 export async function countTotalUsers(auth: Auth, where?: Where[]): Promise<number> {

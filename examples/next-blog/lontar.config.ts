@@ -1,4 +1,11 @@
-import { block, collection, defineConfig, fields as f, global } from '@lontar/core'
+import {
+  block,
+  collection,
+  consoleEmailAdapter,
+  defineConfig,
+  fields as f,
+  global,
+} from '@lontar/core'
 import { mysqlAdapter } from '@lontar/db-mysql'
 import { postgresAdapter } from '@lontar/db-postgres'
 import { localStorage } from '@lontar/storage-local'
@@ -233,6 +240,7 @@ function getDatabaseAdapter() {
 
 export default defineConfig({
   secret: process.env.LONTAR_SECRET || 'dev-secret-at-least-32-chars-long-12345',
+  email: consoleEmailAdapter(),
   db: getDatabaseAdapter(),
   storage: localStorage(),
   collections: [posts, pages, categories, authors, media],

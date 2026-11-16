@@ -517,9 +517,10 @@ export interface PaginatedUsers {
 
 export interface CreateUserData {
   email: string
-  password: string
   name: string
   role?: string
+  password?: string
+  invite?: boolean
 }
 
 export interface UpdateUserData {
@@ -669,4 +670,44 @@ export async function changeMyPassword(
     body: JSON.stringify(data),
   })
   return handleResponse<{ message: string }>(res)
+}
+
+export async function requestPasswordReset(
+  apiBase: string,
+  email: string,
+): Promise<{ status: boolean; message: string }> {
+  const base = apiBase.replace(/\/+$/, '')
+  const res = await fetch(`${base}/auth/request-password-reset`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    credentials: 'include',
+    body: JSON.stringify({ email }),
+  })
+  return handleResponse<{ status: boolean; message: string }>(res)
+}
+
+export async function resetPassword(
+  apiBase: string,
+  data: { token: string; newPassword: string },
+): Promise<{ status: boolean }> {
+  const base = apiBase.replace(/\/+$/, '')
+  const res = await fetch(`${base}/auth/reset-password`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    credentials: 'include',
+    body: JSON.stringify(data),
+  })
+  return handleResponse<{ status: boolean }>(res)
+}
+
+export async function resendUserInvite(
+  apiBase: string,
+  id: string,
+): Promise<{ success: boolean; message: string }> {
+  const base = apiBase.replace(/\/+$/, '')
+  const res = await fetch(`${base}/_lontar/users/${id}/resend-invite`, {
+    method: 'POST',
+    credentials: 'include',
+  })
+  return handleResponse<{ success: boolean; message: string }>(res)
 }

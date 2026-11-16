@@ -31,6 +31,7 @@ describe('toClientConfig', () => {
         roles: ['admin', 'editor'],
         defaultRole: 'editor',
         adminRole: 'admin',
+        emailEnabled: false,
       },
       collections: [
         {
@@ -66,6 +67,7 @@ describe('toClientConfig', () => {
       roles: ['admin', 'editor', 'author'],
       defaultRole: 'author',
       adminRole: 'admin',
+      emailEnabled: false,
     })
   })
 
@@ -82,7 +84,18 @@ describe('toClientConfig', () => {
       roles: ['superadmin', 'editor'],
       defaultRole: 'editor',
       adminRole: 'superadmin',
+      emailEnabled: false,
     })
+  })
+
+  it('serializes emailEnabled: true when email adapter is present', () => {
+    const config = defineConfig({
+      ...postsConfig,
+      email: {
+        sendEmail: () => {},
+      },
+    })
+    expect(toClientConfig(config).auth?.emailEnabled).toBe(true)
   })
 
   it('survives a JSON round trip unchanged', () => {

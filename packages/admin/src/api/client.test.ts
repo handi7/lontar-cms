@@ -22,6 +22,9 @@ import {
   deleteUser,
   updateMe,
   changeMyPassword,
+  requestPasswordReset,
+  resetPassword,
+  resendUserInvite,
   setOnUnauthorized,
   signOut,
   unpublishDoc,
@@ -445,6 +448,39 @@ describe('ApiClientError and API Client error handling', () => {
             currentPassword: 'old-password',
             newPassword: 'new-password123',
           }),
+        }),
+      )
+    })
+
+    it('handles requestPasswordReset, resetPassword, and resendUserInvite', async () => {
+      const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue({
+        ok: true,
+        json: vi.fn().mockResolvedValue({ status: true, message: 'Success' }),
+      } as unknown as Response)
+
+      await requestPasswordReset('/api', 'test@example.com')
+      expect(fetchSpy).toHaveBeenCalledWith(
+        '/api/auth/request-password-reset',
+        expect.objectContaining({
+          method: 'POST',
+          body: JSON.stringify({ email: 'test@example.com' }),
+        }),
+      )
+
+      await resetPassword('/api', { token: 'tok123', newPassword: 'newpass123' })
+      expect(fetchSpy).toHaveBeenCalledWith(
+        '/api/auth/reset-password',
+        expect.objectContaining({
+          method: 'POST',
+          body: JSON.stringify({ token: 'tok123', newPassword: 'newpass123' }),
+        }),
+      )
+
+      await resendUserInvite('/api', 'u123')
+      expect(fetchSpy).toHaveBeenCalledWith(
+        '/api/_lontar/users/u123/resend-invite',
+        expect.objectContaining({
+          method: 'POST',
         }),
       )
     })

@@ -5,6 +5,7 @@ import { Hono, type Context } from 'hono'
 import type { Auth, AuthSession, AuthUser, LontarVariables } from '../auth/types'
 import { toClientConfig } from '../config/to-client-config'
 import type { Config } from '../config/types'
+import { resolveEmailConfig, sendEmailWithTemplate } from '../email'
 import { registerCollectionRoutes } from './routes/collection'
 import { registerFirstUserRoutes } from './routes/first-user'
 import { registerGlobalRoutes } from './routes/global'
@@ -14,6 +15,7 @@ import { registerUserRoutes } from './routes/users'
 export interface CreateLontarOptions {
   basePath?: string
   baseURL?: string
+  adminPath?: string
   trustedOrigins?: string[]
   rateLimit?: {
     enabled?: boolean
@@ -69,8 +71,16 @@ function buildRateLimitConfig(options: CreateLontarOptions) {
   }
 }
 
+function resolveAdminBaseUrl(options: CreateLontarOptions, request?: Request): string {
+  const origin =
+    options.baseURL ?? (request ? new URL(request.url).origin : 'http://localhost:3000')
+  const adminPath = (options.adminPath ?? '/admin').replace(/\/$/, '')
+  return `${origin}${adminPath}`
+}
+
 function buildAuthInstance(config: Config, basePath: string, options: CreateLontarOptions): Auth {
   const trustedOrigins = buildTrustedOrigins(options)
+  const resolvedEmail = resolveEmailConfig(config.email)
 
   return betterAuth({
     secret: config.secret,
@@ -82,6 +92,41 @@ function buildAuthInstance(config: Config, basePath: string, options: CreateLont
     emailAndPassword: {
       enabled: true,
       disableSignUp: true,
+      ...(resolvedEmail
+        ? {
+            sendResetPassword: async (
+              data: { user: { id: string; email: string; name?: string }; token: string },
+              request?: unknown,
+            ) => {
+              const req = request instanceof Request ? request : undefined
+              const adminUrl = resolveAdminBaseUrl(options, req)
+              const resetUrl = `${adminUrl}/reset-password?token=${data.token}`
+              await sendEmailWithTemplate(resolvedEmail, 'resetPassword', {
+                user: { id: data.user.id, email: data.user.email, name: data.user.name },
+                url: resetUrl,
+                token: data.token,
+              })
+            },
+            ...(config.auth?.requireEmailVerification
+              ? {
+                  requireEmailVerification: true,
+                  sendVerificationEmail: async (
+                    data: { user: { id: string; email: string; name?: string }; token: string },
+                    request?: unknown,
+                  ) => {
+                    const req = request instanceof Request ? request : undefined
+                    const adminUrl = resolveAdminBaseUrl(options, req)
+                    const verifyUrl = `${adminUrl}/verify-email?token=${data.token}`
+                    await sendEmailWithTemplate(resolvedEmail, 'verifyEmail', {
+                      user: { id: data.user.id, email: data.user.email, name: data.user.name },
+                      url: verifyUrl,
+                      token: data.token,
+                    })
+                  },
+                }
+              : {}),
+          }
+        : {}),
     },
     rateLimit: buildRateLimitConfig(options),
   })
@@ -106,6 +151,12 @@ export function createLontar(config: Config, options: CreateLontarOptions = {}):
   const auth = buildAuthInstance(config, basePath, options)
 
   // Mount Better Auth handler routes at /auth/*
+  router.post('/auth/forget-password', async (c) => {
+    const url = new URL(c.req.url)
+    url.pathname = url.pathname.replace(/\/auth\/forget-password$/, '/auth/request-password-reset')
+    const req = new Request(url.toString(), c.req.raw)
+    return auth.handler(req)
+  })
   router.all('/auth/*', (c) => auth.handler(c.req.raw))
 
   // Session verification middleware for all subsequent routes
@@ -149,7 +200,7 @@ export function createLontar(config: Config, options: CreateLontarOptions = {}):
   registerFirstUserRoutes(router, auth, config)
 
   // User management routes
-  registerUserRoutes(router, auth, config)
+  registerUserRoutes(router, auth, config, options)
 
   // Global routes
   registerGlobalRoutes(router, config)
