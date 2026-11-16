@@ -148,6 +148,39 @@ const Posts = collection({
 
 See [ADR 0026](docs/adr/0026-users-and-roles.md) for full details on the auth data model.
 
+### Field-level access control
+
+Fields also support granular `access` functions (`read`, `create`, `update`):
+
+```ts
+const Posts = collection({
+  slug: 'posts',
+  fields: {
+    title: f.text({ required: true }),
+    content: f.richText(),
+    // Hidden from unauthorized users in API responses and admin UI
+    editorialNotes: f.textarea({
+      access: {
+        read: ({ user }) => user?.role === 'admin' || user?.role === 'editor',
+        create: ({ user }) => user?.role === 'admin' || user?.role === 'editor',
+        update: ({ user }) => user?.role === 'admin' || user?.role === 'editor',
+      },
+    }),
+    // Readable by anyone, but writable only by administrators
+    views: f.number({
+      defaultValue: 0,
+      access: {
+        read: () => true,
+        create: ({ user }) => user?.role === 'admin',
+        update: ({ user }) => user?.role === 'admin',
+      },
+    }),
+  },
+})
+```
+
+Fields without read access are omitted from API responses, populated relationships, and version history. Filters and sorts on unreadable fields are rejected to prevent oracle attacks. See [ADR 0027](docs/adr/0027-field-level-access.md) for full details.
+
 ### Complex fields (group, array, blocks)
 
 Collections and globals support nested data structures for grouped metadata, repeating items, and modular block layouts:
