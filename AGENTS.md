@@ -211,7 +211,7 @@ approval on the `npm` environment. Don't run `pnpm publish` by hand; see `docs/r
   - [x] #339 `access: enforce field-level access in operations`
   - [x] #340 `api: permissions endpoint for the admin`
   - [x] #341 `admin: hide and lock UI by collection and field permissions`
-  - [ ] #342 `auth: user management API`
+  - [x] #342 `auth: user management API`
   - [ ] #343 `admin: users screen and account page`
   - [ ] #344 `auth: email transport, password reset, invites and verification`
   - [ ] #345 `auth: API keys for machine-to-machine REST access`
