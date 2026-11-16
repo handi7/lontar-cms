@@ -1278,4 +1278,117 @@ describe('defineConfig', () => {
       ).toThrow('Admin role "admin" is not in auth.roles. Specify auth.adminRole.')
     })
   })
+
+  describe('field access validation', () => {
+    it('allows valid field access functions', () => {
+      const config = {
+        secret: SECRET,
+        db: fakeAdapter,
+        collections: [
+          notes({
+            fields: {
+              secret: f.text({
+                access: {
+                  read: () => true,
+                  create: () => false,
+                  update: () => true,
+                },
+              }),
+            },
+          }),
+        ],
+      }
+      expect(defineConfig(config)).toBe(config)
+    })
+
+    it('rejects field access when not an object', () => {
+      expect(() =>
+        defineConfig({
+          secret: SECRET,
+          db: fakeAdapter,
+          collections: [
+            notes({
+              fields: {
+                secret: f.text({
+                  // @ts-expect-error - testing invalid access type
+                  access: 'invalid',
+                }),
+              },
+            }),
+          ],
+        }),
+      ).toThrow('Collection "notes": field "secret" access must be an object.')
+    })
+
+    it('rejects unsupported access keys on fields', () => {
+      expect(() =>
+        defineConfig({
+          secret: SECRET,
+          db: fakeAdapter,
+          collections: [
+            notes({
+              fields: {
+                secret: f.text({
+                  access: {
+                    // @ts-expect-error - testing invalid access key
+                    delete: () => true,
+                  },
+                }),
+              },
+            }),
+          ],
+        }),
+      ).toThrow(
+        'Collection "notes": field "secret" access does not support "delete". Only "read", "create", and "update" are supported.',
+      )
+    })
+
+    it('rejects non-function access values on fields', () => {
+      expect(() =>
+        defineConfig({
+          secret: SECRET,
+          db: fakeAdapter,
+          collections: [
+            notes({
+              fields: {
+                secret: f.text({
+                  access: {
+                    // @ts-expect-error - testing non-function access value
+                    read: true,
+                  },
+                }),
+              },
+            }),
+          ],
+        }),
+      ).toThrow('Collection "notes": field "secret" access.read must be a function.')
+    })
+
+    it('validates access on nested fields in group, array, and blocks', () => {
+      expect(() =>
+        defineConfig({
+          secret: SECRET,
+          db: fakeAdapter,
+          collections: [
+            notes({
+              fields: {
+                meta: f.group({
+                  fields: {
+                    internalNote: f.text({
+                      access: {
+                        // @ts-expect-error - testing invalid access
+                        read: 123,
+                      },
+                    }),
+                  },
+                }),
+              },
+            }),
+          ],
+        }),
+      ).toThrow(
+        'Collection "notes" -> group "meta": field "internalNote" access.read must be a function.',
+      )
+    })
+  })
 })

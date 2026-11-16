@@ -1,4 +1,4 @@
-import { checkAccess } from '../access'
+import { checkAccess, sanitizeDocRead } from '../access'
 import type { AuthUser } from '../auth/types'
 import type { CollectionConfig } from '../config/types'
 import type { DatabaseAdapter, DocumentData } from '../database/adapter'
@@ -351,6 +351,17 @@ interface PopulateTargetArgs {
   draft?: boolean
 }
 
+async function sanitizeTargetDocs(
+  targetCol: CollectionConfig,
+  docsById: Map<number, DocumentData>,
+  user: AuthUser | null,
+): Promise<void> {
+  for (const [id, doc] of docsById.entries()) {
+    const sanitized = await sanitizeDocRead(targetCol.fields, doc, user, { id, doc })
+    docsById.set(id, sanitized)
+  }
+}
+
 async function populateTargetCollection(args: PopulateTargetArgs): Promise<void> {
   const {
     targetCol,
@@ -392,6 +403,10 @@ async function populateTargetCollection(args: PopulateTargetArgs): Promise<void>
       overrideAccess,
       canDraftTarget,
     )
+  }
+
+  if (!overrideAccess) {
+    await sanitizeTargetDocs(targetCol, docsById, user)
   }
 
   assignTargetSlots(targetSlots, docsById, seen)

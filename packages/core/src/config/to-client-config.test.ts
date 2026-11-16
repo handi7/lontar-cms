@@ -855,4 +855,79 @@ describe('toClientConfig', () => {
     ).toBeUndefined()
     expect((clientCfg.globals[0] as unknown as Record<string, unknown>).webhooks).toBeUndefined()
   })
+
+  it('strips access functions from top-level and nested fields (architecture rule 2)', () => {
+    const config = defineConfig({
+      secret: SECRET,
+      db: fakeAdapter,
+      collections: [
+        {
+          slug: 'posts',
+          fields: {
+            title: f.text({
+              access: {
+                read: () => true,
+                create: () => false,
+                update: () => true,
+              },
+            }),
+            seo: f.group({
+              access: {
+                read: () => true,
+              },
+              fields: {
+                keywords: f.text({
+                  access: {
+                    read: () => false,
+                    update: () => false,
+                  },
+                }),
+              },
+            }),
+            gallery: f.array({
+              access: {
+                read: () => true,
+              },
+              fields: {
+                caption: f.text({
+                  access: {
+                    update: () => false,
+                  },
+                }),
+              },
+            }),
+            layout: f.blocks({
+              access: {
+                read: () => true,
+              },
+              blocks: [
+                block({
+                  slug: 'cta',
+                  fields: {
+                    secretLink: f.text({
+                      access: {
+                        read: () => false,
+                      },
+                    }),
+                  },
+                }),
+              ],
+            }),
+          },
+        },
+      ],
+    })
+
+    const clientCfg = toClientConfig(config)
+    const jsonString = JSON.stringify(clientCfg)
+
+    // Verify plain JSON: no functions, no access keys
+    expect(jsonString).not.toContain('"access"')
+    expect(jsonString).not.toContain('Function')
+
+    const col = clientCfg.collections[0]!
+    for (const field of col.fields) {
+      expect((field as unknown as Record<string, unknown>).access).toBeUndefined()
+    }
+  })
 })

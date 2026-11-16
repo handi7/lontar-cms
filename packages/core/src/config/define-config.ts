@@ -523,6 +523,98 @@ function validateBlocksContent(
   return issues
 }
 
+const FIELD_ACCESS_OPS = ['read', 'create', 'update'] as const
+type FieldAccessOp = (typeof FIELD_ACCESS_OPS)[number]
+
+function validateFieldAccessKeys(
+  where: string,
+  name: string,
+  access: Record<string, unknown>,
+): string[] {
+  const issues: string[] = []
+  for (const key of Object.keys(access)) {
+    if (!FIELD_ACCESS_OPS.includes(key as FieldAccessOp)) {
+      issues.push(
+        `${where}: field "${name}" access does not support "${key}". Only "read", "create", and "update" are supported.`,
+      )
+    }
+  }
+  return issues
+}
+
+function validateFieldAccessOps(
+  where: string,
+  name: string,
+  access: Record<string, unknown>,
+): string[] {
+  const issues: string[] = []
+  for (const op of FIELD_ACCESS_OPS) {
+    const fn = access[op]
+    if (fn !== undefined && typeof fn !== 'function') {
+      issues.push(`${where}: field "${name}" access.${op} must be a function.`)
+    }
+  }
+  return issues
+}
+
+function validateFieldAccess(where: string, name: string, access?: unknown): string[] {
+  if (access === undefined) return []
+  if (typeof access !== 'object' || access === null) {
+    return [`${where}: field "${name}" access must be an object.`]
+  }
+  const obj = access as Record<string, unknown>
+  return [...validateFieldAccessKeys(where, name, obj), ...validateFieldAccessOps(where, name, obj)]
+}
+
+function validateFieldType(
+  where: string,
+  name: string,
+  field: Field,
+  fields: Record<string, Field>,
+  depth: number,
+  dbAdapter?: DatabaseAdapter,
+): string[] {
+  switch (field.type) {
+    case 'text':
+      return validateTextField(where, name, field, dbAdapter)
+    case 'textarea':
+      return validateTextareaField(where, name, field)
+    case 'slug':
+      return validateSlugField(where, name, field, fields)
+    case 'group':
+      return [
+        ...validateGroupField(where, name, depth),
+        ...validateFields(
+          `${where} -> group "${name}"`,
+          field.fields,
+          false,
+          depth + 1,
+          false,
+          dbAdapter,
+        ),
+      ]
+    case 'array':
+      return [
+        ...validateArrayField(where, name, field, depth),
+        ...validateFields(
+          `${where} -> array "${name}"`,
+          field.fields,
+          false,
+          depth + 1,
+          false,
+          dbAdapter,
+        ),
+      ]
+    case 'blocks':
+      return [
+        ...validateBlocksField(where, name, field, depth),
+        ...validateBlocksContent(where, name, field, depth, dbAdapter),
+      ]
+    default:
+      return []
+  }
+}
+
 function validateField(
   where: string,
   name: string,
@@ -531,48 +623,10 @@ function validateField(
   depth: number,
   dbAdapter?: DatabaseAdapter,
 ): string[] {
-  if (field.type === 'text') {
-    return validateTextField(where, name, field, dbAdapter)
-  }
-  if (field.type === 'textarea') {
-    return validateTextareaField(where, name, field)
-  }
-  if (field.type === 'slug') {
-    return validateSlugField(where, name, field, fields)
-  }
-  if (field.type === 'group') {
-    return [
-      ...validateGroupField(where, name, depth),
-      ...validateFields(
-        `${where} -> group "${name}"`,
-        field.fields,
-        false,
-        depth + 1,
-        false,
-        dbAdapter,
-      ),
-    ]
-  }
-  if (field.type === 'array') {
-    return [
-      ...validateArrayField(where, name, field, depth),
-      ...validateFields(
-        `${where} -> array "${name}"`,
-        field.fields,
-        false,
-        depth + 1,
-        false,
-        dbAdapter,
-      ),
-    ]
-  }
-  if (field.type === 'blocks') {
-    return [
-      ...validateBlocksField(where, name, field, depth),
-      ...validateBlocksContent(where, name, field, depth, dbAdapter),
-    ]
-  }
-  return []
+  return [
+    ...validateFieldAccess(where, name, field.access),
+    ...validateFieldType(where, name, field, fields, depth, dbAdapter),
+  ]
 }
 
 function validateSlugField(

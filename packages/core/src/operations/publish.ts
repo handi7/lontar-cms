@@ -1,4 +1,4 @@
-import { checkAccess } from '../access'
+import { checkAccess, sanitizeDocRead } from '../access'
 import type { AuthUser } from '../auth/types'
 import type { DocStatus } from '../client/system-fields'
 import { clientFieldsToZod } from '../client/zod'
@@ -223,7 +223,16 @@ async function transitionDocumentStatus<T = DocumentData>(
     overrideAccess: args.overrideAccess,
   })
 
-  return populated as T
+  if (args.overrideAccess) {
+    return populated as T
+  }
+
+  const sanitized = await sanitizeDocRead(args.collection.fields, populated, args.user ?? null, {
+    id: args.id,
+    doc: populated,
+  })
+
+  return sanitized as T
 }
 
 export function publishOperation<T = DocumentData>(args: PublishOperationArgs): Promise<T> {
@@ -410,7 +419,7 @@ async function transitionGlobalStatus<T = DocumentData>(
 
   dispatchWebhooks?.()
 
-  return populateGlobalTransitionDoc<T>({
+  const populated = await populateGlobalTransitionDoc<T>({
     doc: resultDoc,
     global: args.global,
     config: args.config,
@@ -419,6 +428,19 @@ async function transitionGlobalStatus<T = DocumentData>(
     req: args.req,
     overrideAccess: args.overrideAccess,
   })
+
+  if (args.overrideAccess) {
+    return populated
+  }
+
+  const sanitized = await sanitizeDocRead(
+    args.global.fields,
+    populated as DocumentData,
+    args.user ?? null,
+    { doc: populated as DocumentData },
+  )
+
+  return sanitized as T
 }
 
 export function publishGlobalOperation<T = DocumentData>(

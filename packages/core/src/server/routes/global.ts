@@ -33,6 +33,20 @@ async function parseJsonBody(c: Context<LontarEnv>): Promise<unknown> {
   }
 }
 
+function extractFirstIssueMessage(issues: unknown[] | undefined, fallback: string): string {
+  if (!issues || issues.length === 0) return fallback
+  const first = issues[0]
+  if (
+    typeof first === 'object' &&
+    first !== null &&
+    'message' in first &&
+    typeof first.message === 'string'
+  ) {
+    return first.message
+  }
+  return fallback
+}
+
 function handleGlobalError(err: unknown, c: Context<LontarEnv>, user: AuthUser | null): Response {
   if (err instanceof AccessDeniedError) {
     return accessDenied(c, user)
@@ -42,7 +56,14 @@ function handleGlobalError(err: unknown, c: Context<LontarEnv>, user: AuthUser |
   }
   if (err instanceof ValidationError) {
     if (err.issues && err.issues.length > 0) {
-      return c.json({ error: err.message, issues: err.issues }, 400)
+      return c.json(
+        {
+          error: err.message,
+          message: extractFirstIssueMessage(err.issues, err.message),
+          issues: err.issues,
+        },
+        400,
+      )
     }
     return c.json({ error: err.message }, 400)
   }

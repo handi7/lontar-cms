@@ -23,3 +23,12 @@ export function accessDenied(c: Context, user: AuthUser | null): Response {
   }
   return c.json({ error: 'Unauthorized' }, 401)
 }
+
+export {
+  checkFieldAccess,
+  sanitizeDocRead,
+  sanitizeDocWrite,
+  type WriteSanitizationContext,
+} from './field-access'
+
+export { extractReferencedPaths, isPathReadable, validateQueryAccess } from './query-access'

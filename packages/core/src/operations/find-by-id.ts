@@ -1,4 +1,4 @@
-import { checkAccess } from '../access'
+import { checkAccess, sanitizeDocRead } from '../access'
 import type { AuthUser } from '../auth/types'
 import type { CollectionConfig, Config } from '../config/types'
 import type { DocumentData } from '../database/adapter'
@@ -89,5 +89,14 @@ export async function findByIDOperation<T = DocumentData>(
     draft: args.draft,
   })
 
-  return populated as T
+  if (args.overrideAccess || !populated) {
+    return populated as T
+  }
+
+  const sanitized = await sanitizeDocRead(args.collection.fields, populated, args.user ?? null, {
+    id: args.id,
+    doc: populated,
+  })
+
+  return sanitized as T
 }

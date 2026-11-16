@@ -1,4 +1,4 @@
-import { checkAccess } from '../access'
+import { checkAccess, sanitizeDocRead, sanitizeDocWrite } from '../access'
 import type { AuthUser } from '../auth/types'
 import { clientFieldsToZod } from '../client/zod'
 import { toClientCollection } from '../config/to-client-config'
@@ -67,9 +67,16 @@ export async function createOperation<T = DocumentData>(args: CreateOperationArg
     await assertCreateAccess(args.collection, args.data, args.user)
   }
 
+  const writeData = args.overrideAccess
+    ? args.data
+    : await sanitizeDocWrite(args.collection.fields, args.data, 'create', {
+        user: args.user ?? null,
+        data: args.data,
+      })
+
   const draft = resolveDraftFlag(args.collection, args.draft, args.autosave)
   const { status, statusTransition } = resolveCreateStatus(args.collection, draft)
-  const { _status: _ignoredStatus, ...cleanData } = args.data
+  const { _status: _ignoredStatus, ...cleanData } = writeData
   const hookData = await runBeforeValidateHooks({
     collection: args.collection,
     data: cleanData,
@@ -107,5 +114,14 @@ export async function createOperation<T = DocumentData>(args: CreateOperationArg
     draft: canPopulateDraft,
   })
 
-  return populated as T
+  if (args.overrideAccess) {
+    return populated as T
+  }
+
+  const sanitized = await sanitizeDocRead(args.collection.fields, populated, args.user ?? null, {
+    id: createdDoc.id as string | number | undefined,
+    doc: populated,
+  })
+
+  return sanitized as T
 }

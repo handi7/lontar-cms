@@ -1,3 +1,4 @@
+import type { AuthUser } from '../auth/types'
 import type { FieldCondition } from '../client/condition'
 
 /*
@@ -5,6 +6,22 @@ import type { FieldCondition } from '../client/condition'
  * Anything that converts a field (to Zod, to a column, to a ClientField) lives
  * in a registry keyed by `type`, never on the field object itself.
  */
+
+export interface FieldAccessArgs<TData = unknown, TSiblingData = unknown, TDoc = unknown> {
+  user: AuthUser | null
+  id?: string | number
+  data?: TData
+  siblingData?: TSiblingData
+  doc?: TDoc
+}
+
+export type FieldAccessFunction = (args: FieldAccessArgs) => boolean | Promise<boolean>
+
+export interface FieldAccess {
+  read?: FieldAccessFunction
+  create?: FieldAccessFunction
+  update?: FieldAccessFunction
+}
 
 export interface FieldAdminOptions {
   description?: string
@@ -16,6 +33,7 @@ export interface BaseField {
   label?: string
   required?: boolean
   admin?: FieldAdminOptions
+  access?: FieldAccess
 }
 
 export interface TextField extends BaseField {
@@ -89,6 +107,8 @@ export interface RelationshipFieldOptions {
   required?: boolean
   relationTo: string
   hasMany?: boolean
+  admin?: FieldAdminOptions
+  access?: FieldAccess
 }
 
 export interface RelationshipField extends BaseField {
@@ -101,6 +121,8 @@ export interface UploadFieldOptions {
   label?: string
   required?: boolean
   relationTo: string
+  admin?: FieldAdminOptions
+  access?: FieldAccess
 }
 
 export interface UploadField extends BaseField {
@@ -112,6 +134,8 @@ export interface GroupFieldOptions {
   label?: string
   required?: boolean
   fields: Record<string, Field>
+  admin?: FieldAdminOptions
+  access?: FieldAccess
 }
 
 export interface GroupField extends BaseField {
@@ -131,6 +155,7 @@ export interface ArrayFieldOptions {
   maxRows?: number
   labels?: { singular: string; plural: string }
   admin?: ArrayFieldAdminOptions
+  access?: FieldAccess
 }
 
 export interface ArrayField extends BaseField {
@@ -170,6 +195,7 @@ export interface BlocksFieldOptions {
   maxRows?: number
   labels?: { singular: string; plural: string }
   admin?: BlocksFieldAdminOptions
+  access?: FieldAccess
 }
 
 export interface BlocksField extends BaseField {

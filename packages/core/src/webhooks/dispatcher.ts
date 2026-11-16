@@ -1,3 +1,4 @@
+import { sanitizeDocRead } from '../access'
 import type { DocStatus } from '../client/system-fields'
 import type {
   CollectionConfig,
@@ -15,6 +16,7 @@ export interface TargetWebhook {
   events: readonly WebhookEvent[]
   secret?: string
   includeDoc?: boolean
+  overrideAccess?: boolean
 }
 
 export interface DispatchWebhooksArgs {
@@ -195,6 +197,37 @@ export function buildWebhookPayload(args: {
   return payload
 }
 
+async function prepareTargetDelivery(
+  target: TargetWebhook,
+  args: DispatchWebhooksArgs,
+): Promise<WebhookDeliveryResult> {
+  let docToSend = args.doc
+  if (target.includeDoc && target.overrideAccess === false) {
+    const fields = args.collection?.fields ?? args.global?.fields ?? {}
+    docToSend = await sanitizeDocRead(fields, args.doc, null, {
+      id: args.doc.id as string | number | undefined,
+      doc: args.doc,
+    })
+  }
+
+  const payload = buildWebhookPayload({
+    event: args.event,
+    collection: args.collection,
+    global: args.global,
+    doc: docToSend,
+    status: args.status,
+    previousStatus: args.previousStatus,
+    includeDoc: target.includeDoc,
+  })
+
+  return deliverWebhook({
+    url: target.url,
+    payload,
+    secret: target.secret,
+    ...args.options,
+  })
+}
+
 /**
  * Dispatches outgoing webhooks for a document event.
  * Runs asynchronously post-commit. Autosave requests are ignored.
@@ -218,24 +251,7 @@ export function dispatchWebhooks(args: DispatchWebhooksArgs): Promise<WebhookDel
 
   let deliveries: Promise<WebhookDeliveryResult>[]
   try {
-    deliveries = matching.map((target) => {
-      const payload = buildWebhookPayload({
-        event: args.event,
-        collection: args.collection,
-        global: args.global,
-        doc: args.doc,
-        status: args.status,
-        previousStatus: args.previousStatus,
-        includeDoc: target.includeDoc,
-      })
-
-      return deliverWebhook({
-        url: target.url,
-        payload,
-        secret: target.secret,
-        ...args.options,
-      })
-    })
+    deliveries = matching.map((target) => prepareTargetDelivery(target, args))
   } catch (err: unknown) {
     const logger = args.options?.logger ?? console.error
     logger('[Webhooks] Delivery batch failed:', err)

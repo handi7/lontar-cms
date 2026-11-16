@@ -140,7 +140,18 @@ export {
   type CreateUserData,
   type CreatedUserResult,
 } from './auth/user'
-export { accessDenied, checkAccess, defaultAccess } from './access'
+export {
+  accessDenied,
+  checkAccess,
+  checkFieldAccess,
+  defaultAccess,
+  extractReferencedPaths,
+  isPathReadable,
+  sanitizeDocRead,
+  sanitizeDocWrite,
+  validateQueryAccess,
+  type WriteSanitizationContext,
+} from './access'
 export type {
   AccessArgs,
   AccessFunction,
@@ -208,6 +219,9 @@ export type {
   DateField,
   EmailField,
   Field,
+  FieldAccess,
+  FieldAccessArgs,
+  FieldAccessFunction,
   FieldAdminOptions,
   Fields,
   FieldType,
