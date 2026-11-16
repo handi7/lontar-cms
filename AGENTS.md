@@ -213,7 +213,7 @@ approval on the `npm` environment. Don't run `pnpm publish` by hand; see `docs/r
   - [x] #341 `admin: hide and lock UI by collection and field permissions`
   - [x] #342 `auth: user management API`
   - [x] #343 `admin: users screen and account page`
-  - [ ] #344 `auth: email transport, password reset, invites and verification`
+  - [x] #344 `auth: email transport, password reset, invites and verification`
   - [ ] #345 `auth: API keys for machine-to-machine REST access`
   - [ ] #346 `auth: rate limiting for Lontar auth routes and multi-instance storage`
   - [ ] #347 `examples/next-blog: roles and field-level access, with e2e`
