@@ -1,7 +1,12 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { cleanup, render, screen } from '@testing-library/react'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
-import type { ClientCollection, ClientConfig, CollectionPermission } from '@lontar/core/client'
+import {
+  CLIENT_CONFIG_VERSION,
+  type ClientCollection,
+  type ClientConfig,
+  type CollectionPermission,
+} from '@lontar/core/client'
 import { PortalContainerProvider } from '../context/PortalContainer'
 import { CollectionFormView } from './CollectionFormView'
 import * as client from '../api/client'
@@ -102,7 +107,7 @@ describe('CollectionFormView permissions (#341)', () => {
 
   function renderView(mode: 'create' | 'edit') {
     const adminConfig: ClientConfig = {
-      version: 1,
+      version: CLIENT_CONFIG_VERSION,
       collections: [mockCollection],
       globals: [],
     }
