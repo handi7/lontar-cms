@@ -6,6 +6,7 @@ export const CLIENT_CONFIG_VERSION = 2
 export interface ClientAuthConfig {
   roles: string[]
   defaultRole: string
+  adminRole: string
 }
 
 /**

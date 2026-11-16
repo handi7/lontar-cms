@@ -42,21 +42,24 @@ function GlobalsNav({ globals }: { globals?: ClientGlobal[] }) {
   )
 }
 
-function SidebarUserProfile({
-  user,
-  onSignOut,
-  isSigningOut,
-}: {
+export interface SidebarUserProfileProps {
   user: AdminUser
   onSignOut: () => void
   isSigningOut: boolean
-}) {
+}
+
+function SidebarUserProfile(props: SidebarUserProfileProps) {
+  const { user, onSignOut, isSigningOut } = props
   const initial = (user.name?.[0] || user.email?.[0] || 'A').toUpperCase()
 
   return (
     <div className="lt:flex lt:shrink-0 lt:flex-col lt:gap-3 lt:border-t lt:bg-card lt:p-4">
       <ThemeToggle />
-      <div className="lt:flex lt:items-center lt:gap-3">
+      <Link
+        to="/account"
+        className="lt:flex lt:items-center lt:gap-3 lt:rounded-md lt:p-1.5 lt:no-underline lt:transition-colors lt:hover:bg-accent"
+        aria-label="Account settings"
+      >
         <div className="lt:flex lt:size-[34px] lt:shrink-0 lt:items-center lt:justify-center lt:rounded-full lt:bg-primary lt:text-sm lt:font-semibold lt:text-primary-foreground">
           {initial}
         </div>
@@ -66,7 +69,7 @@ function SidebarUserProfile({
           </span>
           <span className="lt:truncate lt:text-xs lt:text-muted-foreground">{user.email}</span>
         </div>
-      </div>
+      </Link>
       <Button
         variant="outline"
         size="sm"
@@ -86,6 +89,8 @@ export function Sidebar() {
   const { canReadCollection, canReadGlobal } = usePermissions()
   const { user, signOut } = useAuth()
   const [isSigningOut, setIsSigningOut] = useState(false)
+  const adminRole = config.auth?.adminRole ?? 'admin'
+  const isAdmin = user?.role === adminRole
 
   const visibleCollections = useMemo(
     () => config.collections.filter((col) => canReadCollection(col.slug)),
@@ -148,6 +153,15 @@ export function Sidebar() {
         )}
 
         <GlobalsNav globals={visibleGlobals} />
+
+        {isAdmin && (
+          <div className={navGroupClass}>
+            <NavTitle>Administration</NavTitle>
+            <Link to="/users" className={navLinkClass}>
+              Users
+            </Link>
+          </div>
+        )}
       </nav>
 
       {user && (
