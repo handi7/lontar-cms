@@ -100,8 +100,9 @@ test.describe('Lontar CMS Admin in Next.js', () => {
     await expect(page.getByRole('link', { name: updatedTitle })).not.toBeVisible()
 
     // 14. Verify user profile in sidebar and logout
-    await expect(page.getByText(/Admin/)).toBeVisible()
-    await expect(page.getByText(adminEmail)).toBeVisible()
+    const accountLink = page.getByRole('link', { name: 'Account settings' })
+    await expect(accountLink).toBeVisible()
+    await expect(accountLink).toContainText(adminEmail)
     await page.getByRole('button', { name: 'Sign out' }).click()
     await expect(page.getByRole('heading', { name: 'Sign in to Admin' })).toBeVisible()
   })
@@ -151,7 +152,7 @@ test.describe('Lontar CMS Admin in Next.js', () => {
 
     // 3. Verify Users view is displayed
     await expect(page.getByRole('heading', { name: 'Users', exact: true })).toBeVisible()
-    await expect(page.getByText(adminEmail)).toBeVisible()
+    await expect(page.getByRole('table').getByText(adminEmail)).toBeVisible()
 
     // 4. Create new user
     await page.getByRole('button', { name: 'New user' }).click()
@@ -181,6 +182,11 @@ test.describe('Lontar CMS Admin in Next.js', () => {
     // 8. Update display name
     const updatedName = `Admin Updated ${Date.now()}`
     await page.locator('#account-name').fill(updatedName)
+    await page.getByRole('button', { name: 'Save profile' }).click()
+    await expect(page.getByText('Profile name updated successfully.')).toBeVisible()
+
+    // Restore original name
+    await page.locator('#account-name').fill('Admin User')
     await page.getByRole('button', { name: 'Save profile' }).click()
     await expect(page.getByText('Profile name updated successfully.')).toBeVisible()
   })
