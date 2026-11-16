@@ -11,6 +11,17 @@ import {
   fetchPermissions,
   fetchDocumentPermissions,
   fetchGlobalPermissions,
+  fetchUsers,
+  fetchUserById,
+  createUser,
+  updateUser,
+  disableUser,
+  enableUser,
+  revokeUserSessions,
+  adminSetUserPassword,
+  deleteUser,
+  updateMe,
+  changeMyPassword,
   setOnUnauthorized,
   signOut,
   unpublishDoc,
@@ -294,6 +305,148 @@ describe('ApiClientError and API Client error handling', () => {
         credentials: 'include',
       })
       expect(result.read).toBe(true)
+    })
+  })
+
+  describe('user management and account operations (#343)', () => {
+    it('fetches users list with query parameters', async () => {
+      const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue({
+        ok: true,
+        json: vi.fn().mockResolvedValue({
+          docs: [{ id: 'u1', name: 'Alice', email: 'alice@example.com', role: 'admin' }],
+          totalDocs: 1,
+          page: 1,
+          limit: 10,
+          totalPages: 1,
+        }),
+      } as unknown as Response)
+
+      const result = await fetchUsers('/api', { page: 2, limit: 5, search: 'alice', role: 'admin' })
+      expect(fetchSpy).toHaveBeenLastCalledWith(
+        '/api/_lontar/users?page=2&limit=5&search=alice&role=admin',
+        { credentials: 'include' },
+      )
+      expect(result.docs).toHaveLength(1)
+    })
+
+    it('creates a user', async () => {
+      const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue({
+        ok: true,
+        json: vi.fn().mockResolvedValue({
+          user: { id: 'u2', name: 'Bob', email: 'bob@example.com', role: 'editor' },
+        }),
+      } as unknown as Response)
+
+      const user = await createUser('/api', {
+        name: 'Bob',
+        email: 'bob@example.com',
+        password: 'password123',
+        role: 'editor',
+      })
+      expect(fetchSpy).toHaveBeenLastCalledWith(
+        '/api/_lontar/users',
+        expect.objectContaining({
+          method: 'POST',
+          body: JSON.stringify({
+            name: 'Bob',
+            email: 'bob@example.com',
+            password: 'password123',
+            role: 'editor',
+          }),
+        }),
+      )
+      expect(user.id).toBe('u2')
+    })
+
+    it('updates, disables, enables, and deletes a user', async () => {
+      const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue({
+        ok: true,
+        json: vi.fn().mockResolvedValue({
+          user: { id: 'u1', name: 'Alice Updated', role: 'editor' },
+          message: 'Success',
+        }),
+      } as unknown as Response)
+
+      const fetched = await fetchUserById('/api', 'u1')
+      expect(fetchSpy).toHaveBeenCalledWith('/api/_lontar/users/u1', { credentials: 'include' })
+      expect(fetched.id).toBe('u1')
+
+      await updateUser('/api', 'u1', { name: 'Alice Updated', role: 'editor' })
+      expect(fetchSpy).toHaveBeenCalledWith(
+        '/api/_lontar/users/u1',
+        expect.objectContaining({ method: 'PATCH' }),
+      )
+
+      await revokeUserSessions('/api', 'u1')
+      expect(fetchSpy).toHaveBeenCalledWith(
+        '/api/_lontar/users/u1/revoke-sessions',
+        expect.objectContaining({ method: 'POST' }),
+      )
+
+      await adminSetUserPassword('/api', 'u1', 'newpassword123')
+      expect(fetchSpy).toHaveBeenCalledWith(
+        '/api/_lontar/users/u1/password',
+        expect.objectContaining({
+          method: 'POST',
+          body: JSON.stringify({ password: 'newpassword123' }),
+        }),
+      )
+
+      await disableUser('/api', 'u1', 'Suspicious activity')
+      expect(fetchSpy).toHaveBeenCalledWith(
+        '/api/_lontar/users/u1/disable',
+        expect.objectContaining({
+          method: 'POST',
+          body: JSON.stringify({ reason: 'Suspicious activity' }),
+        }),
+      )
+
+      await enableUser('/api', 'u1')
+      expect(fetchSpy).toHaveBeenCalledWith(
+        '/api/_lontar/users/u1/enable',
+        expect.objectContaining({ method: 'POST' }),
+      )
+
+      await deleteUser('/api', 'u1')
+      expect(fetchSpy).toHaveBeenCalledWith(
+        '/api/_lontar/users/u1',
+        expect.objectContaining({ method: 'DELETE' }),
+      )
+    })
+
+    it('updates current user name and changes password', async () => {
+      const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue({
+        ok: true,
+        json: vi.fn().mockResolvedValue({
+          user: { id: 'u1', name: 'Handi Updated' },
+          message: 'Password changed successfully',
+        }),
+      } as unknown as Response)
+
+      const me = await updateMe('/api', { name: 'Handi Updated' })
+      expect(fetchSpy).toHaveBeenCalledWith(
+        '/api/_lontar/me',
+        expect.objectContaining({
+          method: 'PATCH',
+          body: JSON.stringify({ name: 'Handi Updated' }),
+        }),
+      )
+      expect(me.name).toBe('Handi Updated')
+
+      await changeMyPassword('/api', {
+        currentPassword: 'old-password',
+        newPassword: 'new-password123',
+      })
+      expect(fetchSpy).toHaveBeenCalledWith(
+        '/api/_lontar/me/password',
+        expect.objectContaining({
+          method: 'POST',
+          body: JSON.stringify({
+            currentPassword: 'old-password',
+            newPassword: 'new-password123',
+          }),
+        }),
+      )
     })
   })
 })

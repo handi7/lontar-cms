@@ -487,3 +487,186 @@ export async function fetchGlobalPermissions(
   })
   return handleResponse<GlobalPermission>(res)
 }
+
+export interface UserDoc {
+  id: string
+  name: string
+  email: string
+  role: string
+  banned: boolean
+  banReason?: string | null
+  banExpires?: string | Date | null
+  image?: string | null
+  createdAt?: string | Date
+  updatedAt?: string | Date
+  [key: string]: unknown
+}
+
+export interface PaginatedUsers {
+  docs: UserDoc[]
+  totalDocs: number
+  limit: number
+  page: number
+  totalPages: number
+  pagingCounter: number
+  hasNextPage: boolean
+  hasPrevPage: boolean
+  prevPage: number | null
+  nextPage: number | null
+}
+
+export interface CreateUserData {
+  email: string
+  password: string
+  name: string
+  role?: string
+}
+
+export interface UpdateUserData {
+  name?: string
+  role?: string
+}
+
+export interface ChangePasswordData {
+  currentPassword: string
+  newPassword: string
+}
+
+export async function fetchUsers(
+  apiBase: string,
+  options?: { page?: number; limit?: number; search?: string; role?: string },
+): Promise<PaginatedUsers> {
+  const base = apiBase.replace(/\/+$/, '')
+  const params = new URLSearchParams()
+  if (options?.page) params.set('page', String(options.page))
+  if (options?.limit) params.set('limit', String(options.limit))
+  if (options?.search) params.set('search', options.search)
+  if (options?.role) params.set('role', options.role)
+  const query = params.toString() ? `?${params.toString()}` : ''
+  const res = await fetch(`${base}/_lontar/users${query}`, { credentials: 'include' })
+  return handleResponse<PaginatedUsers>(res)
+}
+
+export async function fetchUserById(apiBase: string, id: string): Promise<UserDoc> {
+  const base = apiBase.replace(/\/+$/, '')
+  const res = await fetch(`${base}/_lontar/users/${id}`, { credentials: 'include' })
+  const data = await handleResponse<{ user: UserDoc }>(res)
+  return data.user
+}
+
+export async function createUser(apiBase: string, data: CreateUserData): Promise<UserDoc> {
+  const base = apiBase.replace(/\/+$/, '')
+  const res = await fetch(`${base}/_lontar/users`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    credentials: 'include',
+    body: JSON.stringify(data),
+  })
+  const resData = await handleResponse<{ user: UserDoc }>(res)
+  return resData.user
+}
+
+export async function updateUser(
+  apiBase: string,
+  id: string,
+  data: UpdateUserData,
+): Promise<UserDoc> {
+  const base = apiBase.replace(/\/+$/, '')
+  const res = await fetch(`${base}/_lontar/users/${id}`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    credentials: 'include',
+    body: JSON.stringify(data),
+  })
+  const resData = await handleResponse<{ user: UserDoc }>(res)
+  return resData.user
+}
+
+export async function disableUser(
+  apiBase: string,
+  id: string,
+  reason?: string,
+): Promise<{ message: string; user: UserDoc }> {
+  const base = apiBase.replace(/\/+$/, '')
+  const res = await fetch(`${base}/_lontar/users/${id}/disable`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    credentials: 'include',
+    body: JSON.stringify(reason ? { reason } : {}),
+  })
+  return handleResponse<{ message: string; user: UserDoc }>(res)
+}
+
+export async function enableUser(
+  apiBase: string,
+  id: string,
+): Promise<{ message: string; user: UserDoc }> {
+  const base = apiBase.replace(/\/+$/, '')
+  const res = await fetch(`${base}/_lontar/users/${id}/enable`, {
+    method: 'POST',
+    credentials: 'include',
+  })
+  return handleResponse<{ message: string; user: UserDoc }>(res)
+}
+
+export async function revokeUserSessions(
+  apiBase: string,
+  id: string,
+): Promise<{ message: string }> {
+  const base = apiBase.replace(/\/+$/, '')
+  const res = await fetch(`${base}/_lontar/users/${id}/revoke-sessions`, {
+    method: 'POST',
+    credentials: 'include',
+  })
+  return handleResponse<{ message: string }>(res)
+}
+
+export async function adminSetUserPassword(
+  apiBase: string,
+  id: string,
+  password: string,
+): Promise<{ message: string }> {
+  const base = apiBase.replace(/\/+$/, '')
+  const res = await fetch(`${base}/_lontar/users/${id}/password`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    credentials: 'include',
+    body: JSON.stringify({ password }),
+  })
+  return handleResponse<{ message: string }>(res)
+}
+
+export async function deleteUser(apiBase: string, id: string): Promise<{ message: string }> {
+  const base = apiBase.replace(/\/+$/, '')
+  const res = await fetch(`${base}/_lontar/users/${id}`, {
+    method: 'DELETE',
+    credentials: 'include',
+  })
+  return handleResponse<{ message: string }>(res)
+}
+
+export async function updateMe(apiBase: string, data: { name: string }): Promise<UserDoc> {
+  const base = apiBase.replace(/\/+$/, '')
+  const res = await fetch(`${base}/_lontar/me`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    credentials: 'include',
+    body: JSON.stringify(data),
+  })
+  const resData = await handleResponse<{ user: UserDoc }>(res)
+  return resData.user
+}
+
+export async function changeMyPassword(
+  apiBase: string,
+  data: ChangePasswordData,
+): Promise<{ message: string }> {
+  const base = apiBase.replace(/\/+$/, '')
+  const res = await fetch(`${base}/_lontar/me/password`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    credentials: 'include',
+    body: JSON.stringify(data),
+  })
+  return handleResponse<{ message: string }>(res)
+}

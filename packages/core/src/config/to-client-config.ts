@@ -189,12 +189,14 @@ const toClientField = {
 export function toClientConfig(config: Config): ClientConfig {
   const roles = config.auth?.roles ? [...config.auth.roles] : ['admin', 'editor']
   const defaultRole = config.auth?.defaultRole ?? 'editor'
+  const adminRole = config.auth?.adminRole ?? 'admin'
 
   return {
     version: CLIENT_CONFIG_VERSION,
     auth: {
       roles,
       defaultRole,
+      adminRole,
     },
     collections: config.collections.map(toClientCollection),
     globals: (config.globals ?? []).map(toClientGlobal),

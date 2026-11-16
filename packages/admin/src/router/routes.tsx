@@ -6,12 +6,14 @@ import {
   type RouterHistory,
 } from '@tanstack/react-router'
 import { AdminLayout } from '../layout/AdminLayout'
-import { DashboardView } from '../views/DashboardView'
-import { CollectionListView } from '../views/CollectionListView'
+import { AccountView } from '../views/AccountView'
 import { CollectionFormView } from '../views/CollectionFormView'
+import { CollectionListView } from '../views/CollectionListView'
+import { DashboardView } from '../views/DashboardView'
 import { GlobalFormView } from '../views/GlobalFormView'
 import { LoginView } from '../views/LoginView'
 import { NotFoundView } from '../views/NotFoundView'
+import { UsersView } from '../views/UsersView'
 
 function CreateForm() {
   return <CollectionFormView mode="create" />
@@ -43,6 +45,18 @@ export function createAdminRouter(options: { basePath?: string; history?: Router
     getParentRoute: () => authenticatedRoute,
     path: '/',
     component: DashboardView,
+  })
+
+  const usersRoute = createRoute({
+    getParentRoute: () => authenticatedRoute,
+    path: 'users',
+    component: UsersView,
+  })
+
+  const accountRoute = createRoute({
+    getParentRoute: () => authenticatedRoute,
+    path: 'account',
+    component: AccountView,
   })
 
   const globalRoute = createRoute({
@@ -84,6 +98,8 @@ export function createAdminRouter(options: { basePath?: string; history?: Router
     loginRoute,
     authenticatedRoute.addChildren([
       indexRoute,
+      usersRoute,
+      accountRoute,
       globalRoute,
       collectionRoute.addChildren([createRoutePath, editRoute, listRoute]),
     ]),

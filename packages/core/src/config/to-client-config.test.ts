@@ -30,6 +30,7 @@ describe('toClientConfig', () => {
       auth: {
         roles: ['admin', 'editor'],
         defaultRole: 'editor',
+        adminRole: 'admin',
       },
       collections: [
         {
@@ -64,6 +65,23 @@ describe('toClientConfig', () => {
     expect(toClientConfig(config).auth).toStrictEqual({
       roles: ['admin', 'editor', 'author'],
       defaultRole: 'author',
+      adminRole: 'admin',
+    })
+  })
+
+  it('serializes custom adminRole configuration', () => {
+    const config = defineConfig({
+      ...postsConfig,
+      auth: {
+        roles: ['superadmin', 'editor'],
+        defaultRole: 'editor',
+        adminRole: 'superadmin',
+      },
+    })
+    expect(toClientConfig(config).auth).toStrictEqual({
+      roles: ['superadmin', 'editor'],
+      defaultRole: 'editor',
+      adminRole: 'superadmin',
     })
   })
 

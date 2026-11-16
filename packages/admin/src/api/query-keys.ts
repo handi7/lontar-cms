@@ -44,4 +44,11 @@ export const queryKeys = {
   /** Global-specific permissions */
   globalPermissions: (apiBase: string, slug: string) =>
     ['_lontar_global_permissions', apiBase, slug] as const,
+
+  /** Users list */
+  users: (apiBase: string, page?: number, search?: string, role?: string) =>
+    ['_lontar_users', apiBase, page ?? 1, search ?? '', role ?? ''] as const,
+
+  /** Single user */
+  user: (apiBase: string, id: string) => ['_lontar_user', apiBase, id] as const,
 }
