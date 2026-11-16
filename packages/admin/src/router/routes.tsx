@@ -6,6 +6,7 @@ import {
   type RouterHistory,
 } from '@tanstack/react-router'
 import { AdminLayout } from '../layout/AdminLayout'
+import { AcceptInviteView } from '../views/AcceptInviteView'
 import { AccountView } from '../views/AccountView'
 import { CollectionFormView } from '../views/CollectionFormView'
 import { CollectionListView } from '../views/CollectionListView'
@@ -13,6 +14,7 @@ import { DashboardView } from '../views/DashboardView'
 import { GlobalFormView } from '../views/GlobalFormView'
 import { LoginView } from '../views/LoginView'
 import { NotFoundView } from '../views/NotFoundView'
+import { ResetPasswordView } from '../views/ResetPasswordView'
 import { UsersView } from '../views/UsersView'
 
 function CreateForm() {
@@ -33,6 +35,18 @@ export function createAdminRouter(options: { basePath?: string; history?: Router
     getParentRoute: () => rootRoute,
     path: '/login',
     component: LoginView,
+  })
+
+  const resetPasswordRoute = createRoute({
+    getParentRoute: () => rootRoute,
+    path: '/reset-password',
+    component: ResetPasswordView,
+  })
+
+  const acceptInviteRoute = createRoute({
+    getParentRoute: () => rootRoute,
+    path: '/accept-invite',
+    component: AcceptInviteView,
   })
 
   const authenticatedRoute = createRoute({
@@ -96,6 +110,8 @@ export function createAdminRouter(options: { basePath?: string; history?: Router
 
   const routeTree = rootRoute.addChildren([
     loginRoute,
+    resetPasswordRoute,
+    acceptInviteRoute,
     authenticatedRoute.addChildren([
       indexRoute,
       usersRoute,

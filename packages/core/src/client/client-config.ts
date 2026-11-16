@@ -7,6 +7,7 @@ export interface ClientAuthConfig {
   roles: string[]
   defaultRole: string
   adminRole: string
+  emailEnabled: boolean
 }
 
 /**

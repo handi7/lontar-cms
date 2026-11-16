@@ -311,3 +311,20 @@ export {
   type WebhookEvent,
   type WebhookPayload,
 } from './webhooks'
+
+export {
+  consoleEmailAdapter,
+  defaultInviteTemplate,
+  defaultResetPasswordTemplate,
+  defaultVerifyEmailTemplate,
+  resolveEmailConfig,
+  sendEmailWithTemplate,
+  type ConsoleEmailAdapterOptions,
+  type EmailAdapter,
+  type EmailConfig,
+  type EmailMessage,
+  type EmailMessageContent,
+  type EmailTemplateData,
+  type EmailTemplates,
+  type ResolvedEmailConfig,
+} from './email'

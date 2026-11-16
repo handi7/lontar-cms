@@ -8,6 +8,7 @@ import {
   enableUser,
   fetchUsers,
   formatApiErrorMessage,
+  resendUserInvite,
   revokeUserSessions,
   type PaginatedUsers,
   type UserDoc,
@@ -57,8 +58,10 @@ const headClass =
 export interface UserActionsMenuProps {
   user: UserDoc
   isCurrent: boolean
+  emailEnabled?: boolean
   onEdit: () => void
   onResetPassword: () => void
+  onResendInvite?: () => void
   onRevokeSessions: () => void
   onToggleSuspend: () => void
   onDelete: () => void
@@ -68,8 +71,10 @@ function UserActionsMenu(props: UserActionsMenuProps) {
   const {
     user: u,
     isCurrent,
+    emailEnabled,
     onEdit,
     onResetPassword,
+    onResendInvite,
     onRevokeSessions,
     onToggleSuspend,
     onDelete,
@@ -91,6 +96,9 @@ function UserActionsMenu(props: UserActionsMenuProps) {
         <DropdownMenuContent align="end">
           <DropdownMenuItem onClick={onEdit}>Edit user</DropdownMenuItem>
           <DropdownMenuItem onClick={onResetPassword}>Reset password</DropdownMenuItem>
+          {emailEnabled && onResendInvite && (
+            <DropdownMenuItem onClick={onResendInvite}>Resend invitation</DropdownMenuItem>
+          )}
           <DropdownMenuItem onClick={onRevokeSessions}>Revoke sessions</DropdownMenuItem>
           {u.banned ? (
             <DropdownMenuItem onClick={onToggleSuspend}>Reactivate account</DropdownMenuItem>
@@ -152,8 +160,10 @@ function renderCreatedCell(raw: string | number | Date | null | undefined) {
 export interface UseUsersColumnsOptions {
   adminRole: string
   currentUserId?: string
+  emailEnabled?: boolean
   onEdit: (user: UserDoc) => void
   onResetPassword: (user: UserDoc) => void
+  onResendInvite: (user: UserDoc) => void
   onRevokeSessions: (user: UserDoc) => void
   onToggleSuspend: (user: UserDoc) => void
   onDelete: (user: UserDoc) => void
@@ -163,8 +173,10 @@ function useUsersColumns(options: UseUsersColumnsOptions): ColumnDef<UserDoc>[] 
   const {
     adminRole,
     currentUserId,
+    emailEnabled,
     onEdit,
     onResetPassword,
+    onResendInvite,
     onRevokeSessions,
     onToggleSuspend,
     onDelete,
@@ -199,8 +211,10 @@ function useUsersColumns(options: UseUsersColumnsOptions): ColumnDef<UserDoc>[] 
           <UserActionsMenu
             user={row.original}
             isCurrent={row.original.id === currentUserId}
+            emailEnabled={emailEnabled}
             onEdit={() => onEdit(row.original)}
             onResetPassword={() => onResetPassword(row.original)}
+            onResendInvite={() => onResendInvite(row.original)}
             onRevokeSessions={() => onRevokeSessions(row.original)}
             onToggleSuspend={() => onToggleSuspend(row.original)}
             onDelete={() => onDelete(row.original)}
@@ -211,8 +225,10 @@ function useUsersColumns(options: UseUsersColumnsOptions): ColumnDef<UserDoc>[] 
     [
       adminRole,
       currentUserId,
+      emailEnabled,
       onEdit,
       onResetPassword,
+      onResendInvite,
       onRevokeSessions,
       onToggleSuspend,
       onDelete,
@@ -328,7 +344,6 @@ export interface UsersPaginationProps {
 function UsersPagination(props: UsersPaginationProps) {
   const { data, onPrev, onNext } = props
   if (!data || data.totalPages <= 1) return null
-
   return (
     <div className="lt:mt-4 lt:flex lt:items-center lt:justify-between lt:text-sm lt:text-muted-foreground">
       <span>
@@ -374,6 +389,7 @@ export interface UsersModalsProps {
   apiBase: string
   roles: string[]
   defaultRole: string
+  emailEnabled?: boolean
   currentUserId?: string
   isCreateOpen: boolean
   onCloseCreate: () => void
@@ -394,6 +410,7 @@ function UsersModals(props: UsersModalsProps) {
     apiBase,
     roles,
     defaultRole,
+    emailEnabled,
     currentUserId,
     isCreateOpen,
     onCloseCreate,
@@ -419,6 +436,7 @@ function UsersModals(props: UsersModalsProps) {
         roles={roles}
         defaultRole={defaultRole}
         apiBase={apiBase}
+        emailEnabled={emailEnabled}
         onSuccess={() => onSuccess('User created successfully.', true)}
       />
 
@@ -473,6 +491,7 @@ function getAuthConfig(configAuth: ClientConfig['auth']) {
     adminRole: configAuth?.adminRole ?? 'admin',
     roles: configAuth?.roles ?? ['admin', 'editor'],
     defaultRole: configAuth?.defaultRole ?? 'editor',
+    emailEnabled: Boolean(configAuth?.emailEnabled),
   }
 }
 
@@ -494,7 +513,7 @@ export function UsersView() {
   const { user: currentUser } = useAuth()
   const queryClient = useQueryClient()
 
-  const { adminRole, roles, defaultRole } = getAuthConfig(config.auth)
+  const { adminRole, roles, defaultRole, emailEnabled } = getAuthConfig(config.auth)
   const isAdmin = currentUser?.role === adminRole
 
   const [page, setPage] = useState(1)
@@ -550,6 +569,16 @@ export function UsersView() {
     }
   }
 
+  const handleResendInvite = async (targetUser: UserDoc) => {
+    setPageError(null)
+    try {
+      await resendUserInvite(apiBase, targetUser.id)
+      setPageSuccess(`Invitation email resent to ${targetUser.email}.`)
+    } catch (err) {
+      setPageError(formatApiErrorMessage(err))
+    }
+  }
+
   const handleDeleteUser = async () => {
     if (!deletingUser) return
     setPageError(null)
@@ -581,8 +610,10 @@ export function UsersView() {
   const columns = useUsersColumns({
     adminRole,
     currentUserId: currentUser?.id,
+    emailEnabled,
     onEdit: (u) => setEditingUser(u),
     onResetPassword: (u) => setResettingUser(u),
+    onResendInvite: (u) => void handleResendInvite(u),
     onRevokeSessions: (u) => void handleRevokeSessions(u),
     onToggleSuspend: handleToggleSuspend,
     onDelete: (u) => setDeletingUser(u),
@@ -646,6 +677,7 @@ export function UsersView() {
         apiBase={apiBase}
         roles={roles}
         defaultRole={defaultRole}
+        emailEnabled={emailEnabled}
         currentUserId={currentUser?.id}
         isCreateOpen={isCreateOpen}
         onCloseCreate={() => setIsCreateOpen(false)}

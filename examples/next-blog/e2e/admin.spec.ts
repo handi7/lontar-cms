@@ -190,4 +190,62 @@ test.describe('Lontar CMS Admin in Next.js', () => {
     await page.getByRole('button', { name: 'Save profile' }).click()
     await expect(page.getByText('Profile name updated successfully.')).toBeVisible()
   })
+
+  test('supports password reset request and user invitation flows (#344)', async ({ page }) => {
+    // 1. Visit admin login page
+    await page.goto('/admin')
+    await expect(page.getByRole('heading', { name: 'Sign in to Admin' })).toBeVisible({
+      timeout: 15000,
+    })
+
+    // 2. Forgot password link is visible because email is configured
+    const forgotLink = page.getByRole('button', { name: 'Forgot password?' })
+    await expect(forgotLink).toBeVisible()
+    await forgotLink.click()
+
+    // 3. Request password reset
+    await expect(page.getByRole('heading', { name: 'Reset password' })).toBeVisible()
+    await page.locator('#forgot-email').fill('admin@example.com')
+    await page.getByRole('button', { name: 'Send reset link' }).click()
+    await expect(
+      page.getByText('If an account with that email exists, we have sent a password reset link.'),
+    ).toBeVisible()
+
+    // 4. Return to sign in and log in
+    await page.getByRole('button', { name: 'Back to Sign In' }).click()
+    await page.locator('input[type="email"]').fill(adminEmail)
+    await page.locator('input[type="password"]').fill(adminPassword)
+    await page.getByRole('button', { name: 'Sign In' }).click()
+
+    // 5. Navigate to Users view
+    const usersLink = page.getByRole('link', { name: 'Users', exact: true })
+    await expect(usersLink).toBeVisible({ timeout: 15000 })
+    await usersLink.click()
+
+    // 6. Click New user and send invitation
+    await page.getByRole('button', { name: 'New user' }).click()
+    const dialog = page.getByRole('dialog')
+    await expect(dialog).toBeVisible()
+    await expect(dialog.getByText('Send invitation email')).toBeVisible()
+
+    // Toggle invite checkbox
+    await dialog.getByLabel('Send invitation email (user sets their own password)').click()
+    await expect(dialog.locator('#create-user-password')).not.toBeVisible()
+
+    const invitedEmail = `invited-${Date.now()}@example.com`
+    await dialog.locator('#create-user-name').fill('Invited Member')
+    await dialog.locator('#create-user-email').fill(invitedEmail)
+    await dialog.getByRole('button', { name: 'Send invitation' }).click()
+
+    // 7. Verify invited user appears in table
+    await expect(page.getByText(invitedEmail)).toBeVisible()
+    await expect(page.getByText('User created successfully.')).toBeVisible()
+
+    // 8. Open action menu for invited user and verify "Resend invitation"
+    const row = page.getByRole('row', { name: new RegExp(invitedEmail, 'i') })
+    await row.getByRole('button', { name: /Actions for/i }).click()
+    await expect(page.getByRole('menuitem', { name: 'Resend invitation' })).toBeVisible()
+    await page.getByRole('menuitem', { name: 'Resend invitation' }).click()
+    await expect(page.getByText(`Invitation email resent to ${invitedEmail}.`)).toBeVisible()
+  })
 })

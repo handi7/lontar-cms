@@ -9,6 +9,7 @@ import {
 } from '../api/client'
 import { Alert } from '../components/ui/alert'
 import { Button } from '../components/ui/button'
+import { Checkbox } from '../components/ui/checkbox'
 import {
   Dialog,
   DialogContent,
@@ -34,14 +35,16 @@ export interface CreateUserDialogProps {
   defaultRole: string
   apiBase: string
   onSuccess: () => void
+  emailEnabled?: boolean
 }
 
 export function CreateUserDialog(props: CreateUserDialogProps) {
-  const { open, onOpenChange, roles, defaultRole, apiBase, onSuccess } = props
+  const { open, onOpenChange, roles, defaultRole, apiBase, onSuccess, emailEnabled } = props
   const [name, setName] = useState('')
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
   const [role, setRole] = useState(defaultRole)
+  const [sendInvite, setSendInvite] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [isSubmitting, setIsSubmitting] = useState(false)
 
@@ -51,6 +54,7 @@ export function CreateUserDialog(props: CreateUserDialogProps) {
       setEmail('')
       setPassword('')
       setRole(defaultRole)
+      setSendInvite(false)
       setError(null)
     }
   }, [open, defaultRole])
@@ -66,7 +70,7 @@ export function CreateUserDialog(props: CreateUserDialogProps) {
       setError('A valid email address is required')
       return
     }
-    if (password.length < 8) {
+    if (!sendInvite && password.length < 8) {
       setError('Password must be at least 8 characters long')
       return
     }
@@ -76,8 +80,9 @@ export function CreateUserDialog(props: CreateUserDialogProps) {
       await createUser(apiBase, {
         name: name.trim(),
         email: email.trim().toLowerCase(),
-        password,
         role,
+        invite: sendInvite ? true : undefined,
+        password: sendInvite ? undefined : password,
       })
       onSuccess()
       onOpenChange(false)
@@ -93,7 +98,11 @@ export function CreateUserDialog(props: CreateUserDialogProps) {
       <DialogContent>
         <DialogHeader>
           <DialogTitle>Create new user</DialogTitle>
-          <DialogDescription>Add a new user account with role access.</DialogDescription>
+          <DialogDescription>
+            {sendInvite
+              ? 'Invite a new team member with role access.'
+              : 'Add a new user account with role access.'}
+          </DialogDescription>
         </DialogHeader>
 
         <form
@@ -127,17 +136,35 @@ export function CreateUserDialog(props: CreateUserDialogProps) {
             />
           </div>
 
-          <div className="lt:flex lt:flex-col lt:gap-1.5">
-            <Label htmlFor="create-user-password">Password</Label>
-            <Input
-              id="create-user-password"
-              type="password"
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
-              placeholder="At least 8 characters"
-              required
-            />
-          </div>
+          {emailEnabled && (
+            <div className="lt:flex lt:items-center lt:gap-2 lt:pt-1">
+              <Checkbox
+                id="create-user-invite"
+                checked={sendInvite}
+                onCheckedChange={(checked) => setSendInvite(checked === true)}
+              />
+              <Label
+                htmlFor="create-user-invite"
+                className="lt:cursor-pointer lt:text-sm lt:font-normal"
+              >
+                Send invitation email (user sets their own password)
+              </Label>
+            </div>
+          )}
+
+          {!sendInvite && (
+            <div className="lt:flex lt:flex-col lt:gap-1.5">
+              <Label htmlFor="create-user-password">Password</Label>
+              <Input
+                id="create-user-password"
+                type="password"
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                placeholder="At least 8 characters"
+                required
+              />
+            </div>
+          )}
 
           <div className="lt:flex lt:flex-col lt:gap-1.5">
             <Label htmlFor="create-user-role">Role</Label>
@@ -165,7 +192,7 @@ export function CreateUserDialog(props: CreateUserDialogProps) {
               Cancel
             </Button>
             <Button type="submit" disabled={isSubmitting}>
-              {isSubmitting ? 'Creating...' : 'Create user'}
+              {isSubmitting ? 'Creating...' : sendInvite ? 'Send invitation' : 'Create user'}
             </Button>
           </DialogFooter>
         </form>

@@ -190,6 +190,7 @@ export function toClientConfig(config: Config): ClientConfig {
   const roles = config.auth?.roles ? [...config.auth.roles] : ['admin', 'editor']
   const defaultRole = config.auth?.defaultRole ?? 'editor'
   const adminRole = config.auth?.adminRole ?? 'admin'
+  const emailEnabled = Boolean(config.email)
 
   return {
     version: CLIENT_CONFIG_VERSION,
@@ -197,6 +198,7 @@ export function toClientConfig(config: Config): ClientConfig {
       roles,
       defaultRole,
       adminRole,
+      emailEnabled,
     },
     collections: config.collections.map(toClientCollection),
     globals: (config.globals ?? []).map(toClientGlobal),

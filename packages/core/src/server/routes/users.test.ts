@@ -1,9 +1,10 @@
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import {
   createLontar,
   createUserWithCredential,
   type Config,
   type DatabaseAdapter,
+  type EmailMessage,
   type LontarApp,
   type StoredDoc,
 } from '../../index'
@@ -644,6 +645,179 @@ describe('User Management API (/api/_lontar/users & /api/_lontar/me)', () => {
 
     // 5. Sign in with new password succeeds
     const newSignIn = await signInUser(app, 'self-pwd@example.com', 'brand-new-password123')
+    expect(newSignIn).toBeTruthy()
+  })
+
+  it('rejects user invitation when email service is not configured', async () => {
+    const { app } = setupTestApp()
+    const adminCookie = await registerFirstAdmin(app)
+
+    const res = await app.request('/api/_lontar/users', {
+      method: 'POST',
+      headers: { cookie: adminCookie, 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        email: 'no-email@example.com',
+        name: 'No Email User',
+        invite: true,
+      }),
+    })
+    expect(res.status).toBe(400)
+    expect(await res.json()).toEqual({
+      error: 'Cannot invite user: email service is not configured',
+    })
+  })
+
+  it('invites a user by email, sends invitation link, and activates account via resetPassword', async () => {
+    const sentEmails: EmailMessage[] = []
+    const sendEmail = vi.fn((msg: EmailMessage) => {
+      sentEmails.push(msg)
+    })
+
+    const config: Config = {
+      secret: 'test-secret-that-is-at-least-32-chars-long-12345',
+      db: mockAdapter,
+      collections: [],
+      auth: {
+        roles: ['admin', 'editor'],
+        defaultRole: 'editor',
+        adminRole: 'admin',
+      },
+      email: {
+        adapter: { sendEmail },
+        from: 'Lontar <no-reply@lontar.dev>',
+      },
+    }
+    const app = createLontar(config, { baseURL: 'http://localhost:3000' })
+    const adminCookie = await registerFirstAdmin(app)
+
+    // 1. Admin invites user
+    const inviteRes = await app.request('/api/_lontar/users', {
+      method: 'POST',
+      headers: { cookie: adminCookie, 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        email: 'invited@example.com',
+        name: 'Invited User',
+        role: 'editor',
+        invite: true,
+      }),
+    })
+    expect(inviteRes.status).toBe(201)
+    const inviteBody = (await inviteRes.json()) as { user: CleanUser; invited: boolean }
+    expect(inviteBody.invited).toBe(true)
+    expect(inviteBody.user.email).toBe('invited@example.com')
+    expect(inviteBody.user.name).toBe('Invited User')
+
+    // 2. Email was sent with invite link
+    expect(sendEmail).toHaveBeenCalledTimes(1)
+    const emailMsg = sentEmails[0]!
+    expect(emailMsg.to).toBe('invited@example.com')
+    expect(emailMsg.subject).toBe("You've been invited to Lontar CMS")
+    expect(emailMsg.text).toContain('http://localhost:3000/admin/accept-invite?token=')
+
+    // 3. Extract token from URL
+    const match = emailMsg.text?.match(/token=([a-f0-9]+)/)
+    expect(match).toBeTruthy()
+    const token = match![1]
+
+    // 4. Accept invite by setting password via Better Auth /reset-password
+    const resetRes = await app.request('/api/auth/reset-password', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        token,
+        newPassword: 'activated-pass123',
+      }),
+    })
+    expect(resetRes.status).toBe(200)
+
+    // 5. User can now sign in
+    const userCookie = await signInUser(app, 'invited@example.com', 'activated-pass123')
+    expect(userCookie).toBeTruthy()
+
+    // 6. Resend invite
+    const resendApiRes = await app.request(
+      `/api/_lontar/users/${inviteBody.user.id}/resend-invite`,
+      {
+        method: 'POST',
+        headers: { cookie: adminCookie },
+      },
+    )
+    expect(resendApiRes.status).toBe(200)
+    expect(sendEmail).toHaveBeenCalledTimes(2)
+  })
+
+  it('requests password reset email and resets password via Better Auth', async () => {
+    const sentEmails: EmailMessage[] = []
+    const sendEmail = vi.fn((msg: EmailMessage) => {
+      sentEmails.push(msg)
+    })
+
+    const config: Config = {
+      secret: 'test-secret-that-is-at-least-32-chars-long-12345',
+      db: mockAdapter,
+      collections: [],
+      auth: {
+        roles: ['admin', 'editor'],
+        defaultRole: 'editor',
+        adminRole: 'admin',
+      },
+      email: {
+        adapter: { sendEmail },
+      },
+    }
+    const app = createLontar(config, { baseURL: 'http://localhost:3000' })
+    await registerFirstAdmin(app)
+
+    await createUserWithCredential(app.auth, {
+      email: 'member@example.com',
+      name: 'Member',
+      password: 'initial-password123',
+      role: 'editor',
+    })
+
+    // 1. Request password reset
+    const forgetRes = await app.request('/api/auth/forget-password', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        email: 'member@example.com',
+      }),
+    })
+    expect(forgetRes.status).toBe(200)
+    expect(sendEmail).toHaveBeenCalledTimes(1)
+
+    const emailMsg = sentEmails[0]!
+    expect(emailMsg.to).toBe('member@example.com')
+    expect(emailMsg.subject).toBe('Reset your password')
+    expect(emailMsg.text).toContain('http://localhost:3000/admin/reset-password?token=')
+
+    // 2. Extract token and reset password
+    const match = emailMsg.text?.match(/token=([a-zA-Z0-9]+)/)
+    expect(match).toBeTruthy()
+    const token = match![1]
+
+    const resetRes = await app.request('/api/auth/reset-password', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        token,
+        newPassword: 'brand-new-reset-pass123',
+      }),
+    })
+    expect(resetRes.status).toBe(200)
+
+    // 3. Old password fails, new password succeeds
+    const oldSignIn = await app.request('/api/auth/sign-in/email', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        email: 'member@example.com',
+        password: 'initial-password123',
+      }),
+    })
+    expect(oldSignIn.status).toBe(401)
+
+    const newSignIn = await signInUser(app, 'member@example.com', 'brand-new-reset-pass123')
     expect(newSignIn).toBeTruthy()
   })
 })

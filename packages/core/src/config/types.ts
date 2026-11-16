@@ -1,6 +1,7 @@
 import type { AuthUser } from '../auth/types'
 import type { SystemFieldName, UploadSystemFieldName } from '../client/system-fields'
 import type { DatabaseAdapter } from '../database/adapter'
+import type { EmailAdapter, EmailConfig } from '../email/types'
 import type { Fields } from '../fields/types'
 import type {
   AfterChangeHook,
@@ -21,6 +22,8 @@ export interface AuthConfig {
   defaultRole?: string
   /** Privileged role for administration and bootstrap. Defaults to `'admin'`. Must be in `roles`. */
   adminRole?: string
+  /** Require email verification before users can sign in. Defaults to `false`. */
+  requireEmailVerification?: boolean
 }
 
 export interface AccessArgs<TData = unknown> {
@@ -192,6 +195,8 @@ export interface Config {
   auth?: AuthConfig
   /** Optional file storage adapter. Required when any collection has upload enabled. */
   storage?: StorageAdapter
+  /** Optional email delivery adapter and templates. Required for password reset, user invitation, and email verification. */
+  email?: EmailAdapter | EmailConfig
   /** Optional global pagination settings. */
   pagination?: PaginationConfig
   /** Outgoing webhooks triggered by collection and global events. */

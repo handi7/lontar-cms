@@ -1,8 +1,10 @@
+import { randomBytes } from 'node:crypto'
 import type { Context, Hono } from 'hono'
 import type { Auth, AuthUser, LontarVariables } from '../../auth/types'
 import {
   countActiveAdmins,
   countTotalAdmins,
+  createUserForInvite,
   createUserWithCredential,
   deleteUser,
   disableUser,
@@ -16,6 +18,8 @@ import {
   verifyAndChangePassword,
 } from '../../auth/user'
 import type { Config } from '../../config/types'
+import { resolveEmailConfig, sendEmailWithTemplate } from '../../email'
+import type { CreateLontarOptions } from '../create-lontar'
 
 type LontarEnv = { Variables: LontarVariables }
 
@@ -24,6 +28,15 @@ interface CreateUserBody {
   password?: string
   name?: string
   role?: string
+  invite?: boolean
+}
+
+interface CreateUserValidatedData {
+  name: string
+  email: string
+  role: string
+  password?: string
+  invite?: boolean
 }
 
 interface UpdateUserBody {
@@ -75,14 +88,39 @@ async function parseJsonBody(c: Context<LontarEnv>): Promise<{ body?: unknown; e
   }
 }
 
-function validateCredentials(email?: string, password?: string): string | null {
+function validateEmail(email?: unknown): string | null {
   if (!email || typeof email !== 'string' || !email.includes('@')) {
     return 'A valid email is required'
   }
+  return null
+}
+
+function validatePasswordLength(password?: unknown): string | null {
   if (!password || typeof password !== 'string' || password.length < 8) {
     return 'Password must be at least 8 characters long'
   }
   return null
+}
+
+function validateName(name?: unknown): string | null {
+  if (!name || typeof name !== 'string' || !name.trim()) {
+    return 'Name is required'
+  }
+  return null
+}
+
+function validatePasswordOrInvite(
+  invite?: boolean,
+  password?: string,
+  config?: Config,
+): string | null {
+  if (invite) {
+    if (!config?.email) {
+      return 'Cannot invite user: email service is not configured'
+    }
+    return null
+  }
+  return validatePasswordLength(password)
 }
 
 function resolveRole(role?: string, config?: Config): { role?: string; error?: string } {
@@ -99,28 +137,31 @@ function resolveRole(role?: string, config?: Config): { role?: string; error?: s
 function validateCreateUserInput(
   body: unknown,
   config?: Config,
-): { error?: string; data?: { email: string; password: string; name: string; role: string } } {
+): { error?: string; data?: CreateUserValidatedData } {
   if (!body || typeof body !== 'object') {
     return { error: 'Invalid JSON request body' }
   }
-  const { email, password, name, role } = body as CreateUserBody
+  const { email, password, name, role, invite } = body as CreateUserBody
 
-  if (!name || typeof name !== 'string' || !name.trim()) {
-    return { error: 'Name is required' }
-  }
+  const nameError = validateName(name)
+  if (nameError) return { error: nameError }
 
-  const credError = validateCredentials(email, password)
-  if (credError) return { error: credError }
+  const emailError = validateEmail(email)
+  if (emailError) return { error: emailError }
+
+  const authModeError = validatePasswordOrInvite(invite, password, config)
+  if (authModeError) return { error: authModeError }
 
   const roleResult = resolveRole(role, config)
   if (roleResult.error || !roleResult.role) return { error: roleResult.error }
 
   return {
     data: {
-      name: name.trim(),
+      name: (name as string).trim(),
       email: (email as string).trim().toLowerCase(),
-      password: password as string,
+      password,
       role: roleResult.role,
+      invite: Boolean(invite),
     },
   }
 }
@@ -180,10 +221,113 @@ async function handleListUsers(
   return c.json(result)
 }
 
+function resolveAdminBaseUrl(c: Context<LontarEnv>, options?: CreateLontarOptions): string {
+  const origin = options?.baseURL ?? new URL(c.req.url).origin
+  const adminPath = (options?.adminPath ?? '/admin').replace(/\/$/, '')
+  return `${origin}${adminPath}`
+}
+
+async function handleInviteUser(
+  c: Context<LontarEnv>,
+  auth: Auth,
+  data: CreateUserValidatedData,
+  config?: Config,
+  options?: CreateLontarOptions,
+): Promise<Response> {
+  const resolvedEmail = resolveEmailConfig(config?.email)
+  if (!resolvedEmail) {
+    return c.json({ error: 'Cannot invite user: email service is not configured' }, 400)
+  }
+
+  const created = await createUserForInvite(auth, {
+    name: data.name,
+    email: data.email,
+    role: data.role,
+  })
+
+  const token = randomBytes(24).toString('hex')
+  const expiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000)
+  const ctx = await auth.$context
+
+  await ctx.internalAdapter.createVerificationValue({
+    value: created.id,
+    identifier: `reset-password:${token}`,
+    expiresAt,
+  })
+
+  const adminBase = resolveAdminBaseUrl(c, options)
+  const inviteUrl = `${adminBase}/accept-invite?token=${token}`
+
+  try {
+    await sendEmailWithTemplate(resolvedEmail, 'invite', {
+      user: { id: created.id, email: created.email, name: created.name },
+      url: inviteUrl,
+      token,
+    })
+  } catch (err) {
+    await ctx.internalAdapter.deleteUser(created.id)
+    await ctx.internalAdapter.deleteVerificationByIdentifier(`reset-password:${token}`)
+    const msg = err instanceof Error ? err.message : 'Unknown error'
+    return c.json({ error: `Failed to send invitation email: ${msg}` }, 500)
+  }
+
+  const user = await getUserById(auth, created.id)
+  return c.json({ user, invited: true }, 201)
+}
+
+async function handleResendInvite(
+  c: Context<LontarEnv>,
+  auth: Auth,
+  id: string,
+  config?: Config,
+  options?: CreateLontarOptions,
+): Promise<Response> {
+  const { errorResponse } = checkAdminAccess(c, config)
+  if (errorResponse) return errorResponse
+
+  const resolvedEmail = resolveEmailConfig(config?.email)
+  if (!resolvedEmail) {
+    return c.json({ error: 'Cannot invite user: email service is not configured' }, 400)
+  }
+
+  const user = await getUserById(auth, id)
+  if (!user) {
+    return c.json({ error: 'User not found' }, 404)
+  }
+
+  const token = randomBytes(24).toString('hex')
+  const expiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000)
+  const ctx = await auth.$context
+
+  await ctx.internalAdapter.createVerificationValue({
+    value: user.id,
+    identifier: `reset-password:${token}`,
+    expiresAt,
+  })
+
+  const adminBase = resolveAdminBaseUrl(c, options)
+  const inviteUrl = `${adminBase}/accept-invite?token=${token}`
+
+  try {
+    await sendEmailWithTemplate(resolvedEmail, 'invite', {
+      user: { id: user.id, email: user.email, name: user.name },
+      url: inviteUrl,
+      token,
+    })
+  } catch (err) {
+    await ctx.internalAdapter.deleteVerificationByIdentifier(`reset-password:${token}`)
+    const msg = err instanceof Error ? err.message : 'Unknown error'
+    return c.json({ error: `Failed to send invitation email: ${msg}` }, 500)
+  }
+
+  return c.json({ success: true, message: `Invitation sent to ${user.email}` })
+}
+
 async function handleCreateUser(
   c: Context<LontarEnv>,
   auth: Auth,
   config?: Config,
+  options?: CreateLontarOptions,
 ): Promise<Response> {
   const { errorResponse } = checkAdminAccess(c, config)
   if (errorResponse) return errorResponse
@@ -201,7 +345,16 @@ async function handleCreateUser(
     return c.json({ error: 'User with this email already exists' }, 400)
   }
 
-  const created = await createUserWithCredential(auth, validated.data)
+  if (validated.data.invite) {
+    return await handleInviteUser(c, auth, validated.data, config, options)
+  }
+
+  const created = await createUserWithCredential(auth, {
+    name: validated.data.name,
+    email: validated.data.email,
+    password: validated.data.password!,
+    role: validated.data.role,
+  })
   const user = await getUserById(auth, created.id)
   return c.json({ user }, 201)
 }
@@ -466,14 +619,22 @@ async function handleChangeMePassword(c: Context<LontarEnv>, auth: Auth): Promis
   }
 }
 
-export function registerUserRoutes(router: Hono<LontarEnv>, auth: Auth, config?: Config): void {
+export function registerUserRoutes(
+  router: Hono<LontarEnv>,
+  auth: Auth,
+  config?: Config,
+  options?: CreateLontarOptions,
+): void {
   // Self-service profile and password
   router.patch('/_lontar/me', (c) => handleUpdateMe(c, auth))
   router.post('/_lontar/me/password', (c) => handleChangeMePassword(c, auth))
 
   // User management endpoints
   router.get('/_lontar/users', (c) => handleListUsers(c, auth, config))
-  router.post('/_lontar/users', (c) => handleCreateUser(c, auth, config))
+  router.post('/_lontar/users', (c) => handleCreateUser(c, auth, config, options))
+  router.post('/_lontar/users/:id/resend-invite', (c) =>
+    handleResendInvite(c, auth, c.req.param('id') ?? '', config, options),
+  )
   router.get('/_lontar/users/:id', (c) => handleGetUser(c, auth, c.req.param('id') ?? '', config))
   router.patch('/_lontar/users/:id', (c) =>
     handleUpdateUser(c, auth, c.req.param('id') ?? '', config),

@@ -40,6 +40,7 @@ describe('AccountView (#343)', () => {
         roles: ['admin', 'editor'],
         defaultRole: 'editor',
         adminRole: 'admin',
+        emailEnabled: false,
       },
       collections: [],
       globals: [],

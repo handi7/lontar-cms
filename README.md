@@ -148,6 +148,46 @@ const Posts = collection({
 
 See [ADR 0026](docs/adr/0026-users-and-roles.md) for full details on the auth data model.
 
+### Email delivery, password reset, and user invites
+
+Configure a pluggable email adapter in `defineConfig` to enable password reset requests, user invitations, and email verification:
+
+```ts
+import { consoleEmailAdapter, defineConfig } from '@lontar/core'
+
+export default defineConfig({
+  // Pluggable email adapter (console logger for dev/testing, or custom provider like Resend/SendGrid/SES)
+  email: consoleEmailAdapter(),
+
+  // Optional: customize sender or templates
+  // email: {
+  //   adapter: customEmailAdapter,
+  //   from: 'Lontar CMS <no-reply@myproject.com>',
+  //   templates: {
+  //     invite: ({ user, url }) => ({
+  //       subject: `You're invited to join ${user.name}`,
+  //       text: `Accept your invitation: ${url}`,
+  //     }),
+  //   },
+  // },
+
+  auth: {
+    roles: ['admin', 'editor', 'author'] as const,
+    defaultRole: 'editor',
+    adminRole: 'admin',
+    requireEmailVerification: false, // Optional: require email verification on sign-up
+  },
+  // ...
+})
+```
+
+When an email adapter is configured:
+
+- **Forgot password**: The admin login page displays a "Forgot password?" link where users can request a password reset email (`POST /api/auth/request-password-reset`).
+- **User invitations**: In the Users administration view, admins can invite team members with a specific role without setting an initial password (`invite: true`). Invited users receive an activation link (`/accept-invite?token=...`) to set their own password.
+- **Resend invitations**: Administrators can resend invitation links at any time directly from the user actions menu (`POST /api/_lontar/users/:id/resend-invite`).
+- **Without an adapter**: When `email` is not configured, reset and invite features are gracefully hidden in the admin UI, and invite endpoints return clear `400` errors.
+
 ### Field-level access control
 
 Fields also support granular `access` functions (`read`, `create`, `update`):

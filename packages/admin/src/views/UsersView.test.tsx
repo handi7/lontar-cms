@@ -22,6 +22,7 @@ vi.mock('../api/client', async () => {
     revokeUserSessions: vi.fn(),
     adminSetUserPassword: vi.fn(),
     deleteUser: vi.fn(),
+    resendUserInvite: vi.fn(),
   }
 })
 
@@ -72,13 +73,14 @@ describe('UsersView (#343)', () => {
 
   afterEach(cleanup)
 
-  function renderWithProviders(currentUserRole = 'admin') {
+  function renderWithProviders(currentUserRole = 'admin', emailEnabled = false) {
     const adminConfig: ClientConfig = {
       version: CLIENT_CONFIG_VERSION,
       auth: {
         roles: ['admin', 'editor', 'author'],
         defaultRole: 'editor',
         adminRole: 'admin',
+        emailEnabled,
       },
       collections: [],
       globals: [],
@@ -226,5 +228,67 @@ describe('UsersView (#343)', () => {
     await waitFor(() => {
       expect(screen.getByText('Cannot perform this operation')).toBeTruthy()
     })
+  })
+
+  it('supports sending invitation email when emailEnabled is true', async () => {
+    vi.mocked(client.createUser).mockResolvedValue({
+      id: 'u4',
+      name: 'Dave Invited',
+      email: 'dave@example.com',
+      role: 'editor',
+      banned: false,
+    })
+
+    renderWithProviders('admin', true)
+
+    const newUserButton = await screen.findByRole('button', { name: /New user/i })
+    fireEvent.click(newUserButton)
+
+    expect(await screen.findByText('Create new user')).toBeTruthy()
+    expect(screen.getByText(/Send invitation email/i)).toBeTruthy()
+
+    // Check the invite checkbox
+    const inviteCheckbox = screen.getByRole('checkbox')
+    fireEvent.click(inviteCheckbox)
+    expect(screen.queryByLabelText(/^Password$/i)).toBeNull()
+
+    fireEvent.change(screen.getByLabelText(/^Name$/i), { target: { value: 'Dave Invited' } })
+    fireEvent.change(screen.getByLabelText(/^Email$/i), {
+      target: { value: 'dave@example.com' },
+    })
+
+    const submitBtn = screen.getByRole('button', { name: /Send invitation/i })
+    fireEvent.click(submitBtn)
+
+    await waitFor(() => {
+      expect(client.createUser).toHaveBeenCalledWith('/api', {
+        name: 'Dave Invited',
+        email: 'dave@example.com',
+        role: 'editor',
+        invite: true,
+        password: undefined,
+      })
+    })
+
+    expect(await screen.findByText(/User created successfully/i)).toBeTruthy()
+  })
+
+  it('allows resending invitation when emailEnabled is true', async () => {
+    vi.mocked(client.resendUserInvite).mockResolvedValue({
+      success: true,
+      message: 'Invitation sent',
+    })
+
+    renderWithProviders('admin', true)
+
+    expect(await screen.findByText('Editor Bob')).toBeTruthy()
+
+    const actionButton = screen.getByRole('button', { name: /Actions for Editor Bob/i })
+    chooseDropdownMenuItem(actionButton, /Resend invitation/i)
+
+    await waitFor(() => {
+      expect(client.resendUserInvite).toHaveBeenCalledWith('/api', 'u2')
+    })
+    expect(await screen.findByText(/Invitation email resent to bob@example.com/i)).toBeTruthy()
   })
 })
