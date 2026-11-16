@@ -43,6 +43,13 @@
       "when": 1794387753001,
       "tag": "0005_grey_shotgun",
       "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "5",
+      "when": 1794819448409,
+      "tag": "0006_groovy_ego",
+      "breakpoints": true
     }
   ]
 }
