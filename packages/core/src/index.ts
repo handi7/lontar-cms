@@ -126,7 +126,14 @@ export type {
   DocStatusTransition,
 } from './hooks'
 
-export type { Auth, AuthSession, AuthUser, LontarVariables } from './auth/types'
+export type {
+  Auth,
+  AuthSession,
+  AuthUser,
+  LontarVariables,
+  UserRoleExtension,
+  UserRoleType,
+} from './auth/types'
 export {
   countTotalUsers,
   createUserWithCredential,
@@ -137,6 +144,7 @@ export { accessDenied, checkAccess, defaultAccess } from './access'
 export type {
   AccessArgs,
   AccessFunction,
+  AuthConfig,
   CollectionAccess,
   CollectionAdmin,
   CollectionConfig,

@@ -1,4 +1,6 @@
 import { betterAuth } from 'better-auth'
+import { admin } from 'better-auth/plugins'
+import { adminAc, defaultAc } from 'better-auth/plugins/admin/access'
 import { Hono, type Context } from 'hono'
 import type { Auth, AuthSession, AuthUser, LontarVariables } from '../auth/types'
 import { toClientConfig } from '../config/to-client-config'
@@ -41,24 +43,45 @@ function resolveRateLimitEnabled(options: CreateLontarOptions): boolean {
   )
 }
 
+function buildAdminPlugin(authConfig?: Config['auth']) {
+  const roles = authConfig?.roles ?? ['admin', 'editor']
+  const defaultRole = authConfig?.defaultRole ?? 'editor'
+  const adminRole = authConfig?.adminRole ?? 'admin'
+
+  const customRoles = Object.fromEntries(
+    roles.map((r) => [r, r === adminRole ? adminAc : defaultAc.newRole({ user: [], session: [] })]),
+  )
+
+  return admin({
+    defaultRole,
+    adminRoles: [adminRole],
+    roles: customRoles,
+  })
+}
+
+function buildRateLimitConfig(options: CreateLontarOptions) {
+  return {
+    enabled: resolveRateLimitEnabled(options),
+    ...(options.rateLimit?.window !== undefined ? { window: options.rateLimit.window } : {}),
+    ...(options.rateLimit?.max !== undefined ? { max: options.rateLimit.max } : {}),
+  }
+}
+
 function buildAuthInstance(config: Config, basePath: string, options: CreateLontarOptions): Auth {
   const trustedOrigins = buildTrustedOrigins(options)
-  const rateLimitEnabled = resolveRateLimitEnabled(options)
+
   return betterAuth({
     secret: config.secret,
     basePath: `${basePath}/auth`,
     ...(options.baseURL ? { baseURL: options.baseURL } : {}),
     ...(trustedOrigins.length > 0 ? { trustedOrigins } : {}),
     ...(config.db.authAdapter ? { database: config.db.authAdapter } : {}),
+    plugins: [buildAdminPlugin(config.auth)],
     emailAndPassword: {
       enabled: true,
       disableSignUp: true,
     },
-    rateLimit: {
-      enabled: rateLimitEnabled,
-      ...(options.rateLimit?.window !== undefined ? { window: options.rateLimit.window } : {}),
-      ...(options.rateLimit?.max !== undefined ? { max: options.rateLimit.max } : {}),
-    },
+    rateLimit: buildRateLimitConfig(options),
   })
 }
 
@@ -87,8 +110,16 @@ export function createLontar(config: Config, options: CreateLontarOptions = {}):
   router.use('*', async (c, next) => {
     try {
       const session = await auth.api.getSession({ headers: c.req.raw.headers })
-      c.set('user', (session?.user as AuthUser) ?? null)
-      c.set('session', (session?.session as AuthSession) ?? null)
+      const user = session?.user as AuthUser | undefined
+      const isBanned =
+        user?.banned && (!user.banExpires || new Date(user.banExpires).getTime() > Date.now())
+      if (isBanned) {
+        c.set('user', null)
+        c.set('session', null)
+      } else {
+        c.set('user', user ?? null)
+        c.set('session', (session?.session as AuthSession) ?? null)
+      }
     } catch {
       c.set('user', null)
       c.set('session', null)
@@ -110,7 +141,7 @@ export function createLontar(config: Config, options: CreateLontarOptions = {}):
   })
 
   // First-user onboarding routes
-  registerFirstUserRoutes(router, auth)
+  registerFirstUserRoutes(router, auth, config)
 
   // Global routes
   registerGlobalRoutes(router, config)

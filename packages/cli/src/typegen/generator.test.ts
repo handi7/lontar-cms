@@ -631,4 +631,33 @@ describe('generateTypes', () => {
     expect(mysqlOutput).toContain('export interface Article {')
     expect(mysqlOutput).toContain('export interface Header {')
   })
+
+  it('generates UserRole type and augments UserRoleExtension with default roles', () => {
+    const config: Config = {
+      secret: 'test-secret',
+      collections: [],
+    } as unknown as Config
+
+    const output = generateTypes(config)
+    expect(output).toContain('export type UserRole = "admin" | "editor"')
+    expect(output).toContain(
+      "declare module '@lontar/core' {\n  interface UserRoleExtension {\n    role: UserRole\n  }",
+    )
+  })
+
+  it('generates UserRole type and augments UserRoleExtension with custom roles', () => {
+    const config: Config = {
+      secret: 'test-secret',
+      collections: [],
+      auth: {
+        roles: ['admin', 'editor', 'author'],
+      },
+    } as unknown as Config
+
+    const output = generateTypes(config)
+    expect(output).toContain('export type UserRole = "admin" | "editor" | "author"')
+    expect(output).toContain(
+      "declare module '@lontar/core' {\n  interface UserRoleExtension {\n    role: UserRole\n  }",
+    )
+  })
 })

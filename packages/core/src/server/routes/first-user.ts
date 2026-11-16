@@ -1,6 +1,7 @@
 import type { Hono } from 'hono'
 import type { Auth, LontarVariables } from '../../auth/types'
 import { countTotalUsers, createUserWithCredential } from '../../auth/user'
+import type { Config } from '../../config/types'
 
 interface FirstUserBody {
   email?: string
@@ -48,6 +49,7 @@ function validateFirstUserInput(body: unknown): {
 export function registerFirstUserRoutes(
   router: Hono<{ Variables: LontarVariables }>,
   auth: Auth,
+  config?: Config,
 ): void {
   router.get('/_lontar/first-user', async (c) => {
     const totalUsers = await countTotalUsers(auth)
@@ -72,7 +74,11 @@ export function registerFirstUserRoutes(
       return c.json({ error: validated.error }, 400)
     }
 
-    await createUserWithCredential(auth, validated.data)
+    const adminRole = config?.auth?.adminRole ?? 'admin'
+    await createUserWithCredential(auth, {
+      ...validated.data,
+      role: adminRole,
+    })
 
     return auth.api.signInEmail({
       body: {

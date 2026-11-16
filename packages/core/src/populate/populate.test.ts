@@ -456,6 +456,7 @@ describe('populateDocs', () => {
         id: 'u1',
         email: 'user@example.com',
         name: 'User',
+        role: 'editor',
         emailVerified: false,
         createdAt: new Date(),
         updatedAt: new Date(),

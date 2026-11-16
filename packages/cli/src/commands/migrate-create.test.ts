@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { inspectMigrationForStatusBackfills } from './migrate-create'
+import { applyRoleBackfill, inspectMigrationForStatusBackfills } from './migrate-create'
 
 describe('inspectMigrationForStatusBackfills (#229)', () => {
   it('warns when ADD _status is present without published backfill', () => {
@@ -153,5 +153,54 @@ ALTER TABLE "posts" ALTER COLUMN "_status" SET NOT NULL;
 `
     const warnings = inspectMigrationForStatusBackfills(sql, 'postgresql')
     expect(warnings).toHaveLength(0)
+  })
+
+  describe('applyRoleBackfill', () => {
+    it('appends role backfill for MySQL when role is added to user table', () => {
+      const sql = "ALTER TABLE `user` ADD `role` varchar(50) DEFAULT 'editor' NOT NULL;"
+      const result = applyRoleBackfill(sql, 'mysql')
+      expect(result.applied).toBe(true)
+      expect(result.sql).toContain("UPDATE `user` SET `role` = 'editor';")
+      expect(result.sql).toContain(
+        "UPDATE `user` SET `role` = 'admin' ORDER BY `created_at` ASC LIMIT 1;",
+      )
+    })
+
+    it('appends role backfill for PostgreSQL with subquery ordering', () => {
+      const sql = 'ALTER TABLE "user" ADD COLUMN "role" text DEFAULT \'editor\' NOT NULL;'
+      const result = applyRoleBackfill(sql, 'postgresql')
+      expect(result.applied).toBe(true)
+      expect(result.sql).toContain('UPDATE "user" SET "role" = \'editor\';')
+      expect(result.sql).toContain(
+        'UPDATE "user" SET "role" = \'admin\' WHERE "id" = (SELECT "id" FROM "user" ORDER BY "created_at" ASC LIMIT 1);',
+      )
+    })
+
+    it('uses configured adminRole and defaultRole', () => {
+      const sql = 'ALTER TABLE "user" ADD COLUMN "role" text DEFAULT \'viewer\' NOT NULL;'
+      const result = applyRoleBackfill(sql, 'postgresql', {
+        adminRole: 'superadmin',
+        defaultRole: 'viewer',
+      })
+      expect(result.applied).toBe(true)
+      expect(result.sql).toContain('UPDATE "user" SET "role" = \'viewer\';')
+      expect(result.sql).toContain('SET "role" = \'superadmin\'')
+    })
+
+    it('does not apply backfill when user table is not modified', () => {
+      const sql = 'ALTER TABLE `posts` ADD `title` varchar(255);'
+      const result = applyRoleBackfill(sql, 'mysql')
+      expect(result.applied).toBe(false)
+      expect(result.sql).toBe(sql)
+    })
+
+    it('does not re-apply backfill when already present in the SQL', () => {
+      const sql = `ALTER TABLE \`user\` ADD \`role\` varchar(50) DEFAULT 'editor' NOT NULL;
+--> statement-breakpoint
+UPDATE \`user\` SET \`role\` = 'admin' ORDER BY \`created_at\` ASC LIMIT 1;`
+      const result = applyRoleBackfill(sql, 'mysql')
+      expect(result.applied).toBe(false)
+      expect(result.sql).toBe(sql)
+    })
   })
 })

@@ -462,7 +462,48 @@ describe('createLontar REST API', () => {
       expect(authBody.user).not.toBeNull()
       expect(authBody.user?.email).toBe('session-user@example.com')
       expect(authBody.user?.name).toBe('Session User')
+      expect((authBody.user as { role?: string })?.role).toBe('admin')
       expect(authBody.session).not.toBeNull()
+    })
+
+    it('invalidates session in middleware when user is banned', async () => {
+      const testApp = createLontar(config, { baseURL: 'http://localhost:3000' })
+
+      const registerRes = await testApp.request('/api/_lontar/first-user', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          email: 'banned-test@example.com',
+          password: 'password123',
+          name: 'Banned Test User',
+        }),
+      })
+      expect(registerRes.status).toBe(200)
+      const cookie = registerRes.headers.get('set-cookie')!
+
+      // Verify active session before ban
+      const authRes = await testApp.request('/api/_lontar/me', {
+        headers: { cookie },
+      })
+      const authBody = (await authRes.json()) as { user: { id: string } | null }
+      expect(authBody.user).not.toBeNull()
+      const userId = authBody.user!.id
+
+      // Ban the user via internal adapter
+      const ctx = await testApp.auth.$context
+      await ctx.internalAdapter.updateUser(userId, {
+        banned: true,
+        banReason: 'Violation of rules',
+      })
+
+      // Subsequent request with the same cookie is treated as unauthenticated
+      const bannedRes = await testApp.request('/api/_lontar/me', {
+        headers: { cookie },
+      })
+      expect(bannedRes.status).toBe(200)
+      const bannedBody = (await bannedRes.json()) as { user: unknown; session: unknown }
+      expect(bannedBody.user).toBeNull()
+      expect(bannedBody.session).toBeNull()
     })
   })
 })

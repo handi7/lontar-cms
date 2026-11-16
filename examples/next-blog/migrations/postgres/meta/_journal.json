@@ -8,6 +8,13 @@
       "when": 1794532661455,
       "tag": "0000_silly_mandrill",
       "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "7",
+      "when": 1794819463941,
+      "tag": "0001_parallel_chamber",
+      "breakpoints": true
     }
   ]
 }

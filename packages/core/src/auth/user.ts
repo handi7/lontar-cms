@@ -4,12 +4,14 @@ export interface CreateUserData {
   email: string
   password: string
   name: string
+  role?: string
 }
 
 export interface CreatedUserResult {
   id: string
   email: string
   name: string
+  role: string
 }
 
 export async function createUserWithCredential(
@@ -23,6 +25,8 @@ export async function createUserWithCredential(
     {
       email: data.email,
       name: data.name,
+      ...(data.role ? { role: data.role } : {}),
+      banned: false,
       emailVerified: false,
       createdAt: new Date(),
       updatedAt: new Date(),
@@ -43,6 +47,7 @@ export async function createUserWithCredential(
     id: user.id,
     email: user.email,
     name: user.name,
+    role: (user as { role?: string }).role ?? data.role ?? 'editor',
   }
 }
 

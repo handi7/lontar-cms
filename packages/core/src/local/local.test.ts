@@ -277,6 +277,7 @@ describe('Local API (getLontar)', () => {
       id: 'u1',
       name: 'User',
       email: 'u@example.com',
+      role: 'admin',
       emailVerified: true,
       createdAt: new Date(),
       updatedAt: new Date(),

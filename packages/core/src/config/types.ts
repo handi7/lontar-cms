@@ -14,6 +14,15 @@ import type {
 import type { StorageAdapter } from '../storage/adapter'
 import type { UploadConfig } from '../storage/image'
 
+export interface AuthConfig {
+  /** Permitted user roles. Defaults to `['admin', 'editor']`. */
+  roles?: readonly string[]
+  /** Default role assigned to newly created users. Defaults to `'editor'`. Must be in `roles`. */
+  defaultRole?: string
+  /** Privileged role for administration and bootstrap. Defaults to `'admin'`. Must be in `roles`. */
+  adminRole?: string
+}
+
 export interface AccessArgs<TData = unknown> {
   user: AuthUser | null
   id?: number
@@ -173,6 +182,8 @@ export interface Config {
   /** Signs sessions. */
   secret: string
   db: DatabaseAdapter
+  /** Authentication and user roles configuration. */
+  auth?: AuthConfig
   /** Optional file storage adapter. Required when any collection has upload enabled. */
   storage?: StorageAdapter
   /** Optional global pagination settings. */
