@@ -32,3 +32,13 @@ export {
 } from './field-access'
 
 export { extractReferencedPaths, isPathReadable, validateQueryAccess } from './query-access'
+
+export {
+  getDocumentPermissions,
+  getGlobalPermissions,
+  getPermissions,
+  type CollectionPermission,
+  type FieldPermission,
+  type GlobalPermission,
+  type PermissionsResponse,
+} from './permissions'

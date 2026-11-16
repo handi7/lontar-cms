@@ -146,10 +146,17 @@ export {
   checkFieldAccess,
   defaultAccess,
   extractReferencedPaths,
+  getDocumentPermissions,
+  getGlobalPermissions,
+  getPermissions,
   isPathReadable,
   sanitizeDocRead,
   sanitizeDocWrite,
   validateQueryAccess,
+  type CollectionPermission,
+  type FieldPermission,
+  type GlobalPermission,
+  type PermissionsResponse,
   type WriteSanitizationContext,
 } from './access'
 export type {
