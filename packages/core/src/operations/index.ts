@@ -3,7 +3,7 @@ export { deleteOperation } from './delete'
 export { AccessDeniedError, NotFoundError, ValidationError } from './errors'
 export { findOperation } from './find'
 export { findByIDOperation } from './find-by-id'
-export { findGlobalOperation, updateGlobalOperation } from './global'
+export { findGlobalOperation, resolveOriginalGlobalDoc, updateGlobalOperation } from './global'
 export {
   buildRevertData,
   executeCreate,
