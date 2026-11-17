@@ -159,6 +159,7 @@ function buildAuthInstance(config: Config, basePath: string, options: CreateLont
       enabled: true,
       disableSignUp: true,
       requireEmailVerification: Boolean(config.auth?.requireEmailVerification),
+      revokeSessionsOnPasswordReset: true,
       onPasswordReset: async ({ user }: { user: { id: string } }) => {
         const ctx = await auth.$context
         await ctx.internalAdapter.updateUser(user.id, {
