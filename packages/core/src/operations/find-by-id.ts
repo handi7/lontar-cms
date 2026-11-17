@@ -1,11 +1,12 @@
 import { checkAccess, sanitizeDocRead } from '../access'
+import type { FieldAccessCache } from '../access/field-access'
 import type { AuthUser } from '../auth/types'
 import type { CollectionConfig, Config } from '../config/types'
 import type { DocumentData } from '../database/adapter'
 import { runAfterReadHooks } from '../hooks'
 import { populateDoc } from '../populate'
 import { AccessDeniedError } from './errors'
-import type { FindByIDOperationArgs } from './types'
+import { resolveOperationContextCache, type FindByIDOperationArgs } from './types'
 
 async function assertReadAccess(
   collection: CollectionConfig,
@@ -58,6 +59,25 @@ async function hydrateDraftDoc(
   return { ...baseDoc, _isPublished: isPublished }
 }
 
+async function finalizeFindByIDDoc<T>(
+  args: FindByIDOperationArgs,
+  populated: DocumentData | null,
+  cache: FieldAccessCache,
+): Promise<T | null> {
+  if (args.overrideAccess || !populated) {
+    return populated as T
+  }
+
+  const sanitized = await sanitizeDocRead(args.collection.fields, populated, args.user ?? null, {
+    id: args.id,
+    doc: populated,
+    cache,
+    req: args.req,
+  })
+
+  return sanitized as T
+}
+
 export async function findByIDOperation<T = DocumentData>(
   args: FindByIDOperationArgs,
 ): Promise<T | null> {
@@ -78,6 +98,8 @@ export async function findByIDOperation<T = DocumentData>(
     req: args.req,
   })
 
+  const cache = resolveOperationContextCache(args)
+
   const populated = await populateDoc(transformed, {
     collection: args.collection,
     depth: args.depth ?? 0,
@@ -87,16 +109,8 @@ export async function findByIDOperation<T = DocumentData>(
     req: args.req,
     overrideAccess: args.overrideAccess,
     draft: args.draft,
+    cache,
   })
 
-  if (args.overrideAccess || !populated) {
-    return populated as T
-  }
-
-  const sanitized = await sanitizeDocRead(args.collection.fields, populated, args.user ?? null, {
-    id: args.id,
-    doc: populated,
-  })
-
-  return sanitized as T
+  return finalizeFindByIDDoc<T>(args, populated, cache)
 }

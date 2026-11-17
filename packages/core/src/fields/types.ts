@@ -13,6 +13,7 @@ export interface FieldAccessArgs<TData = unknown, TSiblingData = unknown, TDoc =
   data?: TData
   siblingData?: TSiblingData
   doc?: TDoc
+  req?: Request
 }
 
 export type FieldAccessFunction = (args: FieldAccessArgs) => boolean | Promise<boolean>

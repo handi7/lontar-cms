@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { collection } from '../../config/collection'
 import { defineConfig } from '../../config/define-config'
-import type { DatabaseAdapter, StoredDoc } from '../../database/adapter'
+import type { DatabaseAdapter, DocumentData, StoredDoc } from '../../database/adapter'
 import { fields as f } from '../../fields'
 import { getLontar } from '../../local'
 import { createLontar } from '../create-lontar'
@@ -415,5 +415,64 @@ describe('Field-Level Access Control Integration', () => {
         user: null,
       }),
     ).rejects.toThrow('Validation failed')
+  })
+
+  it('evaluates field access per request and does not leak stale cache across HTTP requests (#365)', async () => {
+    let isEmbargoLifted = false
+    const articles = collection({
+      slug: 'articles',
+      access: { read: () => true },
+      fields: {
+        title: f.text({ required: true }),
+        secretAnnouncement: f.text({
+          access: {
+            read: () => isEmbargoLifted,
+          },
+        }),
+      },
+    })
+
+    const testStore: Record<number, DocumentData> = {
+      1: { id: 1, title: 'Big News', secretAnnouncement: 'Launch tomorrow!' },
+    }
+    const mockDb: DatabaseAdapter = {
+      ...createMockAdapter(),
+      find: vi.fn().mockImplementation(() =>
+        Promise.resolve({
+          docs: Object.values(testStore),
+          totalDocs: 1,
+          limit: 10,
+          page: 1,
+          totalPages: 1,
+        }),
+      ),
+      findByID: vi
+        .fn()
+        .mockImplementation(({ id }: { id: number }) => Promise.resolve(testStore[id] ?? null)),
+    }
+
+    const testConfig = defineConfig({
+      db: mockDb,
+      secret: 'test-secret',
+      collections: [articles],
+    })
+    const app = createLontar(testConfig, { baseURL: 'http://localhost:3000' })
+
+    // Request 1: Embargo NOT lifted
+    const res1 = await app.request('/api/articles/1')
+    expect(res1.status).toBe(200)
+    const doc1 = (await res1.json()) as { title: string; secretAnnouncement?: string }
+    expect(doc1.title).toBe('Big News')
+    expect(doc1.secretAnnouncement).toBeUndefined()
+
+    // State changes: Embargo lifted!
+    isEmbargoLifted = true
+
+    // Request 2: New HTTP request should evaluate fresh and return the secret announcement
+    const res2 = await app.request('/api/articles/1')
+    expect(res2.status).toBe(200)
+    const doc2 = (await res2.json()) as { title: string; secretAnnouncement?: string }
+    expect(doc2.title).toBe('Big News')
+    expect(doc2.secretAnnouncement).toBe('Launch tomorrow!')
   })
 })

@@ -1,4 +1,5 @@
 import { checkAccess, sanitizeDocRead, sanitizeDocWrite } from '../access'
+import type { FieldAccessCache } from '../access/field-access'
 import type { AuthUser } from '../auth/types'
 import { clientFieldsToZod } from '../client/zod'
 import { toClientGlobal } from '../config/to-client-config'
@@ -8,7 +9,11 @@ import { runAfterReadHooks, runBeforeValidateHooks } from '../hooks'
 import { populateDoc } from '../populate'
 import { AccessDeniedError, ValidationError } from './errors'
 import { executeGlobalUpdate, resolveDraftFlag, resolveGlobalUpdateStatus } from './mutation'
-import type { FindGlobalOperationArgs, UpdateGlobalOperationArgs } from './types'
+import {
+  resolveOperationContextCache,
+  type FindGlobalOperationArgs,
+  type UpdateGlobalOperationArgs,
+} from './types'
 
 async function assertGlobalReadAccess(
   global: GlobalConfig,
@@ -109,6 +114,8 @@ function isGlobalDraftHidden(
 export async function findGlobalOperation<T = DocumentData>(
   args: FindGlobalOperationArgs,
 ): Promise<T> {
+  const cache = resolveOperationContextCache(args)
+
   if (!args.overrideAccess) {
     await assertGlobalReadAccess(args.global, args.user, args.draft)
   }
@@ -134,6 +141,7 @@ export async function findGlobalOperation<T = DocumentData>(
     req: args.req,
     overrideAccess: args.overrideAccess,
     draft: args.draft,
+    cache,
   })
 
   if (args.overrideAccess) {
@@ -144,7 +152,7 @@ export async function findGlobalOperation<T = DocumentData>(
     args.global.fields,
     populated as DocumentData,
     args.user ?? null,
-    { doc: populated as DocumentData },
+    { doc: populated as DocumentData, cache, req: args.req },
   )
 
   return sanitized as T
@@ -170,6 +178,7 @@ async function populateGlobalDoc<T>(args: {
   req?: Request
   overrideAccess?: boolean
   draft?: boolean
+  cache?: FieldAccessCache
 }): Promise<T> {
   if (args.depth !== undefined && args.depth > 0) {
     const populated = await populateDoc(args.doc, {
@@ -181,28 +190,40 @@ async function populateGlobalDoc<T>(args: {
       req: args.req,
       overrideAccess: args.overrideAccess,
       draft: args.draft,
+      cache: args.cache,
     })
     return populated as T
   }
   return args.doc as T
 }
 
+async function prepareGlobalWriteData(
+  args: UpdateGlobalOperationArgs,
+  existing: DocumentData | null,
+  cache: FieldAccessCache,
+): Promise<DocumentData> {
+  if (args.overrideAccess) return args.data
+  return sanitizeDocWrite(args.global.fields, args.data, 'update', {
+    user: args.user ?? null,
+    data: args.data,
+    doc: existing ?? undefined,
+    cache,
+    req: args.req,
+  })
+}
+
 export async function updateGlobalOperation<T = DocumentData>(
   args: UpdateGlobalOperationArgs,
 ): Promise<T> {
+  const cache = resolveOperationContextCache(args)
+
   if (!args.overrideAccess) {
     await assertGlobalUpdateAccess(args.global, args.data, args.user)
   }
 
   const draft = resolveDraftFlag(args.global, args.draft, args.autosave)
   const existing = await resolveOriginalGlobalDoc(args.config.db, args.global, draft)
-  const writeData = args.overrideAccess
-    ? args.data
-    : await sanitizeDocWrite(args.global.fields, args.data, 'update', {
-        user: args.user ?? null,
-        data: args.data,
-        doc: existing ?? undefined,
-      })
+  const writeData = await prepareGlobalWriteData(args, existing, cache)
 
   const { _status: _ignoredStatus, ...cleanData } = writeData
   const { status, previousStatus, statusTransition } = resolveGlobalUpdateStatus({
@@ -249,6 +270,7 @@ export async function updateGlobalOperation<T = DocumentData>(
     req: args.req,
     overrideAccess: args.overrideAccess,
     draft,
+    cache,
   })
 
   if (args.overrideAccess) {
@@ -259,7 +281,7 @@ export async function updateGlobalOperation<T = DocumentData>(
     args.global.fields,
     populated as DocumentData,
     args.user ?? null,
-    { doc: populated as DocumentData },
+    { doc: populated as DocumentData, cache, req: args.req },
   )
 
   return sanitized as T

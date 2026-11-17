@@ -26,8 +26,12 @@ export function accessDenied(c: Context, user: AuthUser | null): Response {
 
 export {
   checkFieldAccess,
+  createFieldAccessCache,
+  getFieldAccessCache,
   sanitizeDocRead,
   sanitizeDocWrite,
+  type FieldAccessCache,
+  type ReadSanitizationContext,
   type WriteSanitizationContext,
 } from './field-access'
 

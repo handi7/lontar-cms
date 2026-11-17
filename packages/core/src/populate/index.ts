@@ -1,4 +1,5 @@
 import { checkAccess, sanitizeDocRead } from '../access'
+import type { FieldAccessCache } from '../access/field-access'
 import type { AuthUser } from '../auth/types'
 import type { CollectionConfig } from '../config/types'
 import type { DatabaseAdapter, DocumentData } from '../database/adapter'
@@ -30,6 +31,7 @@ export interface PopulateOptions {
   seen?: ReadonlySet<string>
   overrideAccess?: boolean
   draft?: boolean
+  cache?: FieldAccessCache
 }
 
 interface SingleRefSlot {
@@ -349,15 +351,18 @@ interface PopulateTargetArgs {
   seen: ReadonlySet<string>
   overrideAccess?: boolean
   draft?: boolean
+  cache?: FieldAccessCache
 }
 
 async function sanitizeTargetDocs(
   targetCol: CollectionConfig,
   docsById: Map<number, DocumentData>,
   user: AuthUser | null,
+  cache?: FieldAccessCache,
+  req?: Request,
 ): Promise<void> {
   for (const [id, doc] of docsById.entries()) {
-    const sanitized = await sanitizeDocRead(targetCol.fields, doc, user, { id, doc })
+    const sanitized = await sanitizeDocRead(targetCol.fields, doc, user, { id, doc, cache, req })
     docsById.set(id, sanitized)
   }
 }
@@ -406,7 +411,7 @@ async function populateTargetCollection(args: PopulateTargetArgs): Promise<void>
   }
 
   if (!overrideAccess) {
-    await sanitizeTargetDocs(targetCol, docsById, user)
+    await sanitizeTargetDocs(targetCol, docsById, user, args.cache, req)
   }
 
   assignTargetSlots(targetSlots, docsById, seen)
@@ -449,6 +454,7 @@ interface PopulateAllTargetsArgs {
   seen: ReadonlySet<string>
   overrideAccess?: boolean
   draft?: boolean
+  cache?: FieldAccessCache
 }
 
 async function populateAllTargets(args: PopulateAllTargetsArgs): Promise<void> {
@@ -464,6 +470,7 @@ async function populateAllTargets(args: PopulateAllTargetsArgs): Promise<void> {
     seen,
     overrideAccess,
     draft,
+    cache,
   } = args
 
   const slotsByTarget = groupSlotsByTarget(slots)
@@ -484,12 +491,13 @@ async function populateAllTargets(args: PopulateAllTargetsArgs): Promise<void> {
       seen,
       overrideAccess,
       draft,
+      cache,
     })
   }
 }
 
 export async function populateDocs(options: PopulateOptions): Promise<DocumentData[]> {
-  const { docs, collection, depth, collections, db, req, overrideAccess, draft } = options
+  const { docs, collection, depth, collections, db, req, overrideAccess, draft, cache } = options
   const user = options.user ?? null
   const seen = options.seen ?? new Set<string>()
 
@@ -517,6 +525,7 @@ export async function populateDocs(options: PopulateOptions): Promise<DocumentDa
     seen,
     overrideAccess,
     draft,
+    cache,
   })
 
   return docs

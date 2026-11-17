@@ -1,4 +1,5 @@
 import { checkAccess, sanitizeDocRead, sanitizeDocWrite } from '../access'
+import type { FieldAccessCache } from '../access/field-access'
 import type { AuthUser } from '../auth/types'
 import type { DocStatus } from '../client/system-fields'
 import { clientFieldsToZod } from '../client/zod'
@@ -16,7 +17,7 @@ import {
 import { cleanupReplacedMedia } from '../server/routes/collection-upload'
 import { runBeforeValidateHooks } from '../hooks'
 import type { DocStatusTransition } from '../hooks/types'
-import type { UpdateOperationArgs } from './types'
+import { resolveOperationContextCache, type UpdateOperationArgs } from './types'
 
 async function assertUpdateAccess(
   collection: CollectionConfig,
@@ -64,6 +65,7 @@ async function prepareUpdatePayload(
   args: UpdateOperationArgs,
   originalDoc: DocumentData,
   draft?: boolean,
+  cache?: FieldAccessCache,
 ): Promise<{
   validatedData: DocumentData
   status: DocStatus | undefined
@@ -76,6 +78,8 @@ async function prepareUpdatePayload(
         id: args.id,
         data: args.data,
         doc: originalDoc,
+        cache,
+        req: args.req,
       })
 
   const { _status: _ignoredStatus, ...cleanData } = writeData
@@ -108,6 +112,7 @@ async function finalizeUpdateDoc<T>(
   draft?: boolean,
   status?: DocStatus,
   isDraftRevision?: boolean,
+  cache?: FieldAccessCache,
 ): Promise<T> {
   const isDraftUpdate = status === 'draft' || Boolean(isDraftRevision)
   if (args.collection.upload && !isDraftUpdate) {
@@ -123,6 +128,7 @@ async function finalizeUpdateDoc<T>(
     req: args.req,
     overrideAccess: args.overrideAccess,
     draft,
+    cache,
   })
 
   if (args.overrideAccess) {
@@ -132,12 +138,16 @@ async function finalizeUpdateDoc<T>(
   const sanitized = await sanitizeDocRead(args.collection.fields, populated, args.user ?? null, {
     id: args.id,
     doc: populated,
+    cache,
+    req: args.req,
   })
 
   return sanitized as T
 }
 
 export async function updateOperation<T = DocumentData>(args: UpdateOperationArgs): Promise<T> {
+  const cache = resolveOperationContextCache(args)
+
   if (!args.overrideAccess) {
     await assertUpdateAccess(args.collection, args.id, args.data, args.user)
   }
@@ -152,6 +162,7 @@ export async function updateOperation<T = DocumentData>(args: UpdateOperationArg
     args,
     originalDoc,
     draft,
+    cache,
   )
 
   const result = await executeUpdate({
@@ -173,5 +184,13 @@ export async function updateOperation<T = DocumentData>(args: UpdateOperationArg
     handleUpdateError(result, args.id)
   }
 
-  return finalizeUpdateDoc<T>(args, result.doc, originalDoc, draft, status, result.isDraftRevision)
+  return finalizeUpdateDoc<T>(
+    args,
+    result.doc,
+    originalDoc,
+    draft,
+    status,
+    result.isDraftRevision,
+    cache,
+  )
 }

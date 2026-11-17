@@ -230,6 +230,7 @@ async function transitionDocumentStatus<T = DocumentData>(
   const sanitized = await sanitizeDocRead(args.collection.fields, populated, args.user ?? null, {
     id: args.id,
     doc: populated,
+    req: args.req,
   })
 
   return sanitized as T
@@ -437,7 +438,7 @@ async function transitionGlobalStatus<T = DocumentData>(
     args.global.fields,
     populated as DocumentData,
     args.user ?? null,
-    { doc: populated as DocumentData },
+    { doc: populated as DocumentData, req: args.req },
   )
 
   return sanitized as T

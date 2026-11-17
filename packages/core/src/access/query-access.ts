@@ -10,7 +10,12 @@ import { parseSort } from '../query/parser'
 import type { QueryValidationIssue } from '../query/validator'
 import { getGroupFields } from '../query/validator'
 import type { SortItem, Where } from '../query/types'
-import { checkFieldAccess } from './field-access'
+import { checkFieldAccess, getFieldAccessCache, type FieldAccessCache } from './field-access'
+
+export interface QueryAccessOptions {
+  cache?: FieldAccessCache
+  req?: Request
+}
 
 const SYSTEM_FIELDS = new Set<string>([
   ...BASE_SYSTEM_FIELDS,
@@ -102,14 +107,21 @@ export function extractReferencedPaths(
   return Array.from(paths)
 }
 
-async function checkFieldRead(field: Field, user: AuthUser | null): Promise<boolean> {
-  return checkFieldAccess(field.access?.read, { user })
+async function checkFieldRead(
+  field: Field,
+  user: AuthUser | null,
+  cache?: FieldAccessCache,
+  req?: Request,
+): Promise<boolean> {
+  return checkFieldAccess(field.access?.read, { user, req }, cache)
 }
 
 async function checkBlocksFieldAccess(
   blocks: readonly Block[],
   segments: string[],
   user: AuthUser | null,
+  cache?: FieldAccessCache,
+  req?: Request,
 ): Promise<boolean> {
   const first = segments[0]
   if (!first || first === 'id' || first === 'blockType') return true
@@ -117,12 +129,12 @@ async function checkBlocksFieldAccess(
 
   const matchingBlock = blocks.find((b) => b.slug === first)
   if (matchingBlock) {
-    return checkFieldPathAccess(matchingBlock.fields, rest, user)
+    return checkFieldPathAccess(matchingBlock.fields, rest, user, cache, req)
   }
 
   for (const block of blocks) {
     if (first in block.fields) {
-      const allowed = await checkFieldPathAccess(block.fields, segments, user)
+      const allowed = await checkFieldPathAccess(block.fields, segments, user, cache, req)
       if (!allowed) return false
     }
   }
@@ -133,6 +145,8 @@ async function checkFieldPathAccess(
   fields: Record<string, Field>,
   segments: string[],
   user: AuthUser | null,
+  cache?: FieldAccessCache,
+  req?: Request,
 ): Promise<boolean> {
   const name = segments[0]
   if (!name || name === 'id' || name === 'blockType') return true
@@ -141,15 +155,15 @@ async function checkFieldPathAccess(
   const field = fields[name]
   if (!field) return true
 
-  const allowed = await checkFieldRead(field, user)
+  const allowed = await checkFieldRead(field, user, cache, req)
   if (!allowed) return false
   if (rest.length === 0) return true
 
   if (field.type === 'group' || field.type === 'array') {
-    return checkFieldPathAccess(field.fields, rest, user)
+    return checkFieldPathAccess(field.fields, rest, user, cache, req)
   }
   if (field.type === 'blocks') {
-    return checkBlocksFieldAccess(field.blocks, rest, user)
+    return checkBlocksFieldAccess(field.blocks, rest, user, cache, req)
   }
   return true
 }
@@ -158,11 +172,13 @@ export async function isPathReadable(
   path: string,
   collection: CollectionConfig,
   user: AuthUser | null,
+  cache?: FieldAccessCache,
+  req?: Request,
 ): Promise<boolean> {
   if (isSystemPath(path)) return true
   const normalized = path.replaceAll('__', '.')
   const segments = normalized.split('.')
-  return checkFieldPathAccess(collection.fields, segments, user)
+  return checkFieldPathAccess(collection.fields, segments, user, cache, req)
 }
 
 export async function validateQueryAccess(
@@ -170,12 +186,14 @@ export async function validateQueryAccess(
   sort: string | string[] | SortItem[] | undefined,
   collection: CollectionConfig,
   user: AuthUser | null,
+  options?: QueryAccessOptions,
 ): Promise<QueryValidationIssue[]> {
   const paths = extractReferencedPaths(where, sort, collection)
   const issues: QueryValidationIssue[] = []
+  const cache = options?.cache ?? (options?.req ? getFieldAccessCache(options.req) : undefined)
 
   for (const path of paths) {
-    const readable = await isPathReadable(path, collection, user)
+    const readable = await isPathReadable(path, collection, user, cache, options?.req)
     if (!readable) {
       issues.push({
         path,

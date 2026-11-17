@@ -2,6 +2,7 @@ import { betterAuth } from 'better-auth'
 import { admin } from 'better-auth/plugins'
 import { defaultAc } from 'better-auth/plugins/admin/access'
 import { Hono, type Context } from 'hono'
+import { createFieldAccessCache, requestFieldAccessCache } from '../access/field-access'
 import { apiKeyPlugin, verifyApiKey, type ApiKeyItem } from '../auth/api-key'
 import { resolveAdminBaseUrl } from './admin-url'
 import {
@@ -278,6 +279,10 @@ export function createLontar(config: Config, options: CreateLontarOptions = {}):
 
   // Session & API key verification middleware for all subsequent routes
   router.use('*', async (c, next) => {
+    const cache = createFieldAccessCache()
+    c.set('fieldAccessCache', cache)
+    requestFieldAccessCache.set(c.req.raw, cache)
+
     const apiKeyToken = extractApiKeyToken(c.req.header('x-api-key'), c.req.header('authorization'))
 
     if (apiKeyToken) {

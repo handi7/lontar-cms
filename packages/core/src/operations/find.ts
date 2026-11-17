@@ -1,4 +1,5 @@
 import { checkAccess, sanitizeDocRead, validateQueryAccess } from '../access'
+import type { FieldAccessCache } from '../access/field-access'
 import type { AuthUser } from '../auth/types'
 import { DEFAULT_LIMIT, MAX_LIMIT, type CollectionConfig, type Config } from '../config/types'
 import type { DocumentData, PaginatedDocs } from '../database/adapter'
@@ -7,7 +8,7 @@ import { populateDocs } from '../populate'
 import type { SortItem, Where } from '../query/types'
 import { validateSort, validateWhere } from '../query/validator'
 import { AccessDeniedError, ValidationError } from './errors'
-import type { FindOperationArgs } from './types'
+import { resolveOperationContextCache, type FindOperationArgs } from './types'
 
 async function assertReadAccess(
   collection: CollectionConfig,
@@ -74,8 +75,10 @@ async function assertValidQueryAccess(
   sort: string | SortItem[] | undefined,
   collection: CollectionConfig,
   user: AuthUser | null,
+  cache?: FieldAccessCache,
+  req?: Request,
 ): Promise<void> {
-  const issues = await validateQueryAccess(where, sort, collection, user)
+  const issues = await validateQueryAccess(where, sort, collection, user, { cache, req })
   if (issues.length > 0) {
     throw new ValidationError('Validation failed', { issues })
   }
@@ -137,9 +140,18 @@ async function hydrateDraftDocs(
 export async function findOperation<T = DocumentData>(
   args: FindOperationArgs,
 ): Promise<PaginatedDocs<T>> {
+  const cache = resolveOperationContextCache(args)
+
   if (!args.overrideAccess) {
     await assertFindAccess(args.collection, args.user ?? null, args.draft)
-    await assertValidQueryAccess(args.where, args.sort, args.collection, args.user ?? null)
+    await assertValidQueryAccess(
+      args.where,
+      args.sort,
+      args.collection,
+      args.user ?? null,
+      cache,
+      args.req,
+    )
   }
 
   const { page, limit } = resolveLimits(args.collection, args.config, args.page, args.limit)
@@ -172,6 +184,7 @@ export async function findOperation<T = DocumentData>(
     req: args.req,
     overrideAccess: args.overrideAccess,
     draft: args.draft,
+    cache,
   })
 
   const docsToReturn = args.overrideAccess
@@ -181,6 +194,8 @@ export async function findOperation<T = DocumentData>(
           sanitizeDocRead(args.collection.fields, doc, args.user ?? null, {
             id: doc.id as string | number | undefined,
             doc,
+            cache,
+            req: args.req,
           }),
         ),
       )

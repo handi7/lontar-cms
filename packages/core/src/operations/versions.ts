@@ -114,6 +114,7 @@ export async function findVersionsOperation(
       snapshot: await sanitizeDocRead(args.collection.fields, v.snapshot, args.user ?? null, {
         id: args.id,
         doc: v.snapshot,
+        req: args.req,
       }),
     })),
   )
@@ -151,7 +152,7 @@ export async function findVersionByIDOperation(
     args.collection.fields,
     version.snapshot,
     args.user ?? null,
-    { id: args.id, doc: version.snapshot },
+    { id: args.id, doc: version.snapshot, req: args.req },
   )
 
   return { ...version, snapshot: sanitizedSnapshot }
@@ -250,6 +251,7 @@ export async function findGlobalVersionsOperation(
       snapshot: await sanitizeDocRead(args.global.fields, v.snapshot, args.user ?? null, {
         id: parentId,
         doc: v.snapshot,
+        req: args.req,
       }),
     })),
   )
@@ -288,7 +290,7 @@ export async function findGlobalVersionByIDOperation(
     args.global.fields,
     version.snapshot,
     args.user ?? null,
-    { id: parentId, doc: version.snapshot },
+    { id: parentId, doc: version.snapshot, req: args.req },
   )
 
   return { ...version, snapshot: sanitizedSnapshot }

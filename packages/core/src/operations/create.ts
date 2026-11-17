@@ -1,4 +1,5 @@
 import { checkAccess, sanitizeDocRead, sanitizeDocWrite } from '../access'
+import type { FieldAccessCache } from '../access/field-access'
 import type { AuthUser } from '../auth/types'
 import { clientFieldsToZod } from '../client/zod'
 import { toClientCollection } from '../config/to-client-config'
@@ -13,7 +14,7 @@ import {
   type MutationExecutionResult,
 } from './mutation'
 import { runBeforeValidateHooks } from '../hooks'
-import type { CreateOperationArgs } from './types'
+import { resolveOperationContextCache, type CreateOperationArgs } from './types'
 
 async function assertCreateAccess(
   collection: CollectionConfig,
@@ -62,17 +63,27 @@ async function canPopulateCreateDraft(
   )
 }
 
+async function prepareCreateWriteData(
+  args: CreateOperationArgs,
+  cache: FieldAccessCache,
+): Promise<DocumentData> {
+  if (args.overrideAccess) return args.data
+  return sanitizeDocWrite(args.collection.fields, args.data, 'create', {
+    user: args.user ?? null,
+    data: args.data,
+    cache,
+    req: args.req,
+  })
+}
+
 export async function createOperation<T = DocumentData>(args: CreateOperationArgs): Promise<T> {
+  const cache = resolveOperationContextCache(args)
+
   if (!args.overrideAccess) {
     await assertCreateAccess(args.collection, args.data, args.user)
   }
 
-  const writeData = args.overrideAccess
-    ? args.data
-    : await sanitizeDocWrite(args.collection.fields, args.data, 'create', {
-        user: args.user ?? null,
-        data: args.data,
-      })
+  const writeData = await prepareCreateWriteData(args, cache)
 
   const draft = resolveDraftFlag(args.collection, args.draft, args.autosave)
   const { status, statusTransition } = resolveCreateStatus(args.collection, draft)
@@ -112,6 +123,7 @@ export async function createOperation<T = DocumentData>(args: CreateOperationArg
     req: args.req,
     overrideAccess: args.overrideAccess,
     draft: canPopulateDraft,
+    cache,
   })
 
   if (args.overrideAccess) {
@@ -121,6 +133,8 @@ export async function createOperation<T = DocumentData>(args: CreateOperationArg
   const sanitized = await sanitizeDocRead(args.collection.fields, populated, args.user ?? null, {
     id: createdDoc.id as string | number | undefined,
     doc: populated,
+    cache,
+    req: args.req,
   })
 
   return sanitized as T
