@@ -1,5 +1,6 @@
 import { randomBytes } from 'node:crypto'
 import type { Context, Hono } from 'hono'
+import { validatePassword } from '../../client/password'
 import type { RateLimiter } from '../../auth/rate-limit'
 import type { Auth, AuthUser, LontarVariables } from '../../auth/types'
 import {
@@ -104,10 +105,7 @@ function validateEmail(email?: unknown): string | null {
 }
 
 function validatePasswordLength(password?: unknown): string | null {
-  if (!password || typeof password !== 'string' || password.length < 8) {
-    return 'Password must be at least 8 characters long'
-  }
-  return null
+  return validatePassword(password, 'Password')
 }
 
 function validateName(name?: unknown): string | null {
@@ -568,8 +566,9 @@ async function handleAdminSetPassword(
   if (error) return error
 
   const { password } = (body ?? {}) as PasswordBody
-  if (!password || typeof password !== 'string' || password.length < 8) {
-    return c.json({ error: 'Password must be at least 8 characters long' }, 400)
+  const passwordError = validatePassword(password, 'Password')
+  if (passwordError || !password) {
+    return c.json({ error: passwordError ?? 'Password must be at least 8 characters long' }, 400)
   }
 
   await setUserPassword(auth, id, password)
@@ -630,8 +629,9 @@ function validateChangePasswordBody(body: unknown): {
   if (!currentPassword || typeof currentPassword !== 'string') {
     return { error: 'Current password is required' }
   }
-  if (!newPassword || typeof newPassword !== 'string' || newPassword.length < 8) {
-    return { error: 'New password must be at least 8 characters long' }
+  const passwordError = validatePassword(newPassword, 'New password')
+  if (passwordError || !newPassword) {
+    return { error: passwordError ?? 'New password must be at least 8 characters long' }
   }
   return { data: { currentPassword, newPassword } }
 }

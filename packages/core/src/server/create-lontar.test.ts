@@ -397,6 +397,20 @@ describe('createLontar REST API', () => {
       const checkData = (await initialCheck.json()) as { canRegisterFirstUser: boolean }
       expect(checkData.canRegisterFirstUser).toBe(true)
 
+      // Attempting to register with password > 128 characters fails with 400 (#378)
+      const longPasswordRes = await testApp.request('/api/_lontar/first-user', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          email: 'first-admin@example.com',
+          password: 'a'.repeat(129),
+          name: 'First Admin',
+        }),
+      })
+      expect(longPasswordRes.status).toBe(400)
+      const longData = (await longPasswordRes.json()) as { error: string }
+      expect(longData.error).toBe('Password cannot exceed 128 characters')
+
       // Register first user
       const registerRes = await testApp.request('/api/_lontar/first-user', {
         method: 'POST',

@@ -1,4 +1,5 @@
 import type { Context, Hono } from 'hono'
+import { validatePassword } from '../../client/password'
 import type { RateLimiter } from '../../auth/rate-limit'
 import type { Auth, LontarVariables } from '../../auth/types'
 import { countTotalUsers, createUserWithCredential } from '../../auth/user'
@@ -14,10 +15,7 @@ function validateCredentials(email?: string, password?: string): string | null {
   if (!email || typeof email !== 'string' || !email.includes('@')) {
     return 'A valid email is required'
   }
-  if (!password || typeof password !== 'string' || password.length < 8) {
-    return 'Password must be at least 8 characters long'
-  }
-  return null
+  return validatePassword(password, 'Password')
 }
 
 function validateFirstUserInput(body: unknown): {

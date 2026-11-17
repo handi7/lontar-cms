@@ -213,6 +213,12 @@ describe('UsersView (#343)', () => {
 
     expect(await screen.findByText(/Password must be at least 8 characters long/i)).toBeTruthy()
     expect(client.createUser).not.toHaveBeenCalled()
+
+    fireEvent.change(screen.getByLabelText(/Password/i), { target: { value: 'a'.repeat(129) } })
+    fireEvent.click(submitBtn)
+
+    expect(await screen.findByText(/Password cannot exceed 128 characters/i)).toBeTruthy()
+    expect(client.createUser).not.toHaveBeenCalled()
   })
 
   it('shows error banner when action fails with API error message', async () => {

@@ -1,4 +1,10 @@
-import { countTotalUsers, createLontar, createUserWithCredential } from '@lontar/core'
+import {
+  countTotalUsers,
+  createLontar,
+  createUserWithCredential,
+  MAX_PASSWORD_LENGTH,
+  MIN_PASSWORD_LENGTH,
+} from '@lontar/core'
 import { loadConfig } from '../config'
 import { closeDb } from '../utils/db'
 
@@ -40,8 +46,11 @@ function validateUserInput(options: CreateUserOptions): {
   if (!email || !email.includes('@')) {
     throw new Error('A valid --email argument is required')
   }
-  if (!password || password.length < 8) {
+  if (!password || password.length < MIN_PASSWORD_LENGTH) {
     throw new Error('A --password argument with at least 8 characters is required')
+  }
+  if (password.length > MAX_PASSWORD_LENGTH) {
+    throw new Error(`A --password argument cannot exceed ${MAX_PASSWORD_LENGTH} characters`)
   }
   if (!name) {
     throw new Error('A --name argument is required')

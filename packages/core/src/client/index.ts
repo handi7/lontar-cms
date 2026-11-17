@@ -93,3 +93,4 @@ export type {
   DiffableCollection,
 } from './diff'
 export { diffPrimitive, diffFields, diffSnapshots } from './diff'
+export { MAX_PASSWORD_LENGTH, MIN_PASSWORD_LENGTH, validatePassword } from './password'

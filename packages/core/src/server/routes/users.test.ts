@@ -182,6 +182,16 @@ describe('User Management API (/api/_lontar/users & /api/_lontar/me)', () => {
       error: 'Password must be at least 8 characters long',
     })
 
+    const longPassword = await app.request('/api/_lontar/users', {
+      method: 'POST',
+      headers: { cookie: adminCookie, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ email: 'valid@example.com', name: 'Test', password: 'a'.repeat(129) }),
+    })
+    expect(longPassword.status).toBe(400)
+    expect(await longPassword.json()).toEqual({
+      error: 'Password cannot exceed 128 characters',
+    })
+
     const invalidRole = await app.request('/api/_lontar/users', {
       method: 'POST',
       headers: { cookie: adminCookie, 'Content-Type': 'application/json' },
@@ -482,6 +492,16 @@ describe('User Management API (/api/_lontar/users & /api/_lontar/me)', () => {
       error: 'Password must be at least 8 characters long',
     })
 
+    const longPwd = await app.request(`/api/_lontar/users/${createdEditor.id}/password`, {
+      method: 'POST',
+      headers: { cookie: adminCookie, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ password: 'a'.repeat(129) }),
+    })
+    expect(longPwd.status).toBe(400)
+    expect(await longPwd.json()).toEqual({
+      error: 'Password cannot exceed 128 characters',
+    })
+
     // 2. Set new password -> 200
     const setPwd = await app.request(`/api/_lontar/users/${createdEditor.id}/password`, {
       method: 'POST',
@@ -620,6 +640,19 @@ describe('User Management API (/api/_lontar/users & /api/_lontar/me)', () => {
     expect(shortNew.status).toBe(400)
     expect(await shortNew.json()).toEqual({
       error: 'New password must be at least 8 characters long',
+    })
+
+    const longNew = await app.request('/api/_lontar/me/password', {
+      method: 'POST',
+      headers: { cookie: editorCookie, 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        currentPassword: 'password123',
+        newPassword: 'a'.repeat(129),
+      }),
+    })
+    expect(longNew.status).toBe(400)
+    expect(await longNew.json()).toEqual({
+      error: 'New password cannot exceed 128 characters',
     })
 
     // 3. Successful change -> 200

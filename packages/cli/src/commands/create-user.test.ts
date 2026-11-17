@@ -17,6 +17,9 @@ describe('createUser command', () => {
       createUser({ email: 'admin@example.com', password: 'short', name: 'Admin' }),
     ).rejects.toThrow('A --password argument with at least 8 characters is required')
     await expect(
+      createUser({ email: 'admin@example.com', password: 'a'.repeat(129), name: 'Admin' }),
+    ).rejects.toThrow('A --password argument cannot exceed 128 characters')
+    await expect(
       createUser({ email: 'admin@example.com', password: 'password123', name: '' }),
     ).rejects.toThrow('A --name argument is required')
   })
