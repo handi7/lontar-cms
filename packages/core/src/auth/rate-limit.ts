@@ -1,4 +1,5 @@
 import { randomBytes } from 'node:crypto'
+import { isIP } from 'node:net'
 
 export interface RateLimitRule {
   /**
@@ -145,7 +146,41 @@ export class DatabaseRateLimitStorage implements RateLimitStorage {
     return Boolean(updated)
   }
 
-  async consume(key: string, rule: RateLimitRule): Promise<RateLimitResult> {
+  private async handleMissingRow(
+    adapter: DatabaseAdapterLike,
+    key: string,
+    rule: RateLimitRule,
+    now: number,
+    attempt: number,
+  ): Promise<RateLimitResult> {
+    const created = await this.createInitialRow(adapter, key, now)
+    if (created) {
+      return { allowed: true, retryAfter: null }
+    }
+
+    try {
+      const retryRows = await adapter.findMany({
+        model: 'rateLimit',
+        where: [{ field: 'key', value: key }],
+      })
+      if (!retryRows[0]) {
+        console.warn(`[rate-limit] Failed to create rate limit row for key "${key}"; failing open.`)
+        return { allowed: true, retryAfter: null }
+      }
+    } catch (err) {
+      console.warn(`[rate-limit] Error checking rate limit row for key "${key}":`, err)
+      return { allowed: true, retryAfter: null }
+    }
+
+    return this.consume(key, rule, attempt + 1)
+  }
+
+  async consume(key: string, rule: RateLimitRule, attempt = 0): Promise<RateLimitResult> {
+    if (attempt > 1) {
+      console.warn(`[rate-limit] Exceeded retry attempts for key "${key}"; failing open.`)
+      return { allowed: true, retryAfter: null }
+    }
+
     const adapter = await this.getAdapter()
     if (!adapter) {
       return { allowed: true, retryAfter: null }
@@ -155,18 +190,25 @@ export class DatabaseRateLimitStorage implements RateLimitStorage {
     const now = Date.now()
     const windowInMs = rule.window * 1000
 
-    const rows = await adapter.findMany({
-      model,
-      where: [{ field: 'key', value: key }],
-    })
-    const existing = rows[0]
+    let rows: Array<{
+      id?: string
+      key?: string
+      count?: number
+      lastRequest?: number | string | bigint
+    }>
+    try {
+      rows = await adapter.findMany({
+        model,
+        where: [{ field: 'key', value: key }],
+      })
+    } catch (err) {
+      console.warn(`[rate-limit] Failed to query rate limit for key "${key}":`, err)
+      return { allowed: true, retryAfter: null }
+    }
 
+    const existing = rows[0]
     if (!existing) {
-      const created = await this.createInitialRow(adapter, key, now)
-      if (created) {
-        return { allowed: true, retryAfter: null }
-      }
-      return this.consume(key, rule)
+      return this.handleMissingRow(adapter, key, rule, now, attempt)
     }
 
     const lastRequest = Number(existing.lastRequest)
@@ -175,21 +217,26 @@ export class DatabaseRateLimitStorage implements RateLimitStorage {
       if (reset) {
         return { allowed: true, retryAfter: null }
       }
-      return this.consume(key, rule)
+      return this.consume(key, rule, attempt + 1)
     }
 
     const windowStart = now - windowInMs
-    const updated = await adapter.incrementOne({
-      model,
-      where: [
-        { field: 'key', value: key },
-        { field: 'lastRequest', operator: 'gt', value: windowStart },
-        { field: 'count', operator: 'lt', value: rule.max },
-      ],
-      increment: { count: 1 },
-      set: { lastRequest: now },
-    })
-    if (updated) {
+    try {
+      const updated = await adapter.incrementOne({
+        model,
+        where: [
+          { field: 'key', value: key },
+          { field: 'lastRequest', operator: 'gt', value: windowStart },
+          { field: 'count', operator: 'lt', value: rule.max },
+        ],
+        increment: { count: 1 },
+        set: { lastRequest: now },
+      })
+      if (updated) {
+        return { allowed: true, retryAfter: null }
+      }
+    } catch (err) {
+      console.warn(`[rate-limit] Failed to increment rate limit for key "${key}":`, err)
       return { allowed: true, retryAfter: null }
     }
 
@@ -207,25 +254,29 @@ export class DatabaseRateLimitStorage implements RateLimitStorage {
     const now = Date.now()
     const windowInMs = rule.window * 1000
 
-    const rows = await adapter.findMany({
-      model,
-      where: [{ field: 'key', value: key }],
-    })
-    const existing = rows[0]
+    try {
+      const rows = await adapter.findMany({
+        model,
+        where: [{ field: 'key', value: key }],
+      })
+      const existing = rows[0]
 
-    if (!existing) {
+      if (!existing) {
+        return { allowed: true, retryAfter: null }
+      }
+
+      const lastRequest = Number(existing.lastRequest)
+      const count = Number(existing.count ?? 0)
+
+      if (now - lastRequest < windowInMs && count >= rule.max) {
+        const retryAfter = Math.max(1, Math.ceil((lastRequest + windowInMs - now) / 1000))
+        return { allowed: false, retryAfter }
+      }
+
+      return { allowed: true, retryAfter: null }
+    } catch {
       return { allowed: true, retryAfter: null }
     }
-
-    const lastRequest = Number(existing.lastRequest)
-    const count = Number(existing.count ?? 0)
-
-    if (now - lastRequest < windowInMs && count >= rule.max) {
-      const retryAfter = Math.max(1, Math.ceil((lastRequest + windowInMs - now) / 1000))
-      return { allowed: false, retryAfter }
-    }
-
-    return { allowed: true, retryAfter: null }
   }
 }
 
@@ -262,16 +313,38 @@ export function resolveRateLimitEnabled(options?: { rateLimit?: { enabled?: bool
   )
 }
 
+function parseIp(value: string | null | undefined): string | null {
+  if (!value) return null
+  const trimmed = value.trim()
+  if (!trimmed) return null
+  if (isIP(trimmed)) return trimmed
+
+  const ipv4WithPort = /^(\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}):\d+$/.exec(trimmed)
+  const ipv4 = ipv4WithPort?.[1]
+  if (ipv4 && isIP(ipv4)) {
+    return ipv4
+  }
+
+  const ipv6WithPort = /^\[([a-fA-F0-9:]+)\](?::\d+)?$/.exec(trimmed)
+  const ipv6 = ipv6WithPort?.[1]
+  if (ipv6 && isIP(ipv6)) {
+    return ipv6
+  }
+
+  return null
+}
+
 export function getClientIp(req: Request): string {
   const xForwardedFor = req.headers.get('x-forwarded-for')
   if (xForwardedFor) {
     const first = xForwardedFor.split(',')[0]?.trim()
-    if (first) return first
+    const ip = parseIp(first)
+    if (ip) return ip
   }
-  const xRealIp = req.headers.get('x-real-ip')
-  if (xRealIp) return xRealIp.trim()
-  const cfConnectingIp = req.headers.get('cf-connecting-ip')
-  if (cfConnectingIp) return cfConnectingIp.trim()
+  const xRealIp = parseIp(req.headers.get('x-real-ip'))
+  if (xRealIp) return xRealIp
+  const cfConnectingIp = parseIp(req.headers.get('cf-connecting-ip'))
+  if (cfConnectingIp) return cfConnectingIp
   return '127.0.0.1'
 }
 
