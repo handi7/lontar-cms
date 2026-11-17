@@ -2,7 +2,14 @@ import { betterAuth } from 'better-auth'
 import { admin } from 'better-auth/plugins'
 import { adminAc, defaultAc } from 'better-auth/plugins/admin/access'
 import { Hono, type Context } from 'hono'
-import { apiKeyPlugin, verifyApiKey } from '../auth/api-key'
+import { apiKeyPlugin, verifyApiKey, type ApiKeyItem } from '../auth/api-key'
+import {
+  RateLimiter,
+  getClientIp,
+  resolveRateLimitEnabled,
+  type DatabaseAdapterLike,
+  type RateLimitOptions,
+} from '../auth/rate-limit'
 import type { Auth, AuthSession, AuthUser, LontarVariables } from '../auth/types'
 import { toClientConfig } from '../config/to-client-config'
 import type { Config } from '../config/types'
@@ -19,11 +26,7 @@ export interface CreateLontarOptions {
   baseURL?: string
   adminPath?: string
   trustedOrigins?: string[]
-  rateLimit?: {
-    enabled?: boolean
-    window?: number
-    max?: number
-  }
+  rateLimit?: RateLimitOptions
 }
 
 export type LontarApp = Hono<{ Variables: LontarVariables }> & {
@@ -38,15 +41,6 @@ function buildTrustedOrigins(options: CreateLontarOptions): string[] {
     .map((s) => s.trim())
     .filter(Boolean)
   return Array.from(new Set([...defaultOrigins, ...envOrigins, ...(options.trustedOrigins ?? [])]))
-}
-
-function resolveRateLimitEnabled(options: CreateLontarOptions): boolean {
-  if (options.rateLimit?.enabled !== undefined) return options.rateLimit.enabled
-  return (
-    process.env.NODE_ENV !== 'test' &&
-    process.env.PLAYWRIGHT !== 'true' &&
-    process.env.DISABLE_AUTH_RATE_LIMIT !== 'true'
-  )
 }
 
 function buildAdminPlugin(authConfig?: Config['auth']) {
@@ -65,11 +59,26 @@ function buildAdminPlugin(authConfig?: Config['auth']) {
   })
 }
 
+const DEFAULT_BETTER_AUTH_CUSTOM_RULES: Record<string, { window: number; max: number }> = {
+  '/sign-in/*': { window: 60, max: 5 },
+  '/request-password-reset': { window: 60, max: 3 },
+  '/reset-password': { window: 60, max: 5 },
+  '/forget-password': { window: 60, max: 3 },
+}
+
 function buildRateLimitConfig(options: CreateLontarOptions) {
+  const customRules = {
+    ...DEFAULT_BETTER_AUTH_CUSTOM_RULES,
+    ...options.rateLimit?.customRules,
+  }
+
   return {
     enabled: resolveRateLimitEnabled(options),
+    ...(options.rateLimit?.storage ? { storage: options.rateLimit.storage } : {}),
+    ...(options.rateLimit?.customStorage ? { customStorage: options.rateLimit.customStorage } : {}),
     ...(options.rateLimit?.window !== undefined ? { window: options.rateLimit.window } : {}),
     ...(options.rateLimit?.max !== undefined ? { max: options.rateLimit.max } : {}),
+    customRules,
   }
 }
 
@@ -168,6 +177,62 @@ async function resolveSessionUser(
   }
 }
 
+type ApiKeyAuthResult =
+  | { ok: true; user: AuthUser; apiKey: ApiKeyItem | null }
+  | { ok: false; status: 401 | 429; error: string; retryAfter?: number }
+
+async function authenticateApiKey(
+  rawReq: Request,
+  auth: Auth,
+  apiKeyToken: string,
+  rateLimiter: RateLimiter,
+): Promise<ApiKeyAuthResult> {
+  const ip = getClientIp(rawReq)
+  const blockedCheck = await rateLimiter.checkApiKeyFailureLimit(ip)
+  if (!blockedCheck.allowed) {
+    const retryAfter = blockedCheck.retryAfter ?? rateLimiter.rules.apiKeyFailure.window
+    return {
+      ok: false,
+      status: 429,
+      error: 'Too many failed API key attempts. Please try again later.',
+      retryAfter,
+    }
+  }
+
+  const result = await verifyApiKey(auth, apiKeyToken)
+  if (!result.valid || !result.user) {
+    const failureRecord = await rateLimiter.recordApiKeyFailure(ip)
+    if (!failureRecord.allowed) {
+      const retryAfter = failureRecord.retryAfter ?? rateLimiter.rules.apiKeyFailure.window
+      return {
+        ok: false,
+        status: 429,
+        error: 'Too many failed API key attempts. Please try again later.',
+        retryAfter,
+      }
+    }
+    return { ok: false, status: 401, error: result.error ?? 'Invalid API key' }
+  }
+
+  return { ok: true, user: result.user, apiKey: result.apiKey ?? null }
+}
+
+function wrapAuthResponse(res: Response): Response {
+  if (res.status === 429) {
+    const retryAfter = res.headers.get('retry-after') ?? res.headers.get('x-retry-after')
+    if (retryAfter && !res.headers.get('retry-after')) {
+      const headers = new Headers(res.headers)
+      headers.set('Retry-After', retryAfter)
+      return new Response(res.body, {
+        status: res.status,
+        statusText: res.statusText,
+        headers,
+      })
+    }
+  }
+  return res
+}
+
 export function createLontar(config: Config, options: CreateLontarOptions = {}): LontarApp {
   const app = new Hono<{ Variables: LontarVariables }>()
   const basePath = options.basePath ?? '/api'
@@ -186,27 +251,38 @@ export function createLontar(config: Config, options: CreateLontarOptions = {}):
 
   const auth = buildAuthInstance(config, basePath, options)
 
+  const rateLimiter = new RateLimiter(options.rateLimit ?? {}, async () => {
+    const ctx = await auth.$context
+    return ctx.adapter as unknown as DatabaseAdapterLike
+  })
+
   // Mount Better Auth handler routes at /auth/*
   router.post('/auth/forget-password', async (c) => {
     const url = new URL(c.req.url)
     url.pathname = url.pathname.replace(/\/auth\/forget-password$/, '/auth/request-password-reset')
     const req = new Request(url.toString(), c.req.raw)
-    return auth.handler(req)
+    return wrapAuthResponse(await auth.handler(req))
   })
-  router.all('/auth/*', (c) => auth.handler(c.req.raw))
+  router.all('/auth/*', async (c) => wrapAuthResponse(await auth.handler(c.req.raw)))
 
   // Session & API key verification middleware for all subsequent routes
   router.use('*', async (c, next) => {
     const apiKeyToken = extractApiKeyToken(c.req.header('x-api-key'), c.req.header('authorization'))
 
     if (apiKeyToken) {
-      const result = await verifyApiKey(auth, apiKeyToken)
-      if (!result.valid || !result.user) {
-        return c.json({ error: result.error ?? 'Invalid API key' }, 401)
+      const authResult = await authenticateApiKey(c.req.raw, auth, apiKeyToken, rateLimiter)
+      if (!authResult.ok) {
+        if (authResult.status === 429) {
+          return c.json({ error: authResult.error }, 429, {
+            'Retry-After': String(authResult.retryAfter),
+            'X-Retry-After': String(authResult.retryAfter),
+          })
+        }
+        return c.json({ error: authResult.error }, 401)
       }
-      c.set('user', result.user)
+      c.set('user', authResult.user)
       c.set('session', null)
-      c.set('apiKey', result.apiKey ?? null)
+      c.set('apiKey', authResult.apiKey)
       return await next()
     }
 
@@ -233,10 +309,10 @@ export function createLontar(config: Config, options: CreateLontarOptions = {}):
   registerPermissionsRoutes(router, config)
 
   // First-user onboarding routes
-  registerFirstUserRoutes(router, auth, config)
+  registerFirstUserRoutes(router, auth, config, rateLimiter)
 
   // User management routes
-  registerUserRoutes(router, auth, config, options)
+  registerUserRoutes(router, auth, config, options, rateLimiter)
 
   // API key routes
   registerApiKeyRoutes(router, auth, config)

@@ -1,5 +1,6 @@
 import { randomBytes } from 'node:crypto'
 import type { Context, Hono } from 'hono'
+import { getClientIp, type RateLimiter } from '../../auth/rate-limit'
 import type { Auth, AuthUser, LontarVariables } from '../../auth/types'
 import {
   countActiveAdmins,
@@ -227,13 +228,34 @@ function resolveAdminBaseUrl(c: Context<LontarEnv>, options?: CreateLontarOption
   return `${origin}${adminPath}`
 }
 
+async function checkInviteRateLimit(
+  c: Context<LontarEnv>,
+  rateLimiter?: RateLimiter,
+): Promise<Response | null> {
+  if (!rateLimiter) return null
+  const ip = getClientIp(c.req.raw)
+  const check = await rateLimiter.consume(`invite:${ip}`, rateLimiter.rules.invite)
+  if (!check.allowed) {
+    const retryAfter = check.retryAfter ?? rateLimiter.rules.invite.window
+    return c.json({ error: 'Too many invite requests. Please try again later.' }, 429, {
+      'Retry-After': String(retryAfter),
+      'X-Retry-After': String(retryAfter),
+    })
+  }
+  return null
+}
+
 async function handleInviteUser(
   c: Context<LontarEnv>,
   auth: Auth,
   data: CreateUserValidatedData,
   config?: Config,
   options?: CreateLontarOptions,
+  rateLimiter?: RateLimiter,
 ): Promise<Response> {
+  const rateLimitError = await checkInviteRateLimit(c, rateLimiter)
+  if (rateLimitError) return rateLimitError
+
   const resolvedEmail = resolveEmailConfig(config?.email)
   if (!resolvedEmail) {
     return c.json({ error: 'Cannot invite user: email service is not configured' }, 400)
@@ -281,9 +303,13 @@ async function handleResendInvite(
   id: string,
   config?: Config,
   options?: CreateLontarOptions,
+  rateLimiter?: RateLimiter,
 ): Promise<Response> {
   const { errorResponse } = checkAdminAccess(c, config)
   if (errorResponse) return errorResponse
+
+  const rateLimitError = await checkInviteRateLimit(c, rateLimiter)
+  if (rateLimitError) return rateLimitError
 
   const resolvedEmail = resolveEmailConfig(config?.email)
   if (!resolvedEmail) {
@@ -328,6 +354,7 @@ async function handleCreateUser(
   auth: Auth,
   config?: Config,
   options?: CreateLontarOptions,
+  rateLimiter?: RateLimiter,
 ): Promise<Response> {
   const { errorResponse } = checkAdminAccess(c, config)
   if (errorResponse) return errorResponse
@@ -346,7 +373,7 @@ async function handleCreateUser(
   }
 
   if (validated.data.invite) {
-    return await handleInviteUser(c, auth, validated.data, config, options)
+    return await handleInviteUser(c, auth, validated.data, config, options, rateLimiter)
   }
 
   const created = await createUserWithCredential(auth, {
@@ -624,6 +651,7 @@ export function registerUserRoutes(
   auth: Auth,
   config?: Config,
   options?: CreateLontarOptions,
+  rateLimiter?: RateLimiter,
 ): void {
   // Self-service profile and password
   router.patch('/_lontar/me', (c) => handleUpdateMe(c, auth))
@@ -631,9 +659,9 @@ export function registerUserRoutes(
 
   // User management endpoints
   router.get('/_lontar/users', (c) => handleListUsers(c, auth, config))
-  router.post('/_lontar/users', (c) => handleCreateUser(c, auth, config, options))
+  router.post('/_lontar/users', (c) => handleCreateUser(c, auth, config, options, rateLimiter))
   router.post('/_lontar/users/:id/resend-invite', (c) =>
-    handleResendInvite(c, auth, c.req.param('id') ?? '', config, options),
+    handleResendInvite(c, auth, c.req.param('id') ?? '', config, options, rateLimiter),
   )
   router.get('/_lontar/users/:id', (c) => handleGetUser(c, auth, c.req.param('id') ?? '', config))
   router.patch('/_lontar/users/:id', (c) =>

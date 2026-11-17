@@ -48,19 +48,31 @@ export interface ApiIssue {
 export class ApiClientError extends Error {
   readonly status: number
   readonly issues?: ApiIssue[]
+  readonly retryAfter?: number
 
-  constructor(message: string, status: number, issues?: ApiIssue[]) {
+  constructor(message: string, status: number, issues?: ApiIssue[], retryAfter?: number) {
     super(message)
     this.name = 'ApiClientError'
     this.status = status
     this.issues = issues
+    this.retryAfter = retryAfter
   }
 }
 
 export { queryKeys } from './query-keys'
 
+function formatRateLimitMessage(retryAfter?: number): string {
+  if (retryAfter) {
+    return `Too many requests. Please try again in ${retryAfter} second${retryAfter === 1 ? '' : 's'}.`
+  }
+  return 'Too many requests. Please try again later.'
+}
+
 export function formatApiErrorMessage(err: unknown): string {
   if (err instanceof ApiClientError) {
+    if (err.status === 429) {
+      return formatRateLimitMessage(err.retryAfter)
+    }
     if (err.issues && err.issues.length > 0) {
       const issueDetails = err.issues
         .map((i) => i.message)
@@ -115,8 +127,17 @@ async function handleResponse<T>(res: Response): Promise<T> {
     if (res.status === 401) {
       onUnauthorizedHandler?.()
     }
+    const retryHeader = res.headers?.get
+      ? (res.headers.get('retry-after') ?? res.headers.get('x-retry-after'))
+      : null
+    const retryAfter = retryHeader ? parseInt(retryHeader, 10) : undefined
     const { errorMsg, issues } = await parseErrorDetails(res)
-    throw new ApiClientError(errorMsg, res.status, issues)
+    throw new ApiClientError(
+      errorMsg,
+      res.status,
+      issues,
+      Number.isFinite(retryAfter) ? retryAfter : undefined,
+    )
   }
   return (await res.json()) as T
 }

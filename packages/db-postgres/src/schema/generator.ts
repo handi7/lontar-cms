@@ -239,6 +239,7 @@ function collectFieldImports(field: Field, imports: Set<string>): void {
 }
 
 const AUTH_BASE_IMPORTS = [
+  'bigint',
   'boolean',
   'index',
   'integer',
@@ -441,6 +442,17 @@ export const apikey = pgTable(
     index('apikey_userId_idx').on(table.userId),
     index('apikey_key_idx').on(table.key),
   ],
+)
+
+export const rateLimit = pgTable(
+  'rateLimit',
+  {
+    id: text('id').primaryKey(),
+    key: text('key').notNull().unique(),
+    count: integer('count').notNull(),
+    lastRequest: bigint('last_request', { mode: 'number' }).notNull(),
+  },
+  (table) => [index('rateLimit_key_idx').on(table.key)],
 )`
 }
 

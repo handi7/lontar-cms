@@ -344,3 +344,16 @@ export {
   type CreatedApiKeyResult,
   type VerifyApiKeyResult,
 } from './auth/api-key'
+
+export {
+  DatabaseRateLimitStorage,
+  MemoryRateLimitStorage,
+  RateLimiter,
+  getClientIp,
+  resolveRateLimitEnabled,
+  type DatabaseAdapterLike,
+  type RateLimitOptions,
+  type RateLimitResult,
+  type RateLimitRule,
+  type RateLimitStorage,
+} from './auth/rate-limit'

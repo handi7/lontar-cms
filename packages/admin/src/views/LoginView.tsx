@@ -1,6 +1,6 @@
 import { useState, type FormEvent } from 'react'
 import { Navigate, useRouter } from '@tanstack/react-router'
-import { formatApiErrorMessage, requestPasswordReset } from '../api/client'
+import { ApiClientError, formatApiErrorMessage, requestPasswordReset } from '../api/client'
 import { Alert } from '../components/ui/alert'
 import { Button } from '../components/ui/button'
 import { Card } from '../components/ui/card'
@@ -17,6 +17,16 @@ export interface LoginFormProps {
   onSignIn: (credentials: { email: string; password: string }) => Promise<void>
 }
 
+function formatLoginError(err: unknown): string {
+  if (err instanceof ApiClientError && err.status === 429) {
+    if (err.retryAfter) {
+      return `Too many login attempts. Please try again in ${err.retryAfter} second${err.retryAfter === 1 ? '' : 's'}.`
+    }
+    return 'Too many login attempts. Please try again later.'
+  }
+  return err instanceof Error ? err.message : 'Invalid email or password'
+}
+
 function LoginForm(props: LoginFormProps) {
   const { emailEnabled, onForgotPassword, onSignIn } = props
   const [email, setEmail] = useState('')
@@ -31,7 +41,7 @@ function LoginForm(props: LoginFormProps) {
     try {
       await onSignIn({ email, password })
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Invalid email or password')
+      setError(formatLoginError(err))
     } finally {
       setIsSubmitting(false)
     }

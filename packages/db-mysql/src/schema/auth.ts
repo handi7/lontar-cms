@@ -1,4 +1,13 @@
-import { boolean, index, mysqlTable, text, timestamp, varchar } from 'drizzle-orm/mysql-core'
+import {
+  bigint,
+  boolean,
+  index,
+  int,
+  mysqlTable,
+  text,
+  timestamp,
+  varchar,
+} from 'drizzle-orm/mysql-core'
 
 export const user = mysqlTable(
   'user',
@@ -89,10 +98,22 @@ export const apikey = mysqlTable(
   (table) => [index('apikey_userId_idx').on(table.userId), index('apikey_key_idx').on(table.key)],
 )
 
+export const rateLimit = mysqlTable(
+  'rateLimit',
+  {
+    id: varchar('id', { length: 36 }).primaryKey(),
+    key: varchar('key', { length: 255 }).notNull().unique(),
+    count: int('count').notNull(),
+    lastRequest: bigint('last_request', { mode: 'number' }).notNull(),
+  },
+  (table) => [index('rateLimit_key_idx').on(table.key)],
+)
+
 export const authTables = {
   user,
   session,
   account,
   verification,
   apikey,
+  rateLimit,
 }

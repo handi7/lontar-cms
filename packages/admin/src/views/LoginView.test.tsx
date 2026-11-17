@@ -148,4 +148,42 @@ describe('LoginView (#344)', () => {
       })
     })
   })
+
+  it('displays readable rate limit message with retry-after when signIn returns 429', async () => {
+    const { signInMock } = renderLoginView({ emailEnabled: false })
+    signInMock.mockRejectedValueOnce(
+      new client.ApiClientError('Too many requests', 429, undefined, 20),
+    )
+
+    fireEvent.change(screen.getByLabelText(/^Email$/i), {
+      target: { value: 'user@example.com' },
+    })
+    fireEvent.change(screen.getByLabelText(/^Password$/i), {
+      target: { value: 'secret123' },
+    })
+    fireEvent.click(screen.getByRole('button', { name: /Sign In/i }))
+
+    await waitFor(() => {
+      expect(
+        screen.getByText('Too many login attempts. Please try again in 20 seconds.'),
+      ).toBeDefined()
+    })
+  })
+
+  it('displays default rate limit message when retryAfter is not provided on 429', async () => {
+    const { signInMock } = renderLoginView({ emailEnabled: false })
+    signInMock.mockRejectedValueOnce(new client.ApiClientError('Too many requests', 429))
+
+    fireEvent.change(screen.getByLabelText(/^Email$/i), {
+      target: { value: 'user@example.com' },
+    })
+    fireEvent.change(screen.getByLabelText(/^Password$/i), {
+      target: { value: 'secret123' },
+    })
+    fireEvent.click(screen.getByRole('button', { name: /Sign In/i }))
+
+    await waitFor(() => {
+      expect(screen.getByText('Too many login attempts. Please try again later.')).toBeDefined()
+    })
+  })
 })

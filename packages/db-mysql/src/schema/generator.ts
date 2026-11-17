@@ -229,6 +229,7 @@ function collectFieldImports(field: Field, imports: Set<string>): void {
 }
 
 const AUTH_BASE_IMPORTS = [
+  'bigint',
   'boolean',
   'index',
   'int',
@@ -414,6 +415,17 @@ export const apikey = mysqlTable(
     index('apikey_userId_idx').on(table.userId),
     index('apikey_key_idx').on(table.key),
   ],
+)
+
+export const rateLimit = mysqlTable(
+  'rateLimit',
+  {
+    id: varchar('id', { length: 36 }).primaryKey(),
+    key: varchar('key', { length: 255 }).notNull().unique(),
+    count: int('count').notNull(),
+    lastRequest: bigint('last_request', { mode: 'number' }).notNull(),
+  },
+  (table) => [index('rateLimit_key_idx').on(table.key)],
 )`
 }
 
