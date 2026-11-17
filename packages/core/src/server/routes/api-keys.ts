@@ -15,6 +15,9 @@ function checkAuthAccess(c: Context<LontarEnv>): {
   user?: AuthUser
   errorResponse?: Response
 } {
+  if (c.get('apiKey')) {
+    return { errorResponse: c.json({ error: 'Forbidden' }, 403) }
+  }
   const user = c.get('user')
   if (!user) {
     return { errorResponse: c.json({ error: 'Unauthorized' }, 401) }
