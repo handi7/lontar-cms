@@ -636,9 +636,87 @@ function validateChangePasswordBody(body: unknown): {
   return { data: { currentPassword, newPassword } }
 }
 
-async function handleChangeMePassword(c: Context<LontarEnv>, auth: Auth): Promise<Response> {
+async function checkChangePasswordRateLimit(
+  c: Context<LontarEnv>,
+  userId: string,
+  ip: string,
+  rateLimiter?: RateLimiter,
+): Promise<Response | null> {
+  if (!rateLimiter) return null
+  const blockCheck = await rateLimiter.checkChangePasswordLimit(userId, ip)
+  if (!blockCheck.allowed) {
+    const retryAfter = blockCheck.retryAfter ?? rateLimiter.rules.changePassword.window
+    return c.json(
+      { error: 'Too many failed password change attempts. Please try again later.' },
+      429,
+      {
+        'Retry-After': String(retryAfter),
+        'X-Retry-After': String(retryAfter),
+      },
+    )
+  }
+  return null
+}
+
+async function recordChangePasswordFailure(
+  c: Context<LontarEnv>,
+  userId: string,
+  ip: string,
+  rateLimiter?: RateLimiter,
+): Promise<Response | null> {
+  if (!rateLimiter) return null
+  const record = await rateLimiter.recordChangePasswordFailure(userId, ip)
+  if (!record.allowed) {
+    const retryAfter = record.retryAfter ?? rateLimiter.rules.changePassword.window
+    return c.json(
+      { error: 'Too many failed password change attempts. Please try again later.' },
+      429,
+      {
+        'Retry-After': String(retryAfter),
+        'X-Retry-After': String(retryAfter),
+      },
+    )
+  }
+  return null
+}
+
+async function executeChangePassword(
+  c: Context<LontarEnv>,
+  auth: Auth,
+  userId: string,
+  data: { currentPassword: string; newPassword: string },
+  ip: string,
+  rateLimiter?: RateLimiter,
+): Promise<Response> {
+  try {
+    const sessionToken = c.var.session?.token
+    await verifyAndChangePassword(
+      auth,
+      userId,
+      data.currentPassword,
+      data.newPassword,
+      sessionToken,
+    )
+    return c.json({ message: 'Password changed successfully' })
+  } catch (err) {
+    const blocked = await recordChangePasswordFailure(c, userId, ip, rateLimiter)
+    if (blocked) return blocked
+    const message = err instanceof Error ? err.message : 'Failed to change password'
+    return c.json({ error: message }, 400)
+  }
+}
+
+async function handleChangeMePassword(
+  c: Context<LontarEnv>,
+  auth: Auth,
+  rateLimiter?: RateLimiter,
+): Promise<Response> {
   const { user, errorResponse } = checkAuthAccess(c)
   if (errorResponse || !user) return errorResponse!
+
+  const ip = getClientIp(c.req.raw)
+  const rateLimitError = await checkChangePasswordRateLimit(c, user.id, ip, rateLimiter)
+  if (rateLimitError) return rateLimitError
 
   const { body, error } = await parseJsonBody(c)
   if (error) return error
@@ -648,20 +726,7 @@ async function handleChangeMePassword(c: Context<LontarEnv>, auth: Auth): Promis
     return c.json({ error: validated.error }, 400)
   }
 
-  try {
-    const sessionToken = c.var.session?.token
-    await verifyAndChangePassword(
-      auth,
-      user.id,
-      validated.data.currentPassword,
-      validated.data.newPassword,
-      sessionToken,
-    )
-    return c.json({ message: 'Password changed successfully' })
-  } catch (err) {
-    const message = err instanceof Error ? err.message : 'Failed to change password'
-    return c.json({ error: message }, 400)
-  }
+  return executeChangePassword(c, auth, user.id, validated.data, ip, rateLimiter)
 }
 
 export function registerUserRoutes(
@@ -673,7 +738,7 @@ export function registerUserRoutes(
 ): void {
   // Self-service profile and password
   router.patch('/_lontar/me', (c) => handleUpdateMe(c, auth))
-  router.post('/_lontar/me/password', (c) => handleChangeMePassword(c, auth))
+  router.post('/_lontar/me/password', (c) => handleChangeMePassword(c, auth, rateLimiter))
 
   // User management endpoints
   router.get('/_lontar/users', (c) => handleListUsers(c, auth, config))
