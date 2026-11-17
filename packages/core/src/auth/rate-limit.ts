@@ -316,7 +316,7 @@ export interface RateLimitOptions {
   enabled?: boolean
   window?: number
   max?: number
-  storage?: 'memory' | 'database' | 'secondary-storage'
+  storage?: 'memory' | 'database'
   customStorage?: RateLimitStorage
   trustedProxies?: string[]
   ipAddressHeaders?: string[]
@@ -422,6 +422,14 @@ function resolveRateLimitRules(options?: RateLimitOptions) {
   }
 }
 
+function validateRateLimitStorage(storage?: string): void {
+  if (storage && storage !== 'memory' && storage !== 'database') {
+    throw new Error(
+      `Invalid rateLimit.storage "${String(storage)}". Supported storage options are "memory" or "database" (or provide customStorage).`,
+    )
+  }
+}
+
 function resolveRateLimitStorage(
   options: RateLimitOptions,
   getAdapter?: () => Promise<DatabaseAdapterLike | null>,
@@ -429,6 +437,7 @@ function resolveRateLimitStorage(
   if (options.customStorage) {
     return options.customStorage
   }
+  validateRateLimitStorage(options.storage)
   if (options.storage === 'database' && getAdapter) {
     return new DatabaseRateLimitStorage(getAdapter)
   }

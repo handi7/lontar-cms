@@ -439,6 +439,15 @@ describe('rate-limit', () => {
       expect(consumeSpy).toHaveBeenCalledWith('k', { window: 10, max: 1 })
     })
 
+    it('rejects invalid storage like secondary-storage with descriptive error (#377)', () => {
+      expect(() => {
+        new RateLimiter({
+          enabled: true,
+          storage: 'secondary-storage' as unknown as 'memory',
+        })
+      }).toThrowError(/Invalid rateLimit\.storage "secondary-storage"/)
+    })
+
     it('tracks failed API key attempts and blocks after reaching threshold', async () => {
       const limiter = new RateLimiter({
         enabled: true,

@@ -72,20 +72,39 @@ const DEFAULT_BETTER_AUTH_CUSTOM_RULES: Record<string, { window: number; max: nu
   '/verify-email': { window: 60, max: 10 },
 }
 
+function validateRateLimitStorage(storage?: string): void {
+  if (storage && storage !== 'memory' && storage !== 'database') {
+    throw new Error(
+      `Invalid rateLimit.storage "${String(storage)}". Supported storage options are "memory" or "database" (or provide customStorage).`,
+    )
+  }
+}
+
 function buildRateLimitConfig(options: CreateLontarOptions) {
-  const customRules = {
-    ...DEFAULT_BETTER_AUTH_CUSTOM_RULES,
-    ...options.rateLimit?.customRules,
+  const rateLimit = options.rateLimit
+  if (!rateLimit) {
+    return {
+      enabled: resolveRateLimitEnabled(options),
+      customRules: DEFAULT_BETTER_AUTH_CUSTOM_RULES,
+    }
   }
 
-  return {
+  validateRateLimitStorage(rateLimit.storage)
+
+  const config: Record<string, unknown> = {
     enabled: resolveRateLimitEnabled(options),
-    ...(options.rateLimit?.storage ? { storage: options.rateLimit.storage } : {}),
-    ...(options.rateLimit?.customStorage ? { customStorage: options.rateLimit.customStorage } : {}),
-    ...(options.rateLimit?.window !== undefined ? { window: options.rateLimit.window } : {}),
-    ...(options.rateLimit?.max !== undefined ? { max: options.rateLimit.max } : {}),
-    customRules,
+    customRules: {
+      ...DEFAULT_BETTER_AUTH_CUSTOM_RULES,
+      ...rateLimit.customRules,
+    },
   }
+
+  if (rateLimit.storage) config.storage = rateLimit.storage
+  if (rateLimit.customStorage) config.customStorage = rateLimit.customStorage
+  if (rateLimit.window !== undefined) config.window = rateLimit.window
+  if (rateLimit.max !== undefined) config.max = rateLimit.max
+
+  return config
 }
 
 function createSendResetPasswordHandler(
