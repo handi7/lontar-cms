@@ -1,6 +1,6 @@
 import { betterAuth } from 'better-auth'
 import { admin } from 'better-auth/plugins'
-import { adminAc, defaultAc } from 'better-auth/plugins/admin/access'
+import { defaultAc } from 'better-auth/plugins/admin/access'
 import { Hono, type Context } from 'hono'
 import { apiKeyPlugin, verifyApiKey, type ApiKeyItem } from '../auth/api-key'
 import { resolveAdminBaseUrl } from './admin-url'
@@ -50,7 +50,7 @@ function buildAdminPlugin(authConfig?: Config['auth']) {
   const adminRole = authConfig?.adminRole ?? 'admin'
 
   const customRoles = Object.fromEntries(
-    roles.map((r) => [r, r === adminRole ? adminAc : defaultAc.newRole({ user: [], session: [] })]),
+    roles.map((r) => [r, defaultAc.newRole({ user: [], session: [] })]),
   )
 
   return admin({
@@ -260,6 +260,12 @@ export function createLontar(config: Config, options: CreateLontarOptions = {}):
     const ctx = await auth.$context
     return ctx.adapter as unknown as DatabaseAdapterLike
   })
+
+  // Block Better Auth's built-in admin plugin endpoints (defense in depth):
+  // Lontar provides its own user management routes (/api/_lontar/users/*) with strict guards
+  // (last-admin protection, self-demotion/disable/delete guards, session revocation, single-role validation).
+  router.all('/auth/admin', (c) => c.json({ error: 'Not Found' }, 404))
+  router.all('/auth/admin/*', (c) => c.json({ error: 'Not Found' }, 404))
 
   // Mount Better Auth handler routes at /auth/*
   router.post('/auth/forget-password', async (c) => {
