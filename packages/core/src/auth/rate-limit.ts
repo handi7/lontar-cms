@@ -1,5 +1,5 @@
 import { randomBytes } from 'node:crypto'
-import { isIP } from 'node:net'
+import { getIP } from 'better-auth/api'
 
 export interface RateLimitRule {
   /**
@@ -28,15 +28,43 @@ interface MemoryEntry {
   expiresAt: number
 }
 
+export const MEMORY_RATE_LIMIT_MAX_ENTRIES = 100_000
+export const MEMORY_RATE_LIMIT_PRUNE_INTERVAL_MS = 60_000
+
 export class MemoryRateLimitStorage implements RateLimitStorage {
   private entries = new Map<string, MemoryEntry>()
+  private lastPrune = 0
+  private readonly maxEntries: number
+  private readonly pruneIntervalMs: number
+
+  constructor(options?: { maxEntries?: number; pruneIntervalMs?: number }) {
+    this.maxEntries = options?.maxEntries ?? MEMORY_RATE_LIMIT_MAX_ENTRIES
+    this.pruneIntervalMs = options?.pruneIntervalMs ?? MEMORY_RATE_LIMIT_PRUNE_INTERVAL_MS
+  }
+
+  get size(): number {
+    return this.entries.size
+  }
 
   private prune(now: number): void {
-    if (this.entries.size > 500) {
-      for (const [key, entry] of this.entries.entries()) {
-        if (now >= entry.expiresAt) {
-          this.entries.delete(key)
-        }
+    if (now - this.lastPrune < this.pruneIntervalMs && this.entries.size <= this.maxEntries) {
+      return
+    }
+    this.lastPrune = now
+
+    for (const [key, entry] of this.entries.entries()) {
+      if (now >= entry.expiresAt) {
+        this.entries.delete(key)
+      }
+    }
+
+    if (this.entries.size > this.maxEntries) {
+      const overflow = this.entries.size - this.maxEntries
+      let removed = 0
+      for (const key of this.entries.keys()) {
+        this.entries.delete(key)
+        removed += 1
+        if (removed >= overflow) break
       }
     }
   }
@@ -53,6 +81,9 @@ export class MemoryRateLimitStorage implements RateLimitStorage {
         lastRequest: now,
         expiresAt: now + windowInMs,
       })
+      if (this.entries.size > this.maxEntries) {
+        this.prune(now)
+      }
       return Promise.resolve({ allowed: true, retryAfter: null })
     }
 
@@ -81,6 +112,7 @@ export class MemoryRateLimitStorage implements RateLimitStorage {
 
   clear(): void {
     this.entries.clear()
+    this.lastPrune = 0
   }
 }
 
@@ -286,6 +318,8 @@ export interface RateLimitOptions {
   max?: number
   storage?: 'memory' | 'database' | 'secondary-storage'
   customStorage?: RateLimitStorage
+  trustedProxies?: string[]
+  ipAddressHeaders?: string[]
   customRules?: Record<
     string,
     | RateLimitRule
@@ -314,39 +348,60 @@ export function resolveRateLimitEnabled(options?: { rateLimit?: { enabled?: bool
   )
 }
 
-function parseIp(value: string | null | undefined): string | null {
-  if (!value) return null
-  const trimmed = value.trim()
-  if (!trimmed) return null
-  if (isIP(trimmed)) return trimmed
-
-  const ipv4WithPort = /^(\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}):\d+$/.exec(trimmed)
-  const ipv4 = ipv4WithPort?.[1]
-  if (ipv4 && isIP(ipv4)) {
-    return ipv4
-  }
-
-  const ipv6WithPort = /^\[([a-fA-F0-9:]+)\](?::\d+)?$/.exec(trimmed)
-  const ipv6 = ipv6WithPort?.[1]
-  if (ipv6 && isIP(ipv6)) {
-    return ipv6
-  }
-
-  return null
+export interface IpResolutionOptions {
+  ipAddressHeaders?: string[]
+  trustedProxies?: string[]
 }
 
-export function getClientIp(req: Request): string {
-  const xForwardedFor = req.headers.get('x-forwarded-for')
-  if (xForwardedFor) {
-    const first = xForwardedFor.split(',')[0]?.trim()
-    const ip = parseIp(first)
-    if (ip) return ip
+function parseListEnv(val?: string): string[] | undefined {
+  if (!val) return undefined
+  const items = val
+    .split(',')
+    .map((s) => s.trim())
+    .filter(Boolean)
+  return items.length > 0 ? items : undefined
+}
+
+export function resolveIpResolutionOptions(options?: IpResolutionOptions): {
+  ipAddressHeaders: string[]
+  trustedProxies?: string[]
+} {
+  const envTrustedProxies = parseListEnv(process.env.TRUSTED_PROXIES)
+  const envHeaders = parseListEnv(process.env.IP_ADDRESS_HEADERS)
+
+  const trustedProxies = options?.trustedProxies ?? envTrustedProxies
+  const configuredHeaders = options?.ipAddressHeaders ?? envHeaders
+
+  if (configuredHeaders) {
+    return {
+      ipAddressHeaders: configuredHeaders,
+      ...(trustedProxies ? { trustedProxies } : {}),
+    }
   }
-  const xRealIp = parseIp(req.headers.get('x-real-ip'))
-  if (xRealIp) return xRealIp
-  const cfConnectingIp = parseIp(req.headers.get('cf-connecting-ip'))
-  if (cfConnectingIp) return cfConnectingIp
-  return '127.0.0.1'
+
+  if (trustedProxies && trustedProxies.length > 0) {
+    return {
+      ipAddressHeaders: ['x-forwarded-for'],
+      trustedProxies,
+    }
+  }
+
+  return {
+    ipAddressHeaders: [],
+  }
+}
+
+export function getClientIp(req: Request, options?: IpResolutionOptions): string {
+  const resolved = resolveIpResolutionOptions(options)
+  const ip = getIP(req, {
+    advanced: {
+      ipAddress: {
+        ipAddressHeaders: resolved.ipAddressHeaders,
+        ...(resolved.trustedProxies ? { trustedProxies: resolved.trustedProxies } : {}),
+      },
+    },
+  })
+  return ip ?? 'no-trusted-ip'
 }
 
 const DEFAULT_RATE_LIMIT_RULES = {
@@ -389,6 +444,10 @@ export class RateLimiter {
     apiKeyFailure: RateLimitRule
     changePassword: RateLimitRule
   }
+  readonly ipResolution: {
+    ipAddressHeaders: string[]
+    trustedProxies?: string[]
+  }
 
   constructor(
     options: RateLimitOptions = {},
@@ -397,6 +456,11 @@ export class RateLimiter {
     this.enabled = resolveRateLimitEnabled({ rateLimit: options })
     this.rules = resolveRateLimitRules(options)
     this.storage = resolveRateLimitStorage(options, getAdapter)
+    this.ipResolution = resolveIpResolutionOptions(options)
+  }
+
+  getClientIp(req: Request): string {
+    return getClientIp(req, this.ipResolution)
   }
 
   async consume(key: string, rule: RateLimitRule): Promise<RateLimitResult> {

@@ -28,4 +28,5 @@ export interface LontarVariables {
   permissions?: unknown
   apiKey?: ApiKeyItem | null
   fieldAccessCache?: FieldAccessCache
+  clientIp?: string
 }

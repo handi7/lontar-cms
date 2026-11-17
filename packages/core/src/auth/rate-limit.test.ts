@@ -55,61 +55,80 @@ describe('rate-limit', () => {
   })
 
   describe('getClientIp', () => {
-    it('extracts first IP from comma-separated x-forwarded-for', () => {
+    it('does not trust forwarded headers by default to prevent IP spoofing', () => {
+      const req = new Request('http://localhost', {
+        headers: { 'x-forwarded-for': '203.0.113.195' },
+      })
+      expect(getClientIp(req)).not.toBe('203.0.113.195')
+      expect(getClientIp(req)).toBe('127.0.0.1')
+    })
+
+    it('extracts IP from x-forwarded-for when header is explicitly configured', () => {
+      const req = new Request('http://localhost', {
+        headers: { 'x-forwarded-for': '203.0.113.195' },
+      })
+      expect(getClientIp(req, { ipAddressHeaders: ['x-forwarded-for'] })).toBe('203.0.113.195')
+    })
+
+    it('rejects multi-hop x-forwarded-for without trustedProxies', () => {
       const req = new Request('http://localhost', {
         headers: { 'x-forwarded-for': '203.0.113.195, 70.41.3.18, 150.172.238.178' },
       })
-      expect(getClientIp(req)).toBe('203.0.113.195')
+      expect(getClientIp(req, { ipAddressHeaders: ['x-forwarded-for'] })).not.toBe('203.0.113.195')
+      expect(getClientIp(req, { ipAddressHeaders: ['x-forwarded-for'] })).toBe('127.0.0.1')
     })
 
-    it('extracts IP from x-real-ip when x-forwarded-for is missing', () => {
+    it('walks backwards and strips trusted proxies to find real client IP', () => {
+      const req = new Request('http://localhost', {
+        headers: { 'x-forwarded-for': '203.0.113.195, 70.41.3.18, 150.172.238.178' },
+      })
+      expect(
+        getClientIp(req, {
+          ipAddressHeaders: ['x-forwarded-for'],
+          trustedProxies: ['150.172.238.178', '70.41.3.18'],
+        }),
+      ).toBe('203.0.113.195')
+    })
+
+    it('stops at untrusted proxy in chain preventing spoofing of leftmost IP', () => {
+      const req = new Request('http://localhost', {
+        headers: { 'x-forwarded-for': '203.0.113.195, 70.41.3.18, 150.172.238.178' },
+      })
+      // Only 150.172.238.178 is trusted; 70.41.3.18 is untrusted, so 203.0.113.195 cannot be spoofed
+      expect(
+        getClientIp(req, {
+          ipAddressHeaders: ['x-forwarded-for'],
+          trustedProxies: ['150.172.238.178'],
+        }),
+      ).toBe('70.41.3.18')
+    })
+
+    it('extracts IP from x-real-ip when configured', () => {
       const req = new Request('http://localhost', {
         headers: { 'x-real-ip': '198.51.100.42' },
       })
-      expect(getClientIp(req)).toBe('198.51.100.42')
+      expect(getClientIp(req, { ipAddressHeaders: ['x-real-ip'] })).toBe('198.51.100.42')
     })
 
-    it('extracts IP from cf-connecting-ip when other headers missing', () => {
+    it('extracts IP from cf-connecting-ip when configured', () => {
       const req = new Request('http://localhost', {
         headers: { 'cf-connecting-ip': '192.0.2.1' },
       })
-      expect(getClientIp(req)).toBe('192.0.2.1')
+      expect(getClientIp(req, { ipAddressHeaders: ['cf-connecting-ip'] })).toBe('192.0.2.1')
     })
 
-    it('falls back to 127.0.0.1 when no headers present', () => {
+    it('falls back to 127.0.0.1 in test environment when no trusted IP resolved', () => {
       const req = new Request('http://localhost')
       expect(getClientIp(req)).toBe('127.0.0.1')
     })
 
-    it('falls back to 127.0.0.1 when headers contain invalid IP or excessively long strings', () => {
+    it('normalizes IPv6 address canonically', () => {
       const req = new Request('http://localhost', {
-        headers: { 'x-forwarded-for': 'a'.repeat(300) },
+        headers: { 'x-forwarded-for': '2001:db8::1' },
       })
-      expect(getClientIp(req)).toBe('127.0.0.1')
-    })
-
-    it('extracts IP when IPv4 contains a port', () => {
-      const req = new Request('http://localhost', {
-        headers: { 'x-forwarded-for': '203.0.113.195:8080' },
-      })
-      expect(getClientIp(req)).toBe('203.0.113.195')
-    })
-
-    it('extracts IP when IPv6 is bracketed with a port', () => {
-      const req = new Request('http://localhost', {
-        headers: { 'x-forwarded-for': '[2001:db8::1]:8080' },
-      })
-      expect(getClientIp(req)).toBe('2001:db8::1')
-    })
-
-    it('falls back to x-real-ip when x-forwarded-for contains an invalid IP', () => {
-      const req = new Request('http://localhost', {
-        headers: {
-          'x-forwarded-for': 'invalid-ip',
-          'x-real-ip': '198.51.100.42',
-        },
-      })
-      expect(getClientIp(req)).toBe('198.51.100.42')
+      expect(getClientIp(req, { ipAddressHeaders: ['x-forwarded-for'] })).toBe(
+        '2001:0db8:0000:0000:0000:0000:0000:0000',
+      )
     })
   })
 
@@ -161,6 +180,44 @@ describe('rate-limit', () => {
 
       const r3 = await storage.consume('test-ip', rule)
       expect(r3.allowed).toBe(true)
+      vi.useRealTimers()
+    })
+
+    it('caps map size at maxEntries and evicts oldest entries', async () => {
+      const storage = new MemoryRateLimitStorage({ maxEntries: 3, pruneIntervalMs: 60_000 })
+      const rule = { window: 60, max: 5 }
+
+      await storage.consume('key-1', rule)
+      await storage.consume('key-2', rule)
+      await storage.consume('key-3', rule)
+      expect(storage.size).toBe(3)
+
+      // 4th key exceeds maxEntries=3; key-1 (oldest) should be evicted
+      await storage.consume('key-4', rule)
+      expect(storage.size).toBe(3)
+
+      // key-1 was evicted, so consuming key-1 starts a fresh counter (allowed: true, not blocked)
+      const res1 = await storage.consume('key-1', rule)
+      expect(res1.allowed).toBe(true)
+      expect(storage.size).toBe(3)
+    })
+
+    it('sweeps expired entries when prune interval passes', async () => {
+      vi.useFakeTimers()
+      const storage = new MemoryRateLimitStorage({ maxEntries: 100, pruneIntervalMs: 1000 })
+      const rule = { window: 1, max: 5 }
+
+      await storage.consume('key-1', rule)
+      await storage.consume('key-2', rule)
+      expect(storage.size).toBe(2)
+
+      // Advance time by 1.5 seconds (past window and prune interval)
+      vi.advanceTimersByTime(1500)
+
+      // Consuming next key triggers interval sweep
+      await storage.consume('key-3', rule)
+      // key-1 and key-2 should have been pruned
+      expect(storage.size).toBe(1)
       vi.useRealTimers()
     })
   })
