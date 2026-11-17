@@ -9,7 +9,12 @@ import type {
   PermissionsResponse,
 } from '../client/permissions'
 import { checkAccess } from './index'
-import { checkFieldAccess } from './field-access'
+import {
+  checkFieldAccess,
+  createFieldAccessCache,
+  getFieldAccessCache,
+  type FieldAccessCache,
+} from './field-access'
 
 export type { CollectionPermission, FieldPermission, GlobalPermission, PermissionsResponse }
 
@@ -20,6 +25,7 @@ interface EvalContext {
   data?: DocumentData
   siblingData?: unknown
   req?: Request
+  cache?: FieldAccessCache
 }
 
 interface AllowedTriad {
@@ -36,12 +42,18 @@ async function evalFieldPermission(
     doc?: DocumentData
     data?: DocumentData
     siblingData?: unknown
+    req?: Request
   },
   parentAllowed: AllowedTriad = { read: true, create: true, update: true },
+  cache?: FieldAccessCache,
 ): Promise<AllowedTriad> {
-  const read = parentAllowed.read ? await checkFieldAccess(field.access?.read, args) : false
-  const create = parentAllowed.create ? await checkFieldAccess(field.access?.create, args) : false
-  const update = parentAllowed.update ? await checkFieldAccess(field.access?.update, args) : false
+  const read = parentAllowed.read ? await checkFieldAccess(field.access?.read, args, cache) : false
+  const create = parentAllowed.create
+    ? await checkFieldAccess(field.access?.create, args, cache)
+    : false
+  const update = parentAllowed.update
+    ? await checkFieldAccess(field.access?.update, args, cache)
+    : false
   return { read, create, update }
 }
 
@@ -214,7 +226,12 @@ async function evalSingleField(
     return evalBlocksFields(field, key, prefix, ctx, parentAllowed, flatPerms)
   }
 
-  const perm = await evalFieldPermission(field, { ...ctx, siblingData: ctx.doc }, parentAllowed)
+  const perm = await evalFieldPermission(
+    field,
+    { ...ctx, siblingData: ctx.doc },
+    parentAllowed,
+    ctx.cache,
+  )
   flatPerms[`${prefix}${key}`] = perm
   return perm
 }
@@ -225,9 +242,11 @@ export async function evalFieldsPermissions(
 ): Promise<Record<string, FieldPermission>> {
   const flatPerms: Record<string, FieldPermission> = {}
   const rootAllowed = { read: true, create: true, update: true }
+  const cache = ctx.cache ?? (ctx.req ? getFieldAccessCache(ctx.req) : createFieldAccessCache())
+  const resolvedCtx = { ...ctx, cache }
 
   for (const [key, field] of Object.entries(fields)) {
-    await evalSingleField(field, key, key, '', ctx, rootAllowed, flatPerms)
+    await evalSingleField(field, key, key, '', resolvedCtx, rootAllowed, flatPerms)
   }
 
   return flatPerms
@@ -284,18 +303,22 @@ export async function getGlobalPermissions(
   }
 }
 
-export async function getPermissions(
+function resolvePermissionsCache(options?: {
+  req?: Request
+  cache?: FieldAccessCache
+}): FieldAccessCache {
+  if (options?.cache) return options.cache
+  if (options?.req) return getFieldAccessCache(options.req)
+  return createFieldAccessCache()
+}
+
+async function collectGlobalsPermissions(
   config: Config,
   user: AuthUser | null,
-  options?: { req?: Request },
-): Promise<PermissionsResponse> {
-  const collections: Record<string, CollectionPermission> = {}
+  cache: FieldAccessCache,
+  req?: Request,
+): Promise<Record<string, GlobalPermission>> {
   const globals: Record<string, GlobalPermission> = {}
-
-  for (const col of config.collections ?? []) {
-    collections[col.slug] = await getDocumentPermissions(col, { user, req: options?.req })
-  }
-
   for (const glob of config.globals ?? []) {
     let doc: DocumentData | undefined
     try {
@@ -303,8 +326,32 @@ export async function getPermissions(
     } catch {
       doc = undefined
     }
-    globals[glob.slug] = await getGlobalPermissions(glob, { user, doc, req: options?.req })
+    globals[glob.slug] = await getGlobalPermissions(glob, {
+      user,
+      doc,
+      req,
+      cache,
+    })
+  }
+  return globals
+}
+
+export async function getPermissions(
+  config: Config,
+  user: AuthUser | null,
+  options?: { req?: Request; cache?: FieldAccessCache },
+): Promise<PermissionsResponse> {
+  const collections: Record<string, CollectionPermission> = {}
+  const cache = resolvePermissionsCache(options)
+
+  for (const col of config.collections ?? []) {
+    collections[col.slug] = await getDocumentPermissions(col, {
+      user,
+      req: options?.req,
+      cache,
+    })
   }
 
+  const globals = await collectGlobalsPermissions(config, user, cache, options?.req)
   return { collections, globals }
 }

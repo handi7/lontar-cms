@@ -2,7 +2,13 @@ import { describe, expect, it, vi } from 'vitest'
 import type { AuthUser } from '../auth/types'
 import { fields as f } from '../fields'
 import type { Field } from '../fields/types'
-import { checkFieldAccess, sanitizeDocRead, sanitizeDocWrite } from './field-access'
+import {
+  checkFieldAccess,
+  createFieldAccessCache,
+  getFieldAccessCache,
+  sanitizeDocRead,
+  sanitizeDocWrite,
+} from './field-access'
 
 function makeUser(role = 'user', email = 'u@example.com'): AuthUser {
   return {
@@ -22,6 +28,21 @@ describe('checkFieldAccess', () => {
     expect(res).toBe(true)
   })
 
+  it('returns the same cache instance for the same request and fresh cache for new requests (#365)', () => {
+    const req = new Request('http://localhost')
+    const c1 = getFieldAccessCache(req)
+    const c2 = getFieldAccessCache(req)
+    expect(c1).toBe(c2)
+
+    const req2 = new Request('http://localhost')
+    const c3 = getFieldAccessCache(req2)
+    expect(c3).not.toBe(c1)
+
+    // Without request returns fresh cache
+    const c4 = getFieldAccessCache()
+    expect(c4).not.toBe(c1)
+  })
+
   it('calls access function with provided args', async () => {
     const fn = vi.fn().mockReturnValue(true)
     const user = makeUser('admin', 'test@example.com')
@@ -34,25 +55,67 @@ describe('checkFieldAccess', () => {
     expect(fn).toHaveBeenCalled()
   })
 
-  it('memoizes user-only checks across calls', async () => {
+  it('memoizes user-only checks across calls within the same cache (#365)', async () => {
     const fn = vi
       .fn()
       .mockImplementation(({ user }: { user: AuthUser | null }) => user?.role === 'admin')
     const admin = makeUser('admin', 'admin@example.com')
+    const cache = createFieldAccessCache()
 
-    const res1 = await checkFieldAccess(fn, { user: admin })
-    const res2 = await checkFieldAccess(fn, { user: admin })
+    const res1 = await checkFieldAccess(fn, { user: admin }, cache)
+    const res2 = await checkFieldAccess(fn, { user: admin }, cache)
     expect(res1).toBe(true)
     expect(res2).toBe(true)
     expect(fn).toHaveBeenCalledTimes(1)
   })
 
+  it('memoizes user-only checks across calls within the same request (#365)', async () => {
+    const fn = vi
+      .fn()
+      .mockImplementation(({ user }: { user: AuthUser | null }) => user?.role === 'admin')
+    const admin = makeUser('admin', 'admin@example.com')
+    const req = new Request('http://localhost/api/test')
+
+    const res1 = await checkFieldAccess(fn, { user: admin, req })
+    const res2 = await checkFieldAccess(fn, { user: admin, req })
+    expect(res1).toBe(true)
+    expect(res2).toBe(true)
+    expect(fn).toHaveBeenCalledTimes(1)
+  })
+
+  it('does not leak memoization across different requests or without a request (#365)', async () => {
+    let returnVal = true
+    const fn = vi.fn().mockImplementation(() => returnVal)
+    const admin = makeUser('admin', 'admin@example.com')
+
+    // Request 1
+    const req1 = new Request('http://localhost/api/test')
+    const res1 = await checkFieldAccess(fn, { user: admin, req: req1 })
+    expect(res1).toBe(true)
+    expect(fn).toHaveBeenCalledTimes(1)
+
+    // Function return value changes (e.g. dynamic state / plan downgrade / verification)
+    returnVal = false
+
+    // Request 2 evaluates fresh without stale process-wide cache
+    const req2 = new Request('http://localhost/api/test')
+    const res2 = await checkFieldAccess(fn, { user: admin, req: req2 })
+    expect(res2).toBe(false)
+    expect(fn).toHaveBeenCalledTimes(2)
+
+    // Calling without request/cache does not cache across calls
+    await checkFieldAccess(fn, { user: admin })
+    await checkFieldAccess(fn, { user: admin })
+    expect(fn).toHaveBeenCalledTimes(4)
+  })
+
   it('does not memoize when document properties are accessed', async () => {
     const fn = vi.fn().mockImplementation(({ doc }: { doc?: unknown }) => Boolean(doc))
     const user = makeUser('user', 'u@example.com')
+    const cache = createFieldAccessCache()
 
-    await checkFieldAccess(fn, { user, doc: { status: 'published' } })
-    await checkFieldAccess(fn, { user, doc: { status: 'draft' } })
+    await checkFieldAccess(fn, { user, doc: { status: 'published' } }, cache)
+    await checkFieldAccess(fn, { user, doc: { status: 'draft' } }, cache)
     expect(fn).toHaveBeenCalledTimes(2)
   })
 

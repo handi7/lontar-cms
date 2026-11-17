@@ -1,4 +1,5 @@
 import type { betterAuth } from 'better-auth'
+import type { FieldAccessCache } from '../access/field-access'
 import type { ApiKeyItem } from './api-key'
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -26,4 +27,5 @@ export interface LontarVariables {
   session: AuthSession | null
   permissions?: unknown
   apiKey?: ApiKeyItem | null
+  fieldAccessCache?: FieldAccessCache
 }

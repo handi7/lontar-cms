@@ -2,28 +2,74 @@ import type { AuthUser } from '../auth/types'
 import type { DocumentData } from '../database/adapter'
 import type { Block, Field, FieldAccessArgs, FieldAccessFunction } from '../fields/types'
 
-const memoizedUserResults = new WeakMap<FieldAccessFunction, Map<string | null, boolean>>()
+export type FieldAccessCache = Map<FieldAccessFunction, Map<string | null, boolean>>
+
+export const requestFieldAccessCache = new WeakMap<Request, FieldAccessCache>()
+
+export function createFieldAccessCache(): FieldAccessCache {
+  return new Map()
+}
+
+export function getFieldAccessCache(req?: Request): FieldAccessCache {
+  if (!req) return createFieldAccessCache()
+  let cache = requestFieldAccessCache.get(req)
+  if (!cache) {
+    cache = createFieldAccessCache()
+    requestFieldAccessCache.set(req, cache)
+  }
+  return cache
+}
 
 function resolveUserKey(user: AuthUser | null): string | null {
   if (!user) return null
   return `${user.id ?? ''}:${user.role ?? ''}`
 }
 
+function getCachedFieldAccess(
+  cache: FieldAccessCache | undefined,
+  fn: FieldAccessFunction,
+  userKey: string | null,
+): boolean | undefined {
+  if (!cache) return undefined
+  const fnCache = cache.get(fn)
+  if (fnCache?.has(userKey)) {
+    return fnCache.get(userKey)
+  }
+  return undefined
+}
+
+function storeCachedFieldAccess(
+  cache: FieldAccessCache,
+  fn: FieldAccessFunction,
+  userKey: string | null,
+  result: boolean,
+): void {
+  let fnCache = cache.get(fn)
+  if (!fnCache) {
+    fnCache = new Map()
+    cache.set(fn, fnCache)
+  }
+  fnCache.set(userKey, result)
+}
+
 export async function checkFieldAccess(
   fn: FieldAccessFunction | undefined,
   args: FieldAccessArgs,
+  cache?: FieldAccessCache,
 ): Promise<boolean> {
   if (!fn) return true
 
+  const effectiveCache = cache ?? (args.req ? getFieldAccessCache(args.req) : undefined)
   const userKey = resolveUserKey(args.user)
-  const userCache = memoizedUserResults.get(fn)
-  if (userCache?.has(userKey)) {
-    return userCache.get(userKey)!
+  const cached = getCachedFieldAccess(effectiveCache, fn, userKey)
+  if (cached !== undefined) {
+    return cached
   }
 
   let documentAccessed = false
   const proxyArgs: FieldAccessArgs = {
     user: args.user,
+    req: args.req,
     get id() {
       documentAccessed = true
       return args.id
@@ -44,13 +90,8 @@ export async function checkFieldAccess(
 
   try {
     const result = Boolean(await fn(proxyArgs))
-    if (!documentAccessed) {
-      let cache = memoizedUserResults.get(fn)
-      if (!cache) {
-        cache = new Map()
-        memoizedUserResults.set(fn, cache)
-      }
-      cache.set(userKey, result)
+    if (!documentAccessed && effectiveCache) {
+      storeCachedFieldAccess(effectiveCache, fn, userKey, result)
     }
     return result
   } catch (err) {
@@ -63,20 +104,34 @@ export async function checkFieldAccess(
 // Read Sanitization
 // -----------------------------------------------------------------------------
 
+export interface ReadSanitizationContext {
+  id?: string | number
+  doc?: DocumentData
+  cache?: FieldAccessCache
+  req?: Request
+}
+
 async function checkReadPermission(
   field: Field,
   user: AuthUser | null,
   siblingData: DocumentData,
   rootDoc: DocumentData,
   targetId?: string | number,
+  cache?: FieldAccessCache,
+  req?: Request,
 ): Promise<boolean> {
-  return checkFieldAccess(field.access?.read, {
-    user,
-    id: targetId ?? (rootDoc.id as string | number | undefined),
-    data: rootDoc,
-    siblingData,
-    doc: rootDoc,
-  })
+  return checkFieldAccess(
+    field.access?.read,
+    {
+      user,
+      id: targetId ?? (rootDoc.id as string | number | undefined),
+      data: rootDoc,
+      siblingData,
+      doc: rootDoc,
+      req,
+    },
+    cache,
+  )
 }
 
 async function sanitizeFieldsRead(
@@ -85,15 +140,17 @@ async function sanitizeFieldsRead(
   user: AuthUser | null,
   rootDoc: DocumentData,
   targetId?: string | number,
+  cache?: FieldAccessCache,
+  req?: Request,
 ): Promise<DocumentData> {
   const result: DocumentData = { ...data }
   for (const [name, field] of Object.entries(fields)) {
-    const allowed = await checkReadPermission(field, user, data, rootDoc, targetId)
+    const allowed = await checkReadPermission(field, user, data, rootDoc, targetId, cache, req)
     if (!allowed) {
       delete result[name]
       continue
     }
-    result[name] = await sanitizeNestedRead(field, result[name], user, rootDoc)
+    result[name] = await sanitizeNestedRead(field, result[name], user, rootDoc, cache, req)
   }
   return result
 }
@@ -103,17 +160,27 @@ async function sanitizeNestedRead(
   value: unknown,
   user: AuthUser | null,
   rootDoc: DocumentData,
+  cache?: FieldAccessCache,
+  req?: Request,
 ): Promise<unknown> {
   if (value === undefined || value === null) return value
 
   if (field.type === 'group' && typeof value === 'object') {
-    return sanitizeFieldsRead(field.fields, value as Record<string, unknown>, user, rootDoc)
+    return sanitizeFieldsRead(
+      field.fields,
+      value as Record<string, unknown>,
+      user,
+      rootDoc,
+      undefined,
+      cache,
+      req,
+    )
   }
   if (field.type === 'array' && Array.isArray(value)) {
-    return sanitizeArrayRead(field.fields, value, user, rootDoc)
+    return sanitizeArrayRead(field.fields, value, user, rootDoc, cache, req)
   }
   if (field.type === 'blocks' && Array.isArray(value)) {
-    return sanitizeBlocksRead(field.blocks, value, user, rootDoc)
+    return sanitizeBlocksRead(field.blocks, value, user, rootDoc, cache, req)
   }
   return value
 }
@@ -123,12 +190,14 @@ async function sanitizeArrayRowRead(
   item: unknown,
   user: AuthUser | null,
   rootDoc: DocumentData,
+  cache?: FieldAccessCache,
+  req?: Request,
 ): Promise<unknown> {
   if (typeof item !== 'object' || item === null) return item
   const row = item as Record<string, unknown>
   const rowId =
     (row.id as string | number | undefined) ?? (rootDoc.id as string | number | undefined)
-  return sanitizeFieldsRead(fields, row, user, rootDoc, rowId)
+  return sanitizeFieldsRead(fields, row, user, rootDoc, rowId, cache, req)
 }
 
 async function sanitizeArrayRead(
@@ -136,10 +205,12 @@ async function sanitizeArrayRead(
   items: unknown[],
   user: AuthUser | null,
   rootDoc: DocumentData,
+  cache?: FieldAccessCache,
+  req?: Request,
 ): Promise<unknown[]> {
   const result: unknown[] = []
   for (const item of items) {
-    result.push(await sanitizeArrayRowRead(fields, item, user, rootDoc))
+    result.push(await sanitizeArrayRowRead(fields, item, user, rootDoc, cache, req))
   }
   return result
 }
@@ -149,6 +220,8 @@ async function sanitizeBlockRowRead(
   item: unknown,
   user: AuthUser | null,
   rootDoc: DocumentData,
+  cache?: FieldAccessCache,
+  req?: Request,
 ): Promise<unknown> {
   if (typeof item !== 'object' || item === null) return item
   const block = item as Record<string, unknown>
@@ -156,7 +229,7 @@ async function sanitizeBlockRowRead(
   if (!blockDef) return block
   const blockId =
     (block.id as string | number | undefined) ?? (rootDoc.id as string | number | undefined)
-  return sanitizeFieldsRead(blockDef.fields, block, user, rootDoc, blockId)
+  return sanitizeFieldsRead(blockDef.fields, block, user, rootDoc, blockId, cache, req)
 }
 
 async function sanitizeBlocksRead(
@@ -164,24 +237,33 @@ async function sanitizeBlocksRead(
   items: unknown[],
   user: AuthUser | null,
   rootDoc: DocumentData,
+  cache?: FieldAccessCache,
+  req?: Request,
 ): Promise<unknown[]> {
   const result: unknown[] = []
   for (const item of items) {
-    result.push(await sanitizeBlockRowRead(blocks, item, user, rootDoc))
+    result.push(await sanitizeBlockRowRead(blocks, item, user, rootDoc, cache, req))
   }
   return result
+}
+
+function resolveReadCache(context?: ReadSanitizationContext): FieldAccessCache {
+  if (context?.cache) return context.cache
+  if (context?.req) return getFieldAccessCache(context.req)
+  return createFieldAccessCache()
 }
 
 export async function sanitizeDocRead(
   fields: Record<string, Field>,
   doc: DocumentData,
   user: AuthUser | null,
-  context?: { id?: string | number; doc?: DocumentData },
+  context?: ReadSanitizationContext,
 ): Promise<DocumentData> {
   if (!doc || typeof doc !== 'object') return doc
   const docId = context?.id ?? (doc.id as string | number | undefined)
   const baseDoc = context?.doc ?? doc
-  return sanitizeFieldsRead(fields, doc, user, baseDoc, docId)
+  const cache = resolveReadCache(context)
+  return sanitizeFieldsRead(fields, doc, user, baseDoc, docId, cache, context?.req)
 }
 
 // -----------------------------------------------------------------------------
@@ -193,6 +275,8 @@ export interface WriteSanitizationContext {
   id?: string | number
   data?: DocumentData
   doc?: DocumentData
+  cache?: FieldAccessCache
+  req?: Request
 }
 
 async function checkWritePermission(
@@ -204,13 +288,18 @@ async function checkWritePermission(
   targetId?: string | number,
 ): Promise<boolean> {
   const fn = operation === 'create' ? field.access?.create : field.access?.update
-  return checkFieldAccess(fn, {
-    user: context.user,
-    id: targetId ?? context.id,
-    data: rootData,
-    siblingData,
-    doc: context.doc,
-  })
+  return checkFieldAccess(
+    fn,
+    {
+      user: context.user,
+      id: targetId ?? context.id,
+      data: rootData,
+      siblingData,
+      doc: context.doc,
+      req: context.req,
+    },
+    context.cache,
+  )
 }
 
 function buildStoredRowMap(items?: unknown[]): Map<string | number, DocumentData> {
@@ -263,6 +352,8 @@ async function mergeSubfieldWithStored(
     storedRow,
     context.doc ?? storedRow,
     rowId,
+    context.cache,
+    context.req,
   )
 
   if (!canUpdate || !canRead) {
@@ -475,7 +566,18 @@ export async function sanitizeDocWrite(
   context: WriteSanitizationContext,
 ): Promise<DocumentData> {
   if (!data || typeof data !== 'object') return data
-  const rootData = context.data ?? data
-  const storedData = operation === 'update' ? context.doc : undefined
-  return sanitizeFieldsWrite(fields, data, operation, context, rootData, context.id, storedData)
+  const cache =
+    context.cache ?? (context.req ? getFieldAccessCache(context.req) : createFieldAccessCache())
+  const resolvedContext: WriteSanitizationContext = { ...context, cache }
+  const rootData = resolvedContext.data ?? data
+  const storedData = operation === 'update' ? resolvedContext.doc : undefined
+  return sanitizeFieldsWrite(
+    fields,
+    data,
+    operation,
+    resolvedContext,
+    rootData,
+    resolvedContext.id,
+    storedData,
+  )
 }

@@ -1,3 +1,8 @@
+import {
+  createFieldAccessCache,
+  getFieldAccessCache,
+  type FieldAccessCache,
+} from '../access/field-access'
 import type { AuthUser } from '../auth/types'
 import type { CollectionConfig, Config, GlobalConfig } from '../config/types'
 import type { DocumentData } from '../database/adapter'
@@ -8,6 +13,13 @@ export interface OperationContext {
   user?: AuthUser | null
   overrideAccess?: boolean
   req?: Request
+  fieldAccessCache?: FieldAccessCache
+}
+
+export function resolveOperationContextCache(context: OperationContext): FieldAccessCache {
+  if (context.fieldAccessCache) return context.fieldAccessCache
+  if (context.req) return getFieldAccessCache(context.req)
+  return createFieldAccessCache()
 }
 
 export interface FindOperationArgs extends OperationContext {
