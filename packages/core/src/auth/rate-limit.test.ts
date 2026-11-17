@@ -80,6 +80,37 @@ describe('rate-limit', () => {
       const req = new Request('http://localhost')
       expect(getClientIp(req)).toBe('127.0.0.1')
     })
+
+    it('falls back to 127.0.0.1 when headers contain invalid IP or excessively long strings', () => {
+      const req = new Request('http://localhost', {
+        headers: { 'x-forwarded-for': 'a'.repeat(300) },
+      })
+      expect(getClientIp(req)).toBe('127.0.0.1')
+    })
+
+    it('extracts IP when IPv4 contains a port', () => {
+      const req = new Request('http://localhost', {
+        headers: { 'x-forwarded-for': '203.0.113.195:8080' },
+      })
+      expect(getClientIp(req)).toBe('203.0.113.195')
+    })
+
+    it('extracts IP when IPv6 is bracketed with a port', () => {
+      const req = new Request('http://localhost', {
+        headers: { 'x-forwarded-for': '[2001:db8::1]:8080' },
+      })
+      expect(getClientIp(req)).toBe('2001:db8::1')
+    })
+
+    it('falls back to x-real-ip when x-forwarded-for contains an invalid IP', () => {
+      const req = new Request('http://localhost', {
+        headers: {
+          'x-forwarded-for': 'invalid-ip',
+          'x-real-ip': '198.51.100.42',
+        },
+      })
+      expect(getClientIp(req)).toBe('198.51.100.42')
+    })
   })
 
   describe('MemoryRateLimitStorage', () => {
@@ -253,6 +284,68 @@ describe('rate-limit', () => {
       const res2 = await storage.isBlocked('db-key', { window: 60, max: 5 })
       expect(res2.allowed).toBe(false)
       expect(res2.retryAfter).toBeGreaterThan(0)
+    })
+
+    it('returns allowed: true instead of hanging when adapter.create always throws', async () => {
+      const mockFindMany = vi.fn().mockResolvedValue([])
+      const mockCreate = vi.fn().mockRejectedValue(new Error('DB connection failed'))
+      const fakeAdapter: DatabaseAdapterLike = {
+        findMany: mockFindMany,
+        create: mockCreate,
+        incrementOne: vi.fn(),
+      }
+
+      const storage = new DatabaseRateLimitStorage(() => Promise.resolve(fakeAdapter))
+      const res = await storage.consume('test-key', { window: 60, max: 5 })
+
+      expect(res.allowed).toBe(true)
+      expect(res.retryAfter).toBeNull()
+      // findMany should be called at most twice (initial check + 1 re-read on failed create)
+      expect(mockFindMany).toHaveBeenCalledTimes(2)
+      expect(mockCreate).toHaveBeenCalledTimes(1)
+    })
+
+    it('returns allowed: true instead of hanging when key is longer than column', async () => {
+      const mockFindMany = vi.fn().mockResolvedValue([])
+      const fakeAdapter: DatabaseAdapterLike = {
+        findMany: mockFindMany,
+        create: vi.fn().mockImplementation(({ data }: { data: { key?: string } }) => {
+          if (data.key && data.key.length > 255) {
+            return Promise.reject(new Error('ER_DATA_TOO_LONG: Data too long for column key'))
+          }
+          return Promise.resolve(data)
+        }),
+        incrementOne: vi.fn(),
+      }
+
+      const storage = new DatabaseRateLimitStorage(() => Promise.resolve(fakeAdapter))
+      const longKey = 'a'.repeat(300)
+      const res = await storage.consume(longKey, { window: 60, max: 5 })
+
+      expect(res.allowed).toBe(true)
+      expect(res.retryAfter).toBeNull()
+      expect(mockFindMany).toHaveBeenCalledTimes(2)
+    })
+
+    it('recovers without infinite recursion when a concurrent insert creates the row', async () => {
+      const now = Date.now()
+      const concurrentRow = { id: 'c1', key: 'db-key', count: 1, lastRequest: now }
+      const mockIncrementOne = vi.fn().mockResolvedValue(true)
+      const fakeAdapter: DatabaseAdapterLike = {
+        findMany: vi
+          .fn()
+          .mockResolvedValueOnce([]) // First read: empty
+          .mockResolvedValueOnce([concurrentRow]) // Re-read after create conflict: row exists
+          .mockResolvedValueOnce([concurrentRow]), // Recursive attempt: row exists
+        create: vi.fn().mockRejectedValue(new Error('ER_DUP_ENTRY: Duplicate entry for key')),
+        incrementOne: mockIncrementOne,
+      }
+
+      const storage = new DatabaseRateLimitStorage(() => Promise.resolve(fakeAdapter))
+      const res = await storage.consume('db-key', { window: 60, max: 5 })
+
+      expect(res.allowed).toBe(true)
+      expect(mockIncrementOne).toHaveBeenCalled()
     })
   })
 
