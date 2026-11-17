@@ -128,6 +128,7 @@ test.describe('Roles and Field-Level Access Control (M10)', () => {
 
   test('Editor: can edit editorialNotes, publishedAt, and Pages, but reviewNotes and Site Settings are locked/hidden', async ({
     page,
+    request,
   }) => {
     await loginAs(page, editorEmail)
 
@@ -158,6 +159,20 @@ test.describe('Roles and Field-Level Access Control (M10)', () => {
 
     await page.getByRole('button', { name: 'Publish', exact: true }).click()
     await expect(page.getByRole('heading', { name: 'Posts', exact: true })).toBeVisible()
+
+    // Query published post slug and verify public page HTML does not leak editorialNotes (#367)
+    const publicPostRes = await request.get('/api/posts')
+    expect(publicPostRes.ok()).toBe(true)
+    const publicPostsData = (await publicPostRes.json()) as {
+      docs: Array<{ title: string; slug: string }>
+    }
+    const createdPost = publicPostsData.docs.find((p) => p.title === postTitle)
+    expect(createdPost).toBeDefined()
+
+    const webPostRes = await request.get(`/posts/${createdPost?.slug}`)
+    expect(webPostRes.ok()).toBe(true)
+    const webPostHtml = await webPostRes.text()
+    expect(webPostHtml).not.toContain('Editor internal review note: approved for publishing.')
 
     // 3. Pages collection: Editor can create a page, but reviewNotes in SEO group is hidden
     await page.getByRole('link', { name: 'Pages', exact: true }).click()
@@ -213,6 +228,24 @@ test.describe('Roles and Field-Level Access Control (M10)', () => {
 
     await page.getByRole('button', { name: 'Publish', exact: true }).click()
     await expect(page.getByRole('heading', { name: 'Pages', exact: true })).toBeVisible()
+
+    // Query published page slug and verify public page HTML does not leak reviewNotes (#367)
+    const adminCookies = await page.context().cookies()
+    const adminCookieHeader = adminCookies.map((c) => `${c.name}=${c.value}`).join('; ')
+    const adminPagesRes = await request.get('/api/pages', {
+      headers: { Cookie: adminCookieHeader },
+    })
+    expect(adminPagesRes.ok()).toBe(true)
+    const adminPagesData = (await adminPagesRes.json()) as {
+      docs: Array<{ title: string; slug: string }>
+    }
+    const createdAdminPage = adminPagesData.docs.find((p) => p.title === pageTitle)
+    expect(createdAdminPage).toBeDefined()
+
+    const webPageRes = await request.get(`/${createdAdminPage?.slug}`)
+    expect(webPageRes.ok()).toBe(true)
+    const webPageHtml = await webPageRes.text()
+    expect(webPageHtml).not.toContain('Admin internal audit passed: ready for deployment.')
 
     // 3. Admin can edit and save Site Settings
     await page.getByRole('link', { name: 'Site Settings', exact: true }).click()

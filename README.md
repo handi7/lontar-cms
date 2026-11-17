@@ -709,7 +709,7 @@ const { docs: pages } = await lontar.find('pages', {
 // pages: Page[] with generated layout blocks union
 ```
 
-The Local API runs with `overrideAccess: true` by default, making server queries straightforward. To enforce access control based on an authenticated user or role, pass `{ overrideAccess: false, user }`. The client also exposes `findByID`, `create`, `update`, `delete`, `publish`, `unpublish`, `findVersions`, `restoreVersion`, `findGlobal`, and `updateGlobal`. Pass `{ draft: true }` to read or modify drafts.
+The Local API runs with `overrideAccess: true` by default, making server queries straightforward. To enforce access control based on an authenticated user or role, pass `{ overrideAccess: false, user }`. Because `overrideAccess: true` skips read sanitization, documents passed to React Client Components (such as props serialized into RSC payloads) or exposed on public pages should either be fetched with `{ overrideAccess: false, user }` or sanitized using `sanitizeDocRead`. The client also exposes `findByID`, `create`, `update`, `delete`, `publish`, `unpublish`, `findVersions`, `restoreVersion`, `findGlobal`, and `updateGlobal`. Pass `{ draft: true }` to read or modify drafts.
 
 From the browser or other apps, use REST:
 
