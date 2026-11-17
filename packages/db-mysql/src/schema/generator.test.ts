@@ -288,6 +288,7 @@ describe('generateSchemaFile', () => {
     expect(output).toContain("impersonatedBy: text('impersonated_by'),")
     expect(output).toContain('export const account = mysqlTable(')
     expect(output).toContain('export const verification = mysqlTable(')
+    expect(output).toContain('export const apikey = mysqlTable(')
     expect(output).toContain("emailVerified: boolean('email_verified').default(false).notNull(),")
     expect(output).toContain("index('session_userId_idx').on(table.userId)")
   })

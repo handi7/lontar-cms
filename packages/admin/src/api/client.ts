@@ -711,3 +711,57 @@ export async function resendUserInvite(
   })
   return handleResponse<{ success: boolean; message: string }>(res)
 }
+
+export interface ApiKeyDoc {
+  id: string
+  name: string
+  start: string
+  userId: string
+  expiresAt: string | null
+  lastUsedAt: string | null
+  createdAt: string
+}
+
+export interface CreatedApiKeyDoc extends ApiKeyDoc {
+  key: string
+}
+
+export interface CreateApiKeyData {
+  name: string
+  expiresIn?: number | null
+  userId?: string
+}
+
+export async function listApiKeys(apiBase: string, userId?: string): Promise<ApiKeyDoc[]> {
+  const base = apiBase.replace(/\/+$/, '')
+  const query = userId ? `?userId=${encodeURIComponent(userId)}` : ''
+  const res = await fetch(`${base}/_lontar/api-keys${query}`, {
+    credentials: 'include',
+  })
+  const data = await handleResponse<{ docs: ApiKeyDoc[] }>(res)
+  return data.docs
+}
+
+export async function createApiKey(
+  apiBase: string,
+  data: CreateApiKeyData,
+): Promise<CreatedApiKeyDoc> {
+  const base = apiBase.replace(/\/+$/, '')
+  const res = await fetch(`${base}/_lontar/api-keys`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    credentials: 'include',
+    body: JSON.stringify(data),
+  })
+  const resData = await handleResponse<{ apiKey: CreatedApiKeyDoc }>(res)
+  return resData.apiKey
+}
+
+export async function revokeApiKey(apiBase: string, id: string): Promise<{ success: boolean }> {
+  const base = apiBase.replace(/\/+$/, '')
+  const res = await fetch(`${base}/_lontar/api-keys/${id}`, {
+    method: 'DELETE',
+    credentials: 'include',
+  })
+  return handleResponse<{ success: boolean }>(res)
+}

@@ -296,6 +296,7 @@ describe('generateSchemaFile', () => {
     expect(output).toContain("impersonatedBy: text('impersonated_by'),")
     expect(output).toContain("export const account = pgTable(\n  'account',")
     expect(output).toContain("export const verification = pgTable(\n  'verification',")
+    expect(output).toContain("export const apikey = pgTable(\n  'apikey',")
   })
 
   it('renders versions table with drafts, foreign key, unique constraint, and indexes', () => {

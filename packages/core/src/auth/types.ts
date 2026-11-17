@@ -1,4 +1,5 @@
 import type { betterAuth } from 'better-auth'
+import type { ApiKeyItem } from './api-key'
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 export type Auth = ReturnType<typeof betterAuth<any>>
@@ -24,4 +25,5 @@ export interface LontarVariables {
   user: AuthUser | null
   session: AuthSession | null
   permissions?: unknown
+  apiKey?: ApiKeyItem | null
 }

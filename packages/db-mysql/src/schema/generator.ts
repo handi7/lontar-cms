@@ -393,6 +393,27 @@ export const verification = mysqlTable(
     updatedAt: timestamp('updated_at').defaultNow().onUpdateNow().notNull(),
   },
   (table) => [index('verification_identifier_idx').on(table.identifier)],
+)
+
+export const apikey = mysqlTable(
+  'apikey',
+  {
+    id: varchar('id', { length: 36 }).primaryKey(),
+    name: varchar('name', { length: 255 }).notNull(),
+    start: varchar('start', { length: 32 }).notNull(),
+    key: varchar('key', { length: 255 }).notNull().unique(),
+    userId: varchar('user_id', { length: 36 })
+      .notNull()
+      .references(() => user.id, { onDelete: 'cascade' }),
+    expiresAt: timestamp('expires_at'),
+    lastUsedAt: timestamp('last_used_at'),
+    createdAt: timestamp('created_at').defaultNow().notNull(),
+    updatedAt: timestamp('updated_at').defaultNow().onUpdateNow().notNull(),
+  },
+  (table) => [
+    index('apikey_userId_idx').on(table.userId),
+    index('apikey_key_idx').on(table.key),
+  ],
 )`
 }
 

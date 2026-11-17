@@ -1,6 +1,6 @@
 export { postgresAdapter, type PostgresAdapter, type PostgresAdapterOptions } from './adapter'
 export { handleDatabaseError, findFieldName, toErrorContext } from './errors'
-export { account, authTables, session, user, verification } from './schema/auth'
+export { account, apikey, authTables, session, user, verification } from './schema/auth'
 export { generateSchemaFile, slugToIdentifier } from './schema/generator'
 export { collectionToTable } from './schema/table'
 export { setupTestDatabase, isPostgresAvailable, type TestDatabase } from './test-database'

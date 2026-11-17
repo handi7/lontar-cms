@@ -697,6 +697,37 @@ GET /api/globals/site-settings
 POST /api/globals/site-settings/publish
 ```
 
+### API keys for machine-to-machine access
+
+For external servers, cron jobs, and background workers that need to query or mutate content without browser cookies, generate an API key from the **Account** page in the admin panel.
+
+API keys are owned by a user and act on behalf of that user. Requests made with an API key enforce the user's role and all collection- and field-level access control functions.
+
+Pass the key using either `Authorization: Bearer <key>` or the `x-api-key` header:
+
+```ts
+// Using Authorization: Bearer
+const response = await fetch('https://example.com/api/posts', {
+  headers: {
+    Authorization: `Bearer ${process.env.LONTAR_API_KEY}`,
+  },
+})
+const data = await response.json()
+```
+
+```bash
+# Using x-api-key header
+curl -X GET https://example.com/api/posts \
+  -H "x-api-key: lt_abcdef123456..."
+```
+
+API keys:
+
+- Are displayed once upon creation and stored securely hashed (SHA-256).
+- Support optional expiration times and track `lastUsedAt`.
+- Stop working immediately if revoked or if the owning user account is disabled.
+- Do not affect the Local API (`getLontar`), which executes directly within the host runtime.
+
 ## License
 
 [MIT](LICENSE)

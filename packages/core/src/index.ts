@@ -328,3 +328,19 @@ export {
   type EmailTemplates,
   type ResolvedEmailConfig,
 } from './email'
+
+export {
+  apiKeyPlugin,
+  cleanApiKey,
+  createApiKey,
+  generateRawApiKey,
+  getApiKeyById,
+  hashApiKey,
+  listApiKeys,
+  revokeApiKey,
+  verifyApiKey,
+  type ApiKeyItem,
+  type CreateApiKeyOptions,
+  type CreatedApiKeyResult,
+  type VerifyApiKeyResult,
+} from './auth/api-key'
