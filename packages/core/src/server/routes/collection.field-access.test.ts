@@ -11,8 +11,8 @@ interface EmployeeDoc {
   name: string
   salary?: number
   meta?: { publicBio?: string; ssn?: string }
-  notes?: Array<{ id: number; text: string; isConfidential?: boolean }>
-  blocks?: Array<{ blockType: string; rating?: number; managerNote?: string }>
+  notes?: Array<{ id: string; text: string; isConfidential?: boolean }>
+  blocks?: Array<{ id?: string; blockType: string; rating?: number; managerNote?: string }>
 }
 
 interface ProjectDoc {
@@ -31,8 +31,8 @@ function resetStore(): void {
         name: 'Alice',
         salary: 100000,
         meta: { publicBio: 'Software Engineer', ssn: '000-11-2222' },
-        notes: [{ id: 1, text: 'Great worker', isConfidential: true }],
-        blocks: [{ blockType: 'review', rating: 5, managerNote: 'Top performer' }],
+        notes: [{ id: 'n1', text: 'Great worker', isConfidential: true }],
+        blocks: [{ id: 'b1', blockType: 'review', rating: 5, managerNote: 'Top performer' }],
         createdAt: '2026-10-31T00:00:00.000Z',
         updatedAt: '2026-10-31T00:00:00.000Z',
       },
@@ -238,8 +238,8 @@ describe('Field-Level Access Control Integration', () => {
     expect(doc.name).toBe('Alice')
     expect(doc.salary).toBeUndefined()
     expect(doc.meta).toEqual({ publicBio: 'Software Engineer' })
-    expect(doc.notes).toEqual([{ id: 1, text: 'Great worker' }])
-    expect(doc.blocks).toEqual([{ blockType: 'review', rating: 5 }])
+    expect(doc.notes).toEqual([{ id: 'n1', text: 'Great worker' }])
+    expect(doc.blocks).toEqual([{ id: 'b1', blockType: 'review', rating: 5 }])
   })
 
   it('preserves all fields for admin user', async () => {
@@ -305,6 +305,42 @@ describe('Field-Level Access Control Integration', () => {
     expect(updated.name).toBe('Alice Cooper')
     expect(updated.salary).toBeUndefined()
     expect(updated.meta?.ssn).toBeUndefined()
+  })
+
+  it('preserves hidden/locked array and blocks subfields in database when non-admin updates document (#364)', async () => {
+    const app = createLontar(config, { baseURL: 'http://localhost:3000' })
+
+    // Non-admin user updates employee 1 with array and block edits, omitting hidden fields
+    const updateRes = await app.request('/api/employees/1', {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        name: 'Alice Cooper',
+        notes: [{ id: 'n1', text: 'Great worker modified' }],
+        blocks: [{ id: 'b1', blockType: 'review', rating: 4 }],
+      }),
+    })
+    expect(updateRes.status).toBe(200)
+
+    // Verify stored document in database preserved the hidden/locked subfields
+    const stored = store['employees']![1]!
+    expect(stored['name']).toBe('Alice Cooper')
+    const storedNotes = stored['notes'] as Array<{
+      id: string
+      text: string
+      isConfidential?: boolean
+    }>
+    expect(storedNotes[0]?.text).toBe('Great worker modified')
+    expect(storedNotes[0]?.isConfidential).toBe(true)
+
+    const storedBlocks = stored['blocks'] as Array<{
+      id: string
+      blockType: string
+      rating?: number
+      managerNote?: string
+    }>
+    expect(storedBlocks[0]?.rating).toBe(4)
+    expect(storedBlocks[0]?.managerNote).toBe('Top performer')
   })
 
   it('rejects where filter on unreadable field with 400 Bad Request', async () => {

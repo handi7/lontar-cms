@@ -215,4 +215,157 @@ describe('sanitizeDocWrite', () => {
       bio: 'Updated bio',
     })
   })
+
+  describe('Preservation of locked/hidden subfields inside containers (#364)', () => {
+    const complexFields: Record<string, Field> = {
+      title: f.text(),
+      notes: f.array({
+        fields: {
+          text: f.text(),
+          isConfidential: f.checkbox({
+            access: {
+              read: ({ user }) => user?.role === 'admin',
+              update: ({ user }) => user?.role === 'admin',
+            },
+          }),
+        },
+      }),
+      blocks: f.blocks({
+        blocks: [
+          {
+            slug: 'review',
+            fields: {
+              rating: f.number(),
+              managerNote: f.text({
+                access: {
+                  read: ({ user }) => user?.role === 'admin',
+                  update: ({ user }) => user?.role === 'admin',
+                },
+              }),
+            },
+          },
+        ],
+      }),
+      meta: f.group({
+        fields: {
+          publicBio: f.text(),
+          secretKey: f.text({
+            access: {
+              read: ({ user }) => user?.role === 'admin',
+              update: ({ user }) => user?.role === 'admin',
+            },
+          }),
+        },
+      }),
+    }
+
+    const storedDoc = {
+      id: 1,
+      title: 'Original Title',
+      notes: [
+        { id: 'n1', text: 'Public note 1', isConfidential: true },
+        { id: 'n2', text: 'Public note 2', isConfidential: false },
+      ],
+      blocks: [{ id: 'b1', blockType: 'review', rating: 5, managerNote: 'Promote soon' }],
+      meta: {
+        publicBio: 'Bio text',
+        secretKey: 'Secret 12345',
+      },
+    }
+
+    it('preserves denied array and blocks subfields from stored doc when omitted by caller', async () => {
+      const user = makeUser('user', 'user@example.com')
+      // Non-admin user submits an update where isConfidential and managerNote are omitted
+      const input = {
+        title: 'New Title',
+        notes: [
+          { id: 'n1', text: 'Updated public note 1' },
+          { id: 'n2', text: 'Updated public note 2' },
+        ],
+        blocks: [{ id: 'b1', blockType: 'review', rating: 4 }],
+        meta: {
+          publicBio: 'Updated bio',
+        },
+      }
+
+      const sanitized = await sanitizeDocWrite(complexFields, input, 'update', {
+        user,
+        id: 1,
+        data: input,
+        doc: storedDoc,
+      })
+
+      expect(sanitized.title).toBe('New Title')
+      // Array row subfield is preserved
+      expect(sanitized.notes).toEqual([
+        { id: 'n1', text: 'Updated public note 1', isConfidential: true },
+        { id: 'n2', text: 'Updated public note 2', isConfidential: false },
+      ])
+      // Block row subfield is preserved
+      expect(sanitized.blocks).toEqual([
+        { id: 'b1', blockType: 'review', rating: 4, managerNote: 'Promote soon' },
+      ])
+      // Group subfield is preserved
+      expect(sanitized.meta).toEqual({
+        publicBio: 'Updated bio',
+        secretKey: 'Secret 12345',
+      })
+    })
+
+    it('overwrites unauthorized changes to protected subfields with stored values', async () => {
+      const user = makeUser('user', 'user@example.com')
+      // Non-admin user tries to tamper with isConfidential, managerNote, and secretKey
+      const input = {
+        notes: [{ id: 'n1', text: 'Tampered note', isConfidential: false }],
+        blocks: [{ id: 'b1', blockType: 'review', rating: 1, managerNote: 'Tampered review' }],
+        meta: {
+          publicBio: 'Tampered bio',
+          secretKey: 'HACKED',
+        },
+      }
+
+      const sanitized = await sanitizeDocWrite(complexFields, input, 'update', {
+        user,
+        id: 1,
+        data: input,
+        doc: storedDoc,
+      })
+
+      // Stored values remain untouched
+      expect(sanitized.notes).toEqual([{ id: 'n1', text: 'Tampered note', isConfidential: true }])
+      expect(sanitized.blocks).toEqual([
+        { id: 'b1', blockType: 'review', rating: 1, managerNote: 'Promote soon' },
+      ])
+      expect(sanitized.meta).toEqual({
+        publicBio: 'Tampered bio',
+        secretKey: 'Secret 12345',
+      })
+    })
+
+    it('strips unauthorized fields on newly added rows that have no stored match', async () => {
+      const user = makeUser('user', 'user@example.com')
+      const input = {
+        notes: [{ id: 'brand-new-row', text: 'New Row', isConfidential: true }],
+        blocks: [
+          {
+            id: 'brand-new-block',
+            blockType: 'review',
+            rating: 3,
+            managerNote: 'Unauthorized Note',
+          },
+        ],
+      }
+
+      const sanitized = await sanitizeDocWrite(complexFields, input, 'update', {
+        user,
+        id: 1,
+        data: input,
+        doc: storedDoc,
+      })
+
+      // Unauthorized fields are stripped because there is no matching stored row to restore from
+      expect(sanitized.notes).toEqual([{ id: 'brand-new-row', text: 'New Row' }])
+      expect(sanitized.blocks).toEqual([{ id: 'brand-new-block', blockType: 'review', rating: 3 }])
+    })
+  })
 })
