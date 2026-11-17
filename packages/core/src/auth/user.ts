@@ -333,6 +333,7 @@ export async function verifyAndChangePassword(
   userId: string,
   currentPassword: string,
   newPassword: string,
+  currentSessionToken?: string,
 ): Promise<void> {
   const ctx = await auth.$context
   const account = await ctx.internalAdapter.findCredentialAccount(userId)
@@ -348,6 +349,14 @@ export async function verifyAndChangePassword(
   }
   const hashedNew = await ctx.password.hash(newPassword)
   await ctx.internalAdapter.updatePassword(userId, hashedNew)
+
+  if (currentSessionToken) {
+    const sessions = (await ctx.internalAdapter.listSessions(userId)) as Array<{ token: string }>
+    const otherSessions = sessions.filter((s) => s.token !== currentSessionToken)
+    await Promise.all(otherSessions.map((s) => ctx.internalAdapter.deleteSession(s.token)))
+  } else {
+    await ctx.internalAdapter.deleteUserSessions(userId)
+  }
 }
 
 export async function countActiveAdmins(auth: Auth, adminRole: string): Promise<number> {

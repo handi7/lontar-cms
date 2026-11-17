@@ -3,6 +3,7 @@ import {
   createLontar,
   createUserWithCredential,
   createApiKey,
+  verifyAndChangePassword,
   type Config,
   type DatabaseAdapter,
   type EmailMessage,
@@ -1434,6 +1435,145 @@ describe('User Management API (/api/_lontar/users & /api/_lontar/me)', () => {
 
       const cookie = await signInUser(app, 'cli-user@example.com', 'password123')
       expect(cookie).toBeTruthy()
+    })
+  })
+
+  describe('Session revocation on password change and reset (#369)', () => {
+    it('revokes other sessions but preserves current session on /_lontar/me/password', async () => {
+      const { app } = setupTestApp()
+      await registerFirstAdmin(app)
+
+      await createUserWithCredential(app.auth, {
+        email: 'multi-session@example.com',
+        name: 'Multi Session User',
+        password: 'password123',
+        role: 'editor',
+      })
+
+      const session1 = await signInUser(app, 'multi-session@example.com', 'password123')
+      const session2 = await signInUser(app, 'multi-session@example.com', 'password123')
+
+      const check1Before = await app.request('/api/auth/get-session', {
+        headers: { cookie: session1 },
+      })
+      const check2Before = await app.request('/api/auth/get-session', {
+        headers: { cookie: session2 },
+      })
+      expect(check1Before.status).toBe(200)
+      expect(check2Before.status).toBe(200)
+
+      const changeRes = await app.request('/api/_lontar/me/password', {
+        method: 'POST',
+        headers: { cookie: session1, 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          currentPassword: 'password123',
+          newPassword: 'new-multi-password123',
+        }),
+      })
+      expect(changeRes.status).toBe(200)
+
+      const check1After = await app.request('/api/auth/get-session', {
+        headers: { cookie: session1 },
+      })
+      expect(check1After.status).toBe(200)
+
+      const check2After = await app.request('/api/auth/get-session', {
+        headers: { cookie: session2 },
+      })
+      const session2Data = (await check2After.json()) as { user?: unknown } | null
+      expect(!session2Data || !session2Data.user).toBe(true)
+    })
+
+    it('revokes active sessions when password is reset via /api/auth/reset-password', async () => {
+      const sentEmails: EmailMessage[] = []
+      const sendEmail = vi.fn().mockImplementation((msg: EmailMessage) => {
+        sentEmails.push(msg)
+        return Promise.resolve()
+      })
+      const config: Config = {
+        secret: 'test-secret-that-is-at-least-32-chars-long-12345',
+        db: mockAdapter,
+        collections: [],
+        auth: {
+          roles: ['admin', 'editor'],
+          defaultRole: 'editor',
+          adminRole: 'admin',
+        },
+        email: {
+          adapter: { sendEmail },
+          from: 'Lontar <no-reply@lontar.dev>',
+        },
+      }
+      const app = createLontar(config, { baseURL: 'http://localhost:3000' })
+      await registerFirstAdmin(app)
+
+      await createUserWithCredential(app.auth, {
+        email: 'reset-victim@example.com',
+        name: 'Reset Victim',
+        password: 'password123',
+        role: 'editor',
+      })
+
+      const victimSession = await signInUser(app, 'reset-victim@example.com', 'password123')
+      const sessionCheck = await app.request('/api/auth/get-session', {
+        headers: { cookie: victimSession },
+      })
+      expect(sessionCheck.status).toBe(200)
+
+      const reqReset = await app.request('/api/auth/request-password-reset', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email: 'reset-victim@example.com' }),
+      })
+      expect(reqReset.status).toBe(200)
+
+      const email = sentEmails.find((e) => e.to === 'reset-victim@example.com')
+      expect(email).toBeTruthy()
+      const match = email!.text?.match(/token=([a-zA-Z0-9_.-]+)/)
+      expect(match).toBeTruthy()
+      const token = match![1]
+
+      const resetRes = await app.request('/api/auth/reset-password', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ token, newPassword: 'brand-new-secret-123' }),
+      })
+      expect(resetRes.status).toBe(200)
+
+      const afterResetSession = await app.request('/api/auth/get-session', {
+        headers: { cookie: victimSession },
+      })
+      const sessionData = (await afterResetSession.json()) as { user?: unknown } | null
+      expect(!sessionData || !sessionData.user).toBe(true)
+
+      const newSession = await signInUser(app, 'reset-victim@example.com', 'brand-new-secret-123')
+      expect(newSession).toBeTruthy()
+    })
+
+    it('revokes all sessions when verifyAndChangePassword is called without sessionToken', async () => {
+      const { app } = setupTestApp()
+      await registerFirstAdmin(app)
+
+      const user = await createUserWithCredential(app.auth, {
+        email: 'no-session-token@example.com',
+        name: 'No Session Token User',
+        password: 'password123',
+        role: 'editor',
+      })
+
+      const session = await signInUser(app, 'no-session-token@example.com', 'password123')
+      const checkBefore = await app.request('/api/auth/get-session', {
+        headers: { cookie: session },
+      })
+      expect(checkBefore.status).toBe(200)
+
+      await verifyAndChangePassword(app.auth, user.id, 'password123', 'new-password-456')
+
+      const checkAfter = await app.request('/api/auth/get-session', {
+        headers: { cookie: session },
+      })
+      const sessionData = (await checkAfter.json()) as { user?: unknown } | null
+      expect(!sessionData || !sessionData.user).toBe(true)
     })
   })
 })

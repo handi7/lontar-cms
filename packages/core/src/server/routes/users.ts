@@ -649,11 +649,13 @@ async function handleChangeMePassword(c: Context<LontarEnv>, auth: Auth): Promis
   }
 
   try {
+    const sessionToken = c.var.session?.token
     await verifyAndChangePassword(
       auth,
       user.id,
       validated.data.currentPassword,
       validated.data.newPassword,
+      sessionToken,
     )
     return c.json({ message: 'Password changed successfully' })
   } catch (err) {
