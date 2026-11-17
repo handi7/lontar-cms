@@ -407,5 +407,32 @@ describe('rate-limit', () => {
       expect(recordBlocked.allowed).toBe(false)
       expect(recordBlocked.retryAfter).toBeGreaterThan(0)
     })
+
+    it('tracks change-password failures and blocks after reaching threshold (#371)', async () => {
+      const limiter = new RateLimiter({
+        enabled: true,
+        rules: { changePassword: { window: 600, max: 2 } },
+      })
+      const userId = 'user-123'
+      const ip = '192.168.1.50'
+
+      expect((await limiter.checkChangePasswordLimit(userId, ip)).allowed).toBe(true)
+
+      // First failure
+      expect((await limiter.recordChangePasswordFailure(userId, ip)).allowed).toBe(true)
+      expect((await limiter.checkChangePasswordLimit(userId, ip)).allowed).toBe(true)
+
+      // Second failure hits limit (max: 2)
+      expect((await limiter.recordChangePasswordFailure(userId, ip)).allowed).toBe(true)
+
+      // Now blocked
+      const checkBlocked = await limiter.checkChangePasswordLimit(userId, ip)
+      expect(checkBlocked.allowed).toBe(false)
+      expect(checkBlocked.retryAfter).toBeGreaterThan(0)
+
+      const recordBlocked = await limiter.recordChangePasswordFailure(userId, ip)
+      expect(recordBlocked.allowed).toBe(false)
+      expect(recordBlocked.retryAfter).toBeGreaterThan(0)
+    })
   })
 })

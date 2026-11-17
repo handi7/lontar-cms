@@ -299,6 +299,7 @@ export interface RateLimitOptions {
     firstUser?: RateLimitRule
     invite?: RateLimitRule
     apiKeyFailure?: RateLimitRule
+    changePassword?: RateLimitRule
   }
 }
 
@@ -348,11 +349,21 @@ export function getClientIp(req: Request): string {
   return '127.0.0.1'
 }
 
+const DEFAULT_RATE_LIMIT_RULES = {
+  firstUser: { window: 60, max: 5 },
+  invite: { window: 60, max: 10 },
+  apiKeyFailure: { window: 60, max: 5 },
+  changePassword: { window: 600, max: 5 },
+} as const
+
 function resolveRateLimitRules(options?: RateLimitOptions) {
+  const rules = options?.rules
+  if (!rules) return { ...DEFAULT_RATE_LIMIT_RULES }
   return {
-    firstUser: options?.rules?.firstUser ?? { window: 60, max: 5 },
-    invite: options?.rules?.invite ?? { window: 60, max: 10 },
-    apiKeyFailure: options?.rules?.apiKeyFailure ?? { window: 60, max: 5 },
+    firstUser: rules.firstUser ?? DEFAULT_RATE_LIMIT_RULES.firstUser,
+    invite: rules.invite ?? DEFAULT_RATE_LIMIT_RULES.invite,
+    apiKeyFailure: rules.apiKeyFailure ?? DEFAULT_RATE_LIMIT_RULES.apiKeyFailure,
+    changePassword: rules.changePassword ?? DEFAULT_RATE_LIMIT_RULES.changePassword,
   }
 }
 
@@ -376,6 +387,7 @@ export class RateLimiter {
     firstUser: RateLimitRule
     invite: RateLimitRule
     apiKeyFailure: RateLimitRule
+    changePassword: RateLimitRule
   }
 
   constructor(
@@ -410,5 +422,13 @@ export class RateLimiter {
 
   async recordApiKeyFailure(ip: string): Promise<RateLimitResult> {
     return this.consume(`api-key-failure:${ip}`, this.rules.apiKeyFailure)
+  }
+
+  async checkChangePasswordLimit(userId: string, ip: string): Promise<RateLimitResult> {
+    return this.isBlocked(`change-password:${userId}:${ip}`, this.rules.changePassword)
+  }
+
+  async recordChangePasswordFailure(userId: string, ip: string): Promise<RateLimitResult> {
+    return this.consume(`change-password:${userId}:${ip}`, this.rules.changePassword)
   }
 }

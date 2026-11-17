@@ -374,4 +374,97 @@ describe('Rate Limiting Integration (/api/_lontar & /api/auth)', () => {
     expect(r3.status).toBe(429)
     expect(r3.headers.get('Retry-After')).toBeDefined()
   })
+
+  it('rate limits failed password change attempts on /_lontar/me/password and returns 429 with Retry-After (#371)', async () => {
+    const config: Config = {
+      secret: 'test-secret-that-is-at-least-32-chars-long-12345',
+      db: mockDbAdapter,
+      collections: [],
+      auth: {
+        roles: ['admin', 'editor'],
+        defaultRole: 'editor',
+        adminRole: 'admin',
+      },
+    }
+
+    const app = createLontar(config, {
+      rateLimit: {
+        enabled: true,
+        rules: {
+          changePassword: { window: 600, max: 2 },
+        },
+      },
+    })
+
+    const firstUserRes = await app.request('/api/_lontar/first-user', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        email: 'rate-pwd@example.com',
+        name: 'Rate User',
+        password: 'correct-password-123',
+      }),
+    })
+    const cookie = firstUserRes.headers.get('set-cookie') ?? ''
+
+    const badAttempt = () =>
+      app.request('/api/_lontar/me/password', {
+        method: 'POST',
+        headers: {
+          cookie,
+          'Content-Type': 'application/json',
+          'x-forwarded-for': '198.51.100.44',
+        },
+        body: JSON.stringify({
+          currentPassword: 'wrong-guess-password',
+          newPassword: 'new-password-12345',
+        }),
+      })
+
+    const r1 = await badAttempt()
+    expect(r1.status).toBe(400)
+    expect(await r1.json()).toEqual({ error: 'Current password is incorrect' })
+
+    const r2 = await badAttempt()
+    expect(r2.status).toBe(400)
+    expect(await r2.json()).toEqual({ error: 'Current password is incorrect' })
+
+    const r3 = await badAttempt()
+    expect(r3.status).toBe(429)
+    expect(r3.headers.get('Retry-After')).toBeDefined()
+    expect(Number(r3.headers.get('Retry-After'))).toBeGreaterThan(0)
+    expect(r3.headers.get('X-Retry-After')).toBeDefined()
+    expect(await r3.json()).toEqual({
+      error: 'Too many failed password change attempts. Please try again later.',
+    })
+
+    const r4 = await app.request('/api/_lontar/me/password', {
+      method: 'POST',
+      headers: {
+        cookie,
+        'Content-Type': 'application/json',
+        'x-forwarded-for': '198.51.100.44',
+      },
+      body: JSON.stringify({
+        currentPassword: 'correct-password-123',
+        newPassword: 'new-password-12345',
+      }),
+    })
+    expect(r4.status).toBe(429)
+
+    const otherIpRes = await app.request('/api/_lontar/me/password', {
+      method: 'POST',
+      headers: {
+        cookie,
+        'Content-Type': 'application/json',
+        'x-forwarded-for': '198.51.100.45',
+      },
+      body: JSON.stringify({
+        currentPassword: 'correct-password-123',
+        newPassword: 'new-password-12345',
+      }),
+    })
+    expect(otherIpRes.status).toBe(200)
+    expect(await otherIpRes.json()).toEqual({ message: 'Password changed successfully' })
+  })
 })
