@@ -10,6 +10,10 @@ import { mysqlAdapter } from '@lontar/db-mysql'
 import { postgresAdapter } from '@lontar/db-postgres'
 import { localStorage } from '@lontar/storage-local'
 
+const isAdmin = (user: { role?: string } | null | undefined) => user?.role === 'admin'
+const isEditorOrAdmin = (user: { role?: string } | null | undefined) =>
+  user?.role === 'admin' || user?.role === 'editor'
+
 const authors = collection({
   slug: 'authors',
   labels: { singular: 'Author', plural: 'Authors' },
@@ -19,9 +23,9 @@ const authors = collection({
   },
   access: {
     read: () => true,
-    create: ({ user }) => Boolean(user),
-    update: ({ user }) => Boolean(user),
-    delete: ({ user }) => Boolean(user),
+    create: ({ user }) => isEditorOrAdmin(user),
+    update: ({ user }) => isEditorOrAdmin(user),
+    delete: ({ user }) => isAdmin(user),
   },
   fields: {
     name: f.text({ required: true }),
@@ -38,9 +42,9 @@ const categories = collection({
   },
   access: {
     read: () => true,
-    create: ({ user }) => Boolean(user),
-    update: ({ user }) => Boolean(user),
-    delete: ({ user }) => Boolean(user),
+    create: ({ user }) => isEditorOrAdmin(user),
+    update: ({ user }) => isEditorOrAdmin(user),
+    delete: ({ user }) => isAdmin(user),
   },
   fields: {
     name: f.text({ required: true }),
@@ -65,7 +69,7 @@ const media = collection({
     read: () => true,
     create: ({ user }) => Boolean(user),
     update: ({ user }) => Boolean(user),
-    delete: ({ user }) => Boolean(user),
+    delete: ({ user }) => isEditorOrAdmin(user),
   },
   fields: {
     alt: f.text({ required: true }),
@@ -90,7 +94,7 @@ const posts = collection({
     read: () => true,
     create: ({ user }) => Boolean(user),
     update: ({ user }) => Boolean(user),
-    delete: ({ user }) => Boolean(user),
+    delete: ({ user }) => isEditorOrAdmin(user),
   },
   fields: {
     title: f.text({ required: true, maxLength: 120 }),
@@ -99,7 +103,18 @@ const posts = collection({
     author: f.relationship({ relationTo: 'authors' }),
     categories: f.relationship({ relationTo: 'categories', hasMany: true }),
     content: f.richText(),
-    publishedAt: f.date(),
+    publishedAt: f.date({
+      access: {
+        update: ({ user }) => isEditorOrAdmin(user),
+      },
+    }),
+    editorialNotes: f.textarea({
+      access: {
+        read: ({ user }) => isEditorOrAdmin(user),
+        create: ({ user }) => isEditorOrAdmin(user),
+        update: ({ user }) => isEditorOrAdmin(user),
+      },
+    }),
   },
   hooks: {
     beforeChange: [
@@ -187,10 +202,10 @@ const pages = collection({
     },
   },
   access: {
-    read: () => true,
-    create: ({ user }) => Boolean(user),
-    update: ({ user }) => Boolean(user),
-    delete: ({ user }) => Boolean(user),
+    read: ({ user }) => isEditorOrAdmin(user),
+    create: ({ user }) => isEditorOrAdmin(user),
+    update: ({ user }) => isEditorOrAdmin(user),
+    delete: ({ user }) => isAdmin(user),
   },
   fields: {
     title: f.text({ required: true, maxLength: 120 }),
@@ -199,6 +214,13 @@ const pages = collection({
       fields: {
         metaTitle: f.text(),
         metaDescription: f.textarea(),
+        reviewNotes: f.textarea({
+          access: {
+            read: ({ user }) => isAdmin(user),
+            create: ({ user }) => isAdmin(user),
+            update: ({ user }) => isAdmin(user),
+          },
+        }),
       },
     }),
     layout: f.blocks({
@@ -211,8 +233,8 @@ const siteSettings = global({
   slug: 'site-settings',
   label: 'Site Settings',
   access: {
-    read: () => true,
-    update: ({ user }) => Boolean(user),
+    read: ({ user }) => isEditorOrAdmin(user),
+    update: ({ user }) => isAdmin(user),
   },
   fields: {
     siteName: f.text(),
@@ -243,6 +265,11 @@ export default defineConfig({
   email: consoleEmailAdapter(),
   db: getDatabaseAdapter(),
   storage: localStorage(),
+  auth: {
+    roles: ['admin', 'editor', 'author'] as const,
+    defaultRole: 'author',
+    adminRole: 'admin',
+  },
   collections: [posts, pages, categories, authors, media],
   globals: [siteSettings],
   webhooks: [
