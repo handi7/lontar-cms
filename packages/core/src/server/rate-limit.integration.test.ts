@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest'
+import { createApiKey } from '../auth/api-key'
 import type { DatabaseAdapter } from '../database/adapter'
 import type { Config } from '../config/types'
 import { createLontar } from './create-lontar'
@@ -43,6 +44,7 @@ describe('Rate Limiting Integration (/api/_lontar & /api/auth)', () => {
     }
 
     const app = createLontar(config, {
+      ipAddressHeaders: ['x-forwarded-for'],
       rateLimit: {
         enabled: true,
         rules: {
@@ -90,6 +92,7 @@ describe('Rate Limiting Integration (/api/_lontar & /api/auth)', () => {
     }
 
     const app = createLontar(config, {
+      ipAddressHeaders: ['x-forwarded-for'],
       rateLimit: {
         enabled: true,
         rules: {
@@ -164,6 +167,7 @@ describe('Rate Limiting Integration (/api/_lontar & /api/auth)', () => {
 
     const app = createLontar(config, {
       baseURL: 'http://localhost:3000',
+      ipAddressHeaders: ['x-forwarded-for'],
       rateLimit: {
         enabled: true,
         rules: {
@@ -223,6 +227,7 @@ describe('Rate Limiting Integration (/api/_lontar & /api/auth)', () => {
     }
 
     const app = createLontar(config, {
+      ipAddressHeaders: ['x-forwarded-for'],
       rateLimit: {
         enabled: true,
         customRules: {
@@ -319,6 +324,7 @@ describe('Rate Limiting Integration (/api/_lontar & /api/auth)', () => {
 
     // Instance A
     const appA = createLontar(config, {
+      ipAddressHeaders: ['x-forwarded-for'],
       rateLimit: {
         enabled: true,
         storage: 'database',
@@ -335,6 +341,7 @@ describe('Rate Limiting Integration (/api/_lontar & /api/auth)', () => {
 
     // Instance B
     const appB = createLontar(config, {
+      ipAddressHeaders: ['x-forwarded-for'],
       rateLimit: {
         enabled: true,
         storage: 'database',
@@ -388,6 +395,7 @@ describe('Rate Limiting Integration (/api/_lontar & /api/auth)', () => {
     }
 
     const app = createLontar(config, {
+      ipAddressHeaders: ['x-forwarded-for'],
       rateLimit: {
         enabled: true,
         rules: {
@@ -466,5 +474,116 @@ describe('Rate Limiting Integration (/api/_lontar & /api/auth)', () => {
     })
     expect(otherIpRes.status).toBe(200)
     expect(await otherIpRes.json()).toEqual({ message: 'Password changed successfully' })
+  })
+
+  it('valid API keys are never rate limited, even after IP reaches failed key rate limit (#370)', async () => {
+    const config: Config = {
+      secret: 'test-secret-that-is-at-least-32-chars-long-12345',
+      db: mockDbAdapter,
+      collections: [],
+      auth: {
+        roles: ['admin', 'editor'],
+        defaultRole: 'editor',
+        adminRole: 'admin',
+      },
+    }
+
+    const app = createLontar(config, {
+      ipAddressHeaders: ['x-forwarded-for'],
+      rateLimit: {
+        enabled: true,
+        rules: {
+          apiKeyFailure: { window: 60, max: 2 },
+        },
+      },
+    })
+
+    // Setup user and API key
+    const firstUserRes = await app.request('/api/_lontar/first-user', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        name: 'API User',
+        email: 'api-user@example.com',
+        password: 'password12345',
+      }),
+    })
+    expect(firstUserRes.status).toBe(200)
+    const user = ((await firstUserRes.json()) as { user: { id: string } }).user
+
+    const { key: validRawKey } = await createApiKey(app.auth, {
+      userId: user.id,
+      name: 'Valid Key',
+    })
+
+    const testIp = '198.51.100.99'
+
+    // Fail 2 attempts with invalid key
+    const badReq = () =>
+      app.request('/api/_lontar/me', {
+        headers: {
+          authorization: 'Bearer lt_invalidrandomkey12345',
+          'x-forwarded-for': testIp,
+        },
+      })
+
+    const r1 = await badReq()
+    expect(r1.status).toBe(401)
+    const r2 = await badReq()
+    expect(r2.status).toBe(401)
+
+    // 3rd bad key attempt is rate limited (429)
+    const r3 = await badReq()
+    expect(r3.status).toBe(429)
+
+    // Valid API key from the SAME IP must NOT be blocked (valid keys are never rate limited!)
+    const validRes = await app.request('/api/_lontar/me', {
+      headers: {
+        authorization: `Bearer ${validRawKey}`,
+        'x-forwarded-for': testIp,
+      },
+    })
+    expect(validRes.status).toBe(200)
+    const validJson = (await validRes.json()) as { user: { email: string } }
+    expect(validJson.user.email).toBe('api-user@example.com')
+  })
+
+  it('ignores spoofed x-forwarded-for by default when neither trustedProxies nor ipAddressHeaders is configured (#370)', async () => {
+    const config: Config = {
+      secret: 'test-secret-that-is-at-least-32-chars-long-12345',
+      db: mockDbAdapter,
+      collections: [],
+    }
+
+    // Default configuration: no ipAddressHeaders or trustedProxies configured
+    const app = createLontar(config, {
+      rateLimit: {
+        enabled: true,
+        rules: {
+          firstUser: { window: 60, max: 2 },
+        },
+      },
+    })
+
+    // Rotating x-forwarded-for must NOT bypass the limit
+    const send = (spoofedIp: string) =>
+      app.request('/api/_lontar/first-user', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'x-forwarded-for': spoofedIp,
+        },
+        body: JSON.stringify({ email: 'bad' }),
+      })
+
+    const r1 = await send('203.0.113.1')
+    expect(r1.status).toBe(400)
+
+    const r2 = await send('203.0.113.2')
+    expect(r2.status).toBe(400)
+
+    // Attempt 3 with a third spoofed IP is blocked with 429 because untrusted headers were ignored
+    const r3 = await send('203.0.113.3')
+    expect(r3.status).toBe(429)
   })
 })

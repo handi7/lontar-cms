@@ -1,5 +1,5 @@
-import type { Hono } from 'hono'
-import { getClientIp, type RateLimiter } from '../../auth/rate-limit'
+import type { Context, Hono } from 'hono'
+import type { RateLimiter } from '../../auth/rate-limit'
 import type { Auth, LontarVariables } from '../../auth/types'
 import { countTotalUsers, createUserWithCredential } from '../../auth/user'
 import type { Config } from '../../config/types'
@@ -47,6 +47,23 @@ function validateFirstUserInput(body: unknown): {
   }
 }
 
+async function checkFirstUserRateLimit(
+  c: Context<{ Variables: LontarVariables }>,
+  rateLimiter?: RateLimiter,
+): Promise<Response | null> {
+  if (!rateLimiter) return null
+  const ip = c.get('clientIp') ?? rateLimiter.getClientIp(c.req.raw)
+  const check = await rateLimiter.consume(`first-user:${ip}`, rateLimiter.rules.firstUser)
+  if (!check.allowed) {
+    const retryAfter = check.retryAfter ?? rateLimiter.rules.firstUser.window
+    return c.json({ error: 'Too many requests. Please try again later.' }, 429, {
+      'Retry-After': String(retryAfter),
+      'X-Retry-After': String(retryAfter),
+    })
+  }
+  return null
+}
+
 export function registerFirstUserRoutes(
   router: Hono<{ Variables: LontarVariables }>,
   auth: Auth,
@@ -59,17 +76,8 @@ export function registerFirstUserRoutes(
   })
 
   router.post('/_lontar/first-user', async (c) => {
-    if (rateLimiter) {
-      const ip = getClientIp(c.req.raw)
-      const check = await rateLimiter.consume(`first-user:${ip}`, rateLimiter.rules.firstUser)
-      if (!check.allowed) {
-        const retryAfter = check.retryAfter ?? rateLimiter.rules.firstUser.window
-        return c.json({ error: 'Too many requests. Please try again later.' }, 429, {
-          'Retry-After': String(retryAfter),
-          'X-Retry-After': String(retryAfter),
-        })
-      }
-    }
+    const rateLimitError = await checkFirstUserRateLimit(c, rateLimiter)
+    if (rateLimitError) return rateLimitError
 
     const totalUsers = await countTotalUsers(auth)
     if (totalUsers > 0) {

@@ -1,6 +1,6 @@
 import { randomBytes } from 'node:crypto'
 import type { Context, Hono } from 'hono'
-import { getClientIp, type RateLimiter } from '../../auth/rate-limit'
+import type { RateLimiter } from '../../auth/rate-limit'
 import type { Auth, AuthUser, LontarVariables } from '../../auth/types'
 import {
   countActiveAdmins,
@@ -234,7 +234,7 @@ async function checkInviteRateLimit(
   rateLimiter?: RateLimiter,
 ): Promise<Response | null> {
   if (!rateLimiter) return null
-  const ip = getClientIp(c.req.raw)
+  const ip = c.get('clientIp') ?? rateLimiter.getClientIp(c.req.raw)
   const check = await rateLimiter.consume(`invite:${ip}`, rateLimiter.rules.invite)
   if (!check.allowed) {
     const retryAfter = check.retryAfter ?? rateLimiter.rules.invite.window
@@ -714,7 +714,7 @@ async function handleChangeMePassword(
   const { user, errorResponse } = checkAuthAccess(c)
   if (errorResponse || !user) return errorResponse!
 
-  const ip = getClientIp(c.req.raw)
+  const ip = c.get('clientIp') ?? rateLimiter?.getClientIp(c.req.raw) ?? 'no-trusted-ip'
   const rateLimitError = await checkChangePasswordRateLimit(c, user.id, ip, rateLimiter)
   if (rateLimitError) return rateLimitError
 

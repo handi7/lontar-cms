@@ -7,7 +7,7 @@ import { apiKeyPlugin, verifyApiKey, type ApiKeyItem } from '../auth/api-key'
 import { resolveAdminBaseUrl } from './admin-url'
 import {
   RateLimiter,
-  getClientIp,
+  resolveIpResolutionOptions,
   resolveRateLimitEnabled,
   type DatabaseAdapterLike,
   type RateLimitOptions,
@@ -28,6 +28,8 @@ export interface CreateLontarOptions {
   baseURL?: string
   adminPath?: string
   trustedOrigins?: string[]
+  trustedProxies?: string[]
+  ipAddressHeaders?: string[]
   rateLimit?: RateLimitOptions
 }
 
@@ -130,7 +132,12 @@ function createSendVerificationEmailHandler(
   }
 }
 
-function buildAuthInstance(config: Config, basePath: string, options: CreateLontarOptions): Auth {
+function buildAuthInstance(
+  config: Config,
+  basePath: string,
+  options: CreateLontarOptions,
+  ipConfig: { ipAddressHeaders: string[]; trustedProxies?: string[] },
+): Auth {
   const trustedOrigins = buildTrustedOrigins(options)
   const resolvedEmail = resolveEmailConfig(config.email)
 
@@ -140,6 +147,12 @@ function buildAuthInstance(config: Config, basePath: string, options: CreateLont
     ...(options.baseURL ? { baseURL: options.baseURL } : {}),
     ...(trustedOrigins.length > 0 ? { trustedOrigins } : {}),
     ...(config.db.authAdapter ? { database: config.db.authAdapter } : {}),
+    advanced: {
+      ipAddress: {
+        ipAddressHeaders: ipConfig.ipAddressHeaders,
+        ...(ipConfig.trustedProxies?.length ? { trustedProxies: ipConfig.trustedProxies } : {}),
+      },
+    },
     plugins: [buildAdminPlugin(config.auth), apiKeyPlugin()],
     emailVerification: {
       sendOnSignUp: false,
@@ -221,11 +234,17 @@ async function authenticateApiKey(
   auth: Auth,
   apiKeyToken: string,
   rateLimiter: RateLimiter,
+  clientIp?: string,
 ): Promise<ApiKeyAuthResult> {
-  const ip = getClientIp(rawReq)
-  const blockedCheck = await rateLimiter.checkApiKeyFailureLimit(ip)
-  if (!blockedCheck.allowed) {
-    const retryAfter = blockedCheck.retryAfter ?? rateLimiter.rules.apiKeyFailure.window
+  const result = await verifyApiKey(auth, apiKeyToken)
+  if (result.valid && result.user) {
+    return { ok: true, user: result.user, apiKey: result.apiKey ?? null }
+  }
+
+  const ip = clientIp ?? rateLimiter.getClientIp(rawReq)
+  const failureRecord = await rateLimiter.recordApiKeyFailure(ip)
+  if (!failureRecord.allowed) {
+    const retryAfter = failureRecord.retryAfter ?? rateLimiter.rules.apiKeyFailure.window
     return {
       ok: false,
       status: 429,
@@ -234,22 +253,7 @@ async function authenticateApiKey(
     }
   }
 
-  const result = await verifyApiKey(auth, apiKeyToken)
-  if (!result.valid || !result.user) {
-    const failureRecord = await rateLimiter.recordApiKeyFailure(ip)
-    if (!failureRecord.allowed) {
-      const retryAfter = failureRecord.retryAfter ?? rateLimiter.rules.apiKeyFailure.window
-      return {
-        ok: false,
-        status: 429,
-        error: 'Too many failed API key attempts. Please try again later.',
-        retryAfter,
-      }
-    }
-    return { ok: false, status: 401, error: result.error ?? 'Invalid API key' }
-  }
-
-  return { ok: true, user: result.user, apiKey: result.apiKey ?? null }
+  return { ok: false, status: 401, error: result.error ?? 'Invalid API key' }
 }
 
 function wrapAuthResponse(res: Response): Response {
@@ -284,11 +288,29 @@ export function createLontar(config: Config, options: CreateLontarOptions = {}):
   app.onError(defaultErrorHandler)
   router.onError(defaultErrorHandler)
 
-  const auth = buildAuthInstance(config, basePath, options)
+  const ipConfig = resolveIpResolutionOptions({
+    trustedProxies: options.trustedProxies ?? options.rateLimit?.trustedProxies,
+    ipAddressHeaders: options.ipAddressHeaders ?? options.rateLimit?.ipAddressHeaders,
+  })
 
-  const rateLimiter = new RateLimiter(options.rateLimit ?? {}, async () => {
-    const ctx = await auth.$context
-    return ctx.adapter as unknown as DatabaseAdapterLike
+  const auth = buildAuthInstance(config, basePath, options, ipConfig)
+
+  const rateLimiter = new RateLimiter(
+    {
+      ...options.rateLimit,
+      trustedProxies: ipConfig.trustedProxies,
+      ipAddressHeaders: ipConfig.ipAddressHeaders,
+    },
+    async () => {
+      const ctx = await auth.$context
+      return ctx.adapter as unknown as DatabaseAdapterLike
+    },
+  )
+
+  // Attach client IP on all requests for unified resolution
+  router.use('*', async (c, next) => {
+    c.set('clientIp', rateLimiter.getClientIp(c.req.raw))
+    await next()
   })
 
   // Block Better Auth's built-in admin plugin endpoints (defense in depth):
@@ -315,7 +337,13 @@ export function createLontar(config: Config, options: CreateLontarOptions = {}):
     const apiKeyToken = extractApiKeyToken(c.req.header('x-api-key'), c.req.header('authorization'))
 
     if (apiKeyToken) {
-      const authResult = await authenticateApiKey(c.req.raw, auth, apiKeyToken, rateLimiter)
+      const authResult = await authenticateApiKey(
+        c.req.raw,
+        auth,
+        apiKeyToken,
+        rateLimiter,
+        c.get('clientIp'),
+      )
       if (!authResult.ok) {
         if (authResult.status === 429) {
           return c.json({ error: authResult.error }, 429, {
