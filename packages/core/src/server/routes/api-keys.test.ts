@@ -314,4 +314,52 @@ describe('API Keys REST Routes & Middleware (#345)', () => {
     expect(adminDeleteRes.status).toBe(200)
     expect(await adminDeleteRes.json()).toEqual({ success: true })
   })
+
+  it('rejects API key requests attempting to manage API keys (session only)', async () => {
+    const { app } = setupTestApp()
+    const adminCookie = await registerFirstAdmin(app)
+
+    const createRes = await app.request('/api/_lontar/api-keys', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        cookie: adminCookie,
+      },
+      body: JSON.stringify({ name: 'Admin Key' }),
+    })
+    const { apiKey } = (await createRes.json()) as { apiKey: { id: string; key: string } }
+    const rawKey = apiKey.key
+
+    // 1. GET /api/_lontar/api-keys with API key -> 403
+    const listBearerRes = await app.request('/api/_lontar/api-keys', {
+      headers: { Authorization: `Bearer ${rawKey}` },
+    })
+    expect(listBearerRes.status).toBe(403)
+    expect(await listBearerRes.json()).toEqual({ error: 'Forbidden' })
+
+    const listXKeyRes = await app.request('/api/_lontar/api-keys', {
+      headers: { 'x-api-key': rawKey },
+    })
+    expect(listXKeyRes.status).toBe(403)
+
+    // 2. POST /api/_lontar/api-keys with API key -> 403
+    const createWithKeyRes = await app.request('/api/_lontar/api-keys', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'x-api-key': rawKey,
+      },
+      body: JSON.stringify({ name: 'Nested Key' }),
+    })
+    expect(createWithKeyRes.status).toBe(403)
+    expect(await createWithKeyRes.json()).toEqual({ error: 'Forbidden' })
+
+    // 3. DELETE /api/_lontar/api-keys/:id with API key -> 403
+    const deleteWithKeyRes = await app.request(`/api/_lontar/api-keys/${apiKey.id}`, {
+      method: 'DELETE',
+      headers: { 'x-api-key': rawKey },
+    })
+    expect(deleteWithKeyRes.status).toBe(403)
+    expect(await deleteWithKeyRes.json()).toEqual({ error: 'Forbidden' })
+  })
 })

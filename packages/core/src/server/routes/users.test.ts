@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from 'vitest'
 import {
   createLontar,
   createUserWithCredential,
+  createApiKey,
   type Config,
   type DatabaseAdapter,
   type EmailMessage,
@@ -819,5 +820,107 @@ describe('User Management API (/api/_lontar/users & /api/_lontar/me)', () => {
 
     const newSignIn = await signInUser(app, 'member@example.com', 'brand-new-reset-pass123')
     expect(newSignIn).toBeTruthy()
+  })
+
+  it('rejects API key requests attempting user or profile management (session only)', async () => {
+    const { app } = setupTestApp()
+    await registerFirstAdmin(app)
+
+    const adminUser = await createUserWithCredential(app.auth, {
+      email: 'admin-key-owner@example.com',
+      password: 'password123',
+      name: 'Admin Key Owner',
+      role: 'admin',
+    })
+
+    const { key: rawKey } = await createApiKey(app.auth, {
+      userId: adminUser.id,
+      name: 'Admin Machine Key',
+    })
+
+    const authHeaders = { Authorization: `Bearer ${rawKey}`, 'Content-Type': 'application/json' }
+    const xKeyHeaders = { 'x-api-key': rawKey, 'Content-Type': 'application/json' }
+
+    // 1. GET /api/_lontar/users -> 403
+    const listRes = await app.request('/api/_lontar/users', { headers: authHeaders })
+    expect(listRes.status).toBe(403)
+    expect(await listRes.json()).toEqual({ error: 'Forbidden' })
+
+    const listXKeyRes = await app.request('/api/_lontar/users', { headers: xKeyHeaders })
+    expect(listXKeyRes.status).toBe(403)
+
+    // 2. POST /api/_lontar/users -> 403
+    const createRes = await app.request('/api/_lontar/users', {
+      method: 'POST',
+      headers: authHeaders,
+      body: JSON.stringify({ email: 'newuser@example.com', name: 'New User' }),
+    })
+    expect(createRes.status).toBe(403)
+
+    // 3. GET /api/_lontar/users/:id -> 403
+    const getRes = await app.request(`/api/_lontar/users/${adminUser.id}`, { headers: authHeaders })
+    expect(getRes.status).toBe(403)
+
+    // 4. PATCH /api/_lontar/users/:id -> 403
+    const patchRes = await app.request(`/api/_lontar/users/${adminUser.id}`, {
+      method: 'PATCH',
+      headers: authHeaders,
+      body: JSON.stringify({ name: 'Hacked Name' }),
+    })
+    expect(patchRes.status).toBe(403)
+
+    // 5. POST /api/_lontar/users/:id/disable -> 403
+    const disableRes = await app.request(`/api/_lontar/users/${adminUser.id}/disable`, {
+      method: 'POST',
+      headers: authHeaders,
+    })
+    expect(disableRes.status).toBe(403)
+
+    // 6. POST /api/_lontar/users/:id/enable -> 403
+    const enableRes = await app.request(`/api/_lontar/users/${adminUser.id}/enable`, {
+      method: 'POST',
+      headers: authHeaders,
+    })
+    expect(enableRes.status).toBe(403)
+
+    // 7. POST /api/_lontar/users/:id/revoke-sessions -> 403
+    const revokeRes = await app.request(`/api/_lontar/users/${adminUser.id}/revoke-sessions`, {
+      method: 'POST',
+      headers: authHeaders,
+    })
+    expect(revokeRes.status).toBe(403)
+
+    // 8. POST /api/_lontar/users/:id/password -> 403
+    const setPassRes = await app.request(`/api/_lontar/users/${adminUser.id}/password`, {
+      method: 'POST',
+      headers: authHeaders,
+      body: JSON.stringify({ newPassword: 'new-admin-password123' }),
+    })
+    expect(setPassRes.status).toBe(403)
+
+    // 9. DELETE /api/_lontar/users/:id -> 403
+    const deleteRes = await app.request(`/api/_lontar/users/${adminUser.id}`, {
+      method: 'DELETE',
+      headers: authHeaders,
+    })
+    expect(deleteRes.status).toBe(403)
+
+    // 10. PATCH /api/_lontar/me -> 403
+    const updateMeRes = await app.request('/api/_lontar/me', {
+      method: 'PATCH',
+      headers: authHeaders,
+      body: JSON.stringify({ name: 'Updated Via API Key' }),
+    })
+    expect(updateMeRes.status).toBe(403)
+    expect(await updateMeRes.json()).toEqual({ error: 'Forbidden' })
+
+    // 11. POST /api/_lontar/me/password -> 403
+    const changePassMeRes = await app.request('/api/_lontar/me/password', {
+      method: 'POST',
+      headers: authHeaders,
+      body: JSON.stringify({ currentPassword: 'password123', newPassword: 'new-pass-123456' }),
+    })
+    expect(changePassMeRes.status).toBe(403)
+    expect(await changePassMeRes.json()).toEqual({ error: 'Forbidden' })
   })
 })

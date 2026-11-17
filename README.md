@@ -757,7 +757,9 @@ API keys:
 
 - Are displayed once upon creation and stored securely hashed (SHA-256).
 - Support optional expiration times and track `lastUsedAt`.
-- Stop working immediately if revoked or if the owning user account is disabled.
+- Stop working immediately if revoked or if the owning user account is disabled. If an account is re-enabled, its unexpired keys become active again; to permanently cut off access for a compromised account, revoke its keys individually or delete the account.
+- Changing or resetting a user's password revokes active browser sessions but does not revoke their API keys.
+- Cannot be used to access user management, profile updates, or API key endpoints (`/_lontar/users*`, `PATCH /_lontar/me`, `POST /_lontar/me/password`, `/_lontar/api-keys*`). These are interactive, session-only operations and return `403 Forbidden` when requested with an API key.
 - Do not affect the Local API (`getLontar`), which executes directly within the host runtime.
 
 ## License
