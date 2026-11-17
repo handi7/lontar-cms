@@ -3,6 +3,7 @@ import { admin } from 'better-auth/plugins'
 import { adminAc, defaultAc } from 'better-auth/plugins/admin/access'
 import { Hono, type Context } from 'hono'
 import { apiKeyPlugin, verifyApiKey, type ApiKeyItem } from '../auth/api-key'
+import { resolveAdminBaseUrl } from './admin-url'
 import {
   RateLimiter,
   getClientIp,
@@ -82,18 +83,11 @@ function buildRateLimitConfig(options: CreateLontarOptions) {
   }
 }
 
-function resolveAdminBaseUrl(options: CreateLontarOptions, request?: Request): string {
-  const origin =
-    options.baseURL ?? (request ? new URL(request.url).origin : 'http://localhost:3000')
-  const adminPath = (options.adminPath ?? '/admin').replace(/\/$/, '')
-  return `${origin}${adminPath}`
-}
-
 function buildAuthInstance(config: Config, basePath: string, options: CreateLontarOptions): Auth {
   const trustedOrigins = buildTrustedOrigins(options)
   const resolvedEmail = resolveEmailConfig(config.email)
 
-  return betterAuth({
+  const auth: Auth = betterAuth({
     secret: config.secret,
     basePath: `${basePath}/auth`,
     ...(options.baseURL ? { baseURL: options.baseURL } : {}),
@@ -105,12 +99,17 @@ function buildAuthInstance(config: Config, basePath: string, options: CreateLont
       disableSignUp: true,
       ...(resolvedEmail
         ? {
-            sendResetPassword: async (
-              data: { user: { id: string; email: string; name?: string }; token: string },
-              request?: unknown,
-            ) => {
-              const req = request instanceof Request ? request : undefined
-              const adminUrl = resolveAdminBaseUrl(options, req)
+            sendResetPassword: async (data: {
+              user: { id: string; email: string; name?: string }
+              token: string
+            }) => {
+              const adminUrl = await resolveAdminBaseUrl(auth, options)
+              if (!adminUrl) {
+                console.warn(
+                  '[auth] Refusing to send password reset email: baseURL or BETTER_AUTH_URL must be configured',
+                )
+                return
+              }
               const resetUrl = `${adminUrl}/reset-password?token=${data.token}`
               await sendEmailWithTemplate(resolvedEmail, 'resetPassword', {
                 user: { id: data.user.id, email: data.user.email, name: data.user.name },
@@ -121,12 +120,17 @@ function buildAuthInstance(config: Config, basePath: string, options: CreateLont
             ...(config.auth?.requireEmailVerification
               ? {
                   requireEmailVerification: true,
-                  sendVerificationEmail: async (
-                    data: { user: { id: string; email: string; name?: string }; token: string },
-                    request?: unknown,
-                  ) => {
-                    const req = request instanceof Request ? request : undefined
-                    const adminUrl = resolveAdminBaseUrl(options, req)
+                  sendVerificationEmail: async (data: {
+                    user: { id: string; email: string; name?: string }
+                    token: string
+                  }) => {
+                    const adminUrl = await resolveAdminBaseUrl(auth, options)
+                    if (!adminUrl) {
+                      console.warn(
+                        '[auth] Refusing to send verification email: baseURL or BETTER_AUTH_URL must be configured',
+                      )
+                      return
+                    }
                     const verifyUrl = `${adminUrl}/verify-email?token=${data.token}`
                     await sendEmailWithTemplate(resolvedEmail, 'verifyEmail', {
                       user: { id: data.user.id, email: data.user.email, name: data.user.name },
@@ -141,6 +145,7 @@ function buildAuthInstance(config: Config, basePath: string, options: CreateLont
     },
     rateLimit: buildRateLimitConfig(options),
   })
+  return auth
 }
 
 function extractApiKeyToken(apiKeyHeader?: string, authHeader?: string): string | null {
