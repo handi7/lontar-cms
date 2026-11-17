@@ -49,6 +49,7 @@ describe('createUser command', () => {
       password: 'password123',
       name: 'Admin',
       role: 'admin',
+      emailVerified: true,
     })
     expect(closeSpy).toHaveBeenCalledTimes(1)
     expect(logSpy).toHaveBeenCalledWith(expect.stringContaining('Created user admin@example.com'))
@@ -132,6 +133,7 @@ describe('createUser command', () => {
       password: 'password123',
       name: 'Editor',
       role: 'editor',
+      emailVerified: true,
     })
   })
 
@@ -168,6 +170,7 @@ describe('createUser command', () => {
       password: 'password123',
       name: 'Author',
       role: 'author',
+      emailVerified: true,
     })
   })
 

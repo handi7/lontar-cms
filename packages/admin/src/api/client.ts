@@ -721,6 +721,18 @@ export async function resetPassword(
   return handleResponse<{ status: boolean }>(res)
 }
 
+export async function verifyEmail(
+  apiBase: string,
+  token: string,
+): Promise<{ status: boolean; user?: unknown }> {
+  const base = apiBase.replace(/\/+$/, '')
+  const res = await fetch(`${base}/auth/verify-email?token=${encodeURIComponent(token)}`, {
+    method: 'GET',
+    credentials: 'include',
+  })
+  return handleResponse<{ status: boolean; user?: unknown }>(res)
+}
+
 export async function resendUserInvite(
   apiBase: string,
   id: string,

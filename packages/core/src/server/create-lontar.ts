@@ -66,6 +66,8 @@ const DEFAULT_BETTER_AUTH_CUSTOM_RULES: Record<string, { window: number; max: nu
   '/request-password-reset': { window: 60, max: 3 },
   '/reset-password': { window: 60, max: 5 },
   '/forget-password': { window: 60, max: 3 },
+  '/send-verification-email': { window: 60, max: 3 },
+  '/verify-email': { window: 60, max: 10 },
 }
 
 function buildRateLimitConfig(options: CreateLontarOptions) {
@@ -84,6 +86,50 @@ function buildRateLimitConfig(options: CreateLontarOptions) {
   }
 }
 
+function createSendResetPasswordHandler(
+  getAuth: () => Auth,
+  options: CreateLontarOptions,
+  resolvedEmail: NonNullable<ReturnType<typeof resolveEmailConfig>>,
+) {
+  return async (data: { user: { id: string; email: string; name?: string }; token: string }) => {
+    const adminUrl = await resolveAdminBaseUrl(getAuth(), options)
+    if (!adminUrl) {
+      console.warn(
+        '[auth] Refusing to send password reset email: baseURL or BETTER_AUTH_URL must be configured',
+      )
+      return
+    }
+    const resetUrl = `${adminUrl}/reset-password?token=${data.token}`
+    await sendEmailWithTemplate(resolvedEmail, 'resetPassword', {
+      user: { id: data.user.id, email: data.user.email, name: data.user.name },
+      url: resetUrl,
+      token: data.token,
+    })
+  }
+}
+
+function createSendVerificationEmailHandler(
+  getAuth: () => Auth,
+  options: CreateLontarOptions,
+  resolvedEmail: NonNullable<ReturnType<typeof resolveEmailConfig>>,
+) {
+  return async (data: { user: { id: string; email: string; name?: string }; token: string }) => {
+    const adminUrl = await resolveAdminBaseUrl(getAuth(), options)
+    if (!adminUrl) {
+      console.warn(
+        '[auth] Refusing to send verification email: baseURL or BETTER_AUTH_URL must be configured',
+      )
+      return
+    }
+    const verifyUrl = `${adminUrl}/verify-email?token=${data.token}`
+    await sendEmailWithTemplate(resolvedEmail, 'verifyEmail', {
+      user: { id: data.user.id, email: data.user.email, name: data.user.name },
+      url: verifyUrl,
+      token: data.token,
+    })
+  }
+}
+
 function buildAuthInstance(config: Config, basePath: string, options: CreateLontarOptions): Auth {
   const trustedOrigins = buildTrustedOrigins(options)
   const resolvedEmail = resolveEmailConfig(config.email)
@@ -95,52 +141,34 @@ function buildAuthInstance(config: Config, basePath: string, options: CreateLont
     ...(trustedOrigins.length > 0 ? { trustedOrigins } : {}),
     ...(config.db.authAdapter ? { database: config.db.authAdapter } : {}),
     plugins: [buildAdminPlugin(config.auth), apiKeyPlugin()],
+    emailVerification: {
+      sendOnSignUp: false,
+      sendOnSignIn: true,
+      autoSignInAfterVerification: true,
+      ...(resolvedEmail
+        ? {
+            sendVerificationEmail: createSendVerificationEmailHandler(
+              () => auth,
+              options,
+              resolvedEmail,
+            ),
+          }
+        : {}),
+    },
     emailAndPassword: {
       enabled: true,
       disableSignUp: true,
+      requireEmailVerification: Boolean(config.auth?.requireEmailVerification),
+      onPasswordReset: async ({ user }: { user: { id: string } }) => {
+        const ctx = await auth.$context
+        await ctx.internalAdapter.updateUser(user.id, {
+          emailVerified: true,
+          updatedAt: new Date(),
+        })
+      },
       ...(resolvedEmail
         ? {
-            sendResetPassword: async (data: {
-              user: { id: string; email: string; name?: string }
-              token: string
-            }) => {
-              const adminUrl = await resolveAdminBaseUrl(auth, options)
-              if (!adminUrl) {
-                console.warn(
-                  '[auth] Refusing to send password reset email: baseURL or BETTER_AUTH_URL must be configured',
-                )
-                return
-              }
-              const resetUrl = `${adminUrl}/reset-password?token=${data.token}`
-              await sendEmailWithTemplate(resolvedEmail, 'resetPassword', {
-                user: { id: data.user.id, email: data.user.email, name: data.user.name },
-                url: resetUrl,
-                token: data.token,
-              })
-            },
-            ...(config.auth?.requireEmailVerification
-              ? {
-                  requireEmailVerification: true,
-                  sendVerificationEmail: async (data: {
-                    user: { id: string; email: string; name?: string }
-                    token: string
-                  }) => {
-                    const adminUrl = await resolveAdminBaseUrl(auth, options)
-                    if (!adminUrl) {
-                      console.warn(
-                        '[auth] Refusing to send verification email: baseURL or BETTER_AUTH_URL must be configured',
-                      )
-                      return
-                    }
-                    const verifyUrl = `${adminUrl}/verify-email?token=${data.token}`
-                    await sendEmailWithTemplate(resolvedEmail, 'verifyEmail', {
-                      user: { id: data.user.id, email: data.user.email, name: data.user.name },
-                      url: verifyUrl,
-                      token: data.token,
-                    })
-                  },
-                }
-              : {}),
+            sendResetPassword: createSendResetPasswordHandler(() => auth, options, resolvedEmail),
           }
         : {}),
     },

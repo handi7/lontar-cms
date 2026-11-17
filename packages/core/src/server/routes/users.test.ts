@@ -1290,4 +1290,150 @@ describe('User Management API (/api/_lontar/users & /api/_lontar/me)', () => {
       expect(sessionBody.user?.email).toBe('admin@example.com')
     })
   })
+
+  describe('Email verification lifecycle with requireEmailVerification (#368)', () => {
+    function setupVerificationApp(sendEmailMock: (message: EmailMessage) => Promise<void>) {
+      const config: Config = {
+        secret: 'test-secret-that-is-at-least-32-chars-long-12345',
+        db: mockAdapter,
+        collections: [],
+        auth: {
+          roles: ['admin', 'editor'],
+          defaultRole: 'editor',
+          adminRole: 'admin',
+          requireEmailVerification: true,
+        },
+        email: {
+          adapter: { sendEmail: sendEmailMock },
+          from: 'Lontar <no-reply@lontar.dev>',
+        },
+      }
+      const app = createLontar(config, { baseURL: 'http://localhost:3000' })
+      return { app, config }
+    }
+
+    it('creates first-user as verified and signs in without lockout', async () => {
+      const sendEmail = vi.fn().mockResolvedValue(undefined)
+      const { app } = setupVerificationApp(sendEmail)
+
+      const cookie = await registerFirstAdmin(app, 'firstadmin@example.com')
+      expect(cookie).toBeTruthy()
+
+      const sessionRes = await app.request('/api/auth/get-session', {
+        headers: { cookie },
+      })
+      expect(sessionRes.status).toBe(200)
+      const sessionBody = (await sessionRes.json()) as { user?: { emailVerified: boolean } }
+      expect(sessionBody.user?.emailVerified).toBe(true)
+    })
+
+    it('marks invited user as emailVerified when invite password is set', async () => {
+      const sentEmails: EmailMessage[] = []
+      const sendEmail = vi.fn().mockImplementation((msg: EmailMessage) => {
+        sentEmails.push(msg)
+        return Promise.resolve()
+      })
+      const { app } = setupVerificationApp(sendEmail)
+      const adminCookie = await registerFirstAdmin(app, 'invite-admin@example.com')
+
+      const inviteRes = await app.request('/api/_lontar/users', {
+        method: 'POST',
+        headers: { cookie: adminCookie, 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          email: 'invited-verify@example.com',
+          name: 'Invited User',
+          role: 'editor',
+          invite: true,
+        }),
+      })
+      expect(inviteRes.status).toBe(201)
+
+      const emailMsg = sentEmails[0]!
+      const match = emailMsg.text?.match(/token=([a-f0-9]+)/)
+      expect(match).toBeTruthy()
+      const token = match![1]
+
+      const resetRes = await app.request('/api/auth/reset-password', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ token, newPassword: 'new-password-123' }),
+      })
+      expect(resetRes.status).toBe(200)
+
+      const userCookie = await signInUser(app, 'invited-verify@example.com', 'new-password-123')
+      expect(userCookie).toBeTruthy()
+
+      const sessionRes = await app.request('/api/auth/get-session', {
+        headers: { cookie: userCookie },
+      })
+      expect(sessionRes.status).toBe(200)
+      const sessionBody = (await sessionRes.json()) as { user?: { emailVerified: boolean } }
+      expect(sessionBody.user?.emailVerified).toBe(true)
+    })
+
+    it('rejects unverified user sign-in, sends verification email, and allows sign-in after verify', async () => {
+      const sentEmails: EmailMessage[] = []
+      const sendEmail = vi.fn().mockImplementation((msg: EmailMessage) => {
+        sentEmails.push(msg)
+        return Promise.resolve()
+      })
+      const { app } = setupVerificationApp(sendEmail)
+      const adminCookie = await registerFirstAdmin(app, 'admin-unverified@example.com')
+
+      const createRes = await app.request('/api/_lontar/users', {
+        method: 'POST',
+        headers: { cookie: adminCookie, 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          email: 'direct-user@example.com',
+          name: 'Direct User',
+          role: 'editor',
+          password: 'password123',
+        }),
+      })
+      expect(createRes.status).toBe(201)
+
+      const signInRes = await app.request('/api/auth/sign-in/email', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email: 'direct-user@example.com', password: 'password123' }),
+      })
+      expect(signInRes.status).toBe(403)
+      const signInBody = (await signInRes.json()) as { code?: string }
+      expect(signInBody.code).toBe('EMAIL_NOT_VERIFIED')
+
+      expect(sentEmails.length).toBeGreaterThanOrEqual(1)
+      const verifyMsg = sentEmails[sentEmails.length - 1]!
+      expect(verifyMsg.to).toBe('direct-user@example.com')
+      expect(verifyMsg.subject).toBe('Verify your email address')
+      expect(verifyMsg.text).toContain('/admin/verify-email?token=')
+
+      const tokenMatch = verifyMsg.text?.match(/token=([a-zA-Z0-9_.-]+)/)
+      expect(tokenMatch).toBeTruthy()
+      const verifyToken = tokenMatch![1]
+
+      const verifyRes = await app.request(`/api/auth/verify-email?token=${verifyToken}`, {
+        method: 'GET',
+      })
+      expect(verifyRes.status).toBe(200)
+
+      const userCookie = await signInUser(app, 'direct-user@example.com', 'password123')
+      expect(userCookie).toBeTruthy()
+    })
+
+    it('marks CLI-created user as verified allowing direct sign-in', async () => {
+      const sendEmail = vi.fn().mockResolvedValue(undefined)
+      const { app } = setupVerificationApp(sendEmail)
+
+      await createUserWithCredential(app.auth, {
+        email: 'cli-user@example.com',
+        password: 'password123',
+        name: 'CLI User',
+        role: 'editor',
+        emailVerified: true,
+      })
+
+      const cookie = await signInUser(app, 'cli-user@example.com', 'password123')
+      expect(cookie).toBeTruthy()
+    })
+  })
 })
