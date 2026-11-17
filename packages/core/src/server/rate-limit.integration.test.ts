@@ -586,4 +586,21 @@ describe('Rate Limiting Integration (/api/_lontar & /api/auth)', () => {
     const r3 = await send('203.0.113.3')
     expect(r3.status).toBe(429)
   })
+
+  it('rejects invalid storage like secondary-storage in createLontar config (#377)', () => {
+    const config: Config = {
+      secret: 'test-secret-that-is-at-least-32-chars-long-12345',
+      db: mockDbAdapter,
+      collections: [],
+    }
+
+    expect(() => {
+      createLontar(config, {
+        rateLimit: {
+          enabled: true,
+          storage: 'secondary-storage' as unknown as 'memory',
+        },
+      })
+    }).toThrowError(/Invalid rateLimit\.storage "secondary-storage"/)
+  })
 })
