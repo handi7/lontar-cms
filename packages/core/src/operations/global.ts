@@ -57,7 +57,7 @@ function validateGlobalData(
   return parsed.data
 }
 
-async function resolveOriginalGlobalDoc(
+export async function resolveOriginalGlobalDoc(
   db: DatabaseAdapter,
   global: GlobalConfig,
   draft?: boolean,

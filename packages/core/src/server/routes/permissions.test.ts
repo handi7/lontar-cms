@@ -142,6 +142,7 @@ describe('Permissions endpoint (GET /api/_lontar/permissions and /api/_lontar/ac
     employees: {
       1: {
         id: 1,
+        _status: 'published',
         name: 'Alice',
         salary: 150000,
         meta: { publicBio: 'Staff Eng', ssn: '123-45-6789' },
@@ -156,6 +157,7 @@ describe('Permissions endpoint (GET /api/_lontar/permissions and /api/_lontar/ac
 
   const globalDocs = {
     settings: {
+      _status: 'published',
       siteName: 'My Lontar App',
       apiSecret: 'super-secret-key-1234',
     },
@@ -431,5 +433,250 @@ describe('Permissions endpoint (GET /api/_lontar/permissions and /api/_lontar/ac
     const res = await app.request('/api/_lontar/permissions')
     expect(res.status).toBe(200)
     expect(spy).toHaveBeenCalledTimes(1)
+  })
+
+  describe('Document & Global permissions access control (#372)', () => {
+    const confidentialDocs = collection({
+      slug: 'confidential',
+      access: {
+        read: ({ user }) => user?.role === 'admin',
+        update: ({ user }) => user?.role === 'admin',
+      },
+      fields: {
+        title: f.text(),
+        secretInfo: f.text({
+          access: {
+            read: ({ doc }) => (doc as { visibility?: string })?.visibility !== 'internal',
+          },
+        }),
+      },
+    })
+
+    const articles = collection({
+      slug: 'articles',
+      access: {
+        read: ({ data }) => Boolean((data as { isPublic?: boolean } | undefined)?.isPublic),
+        update: ({ user }) => Boolean(user),
+      },
+      versions: { drafts: true },
+      fields: {
+        title: f.text(),
+        isPublic: f.checkbox(),
+      },
+    })
+
+    const secureGlobal = global({
+      slug: 'secureConfig',
+      access: {
+        read: ({ user }) => user?.role === 'admin',
+        update: ({ user }) => user?.role === 'admin',
+      },
+      versions: { drafts: true },
+      fields: {
+        apiKey: f.text(),
+      },
+    })
+
+    const testStore: Record<string, Record<number, StoredDoc>> = {
+      confidential: {
+        1: {
+          id: 1,
+          title: 'Secret Doc',
+          secretInfo: 'hidden',
+          visibility: 'internal',
+        },
+      },
+      articles: {
+        1: {
+          id: 1,
+          _status: 'published',
+          title: 'Private Draft/Article',
+          isPublic: false,
+        },
+        2: { id: 2, _status: 'published', title: 'Public Article', isPublic: true },
+        3: { id: 3, _status: 'draft', title: 'WIP Draft Article', isPublic: true },
+      },
+    }
+
+    const testGlobals: Record<string, DocumentData> = {
+      secureConfig: { _status: 'published', apiKey: 'secret-api-key-999' },
+    }
+
+    function setupSecuredApp() {
+      const db = buildTestDb(testStore, testGlobals)
+      const config: Config = {
+        secret: 'a-very-long-secret-key-that-is-at-least-32-chars-long!',
+        db,
+        collections: [confidentialDocs, articles],
+        globals: [secureGlobal],
+      }
+      const app = createLontar(config, { baseURL: 'http://localhost:3000' })
+      return { app, config }
+    }
+
+    it('returns 404 for unreadable collection documents to anonymous and unprivileged callers', async () => {
+      const { app } = setupSecuredApp()
+
+      // Anonymous -> 404
+      const anonRes = await app.request('/api/_lontar/permissions/confidential/1')
+      expect(anonRes.status).toBe(404)
+      expect(await anonRes.json()).toEqual({ error: 'Document with ID 1 not found' })
+
+      // Query param variant -> 404
+      const anonQueryRes = await app.request(
+        '/api/_lontar/permissions?collection=confidential&id=1',
+      )
+      expect(anonQueryRes.status).toBe(404)
+
+      // Access alias -> 404
+      const anonAliasRes = await app.request('/api/_lontar/access/confidential/1')
+      expect(anonAliasRes.status).toBe(404)
+
+      // Sign up admin first, then create editor
+      await app.request('/api/_lontar/first-user', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          email: 'admin@example.com',
+          password: 'Password123!',
+          name: 'Admin',
+        }),
+      })
+
+      const { createUserWithCredential } = await import('../../auth/user')
+      await createUserWithCredential(app.auth, {
+        email: 'editor@example.com',
+        password: 'Password123!',
+        name: 'Editor',
+        role: 'editor',
+      })
+
+      const loginRes = await app.request('/api/auth/sign-in/email', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email: 'editor@example.com', password: 'Password123!' }),
+      })
+      const editorCookie = loginRes.headers.get('set-cookie')!
+
+      // Unprivileged editor -> 404
+      const editorRes = await app.request('/api/_lontar/permissions/confidential/1', {
+        headers: { cookie: editorCookie },
+      })
+      expect(editorRes.status).toBe(404)
+      expect(await editorRes.json()).toEqual({ error: 'Document with ID 1 not found' })
+
+      // Admin -> 200
+      const adminLoginRes = await app.request('/api/auth/sign-in/email', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email: 'admin@example.com', password: 'Password123!' }),
+      })
+      const adminCookie = adminLoginRes.headers.get('set-cookie')!
+
+      const adminRes = await app.request('/api/_lontar/permissions/confidential/1', {
+        headers: { cookie: adminCookie },
+      })
+      expect(adminRes.status).toBe(200)
+    })
+
+    it('enforces document-dependent read access on permissions endpoint', async () => {
+      const { app } = setupSecuredApp()
+
+      // Article 1 is isPublic: false -> anonymous gets 404
+      const privRes = await app.request('/api/_lontar/permissions/articles/1')
+      expect(privRes.status).toBe(404)
+      expect(await privRes.json()).toEqual({ error: 'Document with ID 1 not found' })
+
+      // Article 2 is isPublic: true -> anonymous gets 200
+      const pubRes = await app.request('/api/_lontar/permissions/articles/2')
+      expect(pubRes.status).toBe(200)
+      const pubPerm = (await pubRes.json()) as CollectionPermission
+      expect(pubPerm.read).toBe(true)
+    })
+
+    it('hides draft-only documents without draft=true and requires update access for drafts', async () => {
+      const { app } = setupSecuredApp()
+
+      // Article 3 is draft-only -> request without draft=true returns 404
+      const noDraftRes = await app.request('/api/_lontar/permissions/articles/3')
+      expect(noDraftRes.status).toBe(404)
+
+      // Request with draft=true anonymously (no update access) returns 404
+      const anonDraftRes = await app.request('/api/_lontar/permissions/articles/3?draft=true')
+      expect(anonDraftRes.status).toBe(404)
+
+      // Register user who has update access (any authenticated user on articles)
+      const adminSignUp = await app.request('/api/_lontar/first-user', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          email: 'admin@example.com',
+          password: 'Password123!',
+          name: 'Admin',
+        }),
+      })
+      const userCookie = adminSignUp.headers.get('set-cookie')!
+
+      // Authenticated user with draft=true returns 200
+      const authDraftRes = await app.request('/api/_lontar/permissions/articles/3?draft=true', {
+        headers: { cookie: userCookie },
+      })
+      expect(authDraftRes.status).toBe(200)
+    })
+
+    it('returns 404 for unreadable globals to anonymous and unprivileged callers', async () => {
+      const { app } = setupSecuredApp()
+
+      // Anonymous -> 404
+      const anonRes = await app.request('/api/_lontar/permissions/globals/secureConfig')
+      expect(anonRes.status).toBe(404)
+      expect(await anonRes.json()).toEqual({ error: 'Global "secureConfig" not found' })
+
+      // Access alias -> 404
+      const anonAliasRes = await app.request('/api/_lontar/access/globals/secureConfig')
+      expect(anonAliasRes.status).toBe(404)
+
+      // Create editor
+      await app.request('/api/_lontar/first-user', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          email: 'admin@example.com',
+          password: 'Password123!',
+          name: 'Admin',
+        }),
+      })
+      const { createUserWithCredential } = await import('../../auth/user')
+      await createUserWithCredential(app.auth, {
+        email: 'editor@example.com',
+        password: 'Password123!',
+        name: 'Editor',
+        role: 'editor',
+      })
+      const loginRes = await app.request('/api/auth/sign-in/email', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email: 'editor@example.com', password: 'Password123!' }),
+      })
+      const editorCookie = loginRes.headers.get('set-cookie')!
+
+      // Editor -> 404
+      const editorRes = await app.request('/api/_lontar/permissions/globals/secureConfig', {
+        headers: { cookie: editorCookie },
+      })
+      expect(editorRes.status).toBe(404)
+
+      // Admin -> 200
+      const adminLoginRes = await app.request('/api/auth/sign-in/email', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email: 'admin@example.com', password: 'Password123!' }),
+      })
+      const adminCookie = adminLoginRes.headers.get('set-cookie')!
+      const adminRes = await app.request('/api/_lontar/permissions/globals/secureConfig', {
+        headers: { cookie: adminCookie },
+      })
+      expect(adminRes.status).toBe(200)
+    })
   })
 })

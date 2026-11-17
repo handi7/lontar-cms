@@ -1,15 +1,69 @@
 import type { Context, Hono } from 'hono'
-import type { LontarVariables } from '../../auth/types'
-import type { Config } from '../../config/types'
+import { checkAccess } from '../../access'
 import {
   getDocumentPermissions,
   getGlobalPermissions,
   getPermissions,
   type PermissionsResponse,
 } from '../../access/permissions'
+import type { AuthUser, LontarVariables } from '../../auth/types'
+import type { CollectionConfig, Config, GlobalConfig } from '../../config/types'
+import type { DocumentData } from '../../database/adapter'
+import { resolveOriginalGlobalDoc } from '../../operations/global'
 import { resolveOriginalDoc } from '../../operations/mutation'
 
 type LontarEnv = { Variables: LontarVariables }
+
+async function checkDocAccess(
+  collection: CollectionConfig,
+  id: number,
+  user: AuthUser | null,
+  isDraft: boolean,
+  doc: DocumentData,
+): Promise<boolean> {
+  const readAllowed = await checkAccess(collection.access?.read, { user, id, data: doc })
+  if (!readAllowed) return false
+
+  if (isDraft) {
+    const updateAllowed = await checkAccess(collection.access?.update, { user, id, data: doc })
+    if (!updateAllowed) return false
+  }
+
+  return true
+}
+
+function isDocDraftHidden(
+  collection: CollectionConfig,
+  doc: DocumentData,
+  isDraft: boolean,
+): boolean {
+  return Boolean(collection.versions?.drafts && !isDraft && doc._status !== 'published')
+}
+
+async function checkGlobalAccess(
+  global: GlobalConfig,
+  user: AuthUser | null,
+  isDraft: boolean,
+  doc?: DocumentData,
+): Promise<boolean> {
+  const readAllowed = await checkAccess(global.access?.read, { user, data: doc })
+  if (!readAllowed) return false
+
+  if (isDraft) {
+    const updateAllowed = await checkAccess(global.access?.update, { user, data: doc })
+    if (!updateAllowed) return false
+  }
+
+  return true
+}
+
+function isGlobalDraftHidden(
+  global: GlobalConfig,
+  doc: DocumentData | undefined,
+  isDraft: boolean,
+): boolean {
+  return Boolean(global.versions?.drafts && !isDraft && doc && doc._status !== 'published')
+}
 
 async function handleDocumentPermissions(
   c: Context<LontarEnv>,
@@ -27,19 +81,25 @@ async function handleDocumentPermissions(
     return c.json({ error: 'Invalid document ID' }, 400)
   }
 
+  const user = c.get('user') ?? null
+  const req = c.req.raw
   const isDraft = c.req.query('draft') === 'true'
+
   const doc = await resolveOriginalDoc(config.db, collection, id, isDraft)
-  if (!doc) {
+  if (!doc || isDocDraftHidden(collection, doc, isDraft)) {
     return c.json({ error: `Document with ID ${id} not found` }, 404)
   }
 
-  const user = c.get('user')
+  if (!(await checkDocAccess(collection, id, user, isDraft, doc))) {
+    return c.json({ error: `Document with ID ${id} not found` }, 404)
+  }
+
   const permissions = await getDocumentPermissions(collection, {
     user,
     id,
     doc,
     data: doc,
-    req: c.req.raw,
+    req,
   })
 
   return c.json(permissions)
@@ -55,19 +115,30 @@ async function handleGlobalPermissions(
     return c.json({ error: `Global "${globalSlug}" not found` }, 404)
   }
 
+  const user = c.get('user') ?? null
+  const req = c.req.raw
+  const isDraft = c.req.query('draft') === 'true'
+
   let doc: Record<string, unknown> | undefined
   try {
-    doc = (await config.db.findGlobal({ global })) ?? undefined
+    doc = (await resolveOriginalGlobalDoc(config.db, global, isDraft)) ?? undefined
   } catch {
     doc = undefined
   }
 
-  const user = c.get('user')
+  if (isGlobalDraftHidden(global, doc, isDraft)) {
+    return c.json({ error: `Global "${globalSlug}" not found` }, 404)
+  }
+
+  if (!(await checkGlobalAccess(global, user, isDraft, doc))) {
+    return c.json({ error: `Global "${globalSlug}" not found` }, 404)
+  }
+
   const permissions = await getGlobalPermissions(global, {
     user,
     doc,
     data: doc,
-    req: c.req.raw,
+    req,
   })
 
   return c.json(permissions)
