@@ -1,4 +1,4 @@
-import { checkAccess } from '../access'
+import { checkAccess, sanitizeDocRead } from '../access'
 import type { AuthUser } from '../auth/types'
 import type { DocStatus } from '../client/system-fields'
 import type { CollectionConfig } from '../config/types'
@@ -7,7 +7,7 @@ import { runAfterDeleteHooks, runBeforeDeleteHooks } from '../hooks'
 import { handleUploadDelete } from '../server/routes/collection-upload'
 import { dispatchWebhooks } from '../webhooks'
 import { AccessDeniedError } from './errors'
-import type { DeleteOperationArgs } from './types'
+import { resolveOperationContextCache, type DeleteOperationArgs } from './types'
 
 async function assertDeleteAccess(
   collection: CollectionConfig,
@@ -18,6 +18,22 @@ async function assertDeleteAccess(
   if (!allowed) {
     throw new AccessDeniedError('Access denied', { user })
   }
+}
+
+async function finalizeDeleteDoc<T>(args: DeleteOperationArgs, finalDoc: DocumentData): Promise<T> {
+  if (args.overrideAccess) {
+    return finalDoc as T
+  }
+
+  const cache = resolveOperationContextCache(args)
+  const sanitized = await sanitizeDocRead(args.collection.fields, finalDoc, args.user ?? null, {
+    id: args.id,
+    doc: finalDoc,
+    cache,
+    req: args.req,
+  })
+
+  return sanitized as T
 }
 
 export async function deleteOperation<T = DocumentData>(
@@ -89,5 +105,5 @@ export async function deleteOperation<T = DocumentData>(
     throw postCommitError
   }
 
-  return finalDoc as T
+  return finalizeDeleteDoc<T>(args, finalDoc)
 }
