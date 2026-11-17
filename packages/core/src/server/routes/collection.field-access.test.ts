@@ -343,6 +343,51 @@ describe('Field-Level Access Control Integration', () => {
     expect(storedBlocks[0]?.managerNote).toBe('Top performer')
   })
 
+  it('strips unreadable fields from DELETE response for non-admin (#366)', async () => {
+    const app = createLontar(config, { baseURL: 'http://localhost:3000' })
+
+    const res = await app.request('/api/employees/1', {
+      method: 'DELETE',
+    })
+    expect(res.status).toBe(200)
+    const doc = (await res.json()) as EmployeeDoc
+
+    expect(doc.name).toBe('Alice')
+    expect(doc.salary).toBeUndefined()
+    expect(doc.meta).toEqual({ publicBio: 'Software Engineer' })
+    expect(doc.notes).toEqual([{ id: 'n1', text: 'Great worker' }])
+    expect(doc.blocks).toEqual([{ id: 'b1', blockType: 'review', rating: 5 }])
+  })
+
+  it('preserves all fields on DELETE response for admin user (#366)', async () => {
+    const app = createLontar(config, { baseURL: 'http://localhost:3000' })
+
+    const signUpRes = await app.request('/api/_lontar/first-user', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        email: 'admin-delete@example.com',
+        password: 'password123',
+        name: 'Admin',
+      }),
+    })
+    expect(signUpRes.status).toBe(200)
+    const cookie = signUpRes.headers.get('set-cookie')!
+
+    const res = await app.request('/api/employees/1', {
+      method: 'DELETE',
+      headers: { cookie },
+    })
+    expect(res.status).toBe(200)
+    const doc = (await res.json()) as EmployeeDoc
+
+    expect(doc.name).toBe('Alice')
+    expect(doc.salary).toBe(100000)
+    expect(doc.meta?.ssn).toBe('000-11-2222')
+    expect(doc.notes?.[0]?.isConfidential).toBe(true)
+    expect(doc.blocks?.[0]?.managerNote).toBe('Top performer')
+  })
+
   it('rejects where filter on unreadable field with 400 Bad Request', async () => {
     const app = createLontar(config, { baseURL: 'http://localhost:3000' })
 
@@ -415,6 +460,26 @@ describe('Field-Level Access Control Integration', () => {
         user: null,
       }),
     ).rejects.toThrow('Validation failed')
+  })
+
+  it('respects overrideAccess on delete in Local API (#366)', async () => {
+    const lontar = await getLontar(config)
+
+    // With overrideAccess: false, user: null on delete -> strips forbidden fields
+    const deletedRestricted = (await lontar.delete<EmployeeDoc>('employees', 1, {
+      overrideAccess: false,
+      user: null,
+    }))!
+    expect(deletedRestricted.salary).toBeUndefined()
+    expect(deletedRestricted.meta?.ssn).toBeUndefined()
+    expect(deletedRestricted.name).toBe('Alice')
+
+    resetStore()
+    const deletedFull = (await lontar.delete<EmployeeDoc>('employees', 1, {
+      overrideAccess: true,
+    }))!
+    expect(deletedFull.salary).toBe(100000)
+    expect(deletedFull.meta?.ssn).toBe('000-11-2222')
   })
 
   it('evaluates field access per request and does not leak stale cache across HTTP requests (#365)', async () => {
