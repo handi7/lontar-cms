@@ -467,6 +467,25 @@ async function syncParentRowVersion(args: {
   })
 }
 
+function deepMergeDraftData(original: unknown, update: unknown): unknown {
+  if (update === undefined) return original
+  if (
+    original &&
+    typeof original === 'object' &&
+    !Array.isArray(original) &&
+    update &&
+    typeof update === 'object' &&
+    !Array.isArray(update)
+  ) {
+    const result: Record<string, unknown> = { ...(original as Record<string, unknown>) }
+    for (const [key, val] of Object.entries(update as Record<string, unknown>)) {
+      result[key] = deepMergeDraftData(result[key], val)
+    }
+    return result
+  }
+  return update
+}
+
 function mergeDraftUpdateData(originalDoc: DocumentData, finalData: DocumentData): DocumentData {
   const {
     id: _id,
@@ -475,7 +494,23 @@ function mergeDraftUpdateData(originalDoc: DocumentData, finalData: DocumentData
     _isPublished: _published,
     ...rest
   } = originalDoc
-  return { ...rest, ...finalData }
+
+  const result: Record<string, unknown> = { ...rest }
+  for (const [key, val] of Object.entries(finalData)) {
+    if (
+      val &&
+      typeof val === 'object' &&
+      !Array.isArray(val) &&
+      result[key] &&
+      typeof result[key] === 'object' &&
+      !Array.isArray(result[key])
+    ) {
+      result[key] = deepMergeDraftData(result[key], val)
+    } else {
+      result[key] = val
+    }
+  }
+  return result
 }
 
 function resolveParentRowData(args: {

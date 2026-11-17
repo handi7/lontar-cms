@@ -185,7 +185,7 @@ export async function sanitizeDocRead(
 }
 
 // -----------------------------------------------------------------------------
-// Write Sanitization (Silent Drop)
+// Write Sanitization (Silent Drop & Preserve Locked/Hidden Subfields)
 // -----------------------------------------------------------------------------
 
 export interface WriteSanitizationContext {
@@ -213,6 +213,101 @@ async function checkWritePermission(
   })
 }
 
+function buildStoredRowMap(items?: unknown[]): Map<string | number, DocumentData> {
+  const map = new Map<string | number, DocumentData>()
+  if (!Array.isArray(items)) return map
+  for (const item of items) {
+    if (item && typeof item === 'object') {
+      const record = item as Record<string, unknown>
+      const id = record.id
+      if (typeof id === 'string' || typeof id === 'number') {
+        map.set(id, record)
+      }
+    }
+  }
+  return map
+}
+
+function findMatchingStoredBlock(
+  block: Record<string, unknown>,
+  storedById?: Map<string | number, DocumentData>,
+): DocumentData | undefined {
+  if (!storedById || block.id === undefined || block.id === null) return undefined
+  const stored = storedById.get(block.id as string | number)
+  if (stored && stored.blockType === block.blockType) {
+    return stored
+  }
+  return undefined
+}
+
+async function mergeSubfieldWithStored(
+  name: string,
+  field: Field,
+  incomingRow: Record<string, unknown>,
+  storedRow: Record<string, unknown>,
+  context: WriteSanitizationContext,
+  rootData: DocumentData,
+  rowId?: string | number,
+): Promise<unknown> {
+  const canUpdate = await checkWritePermission(
+    field,
+    'update',
+    context,
+    incomingRow,
+    rootData,
+    rowId,
+  )
+  const canRead = await checkReadPermission(
+    field,
+    context.user,
+    storedRow,
+    context.doc ?? storedRow,
+    rowId,
+  )
+
+  if (!canUpdate || !canRead) {
+    return name in storedRow ? storedRow[name] : undefined
+  }
+
+  const val = incomingRow[name]
+  if (val === undefined) {
+    return undefined
+  }
+
+  const storedChild = storedRow[name]
+  return sanitizeNestedWrite(field, val, 'update', context, rootData, storedChild, rowId)
+}
+
+async function mergeRowWithStored(
+  fields: Record<string, Field>,
+  incomingRow: Record<string, unknown>,
+  storedRow: Record<string, unknown>,
+  context: WriteSanitizationContext,
+  rootData: DocumentData,
+  rowId?: string | number,
+): Promise<Record<string, unknown>> {
+  const result: Record<string, unknown> = { ...incomingRow }
+
+  for (const [name, field] of Object.entries(fields)) {
+    const merged = await mergeSubfieldWithStored(
+      name,
+      field,
+      incomingRow,
+      storedRow,
+      context,
+      rootData,
+      rowId,
+    )
+    if (merged !== undefined) {
+      result[name] = merged
+    } else if (name in incomingRow && !(name in storedRow)) {
+      delete result[name]
+    }
+  }
+
+  return result
+}
+
 async function sanitizeFieldsWrite(
   fields: Record<string, Field>,
   data: DocumentData,
@@ -220,6 +315,7 @@ async function sanitizeFieldsWrite(
   context: WriteSanitizationContext,
   rootData: DocumentData,
   targetId?: string | number,
+  storedData?: DocumentData,
 ): Promise<DocumentData> {
   const result: DocumentData = { ...data }
   for (const [name, field] of Object.entries(fields)) {
@@ -231,9 +327,37 @@ async function sanitizeFieldsWrite(
       delete result[name]
       continue
     }
-    result[name] = await sanitizeNestedWrite(field, result[name], operation, context, rootData)
+    const storedChild = storedData?.[name]
+    result[name] = await sanitizeNestedWrite(
+      field,
+      result[name],
+      operation,
+      context,
+      rootData,
+      storedChild,
+      targetId,
+    )
   }
   return result
+}
+
+async function sanitizeGroupWrite(
+  fields: Record<string, Field>,
+  value: Record<string, unknown>,
+  operation: 'create' | 'update',
+  context: WriteSanitizationContext,
+  rootData: DocumentData,
+  storedValue?: unknown,
+  targetId?: string | number,
+): Promise<unknown> {
+  const storedGroup =
+    storedValue && typeof storedValue === 'object' && !Array.isArray(storedValue)
+      ? (storedValue as Record<string, unknown>)
+      : undefined
+  if (operation === 'update' && storedGroup) {
+    return mergeRowWithStored(fields, value, storedGroup, context, rootData, targetId)
+  }
+  return sanitizeFieldsWrite(fields, value, operation, context, rootData, targetId)
 }
 
 async function sanitizeNestedWrite(
@@ -242,23 +366,29 @@ async function sanitizeNestedWrite(
   operation: 'create' | 'update',
   context: WriteSanitizationContext,
   rootData: DocumentData,
+  storedValue?: unknown,
+  targetId?: string | number,
 ): Promise<unknown> {
   if (value === null || typeof value !== 'object') return value
 
   if (field.type === 'group') {
-    return sanitizeFieldsWrite(
+    return sanitizeGroupWrite(
       field.fields,
       value as Record<string, unknown>,
       operation,
       context,
       rootData,
+      storedValue,
+      targetId,
     )
   }
   if (field.type === 'array' && Array.isArray(value)) {
-    return sanitizeArrayWrite(field.fields, value, operation, context, rootData)
+    const storedArray = Array.isArray(storedValue) ? storedValue : undefined
+    return sanitizeArrayWrite(field.fields, value, operation, context, rootData, storedArray)
   }
   if (field.type === 'blocks' && Array.isArray(value)) {
-    return sanitizeBlocksWrite(field.blocks, value, operation, context, rootData)
+    const storedBlocks = Array.isArray(storedValue) ? storedValue : undefined
+    return sanitizeBlocksWrite(field.blocks, value, operation, context, rootData, storedBlocks)
   }
   return value
 }
@@ -269,10 +399,19 @@ async function sanitizeArrayRowWrite(
   operation: 'create' | 'update',
   context: WriteSanitizationContext,
   rootData: DocumentData,
+  storedById?: Map<string | number, DocumentData>,
 ): Promise<unknown> {
   if (typeof item !== 'object' || item === null) return item
   const row = item as Record<string, unknown>
   const rowId = (row.id as string | number | undefined) ?? context.id
+  const storedRow =
+    storedById && row.id !== undefined && row.id !== null
+      ? storedById.get(row.id as string | number)
+      : undefined
+
+  if (storedRow) {
+    return mergeRowWithStored(fields, row, storedRow, context, rootData, rowId)
+  }
   return sanitizeFieldsWrite(fields, row, operation, context, rootData, rowId)
 }
 
@@ -282,10 +421,12 @@ async function sanitizeArrayWrite(
   operation: 'create' | 'update',
   context: WriteSanitizationContext,
   rootData: DocumentData,
+  storedItems?: unknown[],
 ): Promise<unknown[]> {
+  const storedById = operation === 'update' ? buildStoredRowMap(storedItems) : undefined
   const result: unknown[] = []
   for (const item of items) {
-    result.push(await sanitizeArrayRowWrite(fields, item, operation, context, rootData))
+    result.push(await sanitizeArrayRowWrite(fields, item, operation, context, rootData, storedById))
   }
   return result
 }
@@ -296,12 +437,18 @@ async function sanitizeBlockRowWrite(
   operation: 'create' | 'update',
   context: WriteSanitizationContext,
   rootData: DocumentData,
+  storedById?: Map<string | number, DocumentData>,
 ): Promise<unknown> {
   if (typeof item !== 'object' || item === null) return item
   const block = item as Record<string, unknown>
   const blockDef = blocks.find((b) => b.slug === block.blockType)
   if (!blockDef) return block
+
   const blockId = (block.id as string | number | undefined) ?? context.id
+  const storedBlock = findMatchingStoredBlock(block, storedById)
+  if (storedBlock) {
+    return mergeRowWithStored(blockDef.fields, block, storedBlock, context, rootData, blockId)
+  }
   return sanitizeFieldsWrite(blockDef.fields, block, operation, context, rootData, blockId)
 }
 
@@ -311,10 +458,12 @@ async function sanitizeBlocksWrite(
   operation: 'create' | 'update',
   context: WriteSanitizationContext,
   rootData: DocumentData,
+  storedItems?: unknown[],
 ): Promise<unknown[]> {
+  const storedById = operation === 'update' ? buildStoredRowMap(storedItems) : undefined
   const result: unknown[] = []
   for (const item of items) {
-    result.push(await sanitizeBlockRowWrite(blocks, item, operation, context, rootData))
+    result.push(await sanitizeBlockRowWrite(blocks, item, operation, context, rootData, storedById))
   }
   return result
 }
@@ -327,5 +476,6 @@ export async function sanitizeDocWrite(
 ): Promise<DocumentData> {
   if (!data || typeof data !== 'object') return data
   const rootData = context.data ?? data
-  return sanitizeFieldsWrite(fields, data, operation, context, rootData)
+  const storedData = operation === 'update' ? context.doc : undefined
+  return sanitizeFieldsWrite(fields, data, operation, context, rootData, context.id, storedData)
 }
