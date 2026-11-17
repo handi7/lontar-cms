@@ -1,10 +1,10 @@
 import { notFound } from 'next/navigation'
 import type { Metadata } from 'next'
 import config from '@/lontar.config'
-import { getLontar } from '@lontar/core'
+import { getLontar, sanitizeDocRead, type DocumentData } from '@lontar/core'
 import type { Page } from '@/lontar-types'
 import { PageLivePreview } from '@/app/components/PageLivePreview'
-import { isEditorLoggedIn } from '@/app/lib/auth'
+import { getSessionUser, isEditorLoggedIn } from '@/app/lib/auth'
 
 export const dynamic = 'force-dynamic'
 
@@ -49,9 +49,22 @@ async function resolvePageForRequest(
   const previewRequested =
     resolvedSearchParams.preview === '1' || resolvedSearchParams.draft === 'true'
   const isPreview = previewRequested && (await isEditorLoggedIn())
-  const page = await getPage(slug, { draft: isPreview })
-  const isVisible = page && (isPreview || page._status === 'published')
-  return { page: isVisible ? page : null, isPreview }
+  const rawPage = await getPage(slug, { draft: isPreview })
+  const isVisible = rawPage && (isPreview || rawPage._status === 'published')
+  if (!isVisible || !rawPage) {
+    return { page: null, isPreview }
+  }
+
+  const user = isPreview ? await getSessionUser() : null
+  const pagesCollection = config.collections.find((c) => c.slug === 'pages')
+  const page = pagesCollection
+    ? ((await sanitizeDocRead(pagesCollection.fields, rawPage as unknown as DocumentData, user, {
+        id: rawPage.id,
+        doc: rawPage as unknown as DocumentData,
+      })) as unknown as Page)
+    : rawPage
+
+  return { page, isPreview }
 }
 
 export async function generateMetadata({ params, searchParams }: PageProps): Promise<Metadata> {

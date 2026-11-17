@@ -1,10 +1,10 @@
 import { notFound } from 'next/navigation'
 import type { Metadata } from 'next'
 import config from '@/lontar.config'
-import { getLontar } from '@lontar/core'
+import { getLontar, type AuthUser } from '@lontar/core'
 import type { Post } from '@/lontar-types'
 import { PostLivePreview } from '@/app/components/PostLivePreview'
-import { isEditorLoggedIn } from '@/app/lib/auth'
+import { getSessionUser, isEditorLoggedIn } from '@/app/lib/auth'
 
 export const dynamic = 'force-dynamic'
 
@@ -13,7 +13,10 @@ interface PostPageProps {
   searchParams?: Promise<{ preview?: string; draft?: string }>
 }
 
-async function getPost(slug: string, options: { draft?: boolean } = {}): Promise<Post | null> {
+async function getPost(
+  slug: string,
+  options: { draft?: boolean; user?: AuthUser | null } = {},
+): Promise<Post | null> {
   const lontar = await getLontar(config)
 
   const { docs } = await lontar.find('posts', {
@@ -21,6 +24,8 @@ async function getPost(slug: string, options: { draft?: boolean } = {}): Promise
     depth: 1,
     limit: 1,
     draft: options.draft,
+    overrideAccess: false,
+    user: options.user ?? null,
   })
 
   if (docs.length > 0) return docs[0]
@@ -31,6 +36,8 @@ async function getPost(slug: string, options: { draft?: boolean } = {}): Promise
       return await lontar.findByID('posts', numericId, {
         depth: 1,
         draft: options.draft,
+        overrideAccess: false,
+        user: options.user ?? null,
       })
     } catch {
       return null
@@ -49,7 +56,8 @@ async function resolvePostForRequest(
   const previewRequested =
     resolvedSearchParams.preview === '1' || resolvedSearchParams.draft === 'true'
   const isPreview = previewRequested && (await isEditorLoggedIn())
-  const post = await getPost(slug, { draft: isPreview })
+  const user = isPreview ? await getSessionUser() : null
+  const post = await getPost(slug, { draft: isPreview, user })
   const isVisible = post && (isPreview || post._status === 'published')
   return { post: isVisible ? post : null, isPreview }
 }

@@ -134,11 +134,12 @@ export default async function HomePage({ searchParams }: HomePageProps) {
   const lontar = await getLontar(config)
 
   const [categoriesRes, postsRes] = await Promise.all([
-    lontar.find('categories', { limit: 50, sort: 'name' }),
+    lontar.find('categories', { limit: 50, sort: 'name', overrideAccess: false }),
     lontar.find('posts', {
       sort: '-publishedAt',
       limit: 20,
       depth: 1,
+      overrideAccess: false,
     }),
   ])
 

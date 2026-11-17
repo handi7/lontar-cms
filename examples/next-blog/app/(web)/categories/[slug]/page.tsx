@@ -17,13 +17,14 @@ async function getCategory(slug: string): Promise<Category | null> {
   const { docs } = await lontar.find('categories', {
     where: { slug: { equals: slug } },
     limit: 1,
+    overrideAccess: false,
   })
   if (docs.length > 0) return docs[0]
 
   const numericId = Number(slug)
   if (!Number.isNaN(numericId) && numericId > 0) {
     try {
-      return await lontar.findByID('categories', numericId)
+      return await lontar.findByID('categories', numericId, { overrideAccess: false })
     } catch {
       return null
     }
@@ -57,6 +58,7 @@ export default async function CategoryPage({ params }: CategoryPageProps) {
     sort: '-publishedAt',
     limit: 50,
     depth: 1,
+    overrideAccess: false,
   })
 
   const posts = docs.filter((p) => {
