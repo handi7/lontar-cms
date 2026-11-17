@@ -20,6 +20,7 @@ import {
 } from '../../auth/user'
 import type { Config } from '../../config/types'
 import { resolveEmailConfig, sendEmailWithTemplate } from '../../email'
+import { resolveAdminBaseUrl } from '../admin-url'
 import type { CreateLontarOptions } from '../create-lontar'
 
 type LontarEnv = { Variables: LontarVariables }
@@ -228,12 +229,6 @@ async function handleListUsers(
   return c.json(result)
 }
 
-function resolveAdminBaseUrl(c: Context<LontarEnv>, options?: CreateLontarOptions): string {
-  const origin = options?.baseURL ?? new URL(c.req.url).origin
-  const adminPath = (options?.adminPath ?? '/admin').replace(/\/$/, '')
-  return `${origin}${adminPath}`
-}
-
 async function checkInviteRateLimit(
   c: Context<LontarEnv>,
   rateLimiter?: RateLimiter,
@@ -283,7 +278,15 @@ async function handleInviteUser(
     expiresAt,
   })
 
-  const adminBase = resolveAdminBaseUrl(c, options)
+  const adminBase = await resolveAdminBaseUrl(auth, options)
+  if (!adminBase) {
+    await ctx.internalAdapter.deleteUser(created.id)
+    await ctx.internalAdapter.deleteVerificationByIdentifier(`reset-password:${token}`)
+    return c.json(
+      { error: 'Cannot send invitation: baseURL or BETTER_AUTH_URL must be configured' },
+      400,
+    )
+  }
   const inviteUrl = `${adminBase}/accept-invite?token=${token}`
 
   try {
@@ -337,7 +340,14 @@ async function handleResendInvite(
     expiresAt,
   })
 
-  const adminBase = resolveAdminBaseUrl(c, options)
+  const adminBase = await resolveAdminBaseUrl(auth, options)
+  if (!adminBase) {
+    await ctx.internalAdapter.deleteVerificationByIdentifier(`reset-password:${token}`)
+    return c.json(
+      { error: 'Cannot send invitation: baseURL or BETTER_AUTH_URL must be configured' },
+      400,
+    )
+  }
   const inviteUrl = `${adminBase}/accept-invite?token=${token}`
 
   try {

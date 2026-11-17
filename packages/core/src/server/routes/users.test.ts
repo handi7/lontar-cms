@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from 'vitest'
+import { describe, expect, it, vi, beforeEach, afterEach } from 'vitest'
 import {
   createLontar,
   createUserWithCredential,
@@ -922,5 +922,247 @@ describe('User Management API (/api/_lontar/users & /api/_lontar/me)', () => {
     })
     expect(changePassMeRes.status).toBe(403)
     expect(await changePassMeRes.json()).toEqual({ error: 'Forbidden' })
+  })
+
+  describe('Secure origin resolution for outgoing auth links (#362)', () => {
+    const originalEnv = { ...process.env }
+
+    beforeEach(() => {
+      delete process.env.BETTER_AUTH_URL
+    })
+
+    afterEach(() => {
+      process.env = { ...originalEnv }
+    })
+
+    it('password reset ignores forged Host header and uses configured baseURL', async () => {
+      const sentEmails: EmailMessage[] = []
+      const sendEmail = vi.fn((msg: EmailMessage) => {
+        sentEmails.push(msg)
+      })
+
+      const config: Config = {
+        secret: 'test-secret-that-is-at-least-32-chars-long-12345',
+        db: mockAdapter,
+        collections: [],
+        auth: {
+          roles: ['admin', 'editor'],
+          defaultRole: 'editor',
+          adminRole: 'admin',
+        },
+        email: {
+          adapter: { sendEmail },
+        },
+      }
+      const app = createLontar(config, { baseURL: 'https://trusted-site.com' })
+      await registerFirstAdmin(app)
+
+      await createUserWithCredential(app.auth, {
+        email: 'user-forged-host@example.com',
+        name: 'Target User',
+        password: 'password123',
+        role: 'editor',
+      })
+
+      const res = await app.request('/api/auth/forget-password', {
+        method: 'POST',
+        headers: {
+          Host: 'evil.tld',
+          'X-Forwarded-Host': 'evil.tld',
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          email: 'user-forged-host@example.com',
+        }),
+      })
+      expect(res.status).toBe(200)
+      expect(sendEmail).toHaveBeenCalledTimes(1)
+
+      const emailMsg = sentEmails[0]!
+      expect(emailMsg.text).toContain('https://trusted-site.com/admin/reset-password?token=')
+      expect(emailMsg.text).not.toContain('evil.tld')
+    })
+
+    it('password reset uses BETTER_AUTH_URL when baseURL option is unset and ignores forged Host header', async () => {
+      process.env.BETTER_AUTH_URL = 'https://env-site.org'
+
+      const sentEmails: EmailMessage[] = []
+      const sendEmail = vi.fn((msg: EmailMessage) => {
+        sentEmails.push(msg)
+      })
+
+      const config: Config = {
+        secret: 'test-secret-that-is-at-least-32-chars-long-12345',
+        db: mockAdapter,
+        collections: [],
+        auth: {
+          roles: ['admin', 'editor'],
+          defaultRole: 'editor',
+          adminRole: 'admin',
+        },
+        email: {
+          adapter: { sendEmail },
+        },
+      }
+      const app = createLontar(config)
+      await registerFirstAdmin(app)
+
+      await createUserWithCredential(app.auth, {
+        email: 'user-env-url@example.com',
+        name: 'Env User',
+        password: 'password123',
+        role: 'editor',
+      })
+
+      const res = await app.request('/api/auth/forget-password', {
+        method: 'POST',
+        headers: {
+          Host: 'evil.tld',
+          'X-Forwarded-Host': 'evil.tld',
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          email: 'user-env-url@example.com',
+        }),
+      })
+      expect(res.status).toBe(200)
+      expect(sendEmail).toHaveBeenCalledTimes(1)
+
+      const emailMsg = sentEmails[0]!
+      expect(emailMsg.text).toContain('https://env-site.org/admin/reset-password?token=')
+      expect(emailMsg.text).not.toContain('evil.tld')
+    })
+
+    it('refuses to send password reset email when no baseURL or BETTER_AUTH_URL is configured', async () => {
+      delete process.env.BETTER_AUTH_URL
+
+      const sentEmails: EmailMessage[] = []
+      const sendEmail = vi.fn((msg: EmailMessage) => {
+        sentEmails.push(msg)
+      })
+
+      const config: Config = {
+        secret: 'test-secret-that-is-at-least-32-chars-long-12345',
+        db: mockAdapter,
+        collections: [],
+        auth: {
+          roles: ['admin', 'editor'],
+          defaultRole: 'editor',
+          adminRole: 'admin',
+        },
+        email: {
+          adapter: { sendEmail },
+        },
+      }
+      const app = createLontar(config)
+      await registerFirstAdmin(app)
+
+      await createUserWithCredential(app.auth, {
+        email: 'user-no-url@example.com',
+        name: 'No URL User',
+        password: 'password123',
+        role: 'editor',
+      })
+
+      const res = await app.request('/api/auth/forget-password', {
+        method: 'POST',
+        headers: {
+          Host: 'evil.tld',
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          email: 'user-no-url@example.com',
+        }),
+      })
+      expect(res.status).toBe(200)
+      // Email should be refused because no base URL can be securely resolved
+      expect(sendEmail).not.toHaveBeenCalled()
+    })
+
+    it('invite ignores forged Host header and uses configured baseURL', async () => {
+      const sentEmails: EmailMessage[] = []
+      const sendEmail = vi.fn((msg: EmailMessage) => {
+        sentEmails.push(msg)
+      })
+
+      const config: Config = {
+        secret: 'test-secret-that-is-at-least-32-chars-long-12345',
+        db: mockAdapter,
+        collections: [],
+        auth: {
+          roles: ['admin', 'editor'],
+          defaultRole: 'editor',
+          adminRole: 'admin',
+        },
+        email: {
+          adapter: { sendEmail },
+        },
+      }
+      const app = createLontar(config, { baseURL: 'https://trusted-site.com' })
+      const adminCookie = await registerFirstAdmin(app)
+
+      const inviteRes = await app.request('/api/_lontar/users', {
+        method: 'POST',
+        headers: {
+          cookie: adminCookie,
+          Host: 'evil.tld',
+          'X-Forwarded-Host': 'evil.tld',
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          email: 'invitee-forged@example.com',
+          name: 'Invitee Forged',
+          role: 'editor',
+          invite: true,
+        }),
+      })
+      expect(inviteRes.status).toBe(201)
+      expect(sendEmail).toHaveBeenCalledTimes(1)
+
+      const emailMsg = sentEmails[0]!
+      expect(emailMsg.text).toContain('https://trusted-site.com/admin/accept-invite?token=')
+      expect(emailMsg.text).not.toContain('evil.tld')
+    })
+
+    it('invite fails with 400 when no baseURL or BETTER_AUTH_URL is configured', async () => {
+      delete process.env.BETTER_AUTH_URL
+
+      const sendEmail = vi.fn()
+      const config: Config = {
+        secret: 'test-secret-that-is-at-least-32-chars-long-12345',
+        db: mockAdapter,
+        collections: [],
+        auth: {
+          roles: ['admin', 'editor'],
+          defaultRole: 'editor',
+          adminRole: 'admin',
+        },
+        email: {
+          adapter: { sendEmail },
+        },
+      }
+      const app = createLontar(config)
+      const adminCookie = await registerFirstAdmin(app)
+
+      const inviteRes = await app.request('/api/_lontar/users', {
+        method: 'POST',
+        headers: {
+          cookie: adminCookie,
+          Host: 'evil.tld',
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          email: 'invitee-fail@example.com',
+          name: 'Invitee Fail',
+          role: 'editor',
+          invite: true,
+        }),
+      })
+      expect(inviteRes.status).toBe(400)
+      expect(await inviteRes.json()).toEqual({
+        error: 'Cannot send invitation: baseURL or BETTER_AUTH_URL must be configured',
+      })
+      expect(sendEmail).not.toHaveBeenCalled()
+    })
   })
 })
