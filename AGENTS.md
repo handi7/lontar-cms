@@ -218,7 +218,7 @@ approval on the `npm` environment. Don't run `pnpm publish` by hand; see `docs/r
   - [x] #346 `auth: rate limiting for Lontar auth routes and multi-instance storage`
   - [x] #347 `examples/next-blog: roles and field-level access, with e2e`
   - [ ] Code review fixes from `main` @ ba56140, in fix order
-    - [ ] Exploitable from outside: #360 (done), #361 (done), #362 (done), #363
+    - [x] Exploitable from outside: #360 (done), #361 (done), #362 (done), #363 (done)
     - [ ] Data loss and leaks: #364, #365, #366, #367
     - [ ] Auth lifecycle: #368, #369, #371, #370, #377, #378
     - [ ] Access and API: #372, #375, #381

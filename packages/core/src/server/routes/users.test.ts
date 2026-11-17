@@ -1165,4 +1165,129 @@ describe('User Management API (/api/_lontar/users & /api/_lontar/me)', () => {
       expect(sendEmail).not.toHaveBeenCalled()
     })
   })
+
+  describe('Better Auth admin plugin endpoint blocking (#363)', () => {
+    it('blocks all Better Auth admin plugin endpoints with 404 for an admin session', async () => {
+      const { app } = setupTestApp()
+      const adminCookie = await registerFirstAdmin(app)
+
+      const endpoints: Array<{ method: string; path: string; body?: Record<string, unknown> }> = [
+        { method: 'GET', path: '/api/auth/admin' },
+        { method: 'POST', path: '/api/auth/admin' },
+        {
+          method: 'POST',
+          path: '/api/auth/admin/set-role',
+          body: { userId: 'some-id', role: 'editor' },
+        },
+        {
+          method: 'POST',
+          path: '/api/auth/admin/update-user',
+          body: { userId: 'some-id', data: { name: 'New Name' } },
+        },
+        {
+          method: 'POST',
+          path: '/api/auth/admin/set-user-password',
+          body: { userId: 'some-id', newPassword: 'new-password-123' },
+        },
+        {
+          method: 'POST',
+          path: '/api/auth/admin/remove-user',
+          body: { userId: 'some-id' },
+        },
+        {
+          method: 'POST',
+          path: '/api/auth/admin/ban-user',
+          body: { userId: 'some-id' },
+        },
+        {
+          method: 'POST',
+          path: '/api/auth/admin/unban-user',
+          body: { userId: 'some-id' },
+        },
+        {
+          method: 'POST',
+          path: '/api/auth/admin/create-user',
+          body: { email: 'new@example.com', password: 'password123', name: 'New' },
+        },
+        {
+          method: 'POST',
+          path: '/api/auth/admin/impersonate-user',
+          body: { userId: 'some-id' },
+        },
+        {
+          method: 'POST',
+          path: '/api/auth/admin/stop-impersonating',
+        },
+        {
+          method: 'POST',
+          path: '/api/auth/admin/revoke-user-session',
+          body: { sessionToken: 'dummy' },
+        },
+        {
+          method: 'POST',
+          path: '/api/auth/admin/revoke-user-sessions',
+          body: { userId: 'some-id' },
+        },
+        {
+          method: 'GET',
+          path: '/api/auth/admin/list-users',
+        },
+        {
+          method: 'GET',
+          path: '/api/auth/admin/get-user?userId=some-id',
+        },
+        {
+          method: 'GET',
+          path: '/api/auth/admin/list-user-sessions?userId=some-id',
+        },
+        {
+          method: 'POST',
+          path: '/api/auth/admin/has-permission',
+          body: { permissions: { user: ['create'] } },
+        },
+      ]
+
+      for (const endpoint of endpoints) {
+        const res = await app.request(endpoint.path, {
+          method: endpoint.method,
+          headers: {
+            cookie: adminCookie,
+            ...(endpoint.body ? { 'Content-Type': 'application/json' } : {}),
+          },
+          ...(endpoint.body ? { body: JSON.stringify(endpoint.body) } : {}),
+        })
+
+        expect(
+          res.status,
+          `Expected ${endpoint.method} ${endpoint.path} to return 404, got ${res.status}`,
+        ).toBe(404)
+        expect(await res.json()).toEqual({ error: 'Not Found' })
+      }
+    })
+
+    it('blocks Better Auth admin plugin endpoints for unauthenticated requests as well', async () => {
+      const { app } = setupTestApp()
+
+      const res = await app.request('/api/auth/admin/set-role', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ userId: 'any-id', role: 'editor' }),
+      })
+
+      expect(res.status).toBe(404)
+      expect(await res.json()).toEqual({ error: 'Not Found' })
+    })
+
+    it('allows standard non-admin Better Auth routes to function normally', async () => {
+      const { app } = setupTestApp()
+      const adminCookie = await registerFirstAdmin(app)
+
+      const sessionRes = await app.request('/api/auth/get-session', {
+        headers: { cookie: adminCookie },
+      })
+      expect(sessionRes.status).toBe(200)
+      const sessionBody = (await sessionRes.json()) as { user?: { email: string } }
+      expect(sessionBody.user?.email).toBe('admin@example.com')
+    })
+  })
 })
