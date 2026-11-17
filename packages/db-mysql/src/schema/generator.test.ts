@@ -49,7 +49,7 @@ describe('generateSchemaFile', () => {
     const output = generateSchemaFile(config)
 
     expect(output).toMatch(
-      /import \{ boolean, index, int, mysqlTable, text, timestamp, varchar \} from '.*drizzle-orm\/mysql-core/,
+      /import \{ bigint, boolean, index, int, mysqlTable, text, timestamp, varchar \} from '.*drizzle-orm\/mysql-core/,
     )
     expect(output).toContain("export const posts = mysqlTable('posts', {")
     expect(output).toContain("id: int('id').autoincrement().primaryKey(),")
@@ -119,7 +119,7 @@ describe('generateSchemaFile', () => {
 
     const output = generateSchemaFile(config)
     expect(output).toMatch(
-      /import \{ boolean, index, int, mysqlTable, text, timestamp, varchar \} from '.*drizzle-orm\/mysql-core/,
+      /import \{ bigint, boolean, index, int, mysqlTable, text, timestamp, varchar \} from '.*drizzle-orm\/mysql-core/,
     )
     expect(output).toContain('bio: text(\'bio\').default("Nothing here yet"),')
     expect(output).toContain("email: varchar('email', { length: 255 }).unique().notNull(),")
@@ -149,7 +149,7 @@ describe('generateSchemaFile', () => {
 
     const output = generateSchemaFile(config)
     expect(output).toMatch(
-      /import \{ boolean, datetime, index, int, mysqlTable, text, timestamp, varchar \} from '.*drizzle-orm\/mysql-core/,
+      /import \{ bigint, boolean, datetime, index, int, mysqlTable, text, timestamp, varchar \} from '.*drizzle-orm\/mysql-core/,
     )
     expect(output).toContain("isPublished: boolean('isPublished').default(false),")
     expect(output).toContain(
@@ -180,7 +180,7 @@ describe('generateSchemaFile', () => {
 
     const output = generateSchemaFile(config)
     expect(output).toMatch(
-      /import \{ boolean, index, int, json, mysqlTable, text, timestamp, varchar \} from '.*drizzle-orm\/mysql-core/,
+      /import \{ bigint, boolean, index, int, json, mysqlTable, text, timestamp, varchar \} from '.*drizzle-orm\/mysql-core/,
     )
     expect(output).toContain(
       'content: json(\'content\').default({"type":"doc","content":[]}).notNull(),',
@@ -256,7 +256,7 @@ describe('generateSchemaFile', () => {
 
     const output = generateSchemaFile(config)
     expect(output).toMatch(
-      /import \{ boolean, index, int, json, mysqlTable, text, timestamp, varchar \} from '.*drizzle-orm\/mysql-core/,
+      /import \{ bigint, boolean, index, int, json, mysqlTable, text, timestamp, varchar \} from '.*drizzle-orm\/mysql-core/,
     )
     expect(output).toContain("export const media = mysqlTable('media', {")
     expect(output).toContain("filename: varchar('filename', { length: 255 }).notNull(),")
@@ -289,6 +289,7 @@ describe('generateSchemaFile', () => {
     expect(output).toContain('export const account = mysqlTable(')
     expect(output).toContain('export const verification = mysqlTable(')
     expect(output).toContain('export const apikey = mysqlTable(')
+    expect(output).toContain('export const rateLimit = mysqlTable(')
     expect(output).toContain("emailVerified: boolean('email_verified').default(false).notNull(),")
     expect(output).toContain("index('session_userId_idx').on(table.userId)")
   })

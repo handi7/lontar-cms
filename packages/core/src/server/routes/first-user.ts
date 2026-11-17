@@ -1,4 +1,5 @@
 import type { Hono } from 'hono'
+import { getClientIp, type RateLimiter } from '../../auth/rate-limit'
 import type { Auth, LontarVariables } from '../../auth/types'
 import { countTotalUsers, createUserWithCredential } from '../../auth/user'
 import type { Config } from '../../config/types'
@@ -50,6 +51,7 @@ export function registerFirstUserRoutes(
   router: Hono<{ Variables: LontarVariables }>,
   auth: Auth,
   config?: Config,
+  rateLimiter?: RateLimiter,
 ): void {
   router.get('/_lontar/first-user', async (c) => {
     const totalUsers = await countTotalUsers(auth)
@@ -57,6 +59,18 @@ export function registerFirstUserRoutes(
   })
 
   router.post('/_lontar/first-user', async (c) => {
+    if (rateLimiter) {
+      const ip = getClientIp(c.req.raw)
+      const check = await rateLimiter.consume(`first-user:${ip}`, rateLimiter.rules.firstUser)
+      if (!check.allowed) {
+        const retryAfter = check.retryAfter ?? rateLimiter.rules.firstUser.window
+        return c.json({ error: 'Too many requests. Please try again later.' }, 429, {
+          'Retry-After': String(retryAfter),
+          'X-Retry-After': String(retryAfter),
+        })
+      }
+    }
+
     const totalUsers = await countTotalUsers(auth)
     if (totalUsers > 0) {
       return c.json({ error: 'First user has already been created' }, 403)

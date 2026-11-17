@@ -54,7 +54,7 @@ describe('generateSchemaFile', () => {
     const output = generateSchemaFile(config)
 
     expect(output).toMatch(
-      /import \{ boolean, index, integer, pgTable, serial, text, timestamp, varchar \} from '.*drizzle-orm\/pg-core/,
+      /import \{ bigint, boolean, index, integer, pgTable, serial, text, timestamp, varchar \} from '.*drizzle-orm\/pg-core/,
     )
     expect(output).toContain("export const posts = pgTable('posts', {")
     expect(output).toContain("id: serial('id').primaryKey(),")
@@ -297,6 +297,7 @@ describe('generateSchemaFile', () => {
     expect(output).toContain("export const account = pgTable(\n  'account',")
     expect(output).toContain("export const verification = pgTable(\n  'verification',")
     expect(output).toContain("export const apikey = pgTable(\n  'apikey',")
+    expect(output).toContain("export const rateLimit = pgTable(\n  'rateLimit',")
   })
 
   it('renders versions table with drafts, foreign key, unique constraint, and indexes', () => {
