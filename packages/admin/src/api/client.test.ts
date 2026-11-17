@@ -25,6 +25,9 @@ import {
   requestPasswordReset,
   resetPassword,
   resendUserInvite,
+  createApiKey,
+  listApiKeys,
+  revokeApiKey,
   setOnUnauthorized,
   signOut,
   unpublishDoc,
@@ -483,6 +486,40 @@ describe('ApiClientError and API Client error handling', () => {
           method: 'POST',
         }),
       )
+    })
+
+    it('handles listApiKeys, createApiKey, and revokeApiKey', async () => {
+      const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue({
+        ok: true,
+        json: vi.fn().mockResolvedValue({
+          docs: [{ id: 'k1', name: 'Test', start: 'lt_123...', createdAt: '2026-01-01' }],
+          apiKey: { id: 'k1', name: 'Test', key: 'lt_rawkey', start: 'lt_123...' },
+          success: true,
+        }),
+      } as unknown as Response)
+
+      const keys = await listApiKeys('/api')
+      expect(keys).toHaveLength(1)
+      expect(fetchSpy).toHaveBeenCalledWith('/api/_lontar/api-keys', {
+        credentials: 'include',
+      })
+
+      const created = await createApiKey('/api', { name: 'New Key', expiresIn: 3600 })
+      expect(created.key).toBe('lt_rawkey')
+      expect(fetchSpy).toHaveBeenCalledWith(
+        '/api/_lontar/api-keys',
+        expect.objectContaining({
+          method: 'POST',
+          body: JSON.stringify({ name: 'New Key', expiresIn: 3600 }),
+        }),
+      )
+
+      const revoked = await revokeApiKey('/api', 'k1')
+      expect(revoked.success).toBe(true)
+      expect(fetchSpy).toHaveBeenCalledWith('/api/_lontar/api-keys/k1', {
+        method: 'DELETE',
+        credentials: 'include',
+      })
     })
   })
 })

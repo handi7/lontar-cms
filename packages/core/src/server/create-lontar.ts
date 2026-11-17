@@ -2,10 +2,12 @@ import { betterAuth } from 'better-auth'
 import { admin } from 'better-auth/plugins'
 import { adminAc, defaultAc } from 'better-auth/plugins/admin/access'
 import { Hono, type Context } from 'hono'
+import { apiKeyPlugin, verifyApiKey } from '../auth/api-key'
 import type { Auth, AuthSession, AuthUser, LontarVariables } from '../auth/types'
 import { toClientConfig } from '../config/to-client-config'
 import type { Config } from '../config/types'
 import { resolveEmailConfig, sendEmailWithTemplate } from '../email'
+import { registerApiKeyRoutes } from './routes/api-keys'
 import { registerCollectionRoutes } from './routes/collection'
 import { registerFirstUserRoutes } from './routes/first-user'
 import { registerGlobalRoutes } from './routes/global'
@@ -88,7 +90,7 @@ function buildAuthInstance(config: Config, basePath: string, options: CreateLont
     ...(options.baseURL ? { baseURL: options.baseURL } : {}),
     ...(trustedOrigins.length > 0 ? { trustedOrigins } : {}),
     ...(config.db.authAdapter ? { database: config.db.authAdapter } : {}),
-    plugins: [buildAdminPlugin(config.auth)],
+    plugins: [buildAdminPlugin(config.auth), apiKeyPlugin()],
     emailAndPassword: {
       enabled: true,
       disableSignUp: true,
@@ -132,6 +134,40 @@ function buildAuthInstance(config: Config, basePath: string, options: CreateLont
   })
 }
 
+function extractApiKeyToken(apiKeyHeader?: string, authHeader?: string): string | null {
+  if (apiKeyHeader) {
+    return apiKeyHeader.trim()
+  }
+  if (authHeader && authHeader.toLowerCase().startsWith('bearer ')) {
+    const token = authHeader.slice(7).trim()
+    if (token.startsWith('lt_')) {
+      return token
+    }
+  }
+  return null
+}
+
+async function resolveSessionUser(
+  auth: Auth,
+  headers: Headers,
+): Promise<{ user: AuthUser | null; session: AuthSession | null }> {
+  try {
+    const session = await auth.api.getSession({ headers })
+    const user = session?.user as AuthUser | undefined
+    const isBanned =
+      user?.banned && (!user.banExpires || new Date(user.banExpires).getTime() > Date.now())
+    if (isBanned) {
+      return { user: null, session: null }
+    }
+    return {
+      user: user ?? null,
+      session: (session?.session as AuthSession) ?? null,
+    }
+  } catch {
+    return { user: null, session: null }
+  }
+}
+
 export function createLontar(config: Config, options: CreateLontarOptions = {}): LontarApp {
   const app = new Hono<{ Variables: LontarVariables }>()
   const basePath = options.basePath ?? '/api'
@@ -159,25 +195,25 @@ export function createLontar(config: Config, options: CreateLontarOptions = {}):
   })
   router.all('/auth/*', (c) => auth.handler(c.req.raw))
 
-  // Session verification middleware for all subsequent routes
+  // Session & API key verification middleware for all subsequent routes
   router.use('*', async (c, next) => {
-    try {
-      const session = await auth.api.getSession({ headers: c.req.raw.headers })
-      const user = session?.user as AuthUser | undefined
-      const isBanned =
-        user?.banned && (!user.banExpires || new Date(user.banExpires).getTime() > Date.now())
-      if (isBanned) {
-        c.set('user', null)
-        c.set('session', null)
-      } else {
-        c.set('user', user ?? null)
-        c.set('session', (session?.session as AuthSession) ?? null)
+    const apiKeyToken = extractApiKeyToken(c.req.header('x-api-key'), c.req.header('authorization'))
+
+    if (apiKeyToken) {
+      const result = await verifyApiKey(auth, apiKeyToken)
+      if (!result.valid || !result.user) {
+        return c.json({ error: result.error ?? 'Invalid API key' }, 401)
       }
-    } catch {
-      c.set('user', null)
+      c.set('user', result.user)
       c.set('session', null)
+      c.set('apiKey', result.apiKey ?? null)
+      return await next()
     }
-    await next()
+
+    const { user, session } = await resolveSessionUser(auth, c.req.raw.headers)
+    c.set('user', user)
+    c.set('session', session)
+    return await next()
   })
 
   // ClientConfig endpoint
@@ -201,6 +237,9 @@ export function createLontar(config: Config, options: CreateLontarOptions = {}):
 
   // User management routes
   registerUserRoutes(router, auth, config, options)
+
+  // API key routes
+  registerApiKeyRoutes(router, auth, config)
 
   // Global routes
   registerGlobalRoutes(router, config)

@@ -10,6 +10,7 @@ import { Input } from '../components/ui/input'
 import { Label } from '../components/ui/label'
 import { useAdmin } from '../context/AdminContext'
 import { useAuth } from '../context/AuthContext'
+import { ApiKeysCard } from './ApiKeysCard'
 import { ViewHeader, ViewSubtitle } from './ViewHeader'
 
 export interface ProfileDetailsCardProps {
@@ -283,6 +284,7 @@ export function AccountView() {
       <div className="lt:flex lt:flex-col lt:gap-6">
         <ProfileDetailsCard user={user} apiBase={apiBase} />
         <ChangePasswordCard apiBase={apiBase} />
+        <ApiKeysCard apiBase={apiBase} />
         <SessionCard
           user={user}
           session={session}

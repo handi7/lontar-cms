@@ -15,6 +15,9 @@ vi.mock('../api/client', async () => {
     ...actual,
     updateMe: vi.fn(),
     changeMyPassword: vi.fn(),
+    listApiKeys: vi.fn(),
+    createApiKey: vi.fn(),
+    revokeApiKey: vi.fn(),
   }
 })
 
@@ -24,6 +27,7 @@ describe('AccountView (#343)', () => {
 
   beforeEach(() => {
     vi.clearAllMocks()
+    vi.mocked(client.listApiKeys).mockResolvedValue([])
     queryClient = new QueryClient({
       defaultOptions: {
         queries: { retry: false },
@@ -191,5 +195,84 @@ describe('AccountView (#343)', () => {
     fireEvent.click(signOutBtn)
 
     expect(mockSignOut).toHaveBeenCalled()
+  })
+
+  it('renders API keys list and allows creating a new key', async () => {
+    vi.mocked(client.listApiKeys).mockResolvedValue([
+      {
+        id: 'k1',
+        name: 'Deployment Key',
+        start: 'lt_dep123...',
+        userId: 'u1',
+        createdAt: '2026-01-01T00:00:00.000Z',
+        expiresAt: null,
+        lastUsedAt: null,
+      },
+    ])
+
+    vi.mocked(client.createApiKey).mockResolvedValue({
+      id: 'k2',
+      name: 'Backup Script',
+      start: 'lt_bak456...',
+      key: 'lt_bak45678901234567890',
+      userId: 'u1',
+      createdAt: '2026-01-02T00:00:00.000Z',
+      expiresAt: null,
+      lastUsedAt: null,
+    })
+
+    renderWithProviders()
+
+    expect(await screen.findByText('Deployment Key')).toBeTruthy()
+    expect(screen.getByText('lt_dep123...')).toBeTruthy()
+
+    // Open create key dialog
+    const createBtn = screen.getByRole('button', { name: /Create API key/i })
+    fireEvent.click(createBtn)
+
+    expect(await screen.findByLabelText(/^Name$/i)).toBeTruthy()
+    fireEvent.change(screen.getByLabelText(/^Name$/i), {
+      target: { value: 'Backup Script' },
+    })
+
+    const submitBtn = screen.getByRole('button', { name: /^Create key$/i })
+    fireEvent.click(submitBtn)
+
+    expect(await screen.findByText('API Key Created')).toBeTruthy()
+    expect(screen.getByDisplayValue('lt_bak45678901234567890')).toBeTruthy()
+    expect(screen.getByRole('button', { name: /^Copy$/i })).toBeTruthy()
+
+    const doneBtn = screen.getByRole('button', { name: /^Done$/i })
+    fireEvent.click(doneBtn)
+
+    await waitFor(() => {
+      expect(screen.queryByText('API Key Created')).toBeNull()
+    })
+  })
+
+  it('allows revoking an existing API key', async () => {
+    vi.mocked(client.listApiKeys).mockResolvedValue([
+      {
+        id: 'k1',
+        name: 'Key To Revoke',
+        start: 'lt_rev123...',
+        userId: 'u1',
+        createdAt: '2026-01-01T00:00:00.000Z',
+        expiresAt: null,
+        lastUsedAt: null,
+      },
+    ])
+    vi.mocked(client.revokeApiKey).mockResolvedValue({ success: true })
+
+    renderWithProviders()
+
+    expect(await screen.findByText('Key To Revoke')).toBeTruthy()
+
+    const revokeBtn = screen.getByRole('button', { name: /^Revoke$/i })
+    fireEvent.click(revokeBtn)
+
+    await waitFor(() => {
+      expect(client.revokeApiKey).toHaveBeenCalledWith('/api', 'k1')
+    })
   })
 })

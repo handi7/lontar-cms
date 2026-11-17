@@ -1,6 +1,6 @@
 export { mysqlAdapter, type MysqlAdapter, type MysqlAdapterOptions } from './adapter'
 export { handleDatabaseError, findFieldName, toErrorContext } from './errors'
-export { account, authTables, session, user, verification } from './schema/auth'
+export { account, apikey, authTables, session, user, verification } from './schema/auth'
 export { generateSchemaFile, slugToIdentifier } from './schema/generator'
 export { collectionToTable } from './schema/table'
 export { setupTestDatabase, isMySqlAvailable, type TestDatabase } from './test-database'

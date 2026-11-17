@@ -152,7 +152,9 @@ test.describe('Lontar CMS Admin in Next.js', () => {
 
     // 3. Verify Users view is displayed
     await expect(page.getByRole('heading', { name: 'Users', exact: true })).toBeVisible()
+    await page.getByPlaceholder('Search by name or email...').fill(adminEmail)
     await expect(page.getByRole('table').getByText(adminEmail)).toBeVisible()
+    await page.getByPlaceholder('Search by name or email...').fill('')
 
     // 4. Create new user
     await page.getByRole('button', { name: 'New user' }).click()
@@ -247,5 +249,74 @@ test.describe('Lontar CMS Admin in Next.js', () => {
     await expect(page.getByRole('menuitem', { name: 'Resend invitation' })).toBeVisible()
     await page.getByRole('menuitem', { name: 'Resend invitation' }).click()
     await expect(page.getByText(`Invitation email resent to ${invitedEmail}.`)).toBeVisible()
+  })
+
+  test('creates, uses, and revokes an API key for machine-to-machine REST access (#345)', async ({
+    page,
+    request,
+  }) => {
+    // 1. Log in
+    await page.goto('/admin')
+    await expect(page.getByRole('heading', { name: 'Sign in to Admin' })).toBeVisible({
+      timeout: 15000,
+    })
+    await page.locator('input[type="email"]').fill(adminEmail)
+    await page.locator('input[type="password"]').fill(adminPassword)
+    await page.getByRole('button', { name: 'Sign In' }).click()
+
+    // 2. Navigate to Account settings
+    const accountLink = page.getByRole('link', { name: 'Account settings' })
+    await expect(accountLink).toBeVisible({ timeout: 15000 })
+    await accountLink.click()
+
+    await expect(page.getByRole('heading', { name: 'Account' })).toBeVisible()
+    await expect(page.getByText('API keys', { exact: true })).toBeVisible()
+
+    // 3. Create a new API key
+    await page.getByRole('button', { name: 'Create API key' }).click()
+    const dialog = page.getByRole('dialog')
+    await expect(dialog).toBeVisible()
+    await expect(dialog.getByRole('heading', { name: 'Create API Key' })).toBeVisible()
+
+    await dialog.locator('#api-key-name').fill('E2E Machine Key')
+    await dialog.getByRole('button', { name: 'Create key' }).click()
+
+    // 4. Verify created key dialog and read key value
+    await expect(dialog.getByRole('heading', { name: 'API Key Created' })).toBeVisible()
+    const apiKeyInput = dialog.locator('#created-api-key')
+    await expect(apiKeyInput).toBeVisible()
+    const rawApiKey = await apiKeyInput.inputValue()
+    expect(rawApiKey.startsWith('lt_')).toBe(true)
+
+    await dialog.getByRole('button', { name: 'Done' }).click()
+    await expect(dialog).not.toBeVisible()
+
+    // 5. Verify key is listed
+    await expect(page.getByText('E2E Machine Key')).toBeVisible()
+
+    // 6. Test calling REST API with Bearer token
+    const bearerRes = await request.get('/api/posts', {
+      headers: { Authorization: `Bearer ${rawApiKey}` },
+    })
+    expect(bearerRes.ok()).toBe(true)
+    const bearerData = (await bearerRes.json()) as { docs: unknown[] }
+    expect(Array.isArray(bearerData.docs)).toBe(true)
+
+    // 7. Test calling REST API with x-api-key header
+    const xKeyRes = await request.get('/api/posts', {
+      headers: { 'x-api-key': rawApiKey },
+    })
+    expect(xKeyRes.ok()).toBe(true)
+
+    // 8. Revoke the API key from Account page
+    const revokeBtn = page.getByRole('button', { name: 'Revoke' }).first()
+    await revokeBtn.click()
+
+    // 9. Subsequent REST API call with revoked key returns 401
+    await expect(page.getByText(/No API keys created yet/i)).toBeVisible()
+    const revokedRes = await request.get('/api/posts', {
+      headers: { Authorization: `Bearer ${rawApiKey}` },
+    })
+    expect(revokedRes.status()).toBe(401)
   })
 })
