@@ -6,6 +6,7 @@ export interface CreateUserData {
   password: string
   name: string
   role?: string
+  emailVerified?: boolean
 }
 
 export interface CreateUserInviteData {
@@ -104,7 +105,7 @@ export async function createUserWithCredential(
       name: data.name.trim(),
       ...(data.role ? { role: data.role } : {}),
       banned: false,
-      emailVerified: false,
+      emailVerified: data.emailVerified ?? false,
       createdAt: new Date(),
       updatedAt: new Date(),
     },

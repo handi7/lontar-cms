@@ -16,6 +16,7 @@ import { LoginView } from '../views/LoginView'
 import { NotFoundView } from '../views/NotFoundView'
 import { ResetPasswordView } from '../views/ResetPasswordView'
 import { UsersView } from '../views/UsersView'
+import { VerifyEmailView } from '../views/VerifyEmailView'
 
 function CreateForm() {
   return <CollectionFormView mode="create" />
@@ -47,6 +48,12 @@ export function createAdminRouter(options: { basePath?: string; history?: Router
     getParentRoute: () => rootRoute,
     path: '/accept-invite',
     component: AcceptInviteView,
+  })
+
+  const verifyEmailRoute = createRoute({
+    getParentRoute: () => rootRoute,
+    path: '/verify-email',
+    component: VerifyEmailView,
   })
 
   const authenticatedRoute = createRoute({
@@ -112,6 +119,7 @@ export function createAdminRouter(options: { basePath?: string; history?: Router
     loginRoute,
     resetPasswordRoute,
     acceptInviteRoute,
+    verifyEmailRoute,
     authenticatedRoute.addChildren([
       indexRoute,
       usersRoute,

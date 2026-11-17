@@ -24,6 +24,7 @@ import {
   changeMyPassword,
   requestPasswordReset,
   resetPassword,
+  verifyEmail,
   resendUserInvite,
   createApiKey,
   listApiKeys,
@@ -476,6 +477,15 @@ describe('ApiClientError and API Client error handling', () => {
         expect.objectContaining({
           method: 'POST',
           body: JSON.stringify({ token: 'tok123', newPassword: 'newpass123' }),
+        }),
+      )
+
+      await verifyEmail('/api', 'verify_token_123')
+      expect(fetchSpy).toHaveBeenCalledWith(
+        '/api/auth/verify-email?token=verify_token_123',
+        expect.objectContaining({
+          method: 'GET',
+          credentials: 'include',
         }),
       )
 

@@ -70,7 +70,13 @@ export async function createUser(options: CreateUserOptions = {}): Promise<void>
   try {
     const app = createLontar(config)
     const role = await determineRole(app, config, options.role)
-    const user = await createUserWithCredential(app.auth, { email, password, name, role })
+    const user = await createUserWithCredential(app.auth, {
+      email,
+      password,
+      name,
+      role,
+      emailVerified: true,
+    })
 
     console.log(`Created user ${user.email} (${user.name}) [role: ${user.role}, id: ${user.id}]`)
   } finally {

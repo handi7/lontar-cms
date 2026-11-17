@@ -92,6 +92,7 @@ export function registerFirstUserRoutes(
     await createUserWithCredential(auth, {
       ...validated.data,
       role: adminRole,
+      emailVerified: true,
     })
 
     return auth.api.signInEmail({
