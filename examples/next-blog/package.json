@@ -10,6 +10,8 @@
     "migrate:create": "lontar migrate:create",
     "migrate": "lontar migrate",
     "generate:types": "lontar generate:types",
+    "seed": "tsx scripts/seed.ts",
+    "fetch:posts": "tsx scripts/fetch-posts.ts",
     "typecheck": "tsc --noEmit",
     "test:e2e": "lontar migrate && playwright test",
     "test:e2e:postgres": "DATABASE_URL=\"${POSTGRES_URL:-postgres://lontar:lontar@127.0.0.1:5432/lontar}\" lontar migrate && DATABASE_URL=\"${POSTGRES_URL:-postgres://lontar:lontar@127.0.0.1:5432/lontar}\" playwright test"
@@ -32,6 +34,7 @@
     "next": "^15.2.0",
     "react": "^19.3.1",
     "react-dom": "^19.3.1",
+    "tsx": "4.23.15",
     "typescript": "~6.0.3"
   }
 }

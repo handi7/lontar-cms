@@ -16,6 +16,17 @@ A complete real-world Next.js App Router blog demonstrating Lontar CMS integrati
   - Document sidebar with Draft and Publish controls, version history compare and restore, and autosave.
   - **Live Preview**: Configured via `admin.preview: { url: '/posts/{slug}?preview=1' }`. The preview iframe connects using `@lontar/preview/react`'s `useLivePreview` hook, updating content in real time as editors type.
   - **On-Demand Cache Revalidation**: Outgoing webhooks in `lontar.config.ts` target `/api/revalidate`. On publish or unpublish events, HMAC-SHA256 signatures are verified using `verifyWebhookSignature` from `@lontar/core`, and Next.js revalidates cached routes via `revalidatePath` and `revalidateTag`.
+- **Milestone 10 Users, Roles & Field-Level Access Control**:
+  - **Roles**: `admin`, `editor`, and `author` (default role for new users is `author`).
+  - **Collection & Global Permissions**:
+    - `author`: Can view and draft `posts` and upload `media`. Cannot view or edit `pages` or `site-settings`. Cannot delete posts.
+    - `editor`: Can view and manage `posts`, `pages`, `categories`, and `authors`. Can view `site-settings` (read-only).
+    - `admin`: Full administrative access, including managing users at `/admin/users`, updating `site-settings`, and deleting pages/authors/categories.
+  - **Field-Level Access Control**:
+    - `posts.editorialNotes`: Visible and writable only by `admin` and `editor`. Hidden from `author` in form UI and stripped from REST responses.
+    - `posts.publishedAt`: Writable only by `admin` and `editor`. Rendered disabled/read-only with a lock icon for `author`.
+    - `pages.seo.reviewNotes`: Nested field inside `seo` group. Visible and writable only by `admin`. Hidden from `editor`.
+  - **API Keys**: Machine-to-machine authentication via `x-api-key: <key>` header or `Authorization: Bearer <key>`.
 
 ## Prerequisites
 
@@ -47,8 +58,26 @@ A complete real-world Next.js App Router blog demonstrating Lontar CMS integrati
    - Public Blog: [http://localhost:3000](http://localhost:3000)
    - Admin Panel: [http://localhost:3000/admin](http://localhost:3000/admin)
 
-5. **First-time Onboarding:**
+5. **First-time Onboarding & Seeding:**
    - Visiting `/admin` will prompt you to create the initial admin user account.
+   - Alternatively, seed test users for all three roles (`admin`, `editor`, and `author`) along with a demonstration API key:
+     ```bash
+     pnpm --filter next-blog seed
+     ```
+     Credentials created:
+     - `admin@example.com` / `password123` (role: `admin`)
+     - `editor@example.com` / `password123` (role: `editor`)
+     - `author@example.com` / `password123` (role: `author`)
+
+6. **Machine-to-Machine API Key Demonstration:**
+   - Query posts using an API key:
+     ```bash
+     pnpm --filter next-blog fetch:posts
+     ```
+     Or specify a custom API key:
+     ```bash
+     API_KEY="lt_..." pnpm --filter next-blog fetch:posts
+     ```
 
 ## Verifying Drafts, Preview & Revalidation
 

@@ -309,11 +309,15 @@ test.describe('Lontar CMS Admin in Next.js', () => {
     expect(xKeyRes.ok()).toBe(true)
 
     // 8. Revoke the API key from Account page
-    const revokeBtn = page.getByRole('button', { name: 'Revoke' }).first()
-    await revokeBtn.click()
+    const keyRow = page
+      .locator('div')
+      .filter({ hasText: 'E2E Machine Key' })
+      .filter({ has: page.getByRole('button', { name: 'Revoke' }) })
+      .last()
+    await keyRow.getByRole('button', { name: 'Revoke' }).click()
+    await expect(page.getByText('E2E Machine Key')).not.toBeVisible()
 
     // 9. Subsequent REST API call with revoked key returns 401
-    await expect(page.getByText(/No API keys created yet/i)).toBeVisible()
     const revokedRes = await request.get('/api/posts', {
       headers: { Authorization: `Bearer ${rawApiKey}` },
     })

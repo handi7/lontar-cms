@@ -13,6 +13,7 @@ export interface Post {
   categories?: (number | Category)[] | null
   content?: Record<string, unknown> | null
   publishedAt?: string | null
+  editorialNotes?: string | null
 }
 
 export interface PageLayoutHeroBlock {
@@ -65,6 +66,7 @@ export interface Page {
   seo?: {
     metaTitle?: string | null
     metaDescription?: string | null
+    reviewNotes?: string | null
   } | null
   layout?: Array<PageLayoutBlock> | null
 }
@@ -124,6 +126,8 @@ export interface SiteSettings {
   footerText?: string | null
 }
 
+export type UserRole = 'admin' | 'editor' | 'author'
+
 export interface Config {
   collections: {
     posts: Post
@@ -138,6 +142,9 @@ export interface Config {
 }
 
 declare module '@lontar/core' {
+  interface UserRoleExtension {
+    role: UserRole
+  }
   interface LontarCollections {
     posts: Post
     pages: Page
