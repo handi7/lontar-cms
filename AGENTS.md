@@ -215,7 +215,7 @@ approval on the `npm` environment. Don't run `pnpm publish` by hand; see `docs/r
   - [x] #343 `admin: users screen and account page`
   - [x] #344 `auth: email transport, password reset, invites and verification`
   - [x] #345 `auth: API keys for machine-to-machine REST access`
-  - [ ] #346 `auth: rate limiting for Lontar auth routes and multi-instance storage`
+  - [x] #346 `auth: rate limiting for Lontar auth routes and multi-instance storage`
   - [ ] #347 `examples/next-blog: roles and field-level access, with e2e`
 - [ ] **M11: Localization** (tracking in #149)
 - [ ] **M12: Admin UX & extensibility** (tracking in #150)
