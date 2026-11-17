@@ -93,6 +93,14 @@ describe('ResetPasswordView (#344)', () => {
     expect(await screen.findByText(/Password must be at least 8 characters long/i)).toBeTruthy()
     expect(client.resetPassword).not.toHaveBeenCalled()
 
+    // Too long (#378)
+    fireEvent.change(passwordInput, { target: { value: 'a'.repeat(129) } })
+    fireEvent.change(confirmInput, { target: { value: 'a'.repeat(129) } })
+    fireEvent.click(submitBtn)
+
+    expect(await screen.findByText(/Password cannot exceed 128 characters/i)).toBeTruthy()
+    expect(client.resetPassword).not.toHaveBeenCalled()
+
     // Does not match
     fireEvent.change(passwordInput, { target: { value: 'password123' } })
     fireEvent.change(confirmInput, { target: { value: 'different123' } })

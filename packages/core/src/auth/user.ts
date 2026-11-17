@@ -1,4 +1,5 @@
 import type { Where } from 'better-auth/types'
+import { validatePassword } from '../client/password'
 import type { Auth } from './types'
 
 export interface CreateUserData {
@@ -96,6 +97,10 @@ export async function createUserWithCredential(
   auth: Auth,
   data: CreateUserData,
 ): Promise<CreatedUserResult> {
+  const passwordError = validatePassword(data.password, 'Password')
+  if (passwordError) {
+    throw new Error(passwordError)
+  }
   const ctx = await auth.$context
   const hashedPassword = await ctx.password.hash(data.password)
 
@@ -310,6 +315,10 @@ export async function deleteUser(auth: Auth, id: string): Promise<void> {
 }
 
 export async function setUserPassword(auth: Auth, id: string, password: string): Promise<void> {
+  const passwordError = validatePassword(password, 'Password')
+  if (passwordError) {
+    throw new Error(passwordError)
+  }
   const ctx = await auth.$context
   const hashedPassword = await ctx.password.hash(password)
   const existing = await ctx.internalAdapter.findCredentialAccount(id)
@@ -335,6 +344,10 @@ export async function verifyAndChangePassword(
   newPassword: string,
   currentSessionToken?: string,
 ): Promise<void> {
+  const passwordError = validatePassword(newPassword, 'New password')
+  if (passwordError) {
+    throw new Error(passwordError)
+  }
   const ctx = await auth.$context
   const account = await ctx.internalAdapter.findCredentialAccount(userId)
   if (!account || !(account as { password?: string }).password) {

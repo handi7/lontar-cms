@@ -117,6 +117,26 @@ describe('AccountView (#343)', () => {
     expect(await screen.findByText(/Profile name updated successfully/i)).toBeTruthy()
   })
 
+  it('validates new password length on change password (#378)', async () => {
+    renderWithProviders()
+
+    fireEvent.change(screen.getByLabelText(/^Current password$/i), {
+      target: { value: 'current123' },
+    })
+    fireEvent.change(screen.getByLabelText(/^New password$/i), {
+      target: { value: 'a'.repeat(129) },
+    })
+    fireEvent.change(screen.getByLabelText(/^Confirm new password$/i), {
+      target: { value: 'a'.repeat(129) },
+    })
+
+    const updatePasswordBtn = screen.getByRole('button', { name: /Update password/i })
+    fireEvent.click(updatePasswordBtn)
+
+    expect(await screen.findByText(/New password cannot exceed 128 characters/i)).toBeTruthy()
+    expect(client.changeMyPassword).not.toHaveBeenCalled()
+  })
+
   it('validates password mismatch on change password', async () => {
     renderWithProviders()
 

@@ -1,4 +1,5 @@
 import { useState, type FormEvent } from 'react'
+import { validatePassword } from '@lontar/core/client'
 import { Link, useRouter } from '@tanstack/react-router'
 import { formatApiErrorMessage, resetPassword } from '../api/client'
 import { Alert } from '../components/ui/alert'
@@ -46,8 +47,9 @@ export function ResetPasswordView() {
     e.preventDefault()
     setError(null)
 
-    if (password.length < 8) {
-      setError('Password must be at least 8 characters long')
+    const passwordError = validatePassword(password, 'Password')
+    if (passwordError) {
+      setError(passwordError)
       return
     }
     if (password !== confirmPassword) {

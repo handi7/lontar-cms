@@ -362,3 +362,5 @@ export {
   type RateLimitRule,
   type RateLimitStorage,
 } from './auth/rate-limit'
+
+export { MAX_PASSWORD_LENGTH, MIN_PASSWORD_LENGTH, validatePassword } from './client/password'

@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react'
+import { validatePassword } from '@lontar/core/client'
 import { useQueryClient } from '@tanstack/react-query'
 import type { AdminSession, AdminUser } from '../api/client'
 import { changeMyPassword, formatApiErrorMessage, updateMe } from '../api/client'
@@ -130,8 +131,9 @@ function ChangePasswordCard(props: ChangePasswordCardProps) {
       setError('Current password is required')
       return
     }
-    if (newPassword.length < 8) {
-      setError('New password must be at least 8 characters long')
+    const passwordError = validatePassword(newPassword, 'New password')
+    if (passwordError) {
+      setError(passwordError)
       return
     }
     if (newPassword !== confirmPassword) {

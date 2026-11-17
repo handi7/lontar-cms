@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react'
+import { validatePassword } from '@lontar/core/client'
 import type { UserDoc } from '../api/client'
 import {
   createUser,
@@ -70,9 +71,12 @@ export function CreateUserDialog(props: CreateUserDialogProps) {
       setError('A valid email address is required')
       return
     }
-    if (!sendInvite && password.length < 8) {
-      setError('Password must be at least 8 characters long')
-      return
+    if (!sendInvite) {
+      const passwordError = validatePassword(password, 'Password')
+      if (passwordError) {
+        setError(passwordError)
+        return
+      }
     }
 
     setIsSubmitting(true)
@@ -352,8 +356,9 @@ export function ResetPasswordDialog(props: ResetPasswordDialogProps) {
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
     setError(null)
-    if (password.length < 8) {
-      setError('Password must be at least 8 characters long')
+    const passwordError = validatePassword(password, 'Password')
+    if (passwordError) {
+      setError(passwordError)
       return
     }
     if (password !== confirmPassword) {
