@@ -2,7 +2,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import { cleanup, fireEvent, render, screen } from '@testing-library/react'
 import type { ClientCollection } from '@lontar/core/client'
 import { PortalContainerProvider } from '../context/PortalContainer'
-import { CollectionFilterBar, collectFilterFields } from './CollectionFilterBar'
+import { CollectionFilterBar, collectFilterFields, resolveSearchField } from './CollectionFilterBar'
 
 const testCollection: ClientCollection = {
   slug: 'pages',
@@ -171,5 +171,51 @@ describe('CollectionFilterBar', () => {
       { name: 'title', label: 'Title' },
       { name: 'seo.metaTitle', label: 'SEO > Meta Title' },
     ])
+  })
+
+  describe('resolveSearchField (#383)', () => {
+    it('returns preferred useAsTitle when readable', () => {
+      expect(resolveSearchField(testCollection)).toBe('title')
+    })
+
+    it('falls back to next readable text-like field when useAsTitle is unreadable', () => {
+      const col: ClientCollection = {
+        ...testCollection,
+        fields: [
+          { name: 'title', label: 'Title', type: 'text', required: true },
+          { name: 'slug', label: 'Slug', type: 'slug', required: true },
+        ],
+      }
+      const result = resolveSearchField(col, {
+        title: { read: false, create: false, update: false },
+        slug: { read: true, create: true, update: true },
+      })
+      expect(result).toBe('slug')
+    })
+
+    it('returns undefined and disables search input when no text-like fields are readable', () => {
+      const result = resolveSearchField(testCollection, {
+        title: { read: false, create: false, update: false },
+      })
+      expect(result).toBeUndefined()
+
+      render(
+        <CollectionFilterBar
+          collection={testCollection}
+          searchTerm=""
+          onSearchChange={vi.fn()}
+          activeFilters={[]}
+          onAddFilter={vi.fn()}
+          onRemoveFilter={vi.fn()}
+          onClearAll={vi.fn()}
+          fieldPermissions={{
+            title: { read: false, create: false, update: false },
+          }}
+        />,
+      )
+
+      const searchInput = screen.getByRole('searchbox')
+      expect(searchInput.hasAttribute('disabled')).toBe(true)
+    })
   })
 })

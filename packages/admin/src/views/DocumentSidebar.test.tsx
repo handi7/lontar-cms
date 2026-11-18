@@ -350,4 +350,21 @@ describe('DocumentSidebar', () => {
 
     expect(screen.queryByRole('button', { name: /delete/i })).toBeNull()
   })
+
+  it('shows delete button when readOnly is true but canDelete is true (#383)', () => {
+    render(
+      <DocumentSidebar
+        mode="edit"
+        submitLabel="Save Changes"
+        isPending={false}
+        showDelete={true}
+        canDelete={true}
+        readOnly={true}
+        onDelete={vi.fn()}
+        doc={{ id: 1 }}
+      />,
+    )
+
+    expect(screen.getByRole('button', { name: /delete/i })).toBeTruthy()
+  })
 })

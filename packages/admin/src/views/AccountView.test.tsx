@@ -291,6 +291,14 @@ describe('AccountView (#343)', () => {
     const revokeBtn = screen.getByRole('button', { name: /^Revoke$/i })
     fireEvent.click(revokeBtn)
 
+    // Confirmation dialog appears (#383)
+    expect(await screen.findByText('Revoke API key')).toBeTruthy()
+    expect(screen.getByText(/Are you sure you want to revoke "Key To Revoke"?/i)).toBeTruthy()
+
+    // Confirm revocation
+    const confirmButtons = screen.getAllByRole('button', { name: /^Revoke$/i })
+    fireEvent.click(confirmButtons[confirmButtons.length - 1]!)
+
     await waitFor(() => {
       expect(client.revokeApiKey).toHaveBeenCalledWith('/api', 'k1')
     })

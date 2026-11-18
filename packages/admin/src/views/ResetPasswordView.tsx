@@ -1,4 +1,4 @@
-import { useState, type FormEvent } from 'react'
+import { useEffect, useState, type FormEvent } from 'react'
 import { validatePassword } from '@lontar/core/client'
 import { Link, useRouter } from '@tanstack/react-router'
 import { formatApiErrorMessage, resetPassword } from '../api/client'
@@ -14,7 +14,19 @@ export function ResetPasswordView() {
   const { apiBase } = useAdmin()
   const router = useRouter()
   const searchStr = router.state.location.searchStr
-  const token = new URLSearchParams(searchStr).get('token')
+  const [token] = useState(() => new URLSearchParams(searchStr).get('token'))
+
+  useEffect(() => {
+    if (typeof window !== 'undefined' && window.location.search.includes('token=')) {
+      const url = new URL(window.location.href)
+      url.searchParams.delete('token')
+      const cleanUrl =
+        url.pathname +
+        (url.searchParams.toString() ? `?${url.searchParams.toString()}` : '') +
+        url.hash
+      window.history.replaceState(window.history.state, '', cleanUrl)
+    }
+  }, [])
 
   const [password, setPassword] = useState('')
   const [confirmPassword, setConfirmPassword] = useState('')

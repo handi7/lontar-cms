@@ -69,17 +69,15 @@ function resolveViewUrl(basePath: string, relationTo: string, id: number): strin
   return `${base}/${relationTo}/${id}`
 }
 
-function SelectedMediaActions({
-  viewUrl,
-  changeButton,
-  onRemove,
-  disabled,
-}: {
+interface SelectedMediaActionsProps {
   viewUrl: string
   changeButton: ReactNode
   onRemove: () => void
   disabled?: boolean
-}) {
+}
+
+function SelectedMediaActions(props: SelectedMediaActionsProps) {
+  const { viewUrl, changeButton, onRemove, disabled } = props
   return (
     <div className={pickerActionsClass}>
       <PickerViewLink href={viewUrl} testId="upload-picker-link" />
@@ -93,15 +91,7 @@ function SelectedMediaActions({
   )
 }
 
-function SelectedMediaView({
-  doc,
-  id,
-  basePath,
-  relationTo,
-  changeButton,
-  onRemove,
-  disabled,
-}: {
+interface SelectedMediaViewProps {
   doc: Record<string, unknown> | null | undefined
   id: number
   basePath: string
@@ -109,7 +99,10 @@ function SelectedMediaView({
   changeButton: ReactNode
   onRemove: () => void
   disabled?: boolean
-}) {
+}
+
+function SelectedMediaView(props: SelectedMediaViewProps) {
+  const { doc, id, basePath, relationTo, changeButton, onRemove, disabled } = props
   const url = typeof doc?.url === 'string' ? doc.url : ''
   const isImage = isMediaImage(doc)
   const title = getMediaTitle(doc) || `#${id}`
@@ -140,13 +133,13 @@ function SelectedMediaView({
   )
 }
 
-function MediaOptionRow({
-  doc,
-  onSelect,
-}: {
+interface MediaOptionRowProps {
   doc: Record<string, unknown>
   onSelect: (doc: Record<string, unknown>) => void
-}) {
+}
+
+function MediaOptionRow(props: MediaOptionRowProps) {
+  const { doc, onSelect } = props
   const id = Number(doc.id)
   const title = getMediaTitle(doc)
   const url = typeof doc.url === 'string' ? doc.url : ''
@@ -168,17 +161,15 @@ function MediaOptionRow({
   )
 }
 
-function MediaDropdown({
-  relationTo,
-  apiBase,
-  onSelect,
-  onCancel,
-}: {
+interface MediaDropdownProps {
   relationTo: string
   apiBase: string
   onSelect: (doc: Record<string, unknown>) => void
   onCancel?: () => void
-}) {
+}
+
+function MediaDropdown(props: MediaDropdownProps) {
+  const { relationTo, apiBase, onSelect, onCancel } = props
   const [searchTerm, setSearchTerm] = useState('')
 
   const query = useQuery({

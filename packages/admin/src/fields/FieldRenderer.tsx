@@ -1520,6 +1520,8 @@ function UnconditionalFieldRenderer({
   const fullName = pathPrefix ? `${pathPrefix}.${field.name}` : field.name
 
   if (field.type === 'group') {
+    const isLocked = isFieldReadOnly(permissions, mode, readOnlyDoc)
+    const effectiveDisabled = disabled || isLocked
     return (
       <GroupFieldRenderer
         field={field}
@@ -1531,8 +1533,9 @@ function UnconditionalFieldRenderer({
         watch={watch}
         mode={mode}
         permissions={permissions}
-        disabled={disabled}
+        disabled={effectiveDisabled}
         readOnlyDoc={readOnlyDoc}
+        isLocked={isLocked}
       />
     )
   }

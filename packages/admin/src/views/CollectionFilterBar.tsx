@@ -258,6 +258,23 @@ function buildFilterFields(
   ]
 }
 
+export function resolveSearchField(
+  collection: ClientCollection,
+  fieldPermissions?: Record<string, FieldPermission>,
+): string | undefined {
+  const preferred = collection.admin.useAsTitle || 'title'
+  if (fieldPermissions?.[preferred]?.read !== false) {
+    return preferred
+  }
+
+  const fallback = collection.fields.find(
+    (f) =>
+      (f.type === 'text' || f.type === 'email' || f.type === 'slug' || f.type === 'textarea') &&
+      fieldPermissions?.[f.name]?.read !== false,
+  )
+  return fallback?.name
+}
+
 export function CollectionFilterBar(props: CollectionFilterBarProps) {
   const {
     collection,
@@ -275,6 +292,7 @@ export function CollectionFilterBar(props: CollectionFilterBarProps) {
   const statusFilter = props.statusFilter ?? 'all'
   const filterFields = buildFilterFields(collection, fieldPermissions)
   const defaultField = resolveInitialField(collection.admin.useAsTitle || '', filterFields)
+  const searchField = resolveSearchField(collection, fieldPermissions)
   const hasStatusFilter = hasDrafts && statusFilter !== 'all'
   const filterButtonLabel =
     activeFilters.length > 0 ? `Filters (${activeFilters.length})` : 'Add Filter'
@@ -285,9 +303,14 @@ export function CollectionFilterBar(props: CollectionFilterBarProps) {
         <Input
           type="search"
           className="lt:max-w-[400px] lt:flex-1 lt:bg-card"
-          placeholder={`Search ${collection.labels.plural.toLowerCase()}...`}
+          placeholder={
+            searchField
+              ? `Search ${collection.labels.plural.toLowerCase()}...`
+              : 'Search disabled (no searchable fields)'
+          }
           value={searchTerm}
           onChange={(e) => onSearchChange(e.target.value)}
+          disabled={!searchField}
           aria-label={`Search ${collection.labels.plural}`}
         />
         {hasDrafts && onStatusFilterChange ? (

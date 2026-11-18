@@ -661,6 +661,7 @@ export function UsersView() {
         roleFilter={roleFilter}
         onRoleFilterChange={(val) => {
           setRoleFilter(val)
+          setPage(1)
         }}
         roles={roles}
       />
