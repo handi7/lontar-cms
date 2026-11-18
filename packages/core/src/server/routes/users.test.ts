@@ -2088,12 +2088,10 @@ describe('User Management API (/api/_lontar/users & /api/_lontar/me)', () => {
     it('cleans up user row if account creation fails in createUserWithCredential (#379)', async () => {
       const { app } = setupTestApp()
       const ctx = await app.auth.$context
-      const originalCreateAccount = (
-        ...args: Parameters<typeof ctx.internalAdapter.createAccount>
-      ) => ctx.internalAdapter.createAccount(...args)
 
-      ctx.internalAdapter.createAccount = () =>
-        Promise.reject(new Error('Simulated account creation failure'))
+      const spy = vi
+        .spyOn(ctx.internalAdapter, 'createAccount')
+        .mockRejectedValue(new Error('Simulated account creation failure'))
 
       await expect(
         createUserWithCredential(app.auth, {
@@ -2104,7 +2102,7 @@ describe('User Management API (/api/_lontar/users & /api/_lontar/me)', () => {
         }),
       ).rejects.toThrow('Simulated account creation failure')
 
-      ctx.internalAdapter.createAccount = originalCreateAccount
+      spy.mockRestore()
 
       // The user row must have been cleaned up
       const checkUser = await getUserByEmail(app.auth, 'aborted-user@example.com')
@@ -2125,12 +2123,9 @@ describe('User Management API (/api/_lontar/users & /api/_lontar/me)', () => {
       const adminCookie = await registerFirstAdmin(app)
 
       const ctx = await app.auth.$context
-      const originalCreateVerification = (
-        ...args: Parameters<typeof ctx.internalAdapter.createVerificationValue>
-      ) => ctx.internalAdapter.createVerificationValue(...args)
-
-      ctx.internalAdapter.createVerificationValue = () =>
-        Promise.reject(new Error('Simulated verification store failure'))
+      const spy = vi
+        .spyOn(ctx.internalAdapter, 'createVerificationValue')
+        .mockRejectedValue(new Error('Simulated verification store failure'))
 
       const inviteRes = await app.request('/api/_lontar/users', {
         method: 'POST',
@@ -2144,7 +2139,7 @@ describe('User Management API (/api/_lontar/users & /api/_lontar/me)', () => {
       })
 
       expect(inviteRes.status).toBe(500)
-      ctx.internalAdapter.createVerificationValue = originalCreateVerification
+      spy.mockRestore()
 
       // The user row must have been cleaned up
       const checkUser = await getUserByEmail(app.auth, 'aborted-invite@example.com')
