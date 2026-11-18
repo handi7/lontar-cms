@@ -9,10 +9,12 @@ import {
   createUserForInvite,
   createUserWithCredential,
   deleteUser,
+  deleteUserResetTokens,
   disableUser,
   enableUser,
   getUserByEmail,
   getUserById,
+  hasCredentialAccount,
   listUsers,
   revokeUserSessions,
   setUserPassword,
@@ -270,6 +272,7 @@ async function handleInviteUser(
   const expiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000)
   const ctx = await auth.$context
 
+  await deleteUserResetTokens(auth, created.id)
   await ctx.internalAdapter.createVerificationValue({
     value: created.id,
     identifier: `reset-password:${token}`,
@@ -327,6 +330,13 @@ async function handleResendInvite(
   if (!user) {
     return c.json({ error: 'User not found' }, 404)
   }
+
+  const hasCredential = await hasCredentialAccount(auth, user.id)
+  if (hasCredential) {
+    return c.json({ error: 'User has already accepted invitation and set a password' }, 409)
+  }
+
+  await deleteUserResetTokens(auth, user.id)
 
   const token = randomBytes(24).toString('hex')
   const expiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000)
