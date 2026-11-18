@@ -1,3 +1,4 @@
+import { randomUUID } from 'node:crypto'
 import type { Auth } from './types'
 
 /**
@@ -48,10 +49,24 @@ interface VerificationAdapter {
   findOne?: (args: {
     model: string
     where: Array<{ field: string; value: unknown }>
-  }) => Promise<{ expiresAt?: Date | string | number } | null>
+  }) => Promise<{ expiresAt?: Date | string | number; value?: string } | null>
 }
 
-async function tryAcquireDbLock(adapter: VerificationAdapter, lockId: string): Promise<boolean> {
+const LOCK_TTL_MS = 15000
+const LOCK_TIMEOUT_MS = 5000
+
+export class LockTimeoutError extends Error {
+  constructor(lockId: string) {
+    super(`Could not acquire lock "${lockId}"; another operation is in progress`)
+    this.name = 'LockTimeoutError'
+  }
+}
+
+async function tryAcquireDbLock(
+  adapter: VerificationAdapter,
+  lockId: string,
+  owner: string,
+): Promise<boolean> {
   if (!adapter.create) return true
   try {
     await adapter.create({
@@ -59,8 +74,8 @@ async function tryAcquireDbLock(adapter: VerificationAdapter, lockId: string): P
       data: {
         id: lockId,
         identifier: lockId,
-        value: String(Date.now()),
-        expiresAt: new Date(Date.now() + 15000),
+        value: owner,
+        expiresAt: new Date(Date.now() + LOCK_TTL_MS),
         createdAt: new Date(),
         updatedAt: new Date(),
       },
@@ -74,9 +89,13 @@ async function tryAcquireDbLock(adapter: VerificationAdapter, lockId: string): P
         where: [{ field: 'id', value: lockId }],
       })
       if (existing?.expiresAt && new Date(existing.expiresAt).getTime() < Date.now()) {
+        // Only remove the exact stale row we observed, never a lock a peer just took.
         await adapter.delete?.({
           model: 'verification',
-          where: [{ field: 'id', value: lockId }],
+          where: [
+            { field: 'id', value: lockId },
+            { field: 'value', value: existing.value },
+          ],
         })
       }
     } catch {
@@ -86,39 +105,53 @@ async function tryAcquireDbLock(adapter: VerificationAdapter, lockId: string): P
   }
 }
 
-async function acquireDbLock(
-  auth: Auth,
-  lockId: string,
-  timeoutMs = 5000,
-): Promise<() => Promise<void>> {
+async function getLockAdapter(auth: Auth): Promise<VerificationAdapter | null> {
   try {
     const ctx = await auth.$context
     const adapter = ctx.adapter as VerificationAdapter | undefined
-    if (!adapter?.create || !adapter?.delete) {
-      return async () => {}
-    }
+    return adapter?.create && adapter?.delete ? adapter : null
+  } catch {
+    return null
+  }
+}
 
-    const start = Date.now()
-    while (Date.now() - start < timeoutMs) {
-      const acquired = await tryAcquireDbLock(adapter, lockId)
-      if (acquired) {
-        return async () => {
-          try {
-            await adapter.delete?.({
-              model: 'verification',
-              where: [{ field: 'id', value: lockId }],
-            })
-          } catch {
-            // Ignore release errors
-          }
+/**
+ * Takes a cross-instance lock stored in the `verification` table. When the adapter cannot
+ * store locks, only the in-process lock applies. When the lock cannot be taken within the
+ * timeout this throws instead of continuing unprotected.
+ */
+async function acquireDbLock(
+  auth: Auth,
+  lockId: string,
+  timeoutMs = LOCK_TIMEOUT_MS,
+): Promise<() => Promise<void>> {
+  const adapter = await getLockAdapter(auth)
+  if (!adapter) {
+    return async () => {}
+  }
+
+  const owner = randomUUID()
+  const start = Date.now()
+  while (Date.now() - start < timeoutMs) {
+    if (await tryAcquireDbLock(adapter, lockId, owner)) {
+      return async () => {
+        try {
+          // Match on the owner token so an expired holder cannot delete a newer holder's lock.
+          await adapter.delete?.({
+            model: 'verification',
+            where: [
+              { field: 'id', value: lockId },
+              { field: 'value', value: owner },
+            ],
+          })
+        } catch {
+          // Ignore release errors; the lock expires on its own
         }
       }
-      await new Promise((r) => setTimeout(r, 25))
     }
-  } catch {
-    // Ignore adapter setup errors
+    await new Promise((r) => setTimeout(r, 25))
   }
-  return async () => {}
+  throw new LockTimeoutError(lockId)
 }
 
 export async function withAdminMutationLock<T>(auth: Auth, fn: () => Promise<T>): Promise<T> {

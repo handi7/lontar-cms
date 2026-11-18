@@ -71,7 +71,7 @@ export function registerFirstUserRoutes(
 ): void {
   router.get('/_lontar/first-user', async (c) => {
     const totalUsers = await countTotalUsers(auth)
-    return c.json({ canRegisterFirstUser: totalUsers === 0, totalUsers })
+    return c.json({ canRegisterFirstUser: totalUsers === 0 })
   })
 
   router.post('/_lontar/first-user', async (c) => {
