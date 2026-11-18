@@ -91,7 +91,7 @@ async function evalGroupFields(
       childKey,
       `${prefix}${key}.${childKey}`,
       `${prefix}${key}.`,
-      { ...ctx, siblingData: groupData },
+      { ...ctx, siblingData: groupData ?? {} },
       groupPerm,
       flatPerms,
     )
@@ -236,7 +236,8 @@ async function evalSingleField(
 
   const perm = await evalFieldPermission(
     field,
-    { ...ctx, siblingData: ctx.doc },
+    // Inside a group `ctx.siblingData` is the group's data; only at the root does it fall back to the document.
+    { ...ctx, siblingData: ctx.siblingData ?? ctx.doc },
     parentAllowed,
     ctx.cache,
   )

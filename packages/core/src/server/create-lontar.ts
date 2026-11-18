@@ -4,6 +4,7 @@ import { defaultAc } from 'better-auth/plugins/admin/access'
 import { Hono, type Context } from 'hono'
 import { createFieldAccessCache, requestFieldAccessCache } from '../access/field-access'
 import { apiKeyPlugin, verifyApiKey, type ApiKeyItem } from '../auth/api-key'
+import { LockTimeoutError } from '../auth/lock'
 import { deleteUserResetTokens } from '../auth/user'
 import { resolveAdminBaseUrl } from './admin-url'
 import {
@@ -312,6 +313,11 @@ export function createLontar(config: Config, options: CreateLontarOptions = {}):
     err: Error,
     c: Context<{ Variables: LontarVariables }>,
   ): Response => {
+    if (err instanceof LockTimeoutError) {
+      return c.json({ error: 'Another operation is in progress. Please retry.' }, 503, {
+        'Retry-After': '1',
+      })
+    }
     console.error(err)
     return c.json({ error: 'Internal Server Error' }, 500)
   }

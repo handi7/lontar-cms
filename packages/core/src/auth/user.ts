@@ -422,6 +422,13 @@ export async function setUserPassword(auth: Auth, id: string, password: string):
   await deleteUserResetTokens(auth, id)
 }
 
+export class IncorrectPasswordError extends Error {
+  constructor() {
+    super('Current password is incorrect')
+    this.name = 'IncorrectPasswordError'
+  }
+}
+
 export async function verifyAndChangePassword(
   auth: Auth,
   userId: string,
@@ -443,7 +450,7 @@ export async function verifyAndChangePassword(
     password: currentPassword,
   })
   if (!isMatch) {
-    throw new Error('Current password is incorrect')
+    throw new IncorrectPasswordError()
   }
   const hashedNew = await ctx.password.hash(newPassword)
   await ctx.internalAdapter.updatePassword(userId, hashedNew)

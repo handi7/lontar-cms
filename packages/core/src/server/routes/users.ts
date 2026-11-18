@@ -16,6 +16,7 @@ import {
   getUserByEmail,
   getUserById,
   hasCredentialAccount,
+  IncorrectPasswordError,
   isUserActiveAdmin,
   listUsers,
   revokeUserSessions,
@@ -728,10 +729,16 @@ async function executeChangePassword(
     )
     return c.json({ message: 'Password changed successfully' })
   } catch (err) {
-    const blocked = await recordChangePasswordFailure(c, userId, ip, rateLimiter)
-    if (blocked) return blocked
-    const message = err instanceof Error ? err.message : 'Failed to change password'
-    return c.json({ error: message }, 400)
+    if (err instanceof IncorrectPasswordError) {
+      const blocked = await recordChangePasswordFailure(c, userId, ip, rateLimiter)
+      if (blocked) return blocked
+      return c.json({ error: err.message }, 400)
+    }
+    if (err instanceof Error && err.message === 'No password credential configured for this user') {
+      return c.json({ error: err.message }, 400)
+    }
+    console.error('[auth] Failed to change password:', err)
+    return c.json({ error: 'Failed to change password' }, 500)
   }
 }
 

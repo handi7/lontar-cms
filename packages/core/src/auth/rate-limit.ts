@@ -262,7 +262,6 @@ export class DatabaseRateLimitStorage implements RateLimitStorage {
           { field: 'count', operator: 'lt', value: rule.max },
         ],
         increment: { count: 1 },
-        set: { lastRequest: now },
       })
       if (updated) {
         return { allowed: true, retryAfter: null }
