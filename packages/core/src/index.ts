@@ -345,12 +345,14 @@ export {
 
 export {
   apiKeyPlugin,
+  calculateExpiresAt,
   cleanApiKey,
   createApiKey,
   generateRawApiKey,
   getApiKeyById,
   hashApiKey,
   listApiKeys,
+  MAX_TIMESTAMP_MS,
   revokeApiKey,
   verifyApiKey,
   type ApiKeyItem,
