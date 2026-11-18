@@ -769,7 +769,7 @@ describe('User Management API (/api/_lontar/users & /api/_lontar/me)', () => {
     const userCookie = await signInUser(app, 'invited@example.com', 'activated-pass123')
     expect(userCookie).toBeTruthy()
 
-    // 6. Resend invite
+    // 6. Resend invite is rejected with 409 because user already activated and has credential account
     const resendApiRes = await app.request(
       `/api/_lontar/users/${inviteBody.user.id}/resend-invite`,
       {
@@ -777,8 +777,10 @@ describe('User Management API (/api/_lontar/users & /api/_lontar/me)', () => {
         headers: { cookie: adminCookie },
       },
     )
-    expect(resendApiRes.status).toBe(200)
-    expect(sendEmail).toHaveBeenCalledTimes(2)
+    expect(resendApiRes.status).toBe(409)
+    const errBody = (await resendApiRes.json()) as { error: string }
+    expect(errBody.error).toBe('User has already accepted invitation and set a password')
+    expect(sendEmail).toHaveBeenCalledTimes(1)
   })
 
   it('requests password reset email and resets password via Better Auth', async () => {
@@ -1607,6 +1609,233 @@ describe('User Management API (/api/_lontar/users & /api/_lontar/me)', () => {
       })
       const sessionData = (await checkAfter.json()) as { user?: unknown } | null
       expect(!sessionData || !sessionData.user).toBe(true)
+    })
+  })
+
+  describe('Invite and reset token lifecycle and invalidation (#376)', () => {
+    function setupTokenApp() {
+      const sentEmails: EmailMessage[] = []
+      const sendEmail = vi.fn().mockImplementation((msg: EmailMessage) => {
+        sentEmails.push(msg)
+        return Promise.resolve()
+      })
+      const config: Config = {
+        secret: 'test-secret-that-is-at-least-32-chars-long-12345',
+        db: mockAdapter,
+        collections: [],
+        auth: {
+          roles: ['admin', 'editor'],
+          defaultRole: 'editor',
+          adminRole: 'admin',
+        },
+        email: {
+          adapter: { sendEmail },
+          from: 'Lontar <no-reply@lontar.dev>',
+        },
+      }
+      const app = createLontar(config, { baseURL: 'http://localhost:3000' })
+      return { app, sendEmail, sentEmails }
+    }
+
+    it('resend-invite invalidates earlier invite token and creates new valid token', async () => {
+      const { app, sentEmails } = setupTokenApp()
+      const adminCookie = await registerFirstAdmin(app)
+
+      // Admin invites user
+      const inviteRes = await app.request('/api/_lontar/users', {
+        method: 'POST',
+        headers: { cookie: adminCookie, 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          email: 'cycle@example.com',
+          name: 'Cycle User',
+          role: 'editor',
+          invite: true,
+        }),
+      })
+      expect(inviteRes.status).toBe(201)
+      const inviteBody = (await inviteRes.json()) as { user: CleanUser }
+      const token1 = sentEmails[0]!.text?.match(/token=([a-f0-9]+)/)?.[1]
+      expect(token1).toBeTruthy()
+
+      // Resend invite
+      const resendRes = await app.request(
+        `/api/_lontar/users/${inviteBody.user.id}/resend-invite`,
+        {
+          method: 'POST',
+          headers: { cookie: adminCookie },
+        },
+      )
+      expect(resendRes.status).toBe(200)
+      const token2 = sentEmails[1]!.text?.match(/token=([a-f0-9]+)/)?.[1]
+      expect(token2).toBeTruthy()
+      expect(token2).not.toBe(token1)
+
+      // Old token1 must fail
+      const failRes = await app.request('/api/auth/reset-password', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          token: token1,
+          newPassword: 'new-password-123',
+        }),
+      })
+      expect(failRes.status).toBe(400)
+
+      // New token2 succeeds
+      const successRes = await app.request('/api/auth/reset-password', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          token: token2,
+          newPassword: 'new-password-123',
+        }),
+      })
+      expect(successRes.status).toBe(200)
+
+      // Resending invite now fails with 409
+      const afterResend = await app.request(
+        `/api/_lontar/users/${inviteBody.user.id}/resend-invite`,
+        {
+          method: 'POST',
+          headers: { cookie: adminCookie },
+        },
+      )
+      expect(afterResend.status).toBe(409)
+    })
+
+    it('requesting new password reset invalidates earlier reset tokens', async () => {
+      const { app, sentEmails } = setupTokenApp()
+      await registerFirstAdmin(app)
+
+      await createUserWithCredential(app.auth, {
+        email: 'multi-reset@example.com',
+        name: 'Multi Reset User',
+        password: 'initial-password123',
+        role: 'editor',
+      })
+
+      // First reset request
+      await app.request('/api/auth/forget-password', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email: 'multi-reset@example.com' }),
+      })
+      const token1 = sentEmails[0]!.text?.match(/token=([^&\s]+)/)?.[1]
+      expect(token1).toBeTruthy()
+
+      // Second reset request
+      await app.request('/api/auth/forget-password', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email: 'multi-reset@example.com' }),
+      })
+      const token2 = sentEmails[1]!.text?.match(/token=([^&\s]+)/)?.[1]
+      expect(token2).toBeTruthy()
+      expect(token2).not.toBe(token1)
+
+      // First token is now invalidated
+      const failRes = await app.request('/api/auth/reset-password', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ token: token1, newPassword: 'reset-password-1' }),
+      })
+      expect(failRes.status).toBe(400)
+
+      // Second token succeeds
+      const successRes = await app.request('/api/auth/reset-password', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ token: token2, newPassword: 'reset-password-2' }),
+      })
+      expect(successRes.status).toBe(200)
+    })
+
+    it('user changing password via /api/_lontar/me/password invalidates outstanding reset/invite tokens', async () => {
+      const { app, sentEmails } = setupTokenApp()
+      await registerFirstAdmin(app)
+
+      await createUserWithCredential(app.auth, {
+        email: 'change-pw@example.com',
+        name: 'Change PW User',
+        password: 'initial-password123',
+        role: 'editor',
+      })
+
+      const userSession = await signInUser(app, 'change-pw@example.com', 'initial-password123')
+
+      // Request reset token
+      await app.request('/api/auth/forget-password', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email: 'change-pw@example.com' }),
+      })
+      const token = sentEmails[0]!.text?.match(/token=([^&\s]+)/)?.[1]
+      expect(token).toBeTruthy()
+
+      // User changes password while logged in
+      const changeRes = await app.request('/api/_lontar/me/password', {
+        method: 'POST',
+        headers: { cookie: userSession, 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          currentPassword: 'initial-password123',
+          newPassword: 'changed-password-456',
+        }),
+      })
+      expect(changeRes.status).toBe(200)
+
+      // Outstanding reset token must now be invalid
+      const failRes = await app.request('/api/auth/reset-password', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ token, newPassword: 'attacker-password-789' }),
+      })
+      expect(failRes.status).toBe(400)
+    })
+
+    it('admin setting user password via /api/_lontar/users/:id/password invalidates outstanding reset/invite tokens', async () => {
+      const { app, sentEmails } = setupTokenApp()
+      const adminCookie = await registerFirstAdmin(app)
+
+      // Admin invites user
+      const inviteRes = await app.request('/api/_lontar/users', {
+        method: 'POST',
+        headers: { cookie: adminCookie, 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          email: 'admin-override@example.com',
+          name: 'Admin Override User',
+          role: 'editor',
+          invite: true,
+        }),
+      })
+      const inviteBody = (await inviteRes.json()) as { user: CleanUser }
+      const token = sentEmails[0]!.text?.match(/token=([a-f0-9]+)/)?.[1]
+      expect(token).toBeTruthy()
+
+      // Admin directly sets password for user
+      const setPwRes = await app.request(`/api/_lontar/users/${inviteBody.user.id}/password`, {
+        method: 'POST',
+        headers: { cookie: adminCookie, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ password: 'admin-assigned-pass123' }),
+      })
+      expect(setPwRes.status).toBe(200)
+
+      // Outstanding invite token must now be invalid
+      const failRes = await app.request('/api/auth/reset-password', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ token, newPassword: 'late-invite-pass' }),
+      })
+      expect(failRes.status).toBe(400)
+
+      // Resending invite is also rejected with 409
+      const resendRes = await app.request(
+        `/api/_lontar/users/${inviteBody.user.id}/resend-invite`,
+        {
+          method: 'POST',
+          headers: { cookie: adminCookie },
+        },
+      )
+      expect(resendRes.status).toBe(409)
     })
   })
 })

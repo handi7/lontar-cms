@@ -4,6 +4,7 @@ import { defaultAc } from 'better-auth/plugins/admin/access'
 import { Hono, type Context } from 'hono'
 import { createFieldAccessCache, requestFieldAccessCache } from '../access/field-access'
 import { apiKeyPlugin, verifyApiKey, type ApiKeyItem } from '../auth/api-key'
+import { deleteUserResetTokens } from '../auth/user'
 import { resolveAdminBaseUrl } from './admin-url'
 import {
   RateLimiter,
@@ -113,6 +114,7 @@ function createSendResetPasswordHandler(
   resolvedEmail: NonNullable<ReturnType<typeof resolveEmailConfig>>,
 ) {
   return async (data: { user: { id: string; email: string; name?: string }; token: string }) => {
+    await deleteUserResetTokens(getAuth(), data.user.id, data.token)
     const adminUrl = await resolveAdminBaseUrl(getAuth(), options)
     if (!adminUrl) {
       console.warn(
@@ -198,6 +200,7 @@ function buildAuthInstance(
           emailVerified: true,
           updatedAt: new Date(),
         })
+        await deleteUserResetTokens(auth, user.id)
       },
       ...(resolvedEmail
         ? {

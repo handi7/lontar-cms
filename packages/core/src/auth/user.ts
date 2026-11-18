@@ -164,7 +164,82 @@ export async function createUserForInvite(
 export async function hasCredentialAccount(auth: Auth, userId: string): Promise<boolean> {
   const ctx = await auth.$context
   const acc = await ctx.internalAdapter.findCredentialAccount(userId)
-  return Boolean(acc)
+  return Boolean(acc && (acc as { password?: string }).password)
+}
+
+interface VerificationRecord {
+  identifier?: string
+  value?: string
+}
+
+interface AdapterWithFind {
+  findMany?: (args: {
+    model: string
+    where: Array<{ field: string; value: unknown; operator?: string }>
+  }) => Promise<unknown[]>
+  deleteMany?: (args: {
+    model: string
+    where: Array<{ field: string; value: unknown; operator?: string }>
+  }) => Promise<number>
+}
+
+async function deleteMatchingVerificationTokens(
+  adapter: AdapterWithFind | undefined,
+  internalAdapter: { deleteVerificationByIdentifier: (identifier: string) => Promise<void> },
+  userId: string,
+  exceptIdentifier?: string,
+): Promise<void> {
+  if (!adapter?.findMany) return
+  const records = (await adapter.findMany({
+    model: 'verification',
+    where: [{ field: 'value', value: userId }],
+  })) as VerificationRecord[]
+
+  for (const record of records) {
+    if (
+      record.identifier?.startsWith('reset-password:') &&
+      record.identifier !== exceptIdentifier
+    ) {
+      await internalAdapter.deleteVerificationByIdentifier(record.identifier)
+    }
+  }
+}
+
+export async function deleteUserResetTokens(
+  auth: Auth,
+  userId: string,
+  exceptToken?: string,
+): Promise<void> {
+  const ctx = await auth.$context
+  const exceptIdentifier = exceptToken ? `reset-password:${exceptToken}` : undefined
+
+  try {
+    await deleteMatchingVerificationTokens(
+      ctx.adapter as AdapterWithFind | undefined,
+      ctx.internalAdapter,
+      userId,
+      exceptIdentifier,
+    )
+  } catch {
+    // Adapter may not support finding verification tokens directly
+  }
+
+  if (!exceptIdentifier) {
+    try {
+      const adapter = ctx.adapter as AdapterWithFind | undefined
+      if (adapter?.deleteMany) {
+        await adapter.deleteMany({
+          model: 'verification',
+          where: [
+            { field: 'value', value: userId },
+            { field: 'identifier', operator: 'starts_with', value: 'reset-password:' },
+          ],
+        })
+      }
+    } catch {
+      // Ignore fallback errors
+    }
+  }
 }
 
 export async function countTotalUsers(auth: Auth, where?: Where[]): Promise<number> {
@@ -335,6 +410,7 @@ export async function setUserPassword(auth: Auth, id: string, password: string):
     })
   }
   await ctx.internalAdapter.deleteUserSessions(id)
+  await deleteUserResetTokens(auth, id)
 }
 
 export async function verifyAndChangePassword(
@@ -370,6 +446,8 @@ export async function verifyAndChangePassword(
   } else {
     await ctx.internalAdapter.deleteUserSessions(userId)
   }
+
+  await deleteUserResetTokens(auth, userId)
 }
 
 export async function countActiveAdmins(auth: Auth, adminRole: string): Promise<number> {
