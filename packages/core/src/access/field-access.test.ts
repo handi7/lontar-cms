@@ -617,3 +617,34 @@ describe('sanitizeDocWrite', () => {
     })
   })
 })
+
+describe('sanitizeDocWrite with write-only nested subfields', () => {
+  const user = makeUser('editor')
+  const fields: Record<string, Field> = {
+    items: f.array({
+      fields: {
+        label: f.text({}),
+        secret: f.text({ access: { read: () => false, update: () => true } }),
+      },
+    }),
+  }
+  const doc = { items: [{ id: 1, label: 'a', secret: 'stored' }] }
+
+  it('writes an explicit incoming value like a top-level write-only field', async () => {
+    const out = await sanitizeDocWrite(
+      fields,
+      { items: [{ id: 1, label: 'b', secret: 'new' }] },
+      'update',
+      { user, doc },
+    )
+    expect((out.items as Array<Record<string, unknown>>)[0]?.secret).toBe('new')
+  })
+
+  it('keeps the stored value when the incoming row omits it', async () => {
+    const out = await sanitizeDocWrite(fields, { items: [{ id: 1, label: 'b' }] }, 'update', {
+      user,
+      doc,
+    })
+    expect((out.items as Array<Record<string, unknown>>)[0]?.secret).toBe('stored')
+  })
+})

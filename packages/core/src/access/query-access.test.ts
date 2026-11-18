@@ -178,3 +178,37 @@ describe('validateQueryAccess', () => {
     ])
   })
 })
+
+describe('validateQueryAccess with document-dependent read access', () => {
+  const docCollection = collection({
+    slug: 'articles',
+    fields: {
+      title: f.text(),
+      internal: f.text({
+        access: {
+          // Returns true when no document is supplied, which must not open the field to filters.
+          read: ({ doc }) => !doc || (doc as { public?: boolean }).public === true,
+        },
+      }),
+    },
+  })
+
+  it('denies filtering and sorting on a field whose read rule depends on the document', async () => {
+    const user = makeUser('editor')
+    expect(
+      await validateQueryAccess({ internal: { equals: 'x' } }, undefined, docCollection, user),
+    ).toEqual([
+      {
+        path: 'internal',
+        message: "Field 'internal' cannot be filtered or sorted by current user",
+      },
+    ])
+    expect(await validateQueryAccess(undefined, '-internal', docCollection, user)).toHaveLength(1)
+  })
+
+  it('still allows fields without document-dependent rules', async () => {
+    expect(
+      await validateQueryAccess({ title: { equals: 'x' } }, 'title', docCollection, makeUser()),
+    ).toEqual([])
+  })
+})

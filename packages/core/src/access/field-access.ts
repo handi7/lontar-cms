@@ -52,10 +52,20 @@ function storeCachedFieldAccess(
   fnCache.set(userKey, result)
 }
 
+export interface CheckFieldAccessOptions {
+  /**
+   * Deny when the access function reads `id`, `data`, `siblingData` or `doc`. Used for
+   * collection-wide checks (query filters and sorts) where there is no single document to
+   * evaluate, so a document-dependent rule cannot be answered honestly.
+   */
+  denyOnDocumentAccess?: boolean
+}
+
 export async function checkFieldAccess(
   fn: FieldAccessFunction | undefined,
   args: FieldAccessArgs,
   cache?: FieldAccessCache,
+  options?: CheckFieldAccessOptions,
 ): Promise<boolean> {
   if (!fn) return true
 
@@ -90,9 +100,8 @@ export async function checkFieldAccess(
 
   try {
     const result = Boolean(await fn(proxyArgs))
-    if (!documentAccessed && effectiveCache) {
-      storeCachedFieldAccess(effectiveCache, fn, userKey, result)
-    }
+    if (documentAccessed) return !options?.denyOnDocumentAccess && result
+    if (effectiveCache) storeCachedFieldAccess(effectiveCache, fn, userKey, result)
     return result
   } catch (err) {
     console.warn('[lontar:access] Field access check threw an error:', err)
@@ -355,6 +364,13 @@ async function mergeSubfieldWithStored(
     rootData,
     targetId,
   )
+  if (!canUpdate) {
+    return name in storedRow ? storedRow[name] : undefined
+  }
+
+  // A write-only subfield (update allowed, read denied) behaves like a top-level one:
+  // an explicit incoming value is written, and an omitted one keeps the stored value,
+  // since the client could never have seen it to send it back.
   const canRead = await checkReadPermission(
     field,
     context.user,
@@ -364,8 +380,7 @@ async function mergeSubfieldWithStored(
     context.cache,
     context.req,
   )
-
-  if (!canUpdate || !canRead) {
+  if (!canRead && !(name in incomingRow)) {
     return name in storedRow ? storedRow[name] : undefined
   }
 
