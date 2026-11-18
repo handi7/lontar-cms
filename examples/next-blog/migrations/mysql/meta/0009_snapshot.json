@@ -1163,7 +1163,7 @@
           "primaryKey": false,
           "notNull": true,
           "autoincrement": false,
-          "default": "'editor'"
+          "default": "'author'"
         },
         "banned": {
           "name": "banned",

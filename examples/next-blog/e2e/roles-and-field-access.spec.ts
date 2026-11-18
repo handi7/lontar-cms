@@ -87,6 +87,11 @@ test.describe('Roles and Field-Level Access Control (M10)', () => {
     // Verify editorialNotes field is not in the DOM
     await expect(page.locator('textarea[name="editorialNotes"]')).toHaveCount(0)
 
+    // Verify publishedAt is locked/disabled for author on create view as well (#384)
+    const createPublishedAtButton = page.getByRole('button', { name: 'Published At' })
+    await expect(createPublishedAtButton).toBeVisible()
+    await expect(createPublishedAtButton).toBeDisabled()
+
     const postTitle = `Author Article ${Date.now()}`
     await page.locator('input[name="title"]').fill(postTitle)
 
@@ -290,14 +295,18 @@ test.describe('Roles and Field-Level Access Control (M10)', () => {
     const { apiKey } = (await apiKeyRes.json()) as { apiKey: { key: string } }
     expect(apiKey.key).toMatch(/^lt_[a-f0-9]{64}$/)
 
-    // Query REST API with API key in header
-    const postQueryRes = await request.get('/api/posts', {
+    // Unauthenticated request to /api/pages returns 401 (editor/admin only)
+    const unauthedPagesRes = await request.get('/api/pages')
+    expect(unauthedPagesRes.status()).toBe(401)
+
+    // Query REST API with API key in header (/api/pages proves key carries admin role)
+    const pageQueryRes = await request.get('/api/pages', {
       headers: {
         'x-api-key': apiKey.key,
       },
     })
-    expect(postQueryRes.ok()).toBe(true)
-    const postsData = (await postQueryRes.json()) as { docs: unknown[] }
-    expect(Array.isArray(postsData.docs)).toBe(true)
+    expect(pageQueryRes.ok()).toBe(true)
+    const pagesData = (await pageQueryRes.json()) as { docs: unknown[] }
+    expect(Array.isArray(pagesData.docs)).toBe(true)
   })
 })

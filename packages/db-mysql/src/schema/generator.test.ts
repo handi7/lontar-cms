@@ -294,6 +294,21 @@ describe('generateSchemaFile', () => {
     expect(output).toContain("index('session_userId_idx').on(table.userId)")
   })
 
+  it('respects auth.defaultRole when generating user table', () => {
+    const config: Config = {
+      secret: 'test-secret',
+      db: fakeAdapter,
+      auth: {
+        roles: ['admin', 'author'] as const,
+        defaultRole: 'author',
+      },
+      collections: [],
+    }
+
+    const output = generateSchemaFile(config)
+    expect(output).toContain("role: varchar('role', { length: 50 }).default('author').notNull(),")
+  })
+
   it('generates schema for globals', () => {
     const config: Config = {
       secret: 'test-secret',

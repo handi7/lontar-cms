@@ -105,6 +105,7 @@ const posts = collection({
     content: f.richText(),
     publishedAt: f.date({
       access: {
+        create: ({ user }) => isEditorOrAdmin(user),
         update: ({ user }) => isEditorOrAdmin(user),
       },
     }),

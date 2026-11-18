@@ -1172,7 +1172,7 @@
           "type": "text",
           "primaryKey": false,
           "notNull": true,
-          "default": "'editor'"
+          "default": "'author'"
         },
         "banned": {
           "name": "banned",

@@ -1,3 +1,4 @@
+import './env'
 import config from '../lontar.config'
 import {
   createApiKey,
@@ -5,6 +6,7 @@ import {
   createUserWithCredential,
   getUserByEmail,
   listApiKeys,
+  updateUser,
   type Auth,
 } from '@lontar/core'
 
@@ -41,7 +43,12 @@ async function ensureUser(auth: Auth, user: (typeof SEED_USERS)[number]): Promis
     console.log(`✓ Created user ${user.email} (${user.role})`)
     return { id: created.id }
   }
-  console.log(`• User ${user.email} already exists (${existing.role})`)
+  if (existing.role !== user.role) {
+    await updateUser(auth, existing.id, { role: user.role })
+    console.log(`✓ Updated user ${user.email} role from ${existing.role} to ${user.role}`)
+  } else {
+    console.log(`• User ${user.email} already exists (${existing.role})`)
+  }
   return { id: existing.id }
 }
 
@@ -67,6 +74,9 @@ async function ensureSeedApiKey(auth: Auth, adminUserId: string): Promise<string
 }
 
 export async function seedUsers(): Promise<{ apiKey?: string }> {
+  console.log(
+    'Notice: Seed accounts (e.g. admin@example.com / password123) are intended for development and testing only.\n',
+  )
   const app = createLontar(config)
   const auth = (app as unknown as { auth: Auth }).auth
 
