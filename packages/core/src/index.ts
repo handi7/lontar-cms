@@ -153,6 +153,8 @@ export {
   getUserByEmail,
   getUserById,
   hasCredentialAccount,
+  isUserActive,
+  isUserActiveAdmin,
   listUsers,
   revokeUserSessions,
   setUserPassword,
