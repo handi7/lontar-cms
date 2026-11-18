@@ -306,13 +306,8 @@ interface ResolvedSidebarFlags {
   readOnly: boolean
 }
 
-function resolveCanDelete(
-  mode: string,
-  showDelete?: boolean,
-  canDelete?: boolean,
-  readOnly?: boolean,
-): boolean {
-  if (readOnly || mode !== 'edit') return false
+function resolveCanDelete(mode: string, showDelete?: boolean, canDelete?: boolean): boolean {
+  if (mode !== 'edit') return false
   return Boolean(showDelete) && (canDelete ?? true)
 }
 
@@ -330,7 +325,7 @@ function resolveSidebarFlags(props: DocumentSidebarProps): ResolvedSidebarFlags 
     mode,
     resolvedStatus,
     canUnpublish: !readOnly && resolveCanUnpublish(mode, resolvedStatus, props.doc),
-    canDelete: resolveCanDelete(mode, props.showDelete, props.canDelete, readOnly),
+    canDelete: resolveCanDelete(mode, props.showDelete, props.canDelete),
     hasVersions: mode === 'edit' && Boolean(props.hasVersions),
     isSavingAutosave: resolveIsSavingAutosave(props, readOnly),
     showMetadata: mode === 'edit' && Boolean(props.doc),

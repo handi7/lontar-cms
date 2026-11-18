@@ -96,17 +96,15 @@ interface RelationshipSearchDropdownProps {
   onCancel?: () => void
 }
 
-function DropdownOptionsList({
-  docs,
-  titleField,
-  excludeIds,
-  onSelect,
-}: {
+interface DropdownOptionsListProps {
   docs: Array<Record<string, unknown>>
   titleField: string
   excludeIds?: number[]
   onSelect: (doc: Record<string, unknown>) => void
-}) {
+}
+
+function DropdownOptionsList(props: DropdownOptionsListProps) {
+  const { docs, titleField, excludeIds, onSelect } = props
   const filtered = excludeIds?.length
     ? docs.filter((d) => !excludeIds.includes(Number(d.id)))
     : docs
@@ -180,15 +178,7 @@ function RelationshipSearchDropdown({
   )
 }
 
-function SingleSelectedView({
-  selectedId,
-  title,
-  basePath,
-  relationTo,
-  changeButton,
-  onRemove,
-  disabled,
-}: {
+interface SingleSelectedViewProps {
   selectedId: number
   title: string
   basePath: string
@@ -196,7 +186,10 @@ function SingleSelectedView({
   changeButton?: ReactNode
   onRemove?: () => void
   disabled?: boolean
-}) {
+}
+
+function SingleSelectedView(props: SingleSelectedViewProps) {
+  const { selectedId, title, basePath, relationTo, changeButton, onRemove, disabled } = props
   const editUrl = getDocEditUrl(basePath, relationTo, selectedId)
   return (
     <PickerCard data-testid="relationship-single-selected">
@@ -302,21 +295,19 @@ function SingleRelationshipPicker({
 
 // `aria-label` is the accessible name, since the glyph alone (↑, ↓, ✕) would
 // be announced literally; the Tooltip shows the same text on hover and focus.
-// A disabled button gets no pointer events, so the first item's ↑ and the
-// last item's ↓ show no tooltip, as they never did with `title` either.
-function PickerIconButton({
-  label,
-  testId,
-  children,
-  ...props
-}: {
+interface PickerIconButtonProps {
   label: string
   testId: string
   children: string
   disabled?: boolean
   destructive?: boolean
   onClick: () => void
-}) {
+}
+
+// A disabled button gets no pointer events, so the first item's ↑ and the
+// last item's ↓ show no tooltip, as they never did with `title` either.
+function PickerIconButton(props: PickerIconButtonProps) {
+  const { label, testId, children, ...rest } = props
   return (
     <Tooltip>
       <TooltipTrigger asChild>
@@ -324,7 +315,7 @@ function PickerIconButton({
           aria-label={label}
           className="lt:size-6.5 lt:p-0 lt:disabled:opacity-40"
           data-testid={testId}
-          {...props}
+          {...rest}
         >
           {children}
         </PickerButton>
@@ -334,17 +325,7 @@ function PickerIconButton({
   )
 }
 
-function ManyItemRow({
-  id,
-  index,
-  total,
-  title,
-  basePath,
-  relationTo,
-  onMove,
-  onRemove,
-  disabled,
-}: {
+interface ManyItemRowProps {
   id: number
   index: number
   total: number
@@ -354,7 +335,10 @@ function ManyItemRow({
   onMove: (from: number, to: number) => void
   onRemove: (idx: number) => void
   disabled?: boolean
-}) {
+}
+
+function ManyItemRow(props: ManyItemRowProps) {
+  const { id, index, total, title, basePath, relationTo, onMove, onRemove, disabled } = props
   const editUrl = getDocEditUrl(basePath, relationTo, id)
   return (
     <PickerCard className="lt:gap-2 lt:px-2.5 lt:py-1.5" data-testid={`relationship-item-${id}`}>
@@ -429,6 +413,17 @@ function reorderItems(ids: number[], from: number, to: number): number[] {
   return next
 }
 
+interface ManySelectedListProps {
+  ids: number[]
+  docsMap: Map<number, Record<string, unknown>>
+  titleField: string
+  basePath: string
+  relationTo: string
+  onMove: (from: number, to: number) => void
+  onRemove: (idx: number) => void
+  disabled?: boolean
+}
+
 function ManySelectedList({
   ids,
   docsMap,
@@ -438,16 +433,7 @@ function ManySelectedList({
   onMove,
   onRemove,
   disabled,
-}: {
-  ids: number[]
-  docsMap: Map<number, Record<string, unknown>>
-  titleField: string
-  basePath: string
-  relationTo: string
-  onMove: (from: number, to: number) => void
-  onRemove: (idx: number) => void
-  disabled?: boolean
-}) {
+}: ManySelectedListProps) {
   return (
     <div className="lt:flex lt:flex-col lt:gap-1.5" data-testid="relationship-many-list">
       {ids.map((id, index) => {

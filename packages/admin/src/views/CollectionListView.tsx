@@ -36,7 +36,7 @@ import {
   TableHeader,
   TableRow,
 } from '../components/ui/table'
-import { CollectionFilterBar, type ActiveFilter } from './CollectionFilterBar'
+import { CollectionFilterBar, resolveSearchField, type ActiveFilter } from './CollectionFilterBar'
 import { ConfirmDeleteDialog } from './ConfirmDeleteDialog'
 import { DocumentStatusBadge } from './DocumentStatusBadge'
 import { EmptyCard } from './EmptyCard'
@@ -164,12 +164,12 @@ function applyActiveFilters(where: Where, activeFilters: ActiveFilter[]): void {
 
 function buildWhereQuery(
   searchTerm: string,
-  searchField: string,
+  searchField: string | undefined,
   activeFilters: ActiveFilter[],
   statusFilter?: 'all' | 'published' | 'draft',
 ): Where | undefined {
   const where: Where = {}
-  if (searchTerm.trim()) {
+  if (searchTerm.trim() && searchField) {
     where[searchField] = { contains: searchTerm.trim() }
   }
 
@@ -364,15 +364,13 @@ function buildColumns(
   return [...dataColumns, actionsColumn]
 }
 
-function CollectionTable({
-  table,
-  data,
-  onPageChange,
-}: {
+interface CollectionTableProps {
   table: Table<Record<string, unknown>>
   data?: PaginatedDocs
   onPageChange: (newPage: number) => void
-}) {
+}
+
+function CollectionTable({ table, data, onPageChange }: CollectionTableProps) {
   return (
     <div className="lt:overflow-hidden lt:rounded-md lt:border lt:bg-card">
       <UITable>
@@ -453,13 +451,12 @@ function CollectionTable({
   )
 }
 
-function EmptyState({
-  collection,
-  canCreate = true,
-}: {
+interface EmptyStateProps {
   collection: ClientCollection
   canCreate?: boolean
-}) {
+}
+
+function EmptyState({ collection, canCreate = true }: EmptyStateProps) {
   return (
     <EmptyCard>
       <p className={emptyTextClass}>No {collection.labels.plural.toLowerCase()} found.</p>
@@ -474,6 +471,19 @@ function EmptyState({
   )
 }
 
+interface ListContentProps {
+  isLoading: boolean
+  isError?: boolean
+  docsCount: number
+  hasActiveFilters: boolean
+  collection: ClientCollection
+  canCreate?: boolean
+  onClearFilters: () => void
+  table: Table<Record<string, unknown>>
+  data?: PaginatedDocs
+  onPageChange: (newPage: number) => void
+}
+
 function ListContent({
   isLoading,
   isError,
@@ -485,18 +495,7 @@ function ListContent({
   table,
   data,
   onPageChange,
-}: {
-  isLoading: boolean
-  isError?: boolean
-  docsCount: number
-  hasActiveFilters: boolean
-  collection: ClientCollection
-  canCreate?: boolean
-  onClearFilters: () => void
-  table: Table<Record<string, unknown>>
-  data?: PaginatedDocs
-  onPageChange: (newPage: number) => void
-}) {
+}: ListContentProps) {
   if (isLoading) {
     return <EmptyCard>Loading documents...</EmptyCard>
   }
@@ -612,13 +611,12 @@ function useListDeleteMutation(apiBase: string, slug?: string) {
   }
 }
 
-function ListAlerts({
-  queryError,
-  deleteError,
-}: {
+interface ListAlertsProps {
   queryError?: Error | null
   deleteError?: string | null
-}) {
+}
+
+function ListAlerts({ queryError, deleteError }: ListAlertsProps) {
   if (!queryError && !deleteError) return null
   return (
     <>
@@ -715,7 +713,11 @@ function CollectionListTable({ collection }: CollectionListTableProps) {
     setDeleteError(null)
   }, [collection.slug, page, setDeleteError])
 
-  const searchField = collection.admin.useAsTitle || 'title'
+  const { collectionPerm, canCreate, canDelete } = useCollectionPermissionsState(collection.slug)
+  const searchField = useMemo(
+    () => resolveSearchField(collection, collectionPerm?.fields),
+    [collection, collectionPerm?.fields],
+  )
   const hasDrafts = Boolean(collection.versions?.drafts)
 
   const where = useMemo(
@@ -732,8 +734,6 @@ function CollectionListTable({ collection }: CollectionListTableProps) {
     where,
     hasDrafts,
   )
-
-  const { collectionPerm, canCreate, canDelete } = useCollectionPermissionsState(collection.slug)
 
   const columns = useMemo(() => {
     return buildColumns(collection, handleDelete, isDeleting, canDelete, collectionPerm?.fields)

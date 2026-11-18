@@ -151,4 +151,18 @@ describe('AcceptInviteView (#344)', () => {
 
     expect(await screen.findByText('Invitation token has expired')).toBeTruthy()
   })
+
+  it('cleans up token from address bar using history.replaceState (#383)', () => {
+    const replaceStateSpy = vi.spyOn(window.history, 'replaceState')
+    window.history.pushState({}, '', '/accept-invite?token=secret-invite-token')
+
+    renderAcceptInviteView('?token=secret-invite-token')
+
+    expect(replaceStateSpy).toHaveBeenCalledWith(
+      expect.anything(),
+      '',
+      expect.not.stringContaining('token='),
+    )
+    replaceStateSpy.mockRestore()
+  })
 })

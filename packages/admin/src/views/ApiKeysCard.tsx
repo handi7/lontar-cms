@@ -25,6 +25,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from '../components/ui/select'
+import { ConfirmDeleteDialog } from './ConfirmDeleteDialog'
 
 export interface CreateApiKeyDialogProps {
   open: boolean
@@ -240,6 +241,7 @@ export function ApiKeysCard(props: ApiKeysCardProps) {
   const user = auth?.user
   const queryClient = useQueryClient()
   const [dialogOpen, setDialogOpen] = useState(false)
+  const [keyToRevoke, setKeyToRevoke] = useState<ApiKeyDoc | null>(null)
   const [revokingId, setRevokingId] = useState<string | null>(null)
   const [actionError, setActionError] = useState<string | null>(null)
 
@@ -296,12 +298,28 @@ export function ApiKeysCard(props: ApiKeysCardProps) {
               <ApiKeyRow
                 key={key.id}
                 apiKey={key}
-                onRevoke={(id) => void handleRevoke(id)}
+                onRevoke={() => setKeyToRevoke(key)}
                 isRevoking={revokingId === key.id}
               />
             ))}
           </div>
         )}
+
+        <ConfirmDeleteDialog
+          open={Boolean(keyToRevoke)}
+          onOpenChange={(open) => {
+            if (!open) setKeyToRevoke(null)
+          }}
+          title="Revoke API key"
+          description={`Are you sure you want to revoke "${keyToRevoke?.name}"? Any application or script using this key will immediately lose access. This cannot be undone.`}
+          confirmLabel="Revoke"
+          onConfirm={() => {
+            if (keyToRevoke) {
+              void handleRevoke(keyToRevoke.id)
+              setKeyToRevoke(null)
+            }
+          }}
+        />
 
         <CreateApiKeyDialog
           open={dialogOpen}

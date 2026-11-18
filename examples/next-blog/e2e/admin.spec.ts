@@ -273,12 +273,13 @@ test.describe('Lontar CMS Admin in Next.js', () => {
     await expect(page.getByText('API keys', { exact: true })).toBeVisible()
 
     // 3. Create a new API key
+    const keyName = `E2E Machine Key ${Date.now()}`
     await page.getByRole('button', { name: 'Create API key' }).click()
     const dialog = page.getByRole('dialog')
     await expect(dialog).toBeVisible()
     await expect(dialog.getByRole('heading', { name: 'Create API Key' })).toBeVisible()
 
-    await dialog.locator('#api-key-name').fill('E2E Machine Key')
+    await dialog.locator('#api-key-name').fill(keyName)
     await dialog.getByRole('button', { name: 'Create key' }).click()
 
     // 4. Verify created key dialog and read key value
@@ -292,7 +293,7 @@ test.describe('Lontar CMS Admin in Next.js', () => {
     await expect(dialog).not.toBeVisible()
 
     // 5. Verify key is listed
-    await expect(page.getByText('E2E Machine Key')).toBeVisible()
+    await expect(page.getByText(keyName)).toBeVisible()
 
     // 6. Test calling REST API with Bearer token
     const bearerRes = await request.get('/api/posts', {
@@ -308,14 +309,17 @@ test.describe('Lontar CMS Admin in Next.js', () => {
     })
     expect(xKeyRes.ok()).toBe(true)
 
-    // 8. Revoke the API key from Account page
+    // 8. Revoke the API key from Account page (with confirmation dialog #383)
     const keyRow = page
       .locator('div')
-      .filter({ hasText: 'E2E Machine Key' })
+      .filter({ hasText: keyName })
       .filter({ has: page.getByRole('button', { name: 'Revoke' }) })
       .last()
     await keyRow.getByRole('button', { name: 'Revoke' }).click()
-    await expect(page.getByText('E2E Machine Key')).not.toBeVisible()
+    const confirmDialog = page.getByRole('alertdialog')
+    await expect(confirmDialog).toBeVisible()
+    await confirmDialog.getByRole('button', { name: 'Revoke' }).click()
+    await expect(page.getByText(keyName)).not.toBeVisible()
 
     // 9. Subsequent REST API call with revoked key returns 401
     const revokedRes = await request.get('/api/posts', {

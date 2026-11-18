@@ -2093,6 +2093,38 @@ describe('group field rendering and binding', () => {
       expect(screen.getByTestId('locked-icon-meta.readOnlyCode')).toBeTruthy()
     })
 
+    it('renders padlock icon when group field itself is locked (#383)', () => {
+      const groupField: ClientGroupField = {
+        name: 'meta',
+        type: 'group',
+        label: 'Metadata',
+        required: false,
+        fields: [{ name: 'note', type: 'text', label: 'Note', required: false }],
+      }
+
+      const permissions: FieldPermission = {
+        read: true,
+        create: true,
+        update: false,
+      }
+
+      render(
+        <FormWrapper defaultValues={{ meta: { note: 'value' } }}>
+          {({ control, register }) => (
+            <FieldRenderer
+              field={groupField}
+              control={control}
+              register={register}
+              mode="edit"
+              permissions={permissions}
+            />
+          )}
+        </FormWrapper>,
+      )
+
+      expect(screen.getByTestId('locked-icon-meta')).toBeTruthy()
+    })
+
     it('handles array field permissions: disables adding/editing when array is locked, filters subfields', () => {
       const arrayField: ClientArrayField = {
         name: 'items',
