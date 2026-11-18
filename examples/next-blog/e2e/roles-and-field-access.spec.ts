@@ -295,9 +295,9 @@ test.describe('Roles and Field-Level Access Control (M10)', () => {
     const { apiKey } = (await apiKeyRes.json()) as { apiKey: { key: string } }
     expect(apiKey.key).toMatch(/^lt_[a-f0-9]{64}$/)
 
-    // Unauthenticated request to /api/pages returns 403 (editor/admin only)
+    // Unauthenticated request to /api/pages returns 401 (editor/admin only)
     const unauthedPagesRes = await request.get('/api/pages')
-    expect(unauthedPagesRes.status()).toBe(403)
+    expect(unauthedPagesRes.status()).toBe(401)
 
     // Query REST API with API key in header (/api/pages proves key carries admin role)
     const pageQueryRes = await request.get('/api/pages', {
