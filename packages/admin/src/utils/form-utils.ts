@@ -308,6 +308,78 @@ export function filterReadableFields(
     .map((f) => mapSubfieldPermissions(f, permissions[f.name]))
 }
 
+function makeFieldOptionalForValidation(field: ClientField): ClientField {
+  if (field.type === 'array' || field.type === 'blocks') {
+    return { ...field, required: false, minRows: 0 }
+  }
+  return { ...field, required: false }
+}
+
+function mapSubfieldValidation(
+  f: ClientField,
+  perm: FieldPermission | undefined,
+  mode: 'create' | 'edit',
+  readOnlyDoc: boolean,
+): ClientField {
+  if (f.type === 'group') {
+    return {
+      ...f,
+      fields: buildFormValidationFields(f.fields, perm?.fields, mode, readOnlyDoc),
+    }
+  }
+  if (f.type === 'array') {
+    return {
+      ...f,
+      fields: buildFormValidationFields(f.fields, perm?.fields, mode, readOnlyDoc),
+    }
+  }
+  if (f.type === 'blocks') {
+    return {
+      ...f,
+      blocks: f.blocks.map((b) => ({
+        ...b,
+        fields: buildFormValidationFields(
+          b.fields,
+          perm?.blocks?.[b.slug]?.fields,
+          mode,
+          readOnlyDoc,
+        ),
+      })),
+    }
+  }
+  return f
+}
+
+function buildSingleValidationField(
+  f: ClientField,
+  permissions: Record<string, FieldPermission> | undefined,
+  mode: 'create' | 'edit',
+  readOnlyDoc: boolean,
+): ClientField | null {
+  const perm = permissions?.[f.name]
+  if (perm?.read === false) return null
+
+  const isLocked = readOnlyDoc || isFieldReadOnly(perm, mode, readOnlyDoc)
+  const withSubfields = mapSubfieldValidation(f, perm, mode, isLocked)
+  return isLocked ? makeFieldOptionalForValidation(withSubfields) : withSubfields
+}
+
+export function buildFormValidationFields(
+  fields: readonly ClientField[],
+  permissions?: Record<string, FieldPermission>,
+  mode: 'create' | 'edit' = 'edit',
+  readOnlyDoc = false,
+): ClientField[] {
+  if (!permissions && !readOnlyDoc) return [...fields]
+
+  const result: ClientField[] = []
+  for (const f of fields) {
+    const field = buildSingleValidationField(f, permissions, mode, readOnlyDoc)
+    if (field) result.push(field)
+  }
+  return result
+}
+
 function getExplicitDefault(f: ClientField): unknown {
   if ('defaultValue' in f && f.defaultValue !== undefined) {
     return f.type === 'date' ? formatDateForInput(f.defaultValue) : f.defaultValue

@@ -36,6 +36,7 @@ import {
 import { FieldRenderer } from '../fields/FieldRenderer'
 import { FileUploadZone, formatFilesize } from '../fields/FileUploadZone'
 import {
+  buildFormValidationFields,
   computeDefaultValues,
   formatDocForForm,
   formatDocForSubmit,
@@ -533,9 +534,9 @@ function useCollectionAutosave({
   const isValid = useMemo(() => {
     if (Object.keys(errors).length > 0) return false
     const values = formValues && Object.keys(formValues).length > 0 ? formValues : getValues()
-    const payload = formatDocForSubmit(collection.fields, values, true, permissions, mode)
+    const payload = formatDocForSubmit(collection.fields, values, true, undefined, mode)
     return schema.safeParse(payload).success
-  }, [errors, formValues, getValues, collection.fields, permissions, mode, schema])
+  }, [errors, formValues, getValues, collection.fields, mode, schema])
 
   const onSave = useCallback(async () => {
     if (!id) throw new Error('Missing document id')
@@ -927,7 +928,13 @@ function CollectionEditor({ collection, mode, id }: CollectionEditorProps) {
   const { readOnlyDoc, canDeleteDoc, canReadVersions, fieldPermissions, isUnreadable } =
     useCollectionEditorPermissions(collection.slug, mode, docPermissions)
 
-  const schema = useMemo(() => clientFieldsToZod(collection.fields), [collection])
+  const schema = useMemo(
+    () =>
+      clientFieldsToZod(
+        buildFormValidationFields(collection.fields, fieldPermissions, mode, readOnlyDoc),
+      ),
+    [collection.fields, fieldPermissions, mode, readOnlyDoc],
+  )
   const defaultValues = useMemo(() => computeDefaultValues(collection.fields), [collection])
 
   const {

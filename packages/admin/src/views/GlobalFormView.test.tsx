@@ -49,6 +49,60 @@ function parseJsonBody(body: unknown): Record<string, unknown> | undefined {
   return undefined
 }
 
+function mockGlobalDocEndpoint(
+  url: string,
+  init: RequestInit | undefined,
+  savedPayloads: Record<string, unknown>[],
+) {
+  if (url.includes('/api/globals/settings') && init?.method === 'POST') {
+    const body = parseJsonBody(init.body)
+    if (body) savedPayloads.push(body)
+    return mockJsonResponse({
+      siteTitle: body?.siteTitle ?? 'My Site',
+      _status: 'published',
+      createdAt: '2026-01-01T00:00:00.000Z',
+      updatedAt: '2026-01-01T00:00:00.000Z',
+    })
+  }
+  if (url.includes('/api/globals/settings')) {
+    return mockJsonResponse({
+      siteTitle: 'My Site',
+      _status: 'published',
+      createdAt: '2026-01-01T00:00:00.000Z',
+      updatedAt: '2026-01-01T00:00:00.000Z',
+    })
+  }
+  return Promise.reject(new Error(`Unhandled URL: ${url}`))
+}
+
+function mockRequiredSecretFetch(
+  url: string,
+  init: RequestInit | undefined,
+  config: ClientConfig,
+  savedPayloads: Record<string, unknown>[],
+) {
+  if (url.includes('/_lontar/config')) {
+    return mockJsonResponse(config)
+  }
+  if (url.includes('/auth/get-session')) {
+    return mockJsonResponse({ user: mockAuthUser, session: mockAuthSession })
+  }
+  if (url.includes('/_lontar/permissions/globals/settings')) {
+    return mockJsonResponse({
+      read: true,
+      update: true,
+      fields: {
+        siteTitle: { read: true, update: true },
+        secretKey: { read: false, update: false },
+      },
+    })
+  }
+  if (url.includes('/api/globals/settings/versions')) {
+    return mockJsonResponse({ docs: [], totalDocs: 0, limit: 10, page: 1, totalPages: 1 })
+  }
+  return mockGlobalDocEndpoint(url, init, savedPayloads)
+}
+
 describe('Global form draft and publish (#234)', () => {
   beforeEach(() => {
     vi.restoreAllMocks()
@@ -425,5 +479,51 @@ describe('GlobalFormView permissions (#341)', () => {
 
     // Publish button is present
     expect(screen.getByRole('button', { name: /^Publish$/ })).toBeTruthy()
+  })
+
+  it('allows saving global when an unreadable field is required (#373)', async () => {
+    const configWithRequiredSecret: ClientConfig = {
+      version: CLIENT_CONFIG_VERSION,
+      collections: [],
+      globals: [
+        {
+          slug: 'settings',
+          label: 'Site Settings',
+          versions: { drafts: true },
+          fields: [
+            { name: 'siteTitle', label: 'Site Title', type: 'text', required: true },
+            { name: 'secretKey', label: 'Secret Key', type: 'text', required: true },
+          ],
+        },
+      ],
+    }
+
+    const savedPayloads: Record<string, unknown>[] = []
+
+    vi.stubGlobal(
+      'fetch',
+      vi
+        .fn()
+        .mockImplementation((url: string, init?: RequestInit) =>
+          mockRequiredSecretFetch(url, init, configWithRequiredSecret, savedPayloads),
+        ),
+    )
+
+    const history = createMemoryHistory({ initialEntries: ['/admin/globals/settings'] })
+    render(<Admin apiBase="/api" basePath="/admin" history={history} />)
+
+    const titleInput = await screen.findByLabelText<HTMLInputElement>(/site title/i)
+    expect(titleInput.disabled).toBe(false)
+
+    // secretKey is not in the form
+    expect(screen.queryByLabelText(/secret key/i)).toBeNull()
+
+    const publishBtn = screen.getByRole('button', { name: /^Publish$/ })
+    fireEvent.click(publishBtn)
+
+    await waitFor(() => {
+      expect(savedPayloads.length).toBeGreaterThan(0)
+      expect(savedPayloads[0]?.siteTitle).toBe('My Site')
+    })
   })
 })
