@@ -253,6 +253,7 @@ When an administrator bans or disables a user:
 
 - **Fixed User Schema:** Users cannot be given arbitrary dynamic CMS fields via `defineConfig.collections` in M10. If custom fields are required later, they will need explicit extension points or a linked profile collection.
 - **Single Role Constraint:** Users cannot hold multiple concurrent roles (e.g., cannot be both `'editor'` and `'billing'`). This is deemed acceptable and optimal for headless CMS requirements.
+- **Reserved Slugs:** `apikey` and `rateLimit` (along with slugs `rate-limit` and `ratelimit`) are reserved by `defineConfig` to avoid collisions with the auth API key and rate limiting tables and generated schema identifiers (#375).
 
 ---
 

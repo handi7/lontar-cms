@@ -1,6 +1,12 @@
 export { collection } from './config/collection'
 export { global } from './config/global'
-export { defineConfig, LontarConfigError } from './config/define-config'
+export {
+  defineConfig,
+  LontarConfigError,
+  slugToIdentifier,
+  RESERVED_IDENTIFIERS,
+  RESERVED_SLUGS,
+} from './config/define-config'
 export { toClientCollection, toClientConfig, toClientGlobal } from './config/to-client-config'
 export { CLIENT_CONFIG_VERSION } from './client/client-config'
 export { fields, block } from './fields'

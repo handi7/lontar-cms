@@ -50,6 +50,33 @@ describe('defineConfig', () => {
     ])
   })
 
+  it('rejects slugs that collide with auth tables or fixed routes (#375)', () => {
+    for (const slug of [
+      'globals',
+      'auth',
+      'user',
+      'session',
+      'account',
+      'verification',
+      'apikey',
+      'rate-limit',
+      'ratelimit',
+    ]) {
+      expect(issuesOf([notes({ slug })])).toEqual([`Collection slug "${slug}" is reserved.`])
+    }
+  })
+
+  it('rejects collection slugs that generate colliding schema identifiers (#375)', () => {
+    expect(issuesOf([notes({ slug: 'foo-1' }), notes({ slug: 'foo1' })])).toEqual([
+      'Collection slug "foo1" generates identifier "foo1" which collides with "foo-1".',
+    ])
+  })
+
+  it('allows non-colliding slugs containing api or limit', () => {
+    expect(issuesOf([notes({ slug: 'api-keys' })])).toEqual([])
+    expect(issuesOf([notes({ slug: 'rate-limits' })])).toEqual([])
+  })
+
   it.each(['my-field', '2nd', 'has space'])('rejects the field name %j', (name) => {
     expect(issuesOf([notes({ fields: { [name]: f.text() } })])).toEqual([
       expect.stringContaining(`field name "${name}" must start with`),
@@ -265,6 +292,33 @@ describe('defineConfig', () => {
         globals: [{ slug: 'globals', fields: { title: f.text() } }],
       }),
     ).toThrow('Global slug "globals" is reserved.')
+
+    expect(() =>
+      defineConfig({
+        secret: SECRET,
+        db: fakeAdapter,
+        collections: [notes()],
+        globals: [{ slug: 'apikey', fields: { title: f.text() } }],
+      }),
+    ).toThrow('Global slug "apikey" is reserved.')
+
+    expect(() =>
+      defineConfig({
+        secret: SECRET,
+        db: fakeAdapter,
+        collections: [notes()],
+        globals: [{ slug: 'rate-limit', fields: { title: f.text() } }],
+      }),
+    ).toThrow('Global slug "rate-limit" is reserved.')
+
+    expect(() =>
+      defineConfig({
+        secret: SECRET,
+        db: fakeAdapter,
+        collections: [notes({ slug: 'site-1' })],
+        globals: [{ slug: 'site1', fields: { title: f.text() } }],
+      }),
+    ).toThrow('Global slug "site1" generates identifier "site1" which collides with "site-1"')
 
     expect(() =>
       defineConfig({

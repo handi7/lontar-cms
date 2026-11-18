@@ -5,6 +5,12 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Upgrading
+
+- `apikey` and `rateLimit` (along with slugs `rate-limit` and `ratelimit`) are now reserved collection and global slugs/identifiers to avoid collisions with the auth API key and rate limiting tables. A config with a collection or global matching these reserved slugs or generating colliding schema identifiers is rejected by `defineConfig` (#375).
+
 ## [0.5.0] - 2026-11-16
 
 PostgreSQL support (M9, tracked in #147). `@lontar/db-postgres` is a new package: the same collections, globals, nested fields, drafts and versions now run on PostgreSQL as well as MySQL, and both adapters are held to one shared conformance suite. A config written against 0.4.0 keeps working on MySQL, apart from the behaviour changes under Upgrading. `@lontar/admin`, `@lontar/next`, `@lontar/preview`, `@lontar/storage-local` and `@lontar/storage-s3` have no changes of their own; they are published so their `@lontar/core` peer range moves with the rest.
