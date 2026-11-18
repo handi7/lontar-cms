@@ -678,5 +678,50 @@ describe('Permissions endpoint (GET /api/_lontar/permissions and /api/_lontar/ac
       })
       expect(adminRes.status).toBe(200)
     })
+
+    it('evaluates field create access without id or doc on document permissions endpoint (#385)', async () => {
+      let createReceivedId: unknown = 'initial'
+      let createReceivedDoc: unknown = 'initial'
+
+      const inspectionCol = collection({
+        slug: 'inspections',
+        access: {
+          read: () => true,
+        },
+        fields: {
+          name: f.text({ required: true }),
+          flag: f.text({
+            access: {
+              read: () => true,
+              create: (ctx) => {
+                createReceivedId = ctx.id
+                createReceivedDoc = ctx.doc
+                return true
+              },
+            },
+          }),
+        },
+      })
+
+      const customStore: Record<string, Record<number, StoredDoc>> = {
+        inspections: {
+          1: { id: 1, name: 'Sample', flag: 'active' },
+        },
+      }
+      const db = buildTestDb(customStore, {})
+      const config: Config = {
+        secret: 'a-very-long-secret-key-that-is-at-least-32-chars-long!',
+        db,
+        collections: [inspectionCol],
+      }
+      const app = createLontar(config, { baseURL: 'http://localhost:3000' })
+
+      const res = await app.request('/api/_lontar/permissions/inspections/1')
+      expect(res.status).toBe(200)
+      const data = (await res.json()) as CollectionPermission
+      expect(data.fields.flag?.create).toBe(true)
+      expect(createReceivedId).toBeUndefined()
+      expect(createReceivedDoc).toBeUndefined()
+    })
   })
 })

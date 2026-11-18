@@ -108,7 +108,7 @@ export interface FieldAccess {
 - **Populated Relationships (`depth`):** When populating related documents via `depth >= 1`, target collection documents are recursively sanitized according to the target fields' `read` access rules.
 - **Globals:** Unreadable global fields are removed from `GET /api/globals/:slug` and `getLontar().findGlobal()`.
 - **Version History and Snapshots:** When an authorized user inspects past versions (`GET /api/:collection/:id/versions` and `/versions/:versionId`), fields the caller cannot read are stripped from the snapshot.
-- **Version Diffs:** The version comparison endpoint (`GET /api/:collection/:id/versions/:from/diff/:to`) filters out diff entries for fields the user cannot read, preventing unauthorized change inspection.
+- **Version Snapshots and Diffs:** Version retrieval endpoints (`GET /api/:collection/:id/versions` and `GET /api/:collection/:id/versions/:versionId`) sanitize snapshots by stripping fields the caller cannot read. The admin UI computes version diffs client-side from these sanitized snapshots, eliminating the need for a dedicated server diff endpoint while guaranteeing that unauthorized field changes are never disclosed.
 - **Webhook Payloads:** By default, webhooks are triggered by the server with system authority (`overrideAccess: true`). However, tenant-scoped or external subscriber feeds execute with sanitized projections.
 
 ### 3. Write Semantics: Silent Drop and Constraint Handling
@@ -137,11 +137,17 @@ When an update or create request includes fields for which the caller does not h
 Allowing arbitrary queries against unreadable fields allows attackers to leak hidden values through timing or binary search conditions (e.g. `?where[secretKey][like]=a%` or `?where[salary][greater_than]=50000`).
 
 - **Decision: The query validator rejects `where` filters and `sort` parameters targeting fields the current caller cannot read.**
-- If a query includes a filter or sort on a forbidden field, the API immediately returns `400 Bad Request` with:
+- If a query includes a filter or sort on a forbidden field, the API immediately returns `400 Bad Request` with standard Lontar validation error structure:
   ```json
   {
-    "error": "Bad Request",
-    "message": "Field 'salary' cannot be filtered or sorted by current user"
+    "error": "Validation failed",
+    "message": "Field 'salary' cannot be filtered or sorted by current user",
+    "issues": [
+      {
+        "path": "salary",
+        "message": "Field 'salary' cannot be filtered or sorted by current user"
+      }
+    ]
   }
   ```
 - This applies to top-level fields and nested JSON filter paths (`seo.keywords`, `arrayField.subField`).
@@ -150,9 +156,17 @@ Allowing arbitrary queries against unreadable fields allows attackers to leak hi
 
 To enable dynamic form rendering without violating Architecture Rule 1:
 
-- The server exposes a permissions endpoint:
+- The server exposes permissions endpoints:
   - `GET /api/_lontar/permissions` (collection & global summary)
-  - `GET /api/_lontar/permissions/:collection/:id` (document-specific permissions)
+  - `GET /api/_lontar/permissions/:collection/:id` (document-specific permissions, also supported via `GET /api/_lontar/permissions?collection=:collection&id=:id`)
+  - `GET /api/_lontar/permissions/globals/:global` (global-specific permissions)
+
+#### Document-Specific Evaluation Context
+
+When querying document-specific permissions via `GET /api/_lontar/permissions/:collection/:id`:
+
+- `id` and `doc` (the existing document retrieved from the database) are passed into `read`, `update`, and `delete` access functions.
+- `create` access functions (both collection-level and field-level) are evaluated **without** `id` or `doc` (receiving `{ user, req, siblingData }`), matching the execution context of actual document creation where no database record exists yet.
 
 #### Response Schema
 

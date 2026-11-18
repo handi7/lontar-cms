@@ -19,7 +19,7 @@ Milestone 10 ([#148](https://github.com/handi7/lontar-cms/issues/148)) implement
 
 1. Where users live (Better Auth core tables vs a dynamic Lontar collection).
 2. The roles configuration format and whether users have single or multiple roles.
-3. Which Better Auth plugins to adopt (`admin`, `apiKey`).
+3. Which Better Auth plugins to adopt (`admin`) and how to structure API keys.
 4. Schema changes across MySQL and PostgreSQL and migration/backfill strategy for existing installations.
 5. First-user bootstrap and CLI user provisioning.
 6. TypeScript typing and `generate:types` integration.
@@ -81,9 +81,9 @@ Each user has exactly one active role stored in `user.role` (e.g., `'admin' | 'e
 
 The user management API (`/api/_lontar/users/*`) and the corresponding admin UI screens are strictly restricted to users whose `role` equals `config.auth.adminRole` (by default, `'admin'`). Non-admin users cannot list other users, invite users, update user roles, or ban accounts.
 
-### 3. Better Auth Plugins: Admin and API Key
+### 3. Better Auth Admin Plugin and Lontar API Key Subsystem
 
-We adopt Better Auth's official plugins within `@lontar/core`:
+We adopt Better Auth's official `admin` plugin for user and role management, while implementing a dedicated, lightweight API key subsystem tailored for Lontar CMS REST API access:
 
 1. **Better Auth `admin` plugin (`better-auth/plugins/admin`):**
    - Provides battle-tested server primitives for role management, session revocation, user banning/unbanning, and credential management.
@@ -92,9 +92,14 @@ We adopt Better Auth's official plugins within `@lontar/core`:
      - `banned`: `boolean`, `NOT NULL`, default `false`.
      - `banReason`: `text`, nullable.
      - `banExpires`: `timestamp`, nullable.
-2. **Better Auth `apiKey` plugin (`better-auth/plugins/api-key`):**
+2. **Lontar API Key Subsystem (`packages/core/src/auth/api-key.ts`):**
    - Implemented in [#345](https://github.com/handi7/lontar-cms/issues/345) for machine-to-machine REST API access.
-   - Adds an `apikey` table managed alongside the other auth tables in both adapters.
+   - Instead of adopting `better-auth/plugins/api-key` directly, Lontar implements its own API key subsystem using an internal Better Auth plugin schema (`apiKeyPlugin()`).
+   - _Rationale:_
+     - **Direct Hono Pipeline Integration:** Seamless verification in Hono middleware for both `Authorization: Bearer lt_<hash>` and `x-api-key: <token>` headers without relying on Better Auth's client-side request wrappers or RPC conventions.
+     - **Secure Token Lifecycle:** Generates cryptographically secure `lt_<64-hex>` tokens, storing only one-way SHA-256 hashes (`key`) in the database while persisting a plaintext preview prefix (`start`) for user identification in the UI.
+     - **Role & Ban Inheritance:** API keys automatically inherit the owning user's current role and are immediately rejected if the owning user is banned (`banned: true`) or deleted, guaranteeing zero-latency revocation.
+     - **CMS-Tailored Admin UI & Endpoints:** Provides dedicated REST endpoints (`GET/POST/DELETE /api/_lontar/api-keys`) and an integrated `ApiKeysCard` on the Account page in `@lontar/admin`.
 
 ### 4. Schema and Upgrade Path
 
@@ -245,7 +250,7 @@ When an administrator bans or disables a user:
 ### Positive
 
 - **Complete Role Alignment:** Resolves the discrepancy where `README.md` relied on `user?.role === 'admin'` without DB backing.
-- **Battle-Tested Security:** Leveraging Better Auth's official `admin` and `apiKey` plugins prevents reinventing session revocation, password resets, and token hashing.
+- **Battle-Tested Security:** Leveraging Better Auth's official `admin` plugin alongside Lontar's SHA-256 hashed API key subsystem prevents reinventing session revocation, password resets, and token hashing.
 - **Zero-Downtime Upgrade:** Existing projects upgrading from v0.5 automatically backfill the initial user to `'admin'` and subsequent users to `'editor'`.
 - **End-to-End Type Safety:** `generate:types` ensures compile-time detection of role name typos in access rules and frontend components.
 
@@ -264,6 +269,6 @@ When an administrator bans or disables a user:
 3. **#342:** Implement user management REST API (`/api/_lontar/users`) with role assignment and ban controls.
 4. **#343:** Implement admin users list, user creation/editing modal, and personal account screen.
 5. **#344:** Email delivery integration for password resets and user invitation emails.
-6. **#345:** Machine-to-machine API keys using Better Auth `apiKey` plugin.
+6. **#345:** Machine-to-machine API keys using Lontar API key subsystem with SHA-256 hashed storage.
 7. **#346:** Rate limiting for auth routes and multi-instance storage support.
 8. **#347:** Integrate roles and access control into `examples/next-blog` with end-to-end tests.
