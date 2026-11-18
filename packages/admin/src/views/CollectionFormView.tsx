@@ -242,6 +242,9 @@ function useDocMutations({
         void queryClient.invalidateQueries({
           queryKey: queryKeys.docVersions(apiBase, slug, id),
         })
+        void queryClient.invalidateQueries({
+          queryKey: queryKeys.documentPermissionsPrefix(apiBase, slug, id),
+        })
       }
       onSaveSuccess?.()
       onDocApplied?.(savedDoc)
@@ -289,6 +292,9 @@ function useDocMutations({
         void queryClient.invalidateQueries({
           queryKey: queryKeys.docVersions(apiBase, slug, id),
         })
+        void queryClient.invalidateQueries({
+          queryKey: queryKeys.documentPermissionsPrefix(apiBase, slug, id),
+        })
       }
       setSuccessMsg('Unpublished successfully!')
       onDocApplied?.(unpublishedDoc)
@@ -312,6 +318,9 @@ function useDocMutations({
         })
         void queryClient.invalidateQueries({
           queryKey: queryKeys.docVersions(apiBase, slug, id),
+        })
+        void queryClient.invalidateQueries({
+          queryKey: queryKeys.documentPermissionsPrefix(apiBase, slug, id),
         })
       }
       void navigate({ to: '/$collection', params: { collection: slug } })
@@ -568,6 +577,9 @@ function useCollectionAutosave({
         )
         void queryClient.invalidateQueries({
           queryKey: queryKeys.docVersions(apiBase, collection.slug, id),
+        })
+        void queryClient.invalidateQueries({
+          queryKey: queryKeys.documentPermissionsPrefix(apiBase, collection.slug, id),
         })
       }
     },
@@ -1132,6 +1144,9 @@ function CollectionEditor({ collection, mode, id }: CollectionEditorProps) {
               queryKeys.document(collection.slug, id, Boolean(hasDrafts)),
               restoredDoc,
             )
+            void queryClient.invalidateQueries({
+              queryKey: queryKeys.documentPermissionsPrefix(apiBase, collection.slug, id),
+            })
           }
           reset(formatDocForForm(collection.fields, restoredDoc))
           setSuccessMsg('Version restored successfully!')

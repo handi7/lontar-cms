@@ -21,7 +21,10 @@ export const AuthContext = createContext<AuthContextValue | null>(null)
 
 function clearUserData(queryClient: ReturnType<typeof useQueryClient>) {
   queryClient.removeQueries({
-    predicate: (query) => !String(query.queryKey[0]).startsWith('_lontar_'),
+    predicate: (query) => {
+      const key = String(query.queryKey[0])
+      return key !== '_lontar_session' && key !== '_lontar_config'
+    },
   })
 }
 

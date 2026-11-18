@@ -149,6 +149,16 @@ describe('PermissionsContext', () => {
     expect(client.fetchDocumentPermissions).toHaveBeenCalledWith('/api', 'articles', '123', {
       draft: true,
     })
+    expect(
+      queryClient.getQueryData([
+        '_lontar_document_permissions',
+        '/api',
+        'articles',
+        '123',
+        'draft',
+        'u1',
+      ]),
+    ).toEqual(docPerm)
   })
 
   it('useGlobalPermissions queries global permissions', async () => {
@@ -168,5 +178,8 @@ describe('PermissionsContext', () => {
       expect(result.current.data).toEqual(globPerm)
     })
     expect(client.fetchGlobalPermissions).toHaveBeenCalledWith('/api', 'settings')
+    expect(
+      queryClient.getQueryData(['_lontar_global_permissions', '/api', 'settings', 'u1']),
+    ).toEqual(globPerm)
   })
 })

@@ -61,11 +61,40 @@ describe('queryKeys factory (#233)', () => {
       'articles',
       '1',
       'draft',
+      'anonymous',
+    ])
+    expect(queryKeys.documentPermissions('/api', 'articles', 1, true, 'user-123')).toEqual([
+      '_lontar_document_permissions',
+      '/api',
+      'articles',
+      '1',
+      'draft',
+      'user-123',
+    ])
+    expect(queryKeys.documentPermissionsPrefix('/api', 'articles', 1)).toEqual([
+      '_lontar_document_permissions',
+      '/api',
+      'articles',
+      '1',
     ])
     expect(queryKeys.globalPermissions('/api', 'settings')).toEqual([
       '_lontar_global_permissions',
       '/api',
       'settings',
+      'anonymous',
     ])
+    expect(queryKeys.globalPermissions('/api', 'settings', 'user-123')).toEqual([
+      '_lontar_global_permissions',
+      '/api',
+      'settings',
+      'user-123',
+    ])
+    expect(queryKeys.globalPermissionsPrefix('/api', 'settings')).toEqual([
+      '_lontar_global_permissions',
+      '/api',
+      'settings',
+    ])
+    expect(queryKeys.apiKeys('/api', 'user-123')).toEqual(['_lontar_api_keys', '/api', 'user-123'])
+    expect(queryKeys.apiKeys('/api')).toEqual(['_lontar_api_keys', '/api', 'anonymous'])
   })
 })

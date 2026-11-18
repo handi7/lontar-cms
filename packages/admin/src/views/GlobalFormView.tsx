@@ -204,6 +204,9 @@ function useGlobalMutations({
       queryClient.setQueryData(queryKeys.global(slug), saved)
       void queryClient.invalidateQueries({ queryKey: queryKeys.global(slug) })
       void queryClient.invalidateQueries({ queryKey: queryKeys.globalVersions(apiBase, slug) })
+      void queryClient.invalidateQueries({
+        queryKey: queryKeys.globalPermissionsPrefix(apiBase, slug),
+      })
       onSaveSuccess?.()
     },
     onError: (err: Error) => handleValidationError(err, setError, setApiError),
@@ -222,6 +225,9 @@ function useGlobalMutations({
       queryClient.setQueryData(queryKeys.global(slug), unpublished)
       void queryClient.invalidateQueries({ queryKey: queryKeys.global(slug) })
       void queryClient.invalidateQueries({ queryKey: queryKeys.globalVersions(apiBase, slug) })
+      void queryClient.invalidateQueries({
+        queryKey: queryKeys.globalPermissionsPrefix(apiBase, slug),
+      })
       onSaveSuccess?.()
     },
     onError: (err: Error) => setApiError(err.message || 'Failed to unpublish.'),
@@ -318,6 +324,9 @@ function useGlobalEditorAutosave({
       queryClient.setQueryData(queryKeys.global(slug), savedDoc)
       void queryClient.invalidateQueries({
         queryKey: queryKeys.globalVersions(apiBase, slug),
+      })
+      void queryClient.invalidateQueries({
+        queryKey: queryKeys.globalPermissionsPrefix(apiBase, slug),
       })
     },
     [apiBase, global.fields, onDocApplied, queryClient, reset, slug],
@@ -751,6 +760,9 @@ function GlobalEditor({ global, slug, apiBase }: GlobalEditorProps) {
         onRestore={(restored) => {
           onDocApplied(restored)
           queryClient.setQueryData(queryKeys.global(slug), restored)
+          void queryClient.invalidateQueries({
+            queryKey: queryKeys.globalPermissionsPrefix(apiBase, slug),
+          })
           reset(formatDocForForm(global.fields, restored))
           setSuccessMsg('Version restored successfully.')
         }}
