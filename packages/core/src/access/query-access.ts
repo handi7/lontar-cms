@@ -113,7 +113,10 @@ async function checkFieldRead(
   cache?: FieldAccessCache,
   req?: Request,
 ): Promise<boolean> {
-  return checkFieldAccess(field.access?.read, { user, req }, cache)
+  // There is no document here, so a read rule that depends on one is denied rather than guessed.
+  return checkFieldAccess(field.access?.read, { user, req }, cache, {
+    denyOnDocumentAccess: true,
+  })
 }
 
 async function checkBlocksFieldAccess(

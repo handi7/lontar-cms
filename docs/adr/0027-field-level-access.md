@@ -127,6 +127,8 @@ When an update or create request includes fields for which the caller does not h
   - If neither provides a value, write validation fails with a validation error (`400 Bad Request`), preventing incomplete records from being stored.
 - **`slug.from` fields:**
   - If a user lacks `update` access to a `slug` field, modifying the source field (`from: 'title'`) will not mutate the protected `slug`.
+- **Nested write-only subfields:**
+  - Inside `group`, `array` and `blocks`, a subfield the caller may update but not read behaves like a top-level write-only field: an explicit incoming value is written, and an omitted value keeps the stored one. A subfield the caller cannot update always keeps its stored value.
 - **Drafts and Autosave:**
   - In draft mode (`_status = 'draft'`), write access rules apply identically. Autosave payloads containing forbidden fields have those fields stripped before writing the draft snapshot.
 - **Version Restore:**
@@ -151,6 +153,7 @@ Allowing arbitrary queries against unreadable fields allows attackers to leak hi
   }
   ```
 - This applies to top-level fields and nested JSON filter paths (`seo.keywords`, `arrayField.subField`).
+- Query validation has no document to evaluate against. A field whose `read` function inspects `doc` (or `id`) is therefore treated as unreadable for filtering and sorting, since its result could differ per document and would leak through the query.
 
 ### 5. Admin Permissions Endpoint
 

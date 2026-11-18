@@ -226,6 +226,7 @@ approval on the `npm` environment. Don't run `pnpm publish` by hand; see `docs/r
     - [x] Invites and email: #376 (done), #382 (done)
     - [x] Minor: #379 (done), #380 (done), #383 (done), #384 (done)
     - [x] Docs: #385 (done)
+    - [x] Code review fixes from `main` @ b738d69: #412 (done), #413 (closed, intentional per #370), #414 (done), #415 (done)
 - [ ] **M11: Localization** (tracking in #149)
 - [ ] **M12: Admin UX & extensibility** (tracking in #150)
 
