@@ -88,27 +88,55 @@ export function cleanApiKey(raw: unknown): ApiKeyItem {
   }
 }
 
-function calculateExpiresAt(expiresIn?: number | null): Date | null {
-  if (expiresIn === undefined || expiresIn === null || expiresIn <= 0) {
+export const MAX_TIMESTAMP_MS = 2147483647000 // 2038-01-19T03:14:07.000Z (MySQL 32-bit timestamp limit)
+
+export function calculateExpiresAt(expiresIn?: number | null): Date | null {
+  if (expiresIn === undefined || expiresIn === null) {
     return null
   }
-  return new Date(Date.now() + expiresIn * 1000)
+  if (typeof expiresIn !== 'number' || !Number.isInteger(expiresIn) || expiresIn <= 0) {
+    throw new Error('expiresIn must be a positive integer')
+  }
+  const expiresAtMs = Date.now() + expiresIn * 1000
+  if (expiresAtMs > MAX_TIMESTAMP_MS) {
+    throw new Error('expiresIn must not exceed 2038-01-19T03:14:07Z')
+  }
+  const date = new Date(expiresAtMs)
+  if (Number.isNaN(date.getTime())) {
+    throw new Error('expiresIn produces an invalid date')
+  }
+  return date
 }
 
 export async function createApiKey(
   auth: Auth,
   options: CreateApiKeyOptions,
 ): Promise<CreatedApiKeyResult> {
+  const name = typeof options.name === 'string' ? options.name.trim() : ''
+  if (!name || name.length > 255) {
+    throw new Error('API key name must be between 1 and 255 characters')
+  }
+  if (!options.userId || typeof options.userId !== 'string') {
+    throw new Error('userId is required')
+  }
+
+  const ctx = await auth.$context
+  if (ctx.internalAdapter?.findUserById) {
+    const userRecord = await ctx.internalAdapter.findUserById(options.userId)
+    if (!userRecord) {
+      throw new Error('User not found')
+    }
+  }
+
   const { rawKey, start } = generateRawApiKey()
   const hashed = hashApiKey(rawKey)
   const expiresAt = calculateExpiresAt(options.expiresIn)
   const now = new Date()
 
-  const ctx = await auth.$context
   const created = await ctx.adapter.create({
     model: 'apikey',
     data: {
-      name: options.name.trim(),
+      name,
       start,
       key: hashed,
       userId: options.userId,
@@ -167,10 +195,14 @@ export async function verifyApiKey(auth: Auth, rawKey: string): Promise<VerifyAp
   }
 
   // Update lastUsedAt asynchronously
-  void ctx.adapter.update({
-    model: 'apikey',
-    where: [{ field: 'id', value: keyItem.id }],
-    update: { lastUsedAt: new Date() },
+  void Promise.resolve(
+    ctx.adapter.update({
+      model: 'apikey',
+      where: [{ field: 'id', value: keyItem.id }],
+      update: { lastUsedAt: new Date() },
+    }),
+  ).catch((err: unknown) => {
+    console.warn('[auth] Failed to update API key lastUsedAt:', err)
   })
 
   return {

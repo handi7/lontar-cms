@@ -1,9 +1,11 @@
 import { describe, expect, it, vi } from 'vitest'
 import {
+  calculateExpiresAt,
   createApiKey,
   generateRawApiKey,
   hashApiKey,
   listApiKeys,
+  MAX_TIMESTAMP_MS,
   revokeApiKey,
   verifyApiKey,
 } from './api-key'
@@ -266,5 +268,145 @@ describe('API keys service (#345)', () => {
 
     // Another non-admin user cannot revoke
     await expect(revokeApiKey(mockAuth, 'k-123', otherUser, 'admin')).rejects.toThrow(/Forbidden/)
+  })
+
+  describe('calculateExpiresAt (#380)', () => {
+    it('returns null when expiresIn is undefined or null', () => {
+      expect(calculateExpiresAt(undefined)).toBeNull()
+      expect(calculateExpiresAt(null)).toBeNull()
+    })
+
+    it('rejects non-positive, non-integer, or non-number values', () => {
+      expect(() => calculateExpiresAt(0)).toThrow('expiresIn must be a positive integer')
+      expect(() => calculateExpiresAt(-10)).toThrow('expiresIn must be a positive integer')
+      expect(() => calculateExpiresAt(1.5)).toThrow('expiresIn must be a positive integer')
+      expect(() => calculateExpiresAt('3600' as unknown as number)).toThrow(
+        'expiresIn must be a positive integer',
+      )
+    })
+
+    it('rejects expiresIn past 2038-01-19 or safe max', () => {
+      expect(() => calculateExpiresAt(1e13)).toThrow(
+        'expiresIn must not exceed 2038-01-19T03:14:07Z',
+      )
+      const secondsPastMax = Math.floor((MAX_TIMESTAMP_MS - Date.now()) / 1000) + 100
+      expect(() => calculateExpiresAt(secondsPastMax)).toThrow(
+        'expiresIn must not exceed 2038-01-19T03:14:07Z',
+      )
+    })
+
+    it('returns valid Date for positive integer within range', () => {
+      const now = Date.now()
+      const expiresAt = calculateExpiresAt(3600)
+      expect(expiresAt).toBeInstanceOf(Date)
+      expect(expiresAt!.getTime()).toBeGreaterThanOrEqual(now + 3599 * 1000)
+      expect(expiresAt!.getTime()).toBeLessThanOrEqual(now + 3601 * 1000)
+    })
+  })
+
+  describe('createApiKey validation (#380)', () => {
+    it('rejects empty or excessively long names', async () => {
+      const mockAuth = {
+        $context: Promise.resolve({
+          adapter: { create: vi.fn() },
+        }),
+      } as unknown as Auth
+
+      await expect(
+        createApiKey(mockAuth, {
+          userId: 'user-1',
+          name: '',
+        }),
+      ).rejects.toThrow('API key name must be between 1 and 255 characters')
+
+      await expect(
+        createApiKey(mockAuth, {
+          userId: 'user-1',
+          name: '   ',
+        }),
+      ).rejects.toThrow('API key name must be between 1 and 255 characters')
+
+      await expect(
+        createApiKey(mockAuth, {
+          userId: 'user-1',
+          name: 'a'.repeat(256),
+        }),
+      ).rejects.toThrow('API key name must be between 1 and 255 characters')
+    })
+
+    it('rejects missing userId or non-existent user when internalAdapter exists', async () => {
+      const mockAuth = {
+        $context: Promise.resolve({
+          adapter: { create: vi.fn() },
+          internalAdapter: {
+            findUserById: vi.fn().mockResolvedValue(null),
+          },
+        }),
+      } as unknown as Auth
+
+      await expect(
+        createApiKey(mockAuth, {
+          userId: '',
+          name: 'My Key',
+        }),
+      ).rejects.toThrow('userId is required')
+
+      await expect(
+        createApiKey(mockAuth, {
+          userId: 'non-existent-user',
+          name: 'My Key',
+        }),
+      ).rejects.toThrow('User not found')
+    })
+  })
+
+  it('verifyApiKey handles lastUsedAt update failure without unhandled rejection (#380)', async () => {
+    const rawKey = 'lt_validkey123456'
+    const mockKeyRecord: Record<string, unknown> = {
+      id: 'key-1',
+      name: 'Prod Script',
+      start: 'lt_valid...',
+      userId: 'user-1',
+      expiresAt: null,
+      lastUsedAt: null,
+      createdAt: new Date(),
+    }
+
+    const mockUserRecord = {
+      id: 'user-1',
+      name: 'Bob',
+      email: 'bob@example.com',
+      role: 'editor',
+      banned: false,
+    }
+
+    const adapterFindOne = vi.fn().mockResolvedValue(mockKeyRecord)
+    const adapterUpdate = vi.fn().mockRejectedValue(new Error('DB connection lost'))
+    const internalFindUserById = vi.fn().mockResolvedValue(mockUserRecord)
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {})
+
+    const mockAuth = {
+      $context: Promise.resolve({
+        adapter: {
+          findOne: adapterFindOne,
+          update: adapterUpdate,
+        },
+        internalAdapter: {
+          findUserById: internalFindUserById,
+        },
+      }),
+    } as unknown as Auth
+
+    const res = await verifyApiKey(mockAuth, rawKey)
+    expect(res.valid).toBe(true)
+
+    // Wait a tick for microtask catch handler
+    await new Promise((resolve) => setTimeout(resolve, 10))
+
+    expect(warnSpy).toHaveBeenCalledWith(
+      '[auth] Failed to update API key lastUsedAt:',
+      expect.any(Error),
+    )
+    warnSpy.mockRestore()
   })
 })

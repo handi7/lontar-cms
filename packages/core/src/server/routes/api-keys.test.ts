@@ -362,4 +362,143 @@ describe('API Keys REST Routes & Middleware (#345)', () => {
     expect(deleteWithKeyRes.status).toBe(403)
     expect(await deleteWithKeyRes.json()).toEqual({ error: 'Forbidden' })
   })
+
+  it('validates request body and rejects invalid name, expiresIn, and userId (#380)', async () => {
+    const { app } = setupTestApp()
+    const adminCookie = await registerFirstAdmin(app)
+
+    // Helper for POST requests
+    const postKey = (body: unknown) =>
+      app.request('/api/_lontar/api-keys', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          cookie: adminCookie,
+        },
+        body: typeof body === 'string' ? body : JSON.stringify(body),
+      })
+
+    // Invalid JSON
+    const invalidJsonRes = await postKey('{ bad json')
+    expect(invalidJsonRes.status).toBe(400)
+    expect(await invalidJsonRes.json()).toEqual({ error: 'Invalid JSON body' })
+
+    // Non-object body
+    const nonObjectRes = await postKey('123')
+    expect(nonObjectRes.status).toBe(400)
+    expect(await nonObjectRes.json()).toEqual({ error: 'Invalid JSON body' })
+
+    // Name validations
+    const emptyBodyRes = await postKey({})
+    expect(emptyBodyRes.status).toBe(400)
+    expect(await emptyBodyRes.json()).toEqual({ error: 'Name is required' })
+
+    const emptyNameRes = await postKey({ name: '   ' })
+    expect(emptyNameRes.status).toBe(400)
+    expect(await emptyNameRes.json()).toEqual({ error: 'Name is required' })
+
+    const longNameRes = await postKey({ name: 'a'.repeat(256) })
+    expect(longNameRes.status).toBe(400)
+    expect(await longNameRes.json()).toEqual({ error: 'Name must be 255 characters or fewer' })
+
+    // expiresIn validations
+    const negExpRes = await postKey({ name: 'Test Key', expiresIn: -1 })
+    expect(negExpRes.status).toBe(400)
+    expect(await negExpRes.json()).toEqual({ error: 'expiresIn must be a positive integer' })
+
+    const zeroExpRes = await postKey({ name: 'Test Key', expiresIn: 0 })
+    expect(zeroExpRes.status).toBe(400)
+    expect(await zeroExpRes.json()).toEqual({ error: 'expiresIn must be a positive integer' })
+
+    const floatExpRes = await postKey({ name: 'Test Key', expiresIn: 1.5 })
+    expect(floatExpRes.status).toBe(400)
+    expect(await floatExpRes.json()).toEqual({ error: 'expiresIn must be an integer' })
+
+    const stringExpRes = await postKey({ name: 'Test Key', expiresIn: 'invalid' })
+    expect(stringExpRes.status).toBe(400)
+    expect(await stringExpRes.json()).toEqual({ error: 'expiresIn must be a positive integer' })
+
+    const hugeExpRes = await postKey({ name: 'Test Key', expiresIn: 1e13 })
+    expect(hugeExpRes.status).toBe(400)
+    expect(await hugeExpRes.json()).toEqual({
+      error: 'expiresIn must not exceed 2038-01-19T03:14:07Z',
+    })
+
+    const secondsUntil2040 = Math.floor((new Date('2040-01-01').getTime() - Date.now()) / 1000)
+    const futureExpRes = await postKey({ name: 'Test Key', expiresIn: secondsUntil2040 })
+    expect(futureExpRes.status).toBe(400)
+    expect(await futureExpRes.json()).toEqual({
+      error: 'expiresIn must not exceed 2038-01-19T03:14:07Z',
+    })
+
+    // userId validation
+    const emptyUserIdRes = await postKey({ name: 'Test Key', userId: '' })
+    expect(emptyUserIdRes.status).toBe(400)
+    expect(await emptyUserIdRes.json()).toEqual({ error: 'userId cannot be empty' })
+
+    const nonExistentUserRes = await postKey({
+      name: 'Test Key',
+      userId: 'non-existent-user-12345',
+    })
+    expect(nonExistentUserRes.status).toBe(404)
+    expect(await nonExistentUserRes.json()).toEqual({ error: 'User not found' })
+
+    // List with non-existent userId query param
+    const listNonExistentRes = await app.request(
+      '/api/_lontar/api-keys?userId=non-existent-user-12345',
+      {
+        headers: { cookie: adminCookie },
+      },
+    )
+    expect(listNonExistentRes.status).toBe(404)
+    expect(await listNonExistentRes.json()).toEqual({ error: 'User not found' })
+
+    // Valid creation with null expiresIn
+    const validNullRes = await postKey({ name: 'Never Expiring Key', expiresIn: null })
+    expect(validNullRes.status).toBe(201)
+    const validNullData = (await validNullRes.json()) as {
+      apiKey: { id: string; expiresAt: string | null }
+    }
+    expect(validNullData.apiKey.expiresAt).toBeNull()
+
+    // Valid creation with valid expiresIn
+    const validExpRes = await postKey({ name: 'Expiring Key', expiresIn: 86400 })
+    expect(validExpRes.status).toBe(201)
+    const validExpData = (await validExpRes.json()) as {
+      apiKey: { id: string; expiresAt: string | null }
+    }
+    expect(validExpData.apiKey.expiresAt).not.toBeNull()
+
+    // Valid creation for existing user by admin
+    await createUserWithCredential(app.auth, {
+      email: 'clerk@example.com',
+      password: 'password123',
+      name: 'Clerk User',
+      role: 'editor',
+    })
+    const usersRes = await app.request('/api/_lontar/users', { headers: { cookie: adminCookie } })
+    const usersData = (await usersRes.json()) as { docs: Array<{ id: string; email: string }> }
+    const clerkUser = usersData.docs.find((u) => u.email === 'clerk@example.com')!
+
+    const adminForUserRes = await postKey({
+      name: "Clerk's Admin-created Key",
+      userId: clerkUser.id,
+    })
+    expect(adminForUserRes.status).toBe(201)
+    const adminForUserData = (await adminForUserRes.json()) as {
+      apiKey: { userId: string }
+    }
+    expect(adminForUserData.apiKey.userId).toBe(clerkUser.id)
+
+    // Admin listing keys for valid user
+    const listUserKeysRes = await app.request(`/api/_lontar/api-keys?userId=${clerkUser.id}`, {
+      headers: { cookie: adminCookie },
+    })
+    expect(listUserKeysRes.status).toBe(200)
+    const listUserKeysData = (await listUserKeysRes.json()) as {
+      docs: Array<{ id: string; userId: string }>
+    }
+    expect(listUserKeysData.docs).toHaveLength(1)
+    expect(listUserKeysData.docs[0]!.userId).toBe(clerkUser.id)
+  })
 })

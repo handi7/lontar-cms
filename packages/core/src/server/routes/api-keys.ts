@@ -1,15 +1,40 @@
 import type { Context, Hono } from 'hono'
-import { createApiKey, getApiKeyById, listApiKeys, revokeApiKey } from '../../auth/api-key'
+import { z } from 'zod'
+import {
+  createApiKey,
+  getApiKeyById,
+  listApiKeys,
+  MAX_TIMESTAMP_MS,
+  revokeApiKey,
+} from '../../auth/api-key'
 import type { Auth, AuthUser, LontarVariables } from '../../auth/types'
+import { getUserById } from '../../auth/user'
 import type { Config } from '../../config/types'
 
 type LontarEnv = { Variables: LontarVariables }
 
-interface CreateApiKeyBody {
-  name?: string
-  expiresIn?: number | null
-  userId?: string
-}
+export const createApiKeyBodySchema = z.object({
+  name: z
+    .string({ error: 'Name is required' })
+    .trim()
+    .min(1, 'Name is required')
+    .max(255, 'Name must be 255 characters or fewer'),
+  expiresIn: z
+    .number({ error: 'expiresIn must be a positive integer' })
+    .int('expiresIn must be an integer')
+    .positive('expiresIn must be a positive integer')
+    .refine((val) => Date.now() + val * 1000 <= MAX_TIMESTAMP_MS, {
+      message: 'expiresIn must not exceed 2038-01-19T03:14:07Z',
+    })
+    .nullable()
+    .optional(),
+  userId: z
+    .string({ error: 'userId must be a string' })
+    .min(1, 'userId cannot be empty')
+    .optional(),
+})
+
+export type CreateApiKeyValidatedData = z.infer<typeof createApiKeyBodySchema>
 
 function checkAuthAccess(c: Context<LontarEnv>): {
   user?: AuthUser
@@ -42,17 +67,27 @@ function resolveTargetUserId(
 
 async function parseCreateBody(
   c: Context<LontarEnv>,
-): Promise<{ body?: CreateApiKeyBody; errorResponse?: Response }> {
+): Promise<{ data?: CreateApiKeyValidatedData; errorResponse?: Response }> {
+  let raw: unknown
   try {
-    const raw = await c.req.json<CreateApiKeyBody>()
-    return { body: raw }
+    raw = await c.req.json<unknown>()
   } catch {
     return { errorResponse: c.json({ error: 'Invalid JSON body' }, 400) }
   }
-}
 
-function parseExpiresIn(val: unknown): number | null {
-  return typeof val === 'number' && val > 0 ? val : null
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) {
+    return { errorResponse: c.json({ error: 'Invalid JSON body' }, 400) }
+  }
+
+  const result = createApiKeyBodySchema.safeParse(raw)
+  if (!result.success) {
+    const firstIssue = result.error.issues[0]
+    return {
+      errorResponse: c.json({ error: firstIssue?.message ?? 'Validation failed' }, 400),
+    }
+  }
+
+  return { data: result.data }
 }
 
 async function handleListApiKeys(
@@ -71,6 +106,13 @@ async function handleListApiKeys(
     return userResolution.errorResponse!
   }
 
+  if (requestedUserId) {
+    const targetUser = await getUserById(auth, userResolution.targetUserId)
+    if (!targetUser) {
+      return c.json({ error: 'User not found' }, 404)
+    }
+  }
+
   const docs = await listApiKeys(auth, userResolution.targetUserId)
   return c.json({ docs })
 }
@@ -86,24 +128,24 @@ async function handleCreateApiKey(
   }
 
   const parsed = await parseCreateBody(c)
-  if (parsed.errorResponse || !parsed.body) {
+  if (parsed.errorResponse || !parsed.data) {
     return parsed.errorResponse!
   }
 
-  const name = parsed.body.name?.trim()
-  if (!name) {
-    return c.json({ error: 'Name is required' }, 400)
-  }
-
-  const userResolution = resolveTargetUserId(c, authCheck.user, parsed.body.userId, adminRole)
+  const userResolution = resolveTargetUserId(c, authCheck.user, parsed.data.userId, adminRole)
   if (userResolution.errorResponse || !userResolution.targetUserId) {
     return userResolution.errorResponse!
   }
 
+  const targetUser = await getUserById(auth, userResolution.targetUserId)
+  if (!targetUser) {
+    return c.json({ error: 'User not found' }, 404)
+  }
+
   const apiKey = await createApiKey(auth, {
     userId: userResolution.targetUserId,
-    name,
-    expiresIn: parseExpiresIn(parsed.body.expiresIn),
+    name: parsed.data.name,
+    expiresIn: parsed.data.expiresIn,
   })
 
   return c.json({ apiKey }, 201)
