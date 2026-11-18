@@ -316,7 +316,7 @@ test.describe('Lontar CMS Admin in Next.js', () => {
       .filter({ has: page.getByRole('button', { name: 'Revoke' }) })
       .last()
     await keyRow.getByRole('button', { name: 'Revoke' }).click()
-    const confirmDialog = page.getByRole('dialog')
+    const confirmDialog = page.getByRole('alertdialog')
     await expect(confirmDialog).toBeVisible()
     await confirmDialog.getByRole('button', { name: 'Revoke' }).click()
     await expect(page.getByText(keyName)).not.toBeVisible()
