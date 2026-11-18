@@ -1,11 +1,12 @@
 import { randomBytes } from 'node:crypto'
 import type { Context, Hono } from 'hono'
 import { validatePassword } from '../../client/password'
+import { withAdminMutationLock } from '../../auth/lock'
 import type { RateLimiter } from '../../auth/rate-limit'
 import type { Auth, AuthUser, LontarVariables } from '../../auth/types'
 import {
+  type CleanUser,
   countActiveAdmins,
-  countTotalAdmins,
   createUserForInvite,
   createUserWithCredential,
   deleteUser,
@@ -15,6 +16,7 @@ import {
   getUserByEmail,
   getUserById,
   hasCredentialAccount,
+  isUserActiveAdmin,
   listUsers,
   revokeUserSessions,
   setUserPassword,
@@ -194,11 +196,15 @@ function validateRoleChange(
 
 async function checkActiveAdminGuard(
   auth: Auth,
-  targetRole: string,
+  targetUser: {
+    role?: string | null
+    banned?: boolean | null
+    banExpires?: Date | string | number | null
+  },
   adminRole: string,
   actionMsg: string,
 ): Promise<string | null> {
-  if (targetRole !== adminRole) return null
+  if (!isUserActiveAdmin(targetUser, adminRole)) return null
   const activeAdmins = await countActiveAdmins(auth, adminRole)
   if (activeAdmins <= 1) {
     return `Cannot ${actionMsg} the last administrator`
@@ -268,37 +274,45 @@ async function handleInviteUser(
     role: data.role,
   })
 
-  const token = randomBytes(24).toString('hex')
-  const expiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000)
+  let token: string | undefined
   const ctx = await auth.$context
 
-  await deleteUserResetTokens(auth, created.id)
-  await ctx.internalAdapter.createVerificationValue({
-    value: created.id,
-    identifier: `reset-password:${token}`,
-    expiresAt,
-  })
-
-  const adminBase = await resolveAdminBaseUrl(auth, options)
-  if (!adminBase) {
-    await ctx.internalAdapter.deleteUser(created.id)
-    await ctx.internalAdapter.deleteVerificationByIdentifier(`reset-password:${token}`)
-    return c.json(
-      { error: 'Cannot send invitation: baseURL or BETTER_AUTH_URL must be configured' },
-      400,
-    )
-  }
-  const inviteUrl = `${adminBase}/accept-invite?token=${token}`
-
   try {
+    token = randomBytes(24).toString('hex')
+    const expiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000)
+
+    await deleteUserResetTokens(auth, created.id)
+    await ctx.internalAdapter.createVerificationValue({
+      value: created.id,
+      identifier: `reset-password:${token}`,
+      expiresAt,
+    })
+
+    const adminBase = await resolveAdminBaseUrl(auth, options)
+    if (!adminBase) {
+      await ctx.internalAdapter.deleteUser(created.id)
+      await ctx.internalAdapter.deleteVerificationByIdentifier(`reset-password:${token}`)
+      return c.json(
+        { error: 'Cannot send invitation: baseURL or BETTER_AUTH_URL must be configured' },
+        400,
+      )
+    }
+    const inviteUrl = `${adminBase}/accept-invite?token=${token}`
+
     await sendEmailWithTemplate(resolvedEmail, 'invite', {
       user: { id: created.id, email: created.email, name: created.name },
       url: inviteUrl,
       token,
     })
   } catch (err) {
-    await ctx.internalAdapter.deleteUser(created.id)
-    await ctx.internalAdapter.deleteVerificationByIdentifier(`reset-password:${token}`)
+    try {
+      await ctx.internalAdapter.deleteUser(created.id)
+      if (token) {
+        await ctx.internalAdapter.deleteVerificationByIdentifier(`reset-password:${token}`)
+      }
+    } catch {
+      // Ignore secondary cleanup error
+    }
     const msg = err instanceof Error ? err.message : 'Unknown error'
     return c.json({ error: `Failed to send invitation email: ${msg}` }, 500)
   }
@@ -438,7 +452,7 @@ async function validateUpdateRole(
   auth: Auth,
   role: string | undefined,
   targetUserId: string,
-  targetUserRole: string,
+  targetUser: CleanUser,
   currentUser: AuthUser,
   config?: Config,
 ): Promise<string | null> {
@@ -447,7 +461,7 @@ async function validateUpdateRole(
   const roleError = validateRoleChange(role, targetUserId, currentUser, config)
   if (roleError) return roleError
   if (role !== adminRole) {
-    return await checkActiveAdminGuard(auth, targetUserRole, adminRole, 'demote')
+    return await checkActiveAdminGuard(auth, targetUser, adminRole, 'demote')
   }
   return null
 }
@@ -471,18 +485,23 @@ async function handleUpdateUser(
   const nameError = validateUpdateName(updateBody.name)
   if (nameError) return c.json({ error: nameError }, 400)
 
-  const roleError = await validateUpdateRole(
-    auth,
-    updateBody.role,
-    id,
-    targetUser.role,
-    currentUser,
-    config,
-  )
-  if (roleError) return c.json({ error: roleError }, 400)
+  return await withAdminMutationLock(auth, async () => {
+    const freshTarget = await getUserById(auth, id)
+    if (!freshTarget) return c.json({ error: 'User not found' }, 404)
 
-  const updated = await updateUser(auth, id, { name: updateBody.name, role: updateBody.role })
-  return c.json({ user: updated })
+    const roleError = await validateUpdateRole(
+      auth,
+      updateBody.role,
+      id,
+      freshTarget,
+      currentUser,
+      config,
+    )
+    if (roleError) return c.json({ error: roleError }, 400)
+
+    const updated = await updateUser(auth, id, { name: updateBody.name, role: updateBody.role })
+    return c.json({ user: updated })
+  })
 }
 
 async function parseDisableReason(c: Context<LontarEnv>): Promise<string | undefined> {
@@ -510,16 +529,19 @@ async function handleDisableUser(
     return c.json({ error: 'You cannot disable your own account' }, 400)
   }
 
-  const targetUser = await getUserById(auth, id)
-  if (!targetUser) return c.json({ error: 'User not found' }, 404)
-
-  const adminRole = config?.auth?.adminRole ?? 'admin'
-  const guardError = await checkActiveAdminGuard(auth, targetUser.role, adminRole, 'disable')
-  if (guardError) return c.json({ error: guardError }, 400)
-
   const reason = await parseDisableReason(c)
-  const disabled = await disableUser(auth, id, reason)
-  return c.json({ message: 'User disabled successfully', user: disabled })
+  const adminRole = config?.auth?.adminRole ?? 'admin'
+
+  return await withAdminMutationLock(auth, async () => {
+    const targetUser = await getUserById(auth, id)
+    if (!targetUser) return c.json({ error: 'User not found' }, 404)
+
+    const guardError = await checkActiveAdminGuard(auth, targetUser, adminRole, 'disable')
+    if (guardError) return c.json({ error: guardError }, 400)
+
+    const disabled = await disableUser(auth, id, reason)
+    return c.json({ message: 'User disabled successfully', user: disabled })
+  })
 }
 
 async function handleEnableUser(
@@ -598,21 +620,18 @@ async function handleDeleteUser(
     return c.json({ error: 'You cannot delete your own account' }, 400)
   }
 
-  const targetUser = await getUserById(auth, id)
-  if (!targetUser) {
-    return c.json({ error: 'User not found' }, 404)
-  }
-
   const adminRole = config?.auth?.adminRole ?? 'admin'
-  if (targetUser.role === adminRole) {
-    const totalAdmins = await countTotalAdmins(auth, adminRole)
-    if (totalAdmins <= 1) {
-      return c.json({ error: 'Cannot delete the last administrator' }, 400)
-    }
-  }
 
-  await deleteUser(auth, id)
-  return c.json({ message: 'User deleted successfully' })
+  return await withAdminMutationLock(auth, async () => {
+    const targetUser = await getUserById(auth, id)
+    if (!targetUser) return c.json({ error: 'User not found' }, 404)
+
+    const guardError = await checkActiveAdminGuard(auth, targetUser, adminRole, 'delete')
+    if (guardError) return c.json({ error: guardError }, 400)
+
+    await deleteUser(auth, id)
+    return c.json({ message: 'User deleted successfully' })
+  })
 }
 
 async function handleUpdateMe(c: Context<LontarEnv>, auth: Auth): Promise<Response> {

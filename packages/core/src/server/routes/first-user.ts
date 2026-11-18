@@ -1,5 +1,6 @@
 import type { Context, Hono } from 'hono'
 import { validatePassword } from '../../client/password'
+import { withFirstUserLock } from '../../auth/lock'
 import type { RateLimiter } from '../../auth/rate-limit'
 import type { Auth, LontarVariables } from '../../auth/types'
 import { countTotalUsers, createUserWithCredential } from '../../auth/user'
@@ -77,11 +78,6 @@ export function registerFirstUserRoutes(
     const rateLimitError = await checkFirstUserRateLimit(c, rateLimiter)
     if (rateLimitError) return rateLimitError
 
-    const totalUsers = await countTotalUsers(auth)
-    if (totalUsers > 0) {
-      return c.json({ error: 'First user has already been created' }, 403)
-    }
-
     let rawBody: unknown
     try {
       rawBody = await c.req.json()
@@ -93,20 +89,28 @@ export function registerFirstUserRoutes(
     if (!validated.data) {
       return c.json({ error: validated.error }, 400)
     }
+    const userData = validated.data
 
-    const adminRole = config?.auth?.adminRole ?? 'admin'
-    await createUserWithCredential(auth, {
-      ...validated.data,
-      role: adminRole,
-      emailVerified: true,
-    })
+    return await withFirstUserLock(auth, async () => {
+      const totalUsers = await countTotalUsers(auth)
+      if (totalUsers > 0) {
+        return c.json({ error: 'First user has already been created' }, 403)
+      }
 
-    return auth.api.signInEmail({
-      body: {
-        email: validated.data.email,
-        password: validated.data.password,
-      },
-      asResponse: true,
+      const adminRole = config?.auth?.adminRole ?? 'admin'
+      await createUserWithCredential(auth, {
+        ...userData,
+        role: adminRole,
+        emailVerified: true,
+      })
+
+      return auth.api.signInEmail({
+        body: {
+          email: userData.email,
+          password: userData.password,
+        },
+        asResponse: true,
+      })
     })
   })
 }

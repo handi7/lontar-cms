@@ -117,14 +117,23 @@ export async function createUserWithCredential(
     { method: 'email-password' },
   )
 
-  await ctx.internalAdapter.createAccount({
-    userId: user.id,
-    providerId: 'credential',
-    accountId: user.id,
-    password: hashedPassword,
-    createdAt: new Date(),
-    updatedAt: new Date(),
-  })
+  try {
+    await ctx.internalAdapter.createAccount({
+      userId: user.id,
+      providerId: 'credential',
+      accountId: user.id,
+      password: hashedPassword,
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    })
+  } catch (err) {
+    try {
+      await ctx.internalAdapter.deleteUser(user.id)
+    } catch {
+      // Ignore cleanup error
+    }
+    throw err
+  }
 
   return {
     id: user.id,
@@ -450,19 +459,37 @@ export async function verifyAndChangePassword(
   await deleteUserResetTokens(auth, userId)
 }
 
+export function isUserActive(user: {
+  banned?: boolean | null
+  banExpires?: Date | string | number | null
+}): boolean {
+  if (!user.banned) return true
+  if (user.banExpires) {
+    return new Date(user.banExpires).getTime() <= Date.now()
+  }
+  return false
+}
+
+export function isUserActiveAdmin(
+  user: {
+    role?: string | null
+    banned?: boolean | null
+    banExpires?: Date | string | number | null
+  },
+  adminRole: string,
+): boolean {
+  return user.role === adminRole && isUserActive(user)
+}
+
 export async function countActiveAdmins(auth: Auth, adminRole: string): Promise<number> {
   const ctx = await auth.$context
   const users = (await ctx.internalAdapter.listUsers(undefined, undefined, undefined, [
     { field: 'role', value: adminRole, operator: 'eq' },
   ])) as Array<Record<string, unknown>>
 
-  return users.filter((u) => {
-    if (!u.banned) return true
-    if (u.banExpires) {
-      return new Date(u.banExpires as string | number | Date).getTime() <= Date.now()
-    }
-    return false
-  }).length
+  return users.filter((u) =>
+    isUserActive(u as { banned?: boolean | null; banExpires?: Date | string | number | null }),
+  ).length
 }
 
 export async function countTotalAdmins(auth: Auth, adminRole: string): Promise<number> {

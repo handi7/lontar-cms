@@ -224,7 +224,7 @@ approval on the `npm` environment. Don't run `pnpm publish` by hand; see `docs/r
     - [x] Access and API: #372 (done), #375 (done), #381 (done)
     - [x] Admin: #373 (done), #374 (done)
     - [x] Invites and email: #376 (done), #382 (done)
-    - [ ] Minor: #379, #380, #383, #384
+    - [ ] Minor: #379 (done), #380, #383, #384
     - [ ] Docs: #385
 - [ ] **M11: Localization** (tracking in #149)
 - [ ] **M12: Admin UX & extensibility** (tracking in #150)

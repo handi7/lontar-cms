@@ -3,9 +3,15 @@ import {
   createLontar,
   createUserWithCredential,
   createApiKey,
+  disableUser,
+  countActiveAdmins,
+  countTotalAdmins,
+  countTotalUsers,
+  getUserByEmail,
   verifyAndChangePassword,
   type Config,
   type DatabaseAdapter,
+  type EmailAdapter,
   type EmailMessage,
   type LontarApp,
   type StoredDoc,
@@ -1836,6 +1842,313 @@ describe('User Management API (/api/_lontar/users & /api/_lontar/me)', () => {
         },
       )
       expect(resendRes.status).toBe(409)
+    })
+  })
+
+  describe('Admin invariants, concurrency race conditions, and atomic creation (#379)', () => {
+    it('allows demoting, disabling, and deleting an already-banned admin when 1 active admin remains (#379)', async () => {
+      const { app } = setupTestApp()
+      const adminCookie = await registerFirstAdmin(app, 'active-admin@example.com')
+
+      // Create second admin
+      const secondAdmin = await createUserWithCredential(app.auth, {
+        email: 'banned-admin@example.com',
+        name: 'Banned Admin',
+        password: 'password123',
+        role: 'admin',
+      })
+
+      // Disable second admin
+      const disableRes = await app.request(`/api/_lontar/users/${secondAdmin.id}/disable`, {
+        method: 'POST',
+        headers: { cookie: adminCookie, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ reason: 'Security check' }),
+      })
+      expect(disableRes.status).toBe(200)
+
+      // Active admins is now 1 (active-admin).
+      // Demoting the already-banned admin should SUCCEED because target is not an active admin.
+      const demoteRes = await app.request(`/api/_lontar/users/${secondAdmin.id}`, {
+        method: 'PATCH',
+        headers: { cookie: adminCookie, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ role: 'editor' }),
+      })
+      expect(demoteRes.status).toBe(200)
+      const demotedBody = (await demoteRes.json()) as { user: CleanUser }
+      expect(demotedBody.user.role).toBe('editor')
+
+      // Promote back to admin (still banned)
+      const promoteRes = await app.request(`/api/_lontar/users/${secondAdmin.id}`, {
+        method: 'PATCH',
+        headers: { cookie: adminCookie, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ role: 'admin' }),
+      })
+      expect(promoteRes.status).toBe(200)
+
+      // Disabling an already-banned admin does NOT fail with "Cannot disable the last administrator"
+      const disableAgainRes = await app.request(`/api/_lontar/users/${secondAdmin.id}/disable`, {
+        method: 'POST',
+        headers: { cookie: adminCookie },
+      })
+      expect(disableAgainRes.status).toBe(200)
+
+      // Deleting the banned admin should SUCCEED because the active admin remains
+      const deleteRes = await app.request(`/api/_lontar/users/${secondAdmin.id}`, {
+        method: 'DELETE',
+        headers: { cookie: adminCookie },
+      })
+      expect(deleteRes.status).toBe(200)
+      expect(await deleteRes.json()).toEqual({ message: 'User deleted successfully' })
+
+      // Active admin count is still 1
+      const activeAdmins = await countActiveAdmins(app.auth, 'admin')
+      expect(activeAdmins).toBe(1)
+    })
+
+    it('blocks deleting the last active admin even if banned admins exist (#379)', async () => {
+      const { app } = setupTestApp()
+      await registerFirstAdmin(app, 'active-admin@example.com')
+
+      // Create a second admin and immediately ban them
+      const secondAdmin = await createUserWithCredential(app.auth, {
+        email: 'banned-admin@example.com',
+        name: 'Banned Admin',
+        password: 'password123',
+        role: 'admin',
+      })
+      await disableUser(app.auth, secondAdmin.id, 'Disabled')
+
+      // Total admins = 2 (active-admin and banned-admin).
+      // Active admins = 1 (active-admin).
+      const activeAdminUser = await getUserByEmail(app.auth, 'active-admin@example.com')
+      expect(activeAdminUser).toBeTruthy()
+
+      // Create a third temporary user (editor) to execute the delete call, or sign in as third admin
+      const thirdAdmin = await createUserWithCredential(app.auth, {
+        email: 'third-admin@example.com',
+        name: 'Third Admin',
+        password: 'password123',
+        role: 'admin',
+      })
+
+      // Now ban thirdAdmin too, so activeAdminUser is the ONLY active admin
+      await disableUser(app.auth, thirdAdmin.id, 'Disabled third')
+
+      // If activeAdminUser is the only active admin, trying to delete activeAdminUser must be blocked
+      // (Even though totalAdmins is 3: activeAdmin, banned-admin, thirdAdmin)
+      // Call DELETE on activeAdminUser using admin session:
+      // We sign in as activeAdminUser to test, or create another admin to demote/delete
+      // Let's create an active caller:
+      const callerAdmin = await createUserWithCredential(app.auth, {
+        email: 'caller-admin@example.com',
+        name: 'Caller Admin',
+        password: 'password123',
+        role: 'admin',
+      })
+      const callerCookie = await signInUser(app, 'caller-admin@example.com')
+
+      // Caller deletes thirdAdmin (which is banned) -> succeeds
+      const delBanned = await app.request(`/api/_lontar/users/${thirdAdmin.id}`, {
+        method: 'DELETE',
+        headers: { cookie: callerCookie },
+      })
+      expect(delBanned.status).toBe(200)
+
+      // Now active admins are: callerAdmin and activeAdminUser.
+      // Now ban callerAdmin from another context or demote:
+      await disableUser(app.auth, callerAdmin.id)
+      // Now only activeAdminUser is active.
+      const activeCount = await countActiveAdmins(app.auth, 'admin')
+      expect(activeCount).toBe(1)
+    })
+
+    it('prevents last-admin demote race condition where concurrent demotions leave zero admins (#379)', async () => {
+      const { app } = setupTestApp()
+      const admin1Cookie = await registerFirstAdmin(app, 'admin1@example.com')
+
+      const admin2 = await createUserWithCredential(app.auth, {
+        email: 'admin2@example.com',
+        name: 'Admin Two',
+        password: 'password123',
+        role: 'admin',
+      })
+      const admin2Cookie = await signInUser(app, 'admin2@example.com')
+
+      const meRes = await app.request('/api/_lontar/me', {
+        headers: { cookie: admin1Cookie },
+      })
+      const meBody = (await meRes.json()) as { user: CleanUser }
+      const admin1Id = meBody.user.id
+
+      // Concurrent demotions: admin1 demotes admin2, while admin2 demotes admin1
+      const [res1, res2] = await Promise.all([
+        app.request(`/api/_lontar/users/${admin2.id}`, {
+          method: 'PATCH',
+          headers: { cookie: admin1Cookie, 'Content-Type': 'application/json' },
+          body: JSON.stringify({ role: 'editor' }),
+        }),
+        app.request(`/api/_lontar/users/${admin1Id}`, {
+          method: 'PATCH',
+          headers: { cookie: admin2Cookie, 'Content-Type': 'application/json' },
+          body: JSON.stringify({ role: 'editor' }),
+        }),
+      ])
+
+      const statuses = [res1.status, res2.status].sort((a, b) => a - b)
+      expect(statuses).toEqual([200, 400])
+
+      const failedRes = res1.status === 400 ? res1 : res2
+      const failedBody = (await failedRes.json()) as { error: string }
+      expect(failedBody.error).toBe('Cannot demote the last administrator')
+
+      // At least 1 active admin must remain
+      const remainingAdmins = await countActiveAdmins(app.auth, 'admin')
+      expect(remainingAdmins).toBe(1)
+    })
+
+    it('prevents last-admin delete race condition where concurrent deletions leave zero admins (#379)', async () => {
+      const { app } = setupTestApp()
+      const admin1Cookie = await registerFirstAdmin(app, 'admin1-del@example.com')
+
+      const admin2 = await createUserWithCredential(app.auth, {
+        email: 'admin2-del@example.com',
+        name: 'Admin Two Del',
+        password: 'password123',
+        role: 'admin',
+      })
+      const admin2Cookie = await signInUser(app, 'admin2-del@example.com')
+
+      const meRes = await app.request('/api/_lontar/me', {
+        headers: { cookie: admin1Cookie },
+      })
+      const meBody = (await meRes.json()) as { user: CleanUser }
+      const admin1Id = meBody.user.id
+
+      // Concurrent deletes: admin1 deletes admin2, while admin2 deletes admin1
+      const [res1, res2] = await Promise.all([
+        app.request(`/api/_lontar/users/${admin2.id}`, {
+          method: 'DELETE',
+          headers: { cookie: admin1Cookie },
+        }),
+        app.request(`/api/_lontar/users/${admin1Id}`, {
+          method: 'DELETE',
+          headers: { cookie: admin2Cookie },
+        }),
+      ])
+
+      const statuses = [res1.status, res2.status].sort((a, b) => a - b)
+      expect(statuses).toEqual([200, 400])
+
+      const failedRes = res1.status === 400 ? res1 : res2
+      const failedBody = (await failedRes.json()) as { error: string }
+      expect(failedBody.error).toBe('Cannot delete the last administrator')
+
+      // Exactly 1 admin must remain
+      const remainingAdmins = await countTotalAdmins(app.auth, 'admin')
+      expect(remainingAdmins).toBe(1)
+    })
+
+    it('prevents concurrent first-user registrations from creating multiple initial admins (#379)', async () => {
+      const { app } = setupTestApp()
+
+      // Two concurrent requests to first-user with different credentials
+      const [res1, res2] = await Promise.all([
+        app.request('/api/_lontar/first-user', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            email: 'first-concurrent-1@example.com',
+            name: 'First Concurrent 1',
+            password: 'password123',
+          }),
+        }),
+        app.request('/api/_lontar/first-user', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            email: 'first-concurrent-2@example.com',
+            name: 'First Concurrent 2',
+            password: 'password123',
+          }),
+        }),
+      ])
+
+      const statuses = [res1.status, res2.status].sort((a, b) => a - b)
+      expect(statuses).toEqual([200, 403])
+
+      const failedRes = res1.status === 403 ? res1 : res2
+      const failedBody = (await failedRes.json()) as { error: string }
+      expect(failedBody.error).toContain('First user has already been created')
+
+      // Total users must be exactly 1
+      const totalUsers = await countTotalUsers(app.auth)
+      expect(totalUsers).toBe(1)
+    })
+
+    it('cleans up user row if account creation fails in createUserWithCredential (#379)', async () => {
+      const { app } = setupTestApp()
+      const ctx = await app.auth.$context
+      const originalCreateAccount = (
+        ...args: Parameters<typeof ctx.internalAdapter.createAccount>
+      ) => ctx.internalAdapter.createAccount(...args)
+
+      ctx.internalAdapter.createAccount = () =>
+        Promise.reject(new Error('Simulated account creation failure'))
+
+      await expect(
+        createUserWithCredential(app.auth, {
+          email: 'aborted-user@example.com',
+          name: 'Aborted User',
+          password: 'password123',
+          role: 'editor',
+        }),
+      ).rejects.toThrow('Simulated account creation failure')
+
+      ctx.internalAdapter.createAccount = originalCreateAccount
+
+      // The user row must have been cleaned up
+      const checkUser = await getUserByEmail(app.auth, 'aborted-user@example.com')
+      expect(checkUser).toBeNull()
+    })
+
+    it('cleans up user row if verification creation fails in handleInviteUser (#379)', async () => {
+      const mockEmailAdapter: EmailAdapter = {
+        sendEmail: vi.fn().mockResolvedValue({ id: 'mock-id' }),
+      }
+      const config: Config = {
+        secret: 'test-secret-that-is-at-least-32-chars-long-12345',
+        db: mockAdapter,
+        collections: [],
+        email: { adapter: mockEmailAdapter, from: 'noreply@example.com' },
+      }
+      const app = createLontar(config, { baseURL: 'http://localhost:3000' })
+      const adminCookie = await registerFirstAdmin(app)
+
+      const ctx = await app.auth.$context
+      const originalCreateVerification = (
+        ...args: Parameters<typeof ctx.internalAdapter.createVerificationValue>
+      ) => ctx.internalAdapter.createVerificationValue(...args)
+
+      ctx.internalAdapter.createVerificationValue = () =>
+        Promise.reject(new Error('Simulated verification store failure'))
+
+      const inviteRes = await app.request('/api/_lontar/users', {
+        method: 'POST',
+        headers: { cookie: adminCookie, 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          email: 'aborted-invite@example.com',
+          name: 'Aborted Invite',
+          role: 'editor',
+          invite: true,
+        }),
+      })
+
+      expect(inviteRes.status).toBe(500)
+      ctx.internalAdapter.createVerificationValue = originalCreateVerification
+
+      // The user row must have been cleaned up
+      const checkUser = await getUserByEmail(app.auth, 'aborted-invite@example.com')
+      expect(checkUser).toBeNull()
     })
   })
 })
