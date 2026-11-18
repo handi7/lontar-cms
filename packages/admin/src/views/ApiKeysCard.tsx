@@ -1,7 +1,9 @@
-import { useState } from 'react'
+import { useContext, useState } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import type { ApiKeyDoc, CreatedApiKeyDoc } from '../api/client'
 import { createApiKey, formatApiErrorMessage, listApiKeys, revokeApiKey } from '../api/client'
+import { queryKeys } from '../api/query-keys'
+import { AuthContext } from '../context/AuthContext'
 import { Alert } from '../components/ui/alert'
 import { Badge } from '../components/ui/badge'
 import { Button } from '../components/ui/button'
@@ -234,6 +236,8 @@ export interface ApiKeysCardProps {
 
 export function ApiKeysCard(props: ApiKeysCardProps) {
   const { apiBase } = props
+  const auth = useContext(AuthContext)
+  const user = auth?.user
   const queryClient = useQueryClient()
   const [dialogOpen, setDialogOpen] = useState(false)
   const [revokingId, setRevokingId] = useState<string | null>(null)
@@ -244,7 +248,7 @@ export function ApiKeysCard(props: ApiKeysCardProps) {
     isLoading,
     isError,
   } = useQuery({
-    queryKey: ['_lontar_api_keys'],
+    queryKey: queryKeys.apiKeys(apiBase, user?.id),
     queryFn: () => listApiKeys(apiBase),
   })
 
@@ -253,7 +257,7 @@ export function ApiKeysCard(props: ApiKeysCardProps) {
     setRevokingId(id)
     try {
       await revokeApiKey(apiBase, id)
-      void queryClient.invalidateQueries({ queryKey: ['_lontar_api_keys'] })
+      void queryClient.invalidateQueries({ queryKey: queryKeys.apiKeys(apiBase, user?.id) })
     } catch (err) {
       setActionError(formatApiErrorMessage(err))
     } finally {
@@ -304,7 +308,7 @@ export function ApiKeysCard(props: ApiKeysCardProps) {
           onOpenChange={setDialogOpen}
           apiBase={apiBase}
           onCreated={() => {
-            void queryClient.invalidateQueries({ queryKey: ['_lontar_api_keys'] })
+            void queryClient.invalidateQueries({ queryKey: queryKeys.apiKeys(apiBase, user?.id) })
           }}
         />
       </CardContent>

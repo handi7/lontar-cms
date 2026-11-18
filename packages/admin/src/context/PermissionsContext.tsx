@@ -18,6 +18,7 @@ export interface PermissionsContextValue {
   isLoading: boolean
   isPermissionsLoading: boolean
   error: Error | null
+  userId: string | null
   getCollectionPermission: (slug: string) => CollectionPermission | undefined
   getGlobalPermission: (slug: string) => GlobalPermission | undefined
   canReadCollection: (slug: string) => boolean
@@ -91,6 +92,7 @@ export function PermissionsProvider({
       isLoading,
       isPermissionsLoading: Boolean(user && isLoading),
       error: error ?? null,
+      userId: user?.id ?? null,
       getCollectionPermission,
       getGlobalPermission,
       canReadCollection,
@@ -118,14 +120,14 @@ export function useDocumentPermissions(
   id?: string | number,
   hasDrafts?: boolean,
 ) {
-  const { getCollectionPermission } = usePermissions()
+  const { getCollectionPermission, userId } = usePermissions()
   const fallback = getCollectionPermission(slug)
 
   const query = useQuery({
     queryKey:
       id !== undefined
-        ? queryKeys.documentPermissions(apiBase, slug, id, hasDrafts)
-        : ['_lontar_document_permissions', slug],
+        ? queryKeys.documentPermissions(apiBase, slug, id, hasDrafts, userId)
+        : ['_lontar_document_permissions', apiBase, slug, 'anonymous', userId ?? 'anonymous'],
     queryFn: () =>
       id !== undefined ? fetchDocumentPermissions(apiBase, slug, id, { draft: hasDrafts }) : null,
     enabled: id !== undefined && Boolean(slug),
@@ -140,11 +142,11 @@ export function useDocumentPermissions(
 }
 
 export function useGlobalPermissions(apiBase: string, slug: string) {
-  const { getGlobalPermission } = usePermissions()
+  const { getGlobalPermission, userId } = usePermissions()
   const fallback = getGlobalPermission(slug)
 
   const query = useQuery({
-    queryKey: queryKeys.globalPermissions(apiBase, slug),
+    queryKey: queryKeys.globalPermissions(apiBase, slug, userId),
     queryFn: () => fetchGlobalPermissions(apiBase, slug),
     enabled: Boolean(slug),
     staleTime: 1000 * 60,

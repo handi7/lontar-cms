@@ -222,7 +222,7 @@ approval on the `npm` environment. Don't run `pnpm publish` by hand; see `docs/r
     - [x] Data loss and leaks: #364 (done), #365 (done), #366 (done), #367 (done)
     - [x] Auth lifecycle: #368 (done), #369 (done), #371 (done), #370 (done), #377 (done), #378 (done)
     - [x] Access and API: #372 (done), #375 (done), #381 (done)
-    - [ ] Admin: #373 (done), #374
+    - [x] Admin: #373 (done), #374 (done)
     - [ ] Invites and email: #376, #382
     - [ ] Minor: #379, #380, #383, #384
     - [ ] Docs: #385

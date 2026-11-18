@@ -357,12 +357,18 @@ function useVersionRestore({
         void queryClient.invalidateQueries({
           queryKey: queryKeys.globalVersions(apiBase, globalSlug),
         })
+        void queryClient.invalidateQueries({
+          queryKey: queryKeys.globalPermissionsPrefix(apiBase, globalSlug),
+        })
       } else if (collectionSlug && id) {
         void queryClient.invalidateQueries({
           queryKey: queryKeys.documentPrefix(collectionSlug, id),
         })
         void queryClient.invalidateQueries({
           queryKey: queryKeys.docVersions(apiBase, collectionSlug, id),
+        })
+        void queryClient.invalidateQueries({
+          queryKey: queryKeys.documentPermissionsPrefix(apiBase, collectionSlug, id),
         })
       }
       onSuccess(restoredDoc)

@@ -32,18 +32,37 @@ export const queryKeys = {
     ['_lontar_permissions', apiBase, userId ?? 'anonymous'] as const,
 
   /** Document-specific permissions */
-  documentPermissions: (apiBase: string, slug: string, id: string | number, hasDrafts?: boolean) =>
+  documentPermissions: (
+    apiBase: string,
+    slug: string,
+    id: string | number,
+    hasDrafts?: boolean,
+    userId?: string | null,
+  ) =>
     [
       '_lontar_document_permissions',
       apiBase,
       slug,
       String(id),
       hasDrafts ? 'draft' : 'published',
+      userId ?? 'anonymous',
     ] as const,
 
+  /** Document-specific permissions prefix for invalidation */
+  documentPermissionsPrefix: (apiBase: string, slug: string, id: string | number) =>
+    ['_lontar_document_permissions', apiBase, slug, String(id)] as const,
+
   /** Global-specific permissions */
-  globalPermissions: (apiBase: string, slug: string) =>
+  globalPermissions: (apiBase: string, slug: string, userId?: string | null) =>
+    ['_lontar_global_permissions', apiBase, slug, userId ?? 'anonymous'] as const,
+
+  /** Global-specific permissions prefix for invalidation */
+  globalPermissionsPrefix: (apiBase: string, slug: string) =>
     ['_lontar_global_permissions', apiBase, slug] as const,
+
+  /** API keys list for user */
+  apiKeys: (apiBase: string, userId?: string | null) =>
+    ['_lontar_api_keys', apiBase, userId ?? 'anonymous'] as const,
 
   /** Users list */
   users: (apiBase: string, page?: number, search?: string, role?: string) =>

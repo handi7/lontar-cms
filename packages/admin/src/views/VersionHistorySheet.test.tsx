@@ -259,6 +259,9 @@ describe('VersionHistorySheet', () => {
       expect(invalidateSpy).toHaveBeenCalledWith({
         queryKey: ['doc-versions', 'http://localhost:3000/api', 'posts', '1'],
       })
+      expect(invalidateSpy).toHaveBeenCalledWith({
+        queryKey: ['_lontar_document_permissions', 'http://localhost:3000/api', 'posts', '1'],
+      })
     })
   })
 
@@ -281,12 +284,20 @@ describe('VersionHistorySheet', () => {
       }),
     )
 
-    renderVersionHistorySheet({
-      collection: undefined,
-      global: mockGlobal,
-      id: undefined,
-      currentDoc: { title: 'Current Title' },
+    const queryClient = new QueryClient({
+      defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
     })
+    const invalidateSpy = vi.spyOn(queryClient, 'invalidateQueries')
+
+    renderVersionHistorySheet(
+      {
+        collection: undefined,
+        global: mockGlobal,
+        id: undefined,
+        currentDoc: { title: 'Current Title' },
+      },
+      queryClient,
+    )
 
     await waitFor(() => {
       expect(screen.getByText('v2')).toBeTruthy()
@@ -296,11 +307,15 @@ describe('VersionHistorySheet', () => {
     fireEvent.click(restoreBtn)
 
     expect(screen.getByText('Restore version #2?')).toBeTruthy()
+
     const confirmBtn = screen.getByRole('button', { name: 'Restore' })
     fireEvent.click(confirmBtn)
 
     await waitFor(() => {
       expect(restoreCalled).toBe(true)
+      expect(invalidateSpy).toHaveBeenCalledWith({
+        queryKey: ['_lontar_global_permissions', 'http://localhost:3000/api', 'settings'],
+      })
     })
   })
 
