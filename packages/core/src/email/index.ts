@@ -11,5 +11,6 @@ export {
   defaultInviteTemplate,
   defaultResetPasswordTemplate,
   defaultVerifyEmailTemplate,
+  escapeHtml,
 } from './templates'
 export { resolveEmailConfig, sendEmailWithTemplate, type ResolvedEmailConfig } from './sender'

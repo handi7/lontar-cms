@@ -328,6 +328,7 @@ export {
   defaultInviteTemplate,
   defaultResetPasswordTemplate,
   defaultVerifyEmailTemplate,
+  escapeHtml,
   resolveEmailConfig,
   sendEmailWithTemplate,
   type ConsoleEmailAdapterOptions,
