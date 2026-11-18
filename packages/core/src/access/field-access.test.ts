@@ -431,4 +431,189 @@ describe('sanitizeDocWrite', () => {
       expect(sanitized.blocks).toEqual([{ id: 'brand-new-block', blockType: 'review', rating: 3 }])
     })
   })
+
+  describe('Nested field access functions receive document id (#381)', () => {
+    it('passes document id (not row id) to read access functions in array and blocks', async () => {
+      const readArgsSeen: Array<{ field: string; id: unknown; siblingId: unknown }> = []
+
+      const testFields: Record<string, Field> = {
+        title: f.text(),
+        items: f.array({
+          fields: {
+            content: f.text({
+              access: {
+                read: ({ id, siblingData }) => {
+                  readArgsSeen.push({
+                    field: 'items.content',
+                    id,
+                    siblingId: (siblingData as { id?: unknown })?.id,
+                  })
+                  return true
+                },
+              },
+            }),
+          },
+        }),
+        sections: f.blocks({
+          blocks: [
+            {
+              slug: 'quote',
+              fields: {
+                author: f.text({
+                  access: {
+                    read: ({ id, siblingData }) => {
+                      readArgsSeen.push({
+                        field: 'sections.quote.author',
+                        id,
+                        siblingId: (siblingData as { id?: unknown })?.id,
+                      })
+                      return true
+                    },
+                  },
+                }),
+              },
+            },
+          ],
+        }),
+      }
+
+      const doc = {
+        id: 42,
+        title: 'Document 42',
+        items: [{ id: 'row-uuid-1', content: 'Item 1' }],
+        sections: [{ id: 'block-uuid-1', blockType: 'quote', author: 'Famous Person' }],
+      }
+
+      const sanitized = await sanitizeDocRead(testFields, doc, makeUser())
+      expect(sanitized.title).toBe('Document 42')
+      expect(readArgsSeen).toHaveLength(2)
+      expect(readArgsSeen[0]).toEqual({
+        field: 'items.content',
+        id: 42,
+        siblingId: 'row-uuid-1',
+      })
+      expect(readArgsSeen[1]).toEqual({
+        field: 'sections.quote.author',
+        id: 42,
+        siblingId: 'block-uuid-1',
+      })
+    })
+
+    it('passes document id (not row id) to write access functions in array and blocks on update', async () => {
+      const writeArgsSeen: Array<{ field: string; id: unknown; siblingId: unknown }> = []
+
+      const testFields: Record<string, Field> = {
+        title: f.text(),
+        items: f.array({
+          fields: {
+            content: f.text({
+              access: {
+                update: ({ id, siblingData }) => {
+                  writeArgsSeen.push({
+                    field: 'items.content',
+                    id,
+                    siblingId: (siblingData as { id?: unknown })?.id,
+                  })
+                  return true
+                },
+              },
+            }),
+          },
+        }),
+        sections: f.blocks({
+          blocks: [
+            {
+              slug: 'quote',
+              fields: {
+                author: f.text({
+                  access: {
+                    update: ({ id, siblingData }) => {
+                      writeArgsSeen.push({
+                        field: 'sections.quote.author',
+                        id,
+                        siblingId: (siblingData as { id?: unknown })?.id,
+                      })
+                      return true
+                    },
+                  },
+                }),
+              },
+            },
+          ],
+        }),
+      }
+
+      const existingDoc = {
+        id: 99,
+        title: 'Original Title',
+        items: [{ id: 'row-uuid-99', content: 'Original content' }],
+        sections: [{ id: 'block-uuid-99', blockType: 'quote', author: 'Original author' }],
+      }
+
+      const input = {
+        items: [{ id: 'row-uuid-99', content: 'Updated content' }],
+        sections: [{ id: 'block-uuid-99', blockType: 'quote', author: 'Updated author' }],
+      }
+
+      await sanitizeDocWrite(testFields, input, 'update', {
+        user: makeUser(),
+        id: 99,
+        data: input,
+        doc: existingDoc,
+      })
+
+      expect(writeArgsSeen).toHaveLength(2)
+      expect(writeArgsSeen[0]).toEqual({
+        field: 'items.content',
+        id: 99,
+        siblingId: 'row-uuid-99',
+      })
+      expect(writeArgsSeen[1]).toEqual({
+        field: 'sections.quote.author',
+        id: 99,
+        siblingId: 'block-uuid-99',
+      })
+    })
+
+    it('passes undefined id to write access functions in array and blocks on create', async () => {
+      const createArgsSeen: Array<{ field: string; id: unknown; siblingId: unknown }> = []
+
+      const testFields: Record<string, Field> = {
+        title: f.text(),
+        items: f.array({
+          fields: {
+            content: f.text({
+              access: {
+                create: ({ id, siblingData }) => {
+                  createArgsSeen.push({
+                    field: 'items.content',
+                    id,
+                    siblingId: (siblingData as { id?: unknown })?.id,
+                  })
+                  return true
+                },
+              },
+            }),
+          },
+        }),
+      }
+
+      const input = {
+        title: 'New Document',
+        items: [{ id: 'new-row-uuid', content: 'New item' }],
+      }
+
+      await sanitizeDocWrite(testFields, input, 'create', {
+        user: makeUser(),
+        data: input,
+      })
+
+      expect(createArgsSeen).toHaveLength(1)
+      expect(createArgsSeen[0]).toEqual({
+        field: 'items.content',
+        id: undefined,
+        siblingId: 'new-row-uuid',
+      })
+    })
+  })
 })
