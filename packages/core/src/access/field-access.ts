@@ -150,7 +150,15 @@ async function sanitizeFieldsRead(
       delete result[name]
       continue
     }
-    result[name] = await sanitizeNestedRead(field, result[name], user, rootDoc, cache, req)
+    result[name] = await sanitizeNestedRead(
+      field,
+      result[name],
+      user,
+      rootDoc,
+      targetId,
+      cache,
+      req,
+    )
   }
   return result
 }
@@ -160,6 +168,7 @@ async function sanitizeNestedRead(
   value: unknown,
   user: AuthUser | null,
   rootDoc: DocumentData,
+  targetId?: string | number,
   cache?: FieldAccessCache,
   req?: Request,
 ): Promise<unknown> {
@@ -171,16 +180,16 @@ async function sanitizeNestedRead(
       value as Record<string, unknown>,
       user,
       rootDoc,
-      undefined,
+      targetId,
       cache,
       req,
     )
   }
   if (field.type === 'array' && Array.isArray(value)) {
-    return sanitizeArrayRead(field.fields, value, user, rootDoc, cache, req)
+    return sanitizeArrayRead(field.fields, value, user, rootDoc, targetId, cache, req)
   }
   if (field.type === 'blocks' && Array.isArray(value)) {
-    return sanitizeBlocksRead(field.blocks, value, user, rootDoc, cache, req)
+    return sanitizeBlocksRead(field.blocks, value, user, rootDoc, targetId, cache, req)
   }
   return value
 }
@@ -190,14 +199,13 @@ async function sanitizeArrayRowRead(
   item: unknown,
   user: AuthUser | null,
   rootDoc: DocumentData,
+  targetId?: string | number,
   cache?: FieldAccessCache,
   req?: Request,
 ): Promise<unknown> {
   if (typeof item !== 'object' || item === null) return item
   const row = item as Record<string, unknown>
-  const rowId =
-    (row.id as string | number | undefined) ?? (rootDoc.id as string | number | undefined)
-  return sanitizeFieldsRead(fields, row, user, rootDoc, rowId, cache, req)
+  return sanitizeFieldsRead(fields, row, user, rootDoc, targetId, cache, req)
 }
 
 async function sanitizeArrayRead(
@@ -205,12 +213,13 @@ async function sanitizeArrayRead(
   items: unknown[],
   user: AuthUser | null,
   rootDoc: DocumentData,
+  targetId?: string | number,
   cache?: FieldAccessCache,
   req?: Request,
 ): Promise<unknown[]> {
   const result: unknown[] = []
   for (const item of items) {
-    result.push(await sanitizeArrayRowRead(fields, item, user, rootDoc, cache, req))
+    result.push(await sanitizeArrayRowRead(fields, item, user, rootDoc, targetId, cache, req))
   }
   return result
 }
@@ -220,6 +229,7 @@ async function sanitizeBlockRowRead(
   item: unknown,
   user: AuthUser | null,
   rootDoc: DocumentData,
+  targetId?: string | number,
   cache?: FieldAccessCache,
   req?: Request,
 ): Promise<unknown> {
@@ -227,9 +237,7 @@ async function sanitizeBlockRowRead(
   const block = item as Record<string, unknown>
   const blockDef = blocks.find((b) => b.slug === block.blockType)
   if (!blockDef) return block
-  const blockId =
-    (block.id as string | number | undefined) ?? (rootDoc.id as string | number | undefined)
-  return sanitizeFieldsRead(blockDef.fields, block, user, rootDoc, blockId, cache, req)
+  return sanitizeFieldsRead(blockDef.fields, block, user, rootDoc, targetId, cache, req)
 }
 
 async function sanitizeBlocksRead(
@@ -237,12 +245,13 @@ async function sanitizeBlocksRead(
   items: unknown[],
   user: AuthUser | null,
   rootDoc: DocumentData,
+  targetId?: string | number,
   cache?: FieldAccessCache,
   req?: Request,
 ): Promise<unknown[]> {
   const result: unknown[] = []
   for (const item of items) {
-    result.push(await sanitizeBlockRowRead(blocks, item, user, rootDoc, cache, req))
+    result.push(await sanitizeBlockRowRead(blocks, item, user, rootDoc, targetId, cache, req))
   }
   return result
 }
@@ -336,7 +345,7 @@ async function mergeSubfieldWithStored(
   storedRow: Record<string, unknown>,
   context: WriteSanitizationContext,
   rootData: DocumentData,
-  rowId?: string | number,
+  targetId?: string | number,
 ): Promise<unknown> {
   const canUpdate = await checkWritePermission(
     field,
@@ -344,14 +353,14 @@ async function mergeSubfieldWithStored(
     context,
     incomingRow,
     rootData,
-    rowId,
+    targetId,
   )
   const canRead = await checkReadPermission(
     field,
     context.user,
     storedRow,
     context.doc ?? storedRow,
-    rowId,
+    targetId,
     context.cache,
     context.req,
   )
@@ -366,7 +375,7 @@ async function mergeSubfieldWithStored(
   }
 
   const storedChild = storedRow[name]
-  return sanitizeNestedWrite(field, val, 'update', context, rootData, storedChild, rowId)
+  return sanitizeNestedWrite(field, val, 'update', context, rootData, storedChild, targetId)
 }
 
 async function mergeRowWithStored(
@@ -375,7 +384,7 @@ async function mergeRowWithStored(
   storedRow: Record<string, unknown>,
   context: WriteSanitizationContext,
   rootData: DocumentData,
-  rowId?: string | number,
+  targetId?: string | number,
 ): Promise<Record<string, unknown>> {
   const result: Record<string, unknown> = { ...incomingRow }
 
@@ -387,7 +396,7 @@ async function mergeRowWithStored(
       storedRow,
       context,
       rootData,
-      rowId,
+      targetId,
     )
     if (merged !== undefined) {
       result[name] = merged
@@ -475,11 +484,27 @@ async function sanitizeNestedWrite(
   }
   if (field.type === 'array' && Array.isArray(value)) {
     const storedArray = Array.isArray(storedValue) ? storedValue : undefined
-    return sanitizeArrayWrite(field.fields, value, operation, context, rootData, storedArray)
+    return sanitizeArrayWrite(
+      field.fields,
+      value,
+      operation,
+      context,
+      rootData,
+      storedArray,
+      targetId,
+    )
   }
   if (field.type === 'blocks' && Array.isArray(value)) {
     const storedBlocks = Array.isArray(storedValue) ? storedValue : undefined
-    return sanitizeBlocksWrite(field.blocks, value, operation, context, rootData, storedBlocks)
+    return sanitizeBlocksWrite(
+      field.blocks,
+      value,
+      operation,
+      context,
+      rootData,
+      storedBlocks,
+      targetId,
+    )
   }
   return value
 }
@@ -491,19 +516,19 @@ async function sanitizeArrayRowWrite(
   context: WriteSanitizationContext,
   rootData: DocumentData,
   storedById?: Map<string | number, DocumentData>,
+  targetId?: string | number,
 ): Promise<unknown> {
   if (typeof item !== 'object' || item === null) return item
   const row = item as Record<string, unknown>
-  const rowId = (row.id as string | number | undefined) ?? context.id
   const storedRow =
     storedById && row.id !== undefined && row.id !== null
       ? storedById.get(row.id as string | number)
       : undefined
 
   if (storedRow) {
-    return mergeRowWithStored(fields, row, storedRow, context, rootData, rowId)
+    return mergeRowWithStored(fields, row, storedRow, context, rootData, targetId)
   }
-  return sanitizeFieldsWrite(fields, row, operation, context, rootData, rowId)
+  return sanitizeFieldsWrite(fields, row, operation, context, rootData, targetId)
 }
 
 async function sanitizeArrayWrite(
@@ -513,11 +538,14 @@ async function sanitizeArrayWrite(
   context: WriteSanitizationContext,
   rootData: DocumentData,
   storedItems?: unknown[],
+  targetId?: string | number,
 ): Promise<unknown[]> {
   const storedById = operation === 'update' ? buildStoredRowMap(storedItems) : undefined
   const result: unknown[] = []
   for (const item of items) {
-    result.push(await sanitizeArrayRowWrite(fields, item, operation, context, rootData, storedById))
+    result.push(
+      await sanitizeArrayRowWrite(fields, item, operation, context, rootData, storedById, targetId),
+    )
   }
   return result
 }
@@ -529,18 +557,18 @@ async function sanitizeBlockRowWrite(
   context: WriteSanitizationContext,
   rootData: DocumentData,
   storedById?: Map<string | number, DocumentData>,
+  targetId?: string | number,
 ): Promise<unknown> {
   if (typeof item !== 'object' || item === null) return item
   const block = item as Record<string, unknown>
   const blockDef = blocks.find((b) => b.slug === block.blockType)
   if (!blockDef) return block
 
-  const blockId = (block.id as string | number | undefined) ?? context.id
   const storedBlock = findMatchingStoredBlock(block, storedById)
   if (storedBlock) {
-    return mergeRowWithStored(blockDef.fields, block, storedBlock, context, rootData, blockId)
+    return mergeRowWithStored(blockDef.fields, block, storedBlock, context, rootData, targetId)
   }
-  return sanitizeFieldsWrite(blockDef.fields, block, operation, context, rootData, blockId)
+  return sanitizeFieldsWrite(blockDef.fields, block, operation, context, rootData, targetId)
 }
 
 async function sanitizeBlocksWrite(
@@ -550,11 +578,14 @@ async function sanitizeBlocksWrite(
   context: WriteSanitizationContext,
   rootData: DocumentData,
   storedItems?: unknown[],
+  targetId?: string | number,
 ): Promise<unknown[]> {
   const storedById = operation === 'update' ? buildStoredRowMap(storedItems) : undefined
   const result: unknown[] = []
   for (const item of items) {
-    result.push(await sanitizeBlockRowWrite(blocks, item, operation, context, rootData, storedById))
+    result.push(
+      await sanitizeBlockRowWrite(blocks, item, operation, context, rootData, storedById, targetId),
+    )
   }
   return result
 }
