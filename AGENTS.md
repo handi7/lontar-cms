@@ -204,7 +204,7 @@ approval on the `npm` environment. Don't run `pnpm publish` by hand; see `docs/r
   - [x] #309 `ci: Postgres in docker-compose, CI and release`
   - [x] #310 `examples/next-blog: run on Postgres, e2e on both databases`
   - [x] Code review fixes from `main` @ f6e784b: #321 (done), #322 (done), #323 (done), #324 (done), #325 (done), #326 (done), #327 (done)
-- [ ] **M10: Users, roles & field-level access** (Issues done, review fixes open; tracking in #148)
+- [x] **M10: Users, roles & field-level access** (Done; tracking in #148)
   - [x] #336 `docs: ADR for users, roles and the auth data model`
   - [x] #337 `docs: ADR for field-level access control`
   - [x] #338 `auth: roles on users, stored on both adapters`
@@ -217,7 +217,7 @@ approval on the `npm` environment. Don't run `pnpm publish` by hand; see `docs/r
   - [x] #345 `auth: API keys for machine-to-machine REST access`
   - [x] #346 `auth: rate limiting for Lontar auth routes and multi-instance storage`
   - [x] #347 `examples/next-blog: roles and field-level access, with e2e`
-  - [ ] Code review fixes from `main` @ ba56140, in fix order
+  - [x] Code review fixes from `main` @ ba56140, in fix order
     - [x] Exploitable from outside: #360 (done), #361 (done), #362 (done), #363 (done)
     - [x] Data loss and leaks: #364 (done), #365 (done), #366 (done), #367 (done)
     - [x] Auth lifecycle: #368 (done), #369 (done), #371 (done), #370 (done), #377 (done), #378 (done)
@@ -225,7 +225,7 @@ approval on the `npm` environment. Don't run `pnpm publish` by hand; see `docs/r
     - [x] Admin: #373 (done), #374 (done)
     - [x] Invites and email: #376 (done), #382 (done)
     - [x] Minor: #379 (done), #380 (done), #383 (done), #384 (done)
-    - [ ] Docs: #385
+    - [x] Docs: #385 (done)
 - [ ] **M11: Localization** (tracking in #149)
 - [ ] **M12: Admin UX & extensibility** (tracking in #150)
 

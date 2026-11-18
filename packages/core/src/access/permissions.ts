@@ -49,7 +49,15 @@ async function evalFieldPermission(
 ): Promise<AllowedTriad> {
   const read = parentAllowed.read ? await checkFieldAccess(field.access?.read, args, cache) : false
   const create = parentAllowed.create
-    ? await checkFieldAccess(field.access?.create, args, cache)
+    ? await checkFieldAccess(
+        field.access?.create,
+        {
+          user: args.user,
+          req: args.req,
+          siblingData: args.siblingData,
+        },
+        cache,
+      )
     : false
   const update = parentAllowed.update
     ? await checkFieldAccess(field.access?.update, args, cache)
