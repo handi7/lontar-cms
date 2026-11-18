@@ -1,10 +1,25 @@
+import './env'
 import config from '../lontar.config'
-import { createApiKey, createLontar, getUserByEmail, type Auth } from '@lontar/core'
+import {
+  createApiKey,
+  createLontar,
+  getUserByEmail,
+  revokeApiKey,
+  type Auth,
+  type AuthUser,
+} from '@lontar/core'
 
-async function resolveApiKey(): Promise<string> {
+interface ResolvedApiKey {
+  apiKey: string
+  temporaryKeyId?: string
+  auth?: Auth
+  user?: AuthUser
+}
+
+async function resolveApiKey(): Promise<ResolvedApiKey> {
   const envOrArg = process.env.API_KEY || process.argv[2]
   if (envOrArg) {
-    return envOrArg
+    return { apiKey: envOrArg }
   }
 
   // If no API key was provided via env or cli args, generate a temporary one for admin
@@ -25,7 +40,12 @@ async function resolveApiKey(): Promise<string> {
     userId: admin.id,
     expiresIn: 3600, // 1 hour
   })
-  return keyResult.key
+  return {
+    apiKey: keyResult.key,
+    temporaryKeyId: keyResult.id,
+    auth,
+    user: admin as unknown as AuthUser,
+  }
 }
 
 interface PostDoc {
@@ -76,7 +96,7 @@ function handleFetchError(err: unknown, baseUrl: string): void {
 export async function fetchPostsWithApiKey(
   baseUrl = process.env.LONTAR_URL || 'http://localhost:3000',
 ) {
-  const apiKey = await resolveApiKey()
+  const { apiKey, temporaryKeyId, auth, user } = await resolveApiKey()
   console.log(`Using API Key: ${apiKey.slice(0, 10)}... (length: ${apiKey.length})`)
 
   const url = `${baseUrl.replace(/\/$/, '')}/api/posts`
@@ -93,20 +113,33 @@ export async function fetchPostsWithApiKey(
     if (!res.ok) {
       const errorBody = await res.text()
       console.error(`Request failed with status ${res.status} (${res.statusText}):\n${errorBody}`)
-      process.exit(1)
+      throw new Error(`Request failed with status ${res.status}`)
     }
 
     const json = (await res.json()) as PostsResponse
     printPosts(json)
   } catch (err: unknown) {
     handleFetchError(err, baseUrl)
-    process.exit(1)
+    throw err
+  } finally {
+    if (temporaryKeyId && auth && user) {
+      try {
+        await revokeApiKey(auth, temporaryKeyId, user)
+        console.log('✓ Cleaned up temporary CLI API key')
+      } catch (revokeErr) {
+        console.warn('Could not revoke temporary API key:', revokeErr)
+      }
+    }
   }
 }
 
 if (process.argv[1]?.endsWith('fetch-posts.ts') || process.argv[1]?.endsWith('fetch-posts.js')) {
-  fetchPostsWithApiKey().catch((err) => {
-    console.error('Fatal error:', err)
-    process.exit(1)
-  })
+  fetchPostsWithApiKey()
+    .then(() => {
+      process.exit(0)
+    })
+    .catch((err) => {
+      console.error('Fatal error:', err)
+      process.exit(1)
+    })
 }

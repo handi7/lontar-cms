@@ -300,6 +300,21 @@ describe('generateSchemaFile', () => {
     expect(output).toContain("export const rateLimit = pgTable(\n  'rateLimit',")
   })
 
+  it('respects auth.defaultRole when generating user table', () => {
+    const config: Config = {
+      secret: 'test-secret',
+      db: fakeAdapter,
+      auth: {
+        roles: ['admin', 'author'] as const,
+        defaultRole: 'author',
+      },
+      collections: [],
+    }
+
+    const output = generateSchemaFile(config)
+    expect(output).toContain("role: text('role').default('author').notNull(),")
+  })
+
   it('renders versions table with drafts, foreign key, unique constraint, and indexes', () => {
     const posts: CollectionConfig = {
       slug: 'posts',
