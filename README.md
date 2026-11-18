@@ -156,7 +156,7 @@ Configure a pluggable email adapter in `defineConfig` to enable password reset r
 import { consoleEmailAdapter, defineConfig } from '@lontar/core'
 
 export default defineConfig({
-  // Pluggable email adapter (console logger for dev/testing, or custom provider like Resend/SendGrid/SES)
+  // Pluggable email adapter (development only: logs auth links to stdout; use an email provider like Resend/SendGrid/SES in production)
   email: consoleEmailAdapter(),
 
   // Optional: customize sender or templates

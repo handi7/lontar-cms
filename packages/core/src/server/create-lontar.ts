@@ -123,10 +123,12 @@ function createSendResetPasswordHandler(
       return
     }
     const resetUrl = `${adminUrl}/reset-password?token=${data.token}`
-    await sendEmailWithTemplate(resolvedEmail, 'resetPassword', {
+    void sendEmailWithTemplate(resolvedEmail, 'resetPassword', {
       user: { id: data.user.id, email: data.user.email, name: data.user.name },
       url: resetUrl,
       token: data.token,
+    }).catch((err) => {
+      console.error('[auth] Failed to send password reset email:', err)
     })
   }
 }
@@ -169,6 +171,13 @@ function buildAuthInstance(
     ...(trustedOrigins.length > 0 ? { trustedOrigins } : {}),
     ...(config.db.authAdapter ? { database: config.db.authAdapter } : {}),
     advanced: {
+      backgroundTasks: {
+        handler: (task: Promise<unknown>) => {
+          task.catch((err) => {
+            console.error('[auth] Background task error:', err)
+          })
+        },
+      },
       ipAddress: {
         ipAddressHeaders: ipConfig.ipAddressHeaders,
         ...(ipConfig.trustedProxies?.length ? { trustedProxies: ipConfig.trustedProxies } : {}),
