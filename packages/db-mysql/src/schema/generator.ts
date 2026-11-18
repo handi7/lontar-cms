@@ -1,22 +1,23 @@
 import { createRequire } from 'node:module'
-import type {
-  ArrayField,
-  BlocksField,
-  CheckboxField,
-  CollectionConfig,
-  Config,
-  DateField,
-  EmailField,
-  Field,
-  GlobalConfig,
-  NumberField,
-  RelationshipField,
-  RichTextField,
-  SelectField,
-  SlugField,
-  TextareaField,
-  TextField,
-  UploadField,
+import {
+  slugToIdentifier,
+  type ArrayField,
+  type BlocksField,
+  type CheckboxField,
+  type CollectionConfig,
+  type Config,
+  type DateField,
+  type EmailField,
+  type Field,
+  type GlobalConfig,
+  type NumberField,
+  type RelationshipField,
+  type RichTextField,
+  type SelectField,
+  type SlugField,
+  type TextareaField,
+  type TextField,
+  type UploadField,
 } from '@lontar/core'
 import {
   getJunctionTableName,
@@ -36,9 +37,7 @@ export function resolveDrizzleOrmMysqlCore(): string {
   }
 }
 
-export function slugToIdentifier(slug: string): string {
-  return slug.replace(/[-_]([a-z0-9])/g, (_, char: string) => char.toUpperCase())
-}
+export { slugToIdentifier }
 
 function isColumnRequired(field: Field): boolean {
   return Boolean(field.required && !field.admin?.condition)

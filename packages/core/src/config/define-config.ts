@@ -15,8 +15,40 @@ import type { CollectionConfig, Config, GlobalConfig, PaginationConfig } from '.
 
 const SLUG = /^[a-z][a-z0-9-]*$/
 const FIELD_NAME = /^[A-Za-z_][A-Za-z0-9_]*$/
+
+/**
+ * Converts a kebab-case or snake-case slug to a camelCase JavaScript identifier.
+ * Matches the identifier generation used by Drizzle schema generators.
+ */
+export function slugToIdentifier(slug: string): string {
+  return slug.replace(/[-_]([a-z0-9])/g, (_, char: string) => char.toUpperCase())
+}
+
 /** Slugs that would collide with fixed API routes or auth tables. */
-const RESERVED_SLUGS = new Set(['globals', 'auth', 'user', 'session', 'account', 'verification'])
+export const RESERVED_SLUGS = new Set([
+  'globals',
+  'auth',
+  'user',
+  'session',
+  'account',
+  'verification',
+  'apikey',
+  'rateLimit',
+  'rate-limit',
+  'ratelimit',
+])
+
+/** Generated schema identifiers that would collide with fixed API routes or auth tables. */
+export const RESERVED_IDENTIFIERS = new Set([
+  'globals',
+  'auth',
+  'user',
+  'session',
+  'account',
+  'verification',
+  'apikey',
+  'rateLimit',
+])
 const SYSTEM_FIELD_NAMES = new Set<string>(SYSTEM_FIELDS)
 const UPLOAD_SYSTEM_FIELD_NAMES = new Set<string>(UPLOAD_SYSTEM_FIELDS)
 const TEXT_LIKE_FIELD_TYPES = new Set(['text', 'textarea', 'email', 'select'])
@@ -152,6 +184,20 @@ function validateAuth(auth: Config['auth']): string[] {
   return issues
 }
 
+function checkIdentifierCollision(
+  identifiers: Map<string, string>,
+  slug: string,
+  kind: 'Collection' | 'Global',
+): string | null {
+  const identifier = slugToIdentifier(slug)
+  const existing = identifiers.get(identifier)
+  if (existing && existing !== slug) {
+    return `${kind} slug "${slug}" generates identifier "${identifier}" which collides with "${existing}".`
+  }
+  identifiers.set(identifier, slug)
+  return null
+}
+
 function validateCollections(
   collections: readonly CollectionConfig[],
   dbAdapter?: DatabaseAdapter,
@@ -161,12 +207,15 @@ function validateCollections(
 } {
   const issues: string[] = []
   const slugs = new Set<string>()
+  const identifiers = new Map<string, string>()
   const collectionMap = new Map<string, CollectionConfig>()
   for (const collection of collections) {
     if (slugs.has(collection.slug)) {
       issues.push(`Collection slug "${collection.slug}" is used twice.`)
     }
     slugs.add(collection.slug)
+    const collision = checkIdentifierCollision(identifiers, collection.slug, 'Collection')
+    if (collision) issues.push(collision)
     collectionMap.set(collection.slug, collection)
     issues.push(...validateCollection(collection, dbAdapter))
   }
@@ -186,6 +235,10 @@ function validateGlobals(
   if (!globals) return []
   const issues: string[] = []
   const seen = new Set<string>()
+  const identifiers = new Map<string, string>()
+  for (const [slug] of collectionMap) {
+    identifiers.set(slugToIdentifier(slug), slug)
+  }
   for (const global of globals) {
     if (seen.has(global.slug)) {
       issues.push(`Global slug "${global.slug}" is used twice.`)
@@ -193,6 +246,8 @@ function validateGlobals(
     if (collectionMap.has(global.slug)) {
       issues.push(`Global slug "${global.slug}" collides with a collection slug.`)
     }
+    const collision = checkIdentifierCollision(identifiers, global.slug, 'Global')
+    if (collision) issues.push(collision)
     seen.add(global.slug)
     issues.push(...validateGlobal(global, dbAdapter))
     issues.push(...validateFieldTargets(`Global "${global.slug}"`, global.fields, collectionMap))
@@ -725,7 +780,10 @@ function validateSlug(slug: string, kind = 'Collection'): string[] {
       `${kind} slug "${slug}" must be kebab-case: lowercase letters, digits and hyphens, starting with a letter.`,
     ]
   }
-  if (RESERVED_SLUGS.has(slug)) return [`${kind} slug "${slug}" is reserved.`]
+  const identifier = slugToIdentifier(slug)
+  if (RESERVED_SLUGS.has(slug) || RESERVED_IDENTIFIERS.has(identifier)) {
+    return [`${kind} slug "${slug}" is reserved.`]
+  }
   return []
 }
 
