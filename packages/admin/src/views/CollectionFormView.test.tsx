@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { cleanup, render, screen } from '@testing-library/react'
+import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import {
   CLIENT_CONFIG_VERSION,
@@ -105,8 +105,8 @@ describe('CollectionFormView permissions (#341)', () => {
 
   afterEach(cleanup)
 
-  function renderView(mode: 'create' | 'edit') {
-    const adminConfig: ClientConfig = {
+  function renderView(mode: 'create' | 'edit', configOverride?: ClientConfig) {
+    const adminConfig: ClientConfig = configOverride ?? {
       version: CLIENT_CONFIG_VERSION,
       collections: [mockCollection],
       globals: [],
@@ -269,5 +269,128 @@ describe('CollectionFormView permissions (#341)', () => {
 
     // But delete button should be hidden
     expect(screen.queryByRole('button', { name: /Delete Article/i })).toBeNull()
+  })
+
+  it('allows saving in edit mode when a required field has read: false (#373)', async () => {
+    const colWithRequiredSecret: ClientCollection = {
+      ...mockCollection,
+      fields: [
+        { name: 'title', label: 'Title', type: 'text', required: true },
+        { name: 'secretField', label: 'Secret Field', type: 'text', required: true },
+      ],
+    }
+
+    vi.mocked(client.fetchPermissions).mockResolvedValue({
+      collections: {
+        articles: mockCollectionPerm({
+          fields: {
+            title: { read: true, create: true, update: true },
+            secretField: { read: false, create: false, update: false },
+          },
+        }),
+      },
+      globals: {},
+    })
+
+    vi.mocked(client.fetchDocumentPermissions).mockResolvedValue(
+      mockCollectionPerm({
+        fields: {
+          title: { read: true, create: true, update: true },
+          secretField: { read: false, create: false, update: false },
+        },
+      }),
+    )
+
+    // Document from server does NOT have secretField (stripped on read)
+    vi.mocked(client.fetchDoc).mockResolvedValue({
+      id: 1,
+      title: 'Existing Article',
+      _status: 'draft',
+      createdAt: '2026-01-01T00:00:00.000Z',
+      updatedAt: '2026-01-01T00:00:00.000Z',
+    })
+
+    vi.mocked(client.updateDoc).mockResolvedValue({
+      id: 1,
+      title: 'Existing Article',
+      _status: 'published',
+      createdAt: '2026-01-01T00:00:00.000Z',
+      updatedAt: '2026-01-01T00:00:00.000Z',
+    })
+
+    renderView('edit', {
+      version: CLIENT_CONFIG_VERSION,
+      collections: [colWithRequiredSecret],
+      globals: [],
+    })
+
+    const publishBtn = await screen.findByRole('button', { name: /^Publish$/ })
+    fireEvent.click(publishBtn)
+
+    await waitFor(() => {
+      expect(client.updateDoc).toHaveBeenCalledWith(
+        '/api',
+        'articles',
+        '1',
+        expect.objectContaining({ title: 'Existing Article' }),
+        { draft: false },
+      )
+    })
+  })
+
+  it('allows submitting create form when a required field has create: false (#373)', async () => {
+    mockRouteParams = { collection: 'articles', id: undefined }
+    const colWithHookFilledField: ClientCollection = {
+      ...mockCollection,
+      fields: [
+        { name: 'title', label: 'Title', type: 'text', required: true },
+        { name: 'roleRestricted', label: 'Role Restricted', type: 'text', required: true },
+      ],
+    }
+
+    vi.mocked(client.fetchPermissions).mockResolvedValue({
+      collections: {
+        articles: mockCollectionPerm({
+          fields: {
+            title: { read: true, create: true, update: true },
+            roleRestricted: { read: true, create: false, update: true },
+          },
+        }),
+      },
+      globals: {},
+    })
+
+    vi.mocked(client.createDoc).mockResolvedValue({
+      id: 2,
+      title: 'New Article',
+      roleRestricted: 'filled-by-hook',
+      _status: 'published',
+      createdAt: '2026-01-01T00:00:00.000Z',
+      updatedAt: '2026-01-01T00:00:00.000Z',
+    })
+
+    renderView('create', {
+      version: CLIENT_CONFIG_VERSION,
+      collections: [colWithHookFilledField],
+      globals: [],
+    })
+
+    // Wait for permissions to load and lock the field
+    await screen.findByTestId('locked-icon-roleRestricted')
+
+    const titleInput = await screen.findByLabelText<HTMLInputElement>(/Title/i)
+    fireEvent.change(titleInput, { target: { value: 'New Article' } })
+
+    const publishBtn = screen.getByRole('button', { name: /^Publish$/ })
+    fireEvent.click(publishBtn)
+
+    await waitFor(() => {
+      expect(client.createDoc).toHaveBeenCalledWith(
+        '/api',
+        'articles',
+        expect.objectContaining({ title: 'New Article' }),
+        { draft: false },
+      )
+    })
   })
 })

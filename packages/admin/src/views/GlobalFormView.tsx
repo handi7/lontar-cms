@@ -32,6 +32,7 @@ import { usePermissions, useGlobalPermissions } from '../context/PermissionsCont
 import { fetchGlobal, saveGlobal, unpublishGlobal, ApiClientError, queryKeys } from '../api/client'
 import { FieldRenderer } from '../fields/FieldRenderer'
 import {
+  buildFormValidationFields,
   computeDefaultValues,
   formatDocForForm,
   formatDocForSubmit,
@@ -300,9 +301,9 @@ function useGlobalEditorAutosave({
   const isValid = useMemo(() => {
     if (Object.keys(errors).length > 0) return false
     const values = formValues && Object.keys(formValues).length > 0 ? formValues : getValues()
-    const payload = formatDocForSubmit(global.fields, values, true, permissions, 'edit')
+    const payload = formatDocForSubmit(global.fields, values, true, undefined, 'edit')
     return schema.safeParse(payload).success
-  }, [errors, formValues, getValues, global.fields, permissions, schema])
+  }, [errors, formValues, getValues, global.fields, schema])
 
   const onAutosave = useCallback(async () => {
     const values = getValues()
@@ -576,7 +577,13 @@ function GlobalEditor({ global, slug, apiBase }: GlobalEditorProps) {
   const { readOnlyDoc, canReadVersions, fieldPermissions, isUnreadable } =
     useGlobalPermissionsState(globalPermissions)
 
-  const schema = useMemo(() => clientFieldsToZod(global.fields), [global])
+  const schema = useMemo(
+    () =>
+      clientFieldsToZod(
+        buildFormValidationFields(global.fields, fieldPermissions, 'edit', readOnlyDoc),
+      ),
+    [global.fields, fieldPermissions, readOnlyDoc],
+  )
   const defaultValues = useMemo(() => computeDefaultValues(global.fields), [global])
 
   const {

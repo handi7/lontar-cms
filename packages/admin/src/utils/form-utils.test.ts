@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
-import type { ClientField, FieldPermission } from '@lontar/core/client'
+import { clientFieldsToZod, type ClientField, type FieldPermission } from '@lontar/core/client'
 import {
+  buildFormValidationFields,
   computeDefaultValues,
   filterReadableFields,
   formatDateForInput,
@@ -782,6 +783,205 @@ describe('form-utils', () => {
         'edit',
       )
       expect(submitted).toEqual({ title: 'Hello' })
+    })
+
+    describe('buildFormValidationFields (#373)', () => {
+      const baseFields: ClientField[] = [
+        { name: 'title', type: 'text', label: 'Title', required: true },
+        { name: 'secret', type: 'text', label: 'Secret', required: true },
+        { name: 'lockedField', type: 'text', label: 'Locked', required: true },
+        {
+          name: 'groupField',
+          type: 'group',
+          label: 'Group',
+          required: true,
+          fields: [
+            { name: 'groupSub', type: 'text', label: 'Group Sub', required: true },
+            { name: 'unreadableSub', type: 'text', label: 'Unreadable Sub', required: true },
+          ],
+        },
+        {
+          name: 'items',
+          type: 'array',
+          label: 'Items',
+          required: true,
+          minRows: 2,
+          fields: [{ name: 'itemText', type: 'text', label: 'Item Text', required: true }],
+        },
+      ]
+
+      const samplePerms: Record<string, FieldPermission> = {
+        title: { read: true, create: true, update: true },
+        secret: { read: false, create: false, update: false },
+        lockedField: { read: true, create: false, update: false },
+        groupField: {
+          read: true,
+          create: true,
+          update: false,
+          fields: {
+            groupSub: { read: true, create: true, update: true },
+            unreadableSub: { read: false, create: false, update: false },
+          },
+        },
+        items: {
+          read: true,
+          create: false,
+          update: false,
+          fields: {
+            itemText: { read: true, create: true, update: true },
+          },
+        },
+      }
+
+      it('omits unreadable fields and marks non-writable fields optional in edit mode', () => {
+        const validationFields = buildFormValidationFields(baseFields, samplePerms, 'edit')
+
+        // secret should be omitted completely (read: false)
+        expect(validationFields.find((f) => f.name === 'secret')).toBeUndefined()
+
+        // title is writable, remains required: true
+        const title = validationFields.find((f) => f.name === 'title')
+        expect(title?.required).toBe(true)
+
+        // lockedField has update: false, becomes required: false
+        const locked = validationFields.find((f) => f.name === 'lockedField')
+        expect(locked?.required).toBe(false)
+
+        // groupField has update: false, becomes required: false
+        const group = validationFields.find((f) => f.name === 'groupField') as {
+          required?: boolean
+          fields: ClientField[]
+        }
+        expect(group?.required).toBe(false)
+        // unreadableSub inside group is omitted
+        expect(group?.fields.find((f) => f.name === 'unreadableSub')).toBeUndefined()
+        // groupSub inside locked group becomes required: false because parent is locked
+        expect(group?.fields.find((f) => f.name === 'groupSub')?.required).toBe(false)
+
+        // items array has update: false, becomes required: false and minRows: 0
+        const items = validationFields.find((f) => f.name === 'items') as {
+          required?: boolean
+          minRows?: number
+        }
+        expect(items?.required).toBe(false)
+        expect(items?.minRows).toBe(0)
+      })
+
+      it('marks fields with create: false optional in create mode', () => {
+        const validationFields = buildFormValidationFields(baseFields, samplePerms, 'create')
+
+        // secret omitted
+        expect(validationFields.find((f) => f.name === 'secret')).toBeUndefined()
+
+        // title remains required: true
+        expect(validationFields.find((f) => f.name === 'title')?.required).toBe(true)
+
+        // lockedField has create: false, becomes required: false
+        expect(validationFields.find((f) => f.name === 'lockedField')?.required).toBe(false)
+
+        // groupField has create: true, remains required: true
+        const group = validationFields.find((f) => f.name === 'groupField') as {
+          required?: boolean
+          fields: ClientField[]
+        }
+        expect(group?.required).toBe(true)
+        // groupSub has create: true, remains required: true
+        expect(group?.fields.find((f) => f.name === 'groupSub')?.required).toBe(true)
+
+        // items has create: false, becomes required: false and minRows: 0
+        const items = validationFields.find((f) => f.name === 'items') as {
+          required?: boolean
+          minRows?: number
+        }
+        expect(items?.required).toBe(false)
+        expect(items?.minRows).toBe(0)
+      })
+
+      it('makes all fields optional when readOnlyDoc is true', () => {
+        const validationFields = buildFormValidationFields(
+          baseFields,
+          samplePerms,
+          'edit',
+          true, // readOnlyDoc
+        )
+        const title = validationFields.find((f) => f.name === 'title')
+        expect(title?.required).toBe(false)
+      })
+
+      it('allows form submission and validation when required field has read: false (#373 scenario 1)', () => {
+        const fields = buildFormValidationFields(baseFields, samplePerms, 'edit')
+        const schema = clientFieldsToZod(fields)
+
+        // secret is missing from doc because server omitted it on read
+        const formData = {
+          title: 'Valid Title',
+          // lockedField is omitted or empty
+        }
+
+        const parseResult = schema.safeParse(formData)
+        expect(parseResult.success).toBe(true)
+      })
+
+      it('allows create submission when required field has create: false filled by hook (#373 scenario 2)', () => {
+        const fields = buildFormValidationFields(baseFields, samplePerms, 'create')
+        const schema = clientFieldsToZod(fields)
+
+        // lockedField is left undefined/empty by user because disabled on create
+        const formData = {
+          title: 'New Doc',
+          groupField: { groupSub: 'Nested value' },
+          // items has create: false, omitted
+        }
+
+        const parseResult = schema.safeParse(formData)
+        expect(parseResult.success).toBe(true)
+      })
+
+      it('allows autosave to validate payload when required field has update: false (#373 scenario 3)', () => {
+        const fields = buildFormValidationFields(baseFields, samplePerms, 'edit')
+        const schema = clientFieldsToZod(fields)
+
+        // In edit mode: lockedField has update: false.
+        // Before #373, formatDocForSubmit stripped lockedField from payload,
+        // causing non-partial schema to fail validation because lockedField was required.
+        // With #373, unstripped payload has lockedField or schema makes lockedField optional:
+        const unstrippedPayload = formatDocForSubmit(
+          baseFields,
+          { title: 'Draft in progress', lockedField: 'existing' },
+          true,
+          undefined, // unstripped
+          'edit',
+        )
+
+        const parseResult = schema.safeParse(unstrippedPayload)
+        expect(parseResult.success).toBe(true)
+
+        // Also, if stripped payload is passed, schema marked lockedField optional so it still passes:
+        const strippedPayload = formatDocForSubmit(
+          baseFields,
+          { title: 'Draft in progress', lockedField: 'existing' },
+          true,
+          samplePerms,
+          'edit',
+        )
+        expect(strippedPayload.lockedField).toBeUndefined()
+        expect(schema.safeParse(strippedPayload).success).toBe(true)
+      })
+
+      it('still rejects autosave when a writable required field is empty', () => {
+        const fields = buildFormValidationFields(baseFields, samplePerms, 'edit')
+        const schema = clientFieldsToZod(fields)
+
+        const invalidPayload = formatDocForSubmit(
+          baseFields,
+          { title: '', lockedField: 'existing' },
+          true,
+          undefined,
+          'edit',
+        )
+
+        expect(schema.safeParse(invalidPayload).success).toBe(false)
+      })
     })
   })
 })
