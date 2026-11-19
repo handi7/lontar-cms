@@ -5,6 +5,8 @@ import { describe, expect, it } from 'vitest'
 import { getTableConfig } from 'drizzle-orm/pg-core'
 import type { CollectionConfig, Config, DatabaseAdapter, GlobalConfig } from '@lontar/core'
 import { findDrizzleKitBin } from '@lontar/db-test-suite'
+import { postgresAdapter } from '../adapter'
+import { isPostgresAvailable, setupTestDatabase, type TestDatabase } from '../test-database'
 import { generateSchemaFile, slugToIdentifier } from './generator'
 import {
   collectionToTable,
@@ -602,5 +604,186 @@ describe('generateSchemaFile', () => {
     } finally {
       fs.rmSync(tmpDir, { recursive: true, force: true })
     }
+  })
+
+  describe('localization schema file generation', () => {
+    const localizedBlogConfig: Config = {
+      secret: 'test-secret',
+      db: fakeAdapter,
+      localization: {
+        locales: [
+          { code: 'en', label: 'English' },
+          { code: 'id', label: 'Bahasa Indonesia' },
+        ],
+        defaultLocale: 'en',
+      },
+      collections: [
+        {
+          slug: 'posts',
+          versions: { drafts: true },
+          fields: {
+            title: { type: 'text', required: true, localized: true },
+            slug: { type: 'slug', required: true, unique: true, localized: true },
+            content: { type: 'textarea', localized: true },
+            views: { type: 'number', integer: true, defaultValue: 0 },
+            author: { type: 'relationship', relationTo: 'users', localized: true },
+            cover: { type: 'upload', relationTo: 'media', localized: true },
+            seo: {
+              type: 'group',
+              localized: true,
+              fields: {
+                metaTitle: { type: 'text', required: true },
+              },
+            },
+            layout: {
+              type: 'blocks',
+              localized: true,
+              blocks: [
+                {
+                  slug: 'hero',
+                  fields: { heading: { type: 'text' } },
+                },
+              ],
+            },
+            gallery: {
+              type: 'array',
+              fields: {
+                caption: { type: 'text', localized: true },
+              },
+            },
+            tags: {
+              type: 'relationship',
+              relationTo: 'tags',
+              hasMany: true,
+              localized: true,
+            },
+          },
+        },
+        {
+          slug: 'tags',
+          fields: {
+            name: { type: 'text', required: true, localized: true },
+          },
+        },
+        {
+          slug: 'media',
+          upload: true,
+          fields: {
+            alt: { type: 'text', localized: true },
+          },
+        },
+      ],
+      globals: [
+        {
+          slug: 'site_settings',
+          fields: {
+            siteName: { type: 'text', required: true, localized: true },
+          },
+        },
+      ],
+    }
+
+    it('generates per-locale columns and localized junction tables in output schema', () => {
+      const output = generateSchemaFile(localizedBlogConfig)
+
+      // Top-level localized fields
+      expect(output).toContain("title_en: varchar('title_en', { length: 255 }),")
+      expect(output).toContain("title_id: varchar('title_id', { length: 255 }),")
+      expect(output).toContain("slug_en: varchar('slug_en', { length: 255 }).unique(),")
+      expect(output).toContain("slug_id: varchar('slug_id', { length: 255 }).unique(),")
+      expect(output).toContain("content_en: text('content_en'),")
+      expect(output).toContain("content_id: text('content_id'),")
+      expect(output).toContain("author_en: integer('author_en'),")
+      expect(output).toContain("author_id: integer('author_id'),")
+      expect(output).toContain("cover_en: integer('cover_en'),")
+      expect(output).toContain("cover_id: integer('cover_id'),")
+
+      // Non-localized stays flat
+      expect(output).toContain("views: integer('views').default(0),")
+
+      // Localized group flattens to per-locale columns
+      expect(output).toContain("seo__metaTitle_en: varchar('seo__metaTitle_en', { length: 255 }),")
+      expect(output).toContain("seo__metaTitle_id: varchar('seo__metaTitle_id', { length: 255 }),")
+
+      // Localized container blocks generate per-locale JSONB columns
+      expect(output).toContain("layout_en: jsonb('layout_en'),")
+      expect(output).toContain("layout_id: jsonb('layout_id'),")
+
+      // Shared container array with localized subfield generates single JSONB column
+      expect(output).toContain("gallery: jsonb('gallery'),")
+
+      // Localized junction table includes _locale and composite index/unique
+      expect(output).toContain("export const postsTags = pgTable(\n  'posts_tags',")
+      expect(output).toContain("_locale: varchar('_locale', { length: 10 }).notNull(),")
+      expect(output).toContain(
+        "index('posts_tags_parent_locale_order_idx').on(table.parentId, table._locale, table.order)",
+      )
+      expect(output).toContain(
+        "unique('posts_tags_parent_locale_target_unique').on(table.parentId, table._locale, table.targetId)",
+      )
+
+      // Localized upload collection
+      expect(output).toContain("alt_en: varchar('alt_en', { length: 255 }),")
+      expect(output).toContain("alt_id: varchar('alt_id', { length: 255 }),")
+      expect(output).toContain("filename: varchar('filename', { length: 255 }).notNull(),")
+
+      // Localized global
+      expect(output).toContain("siteName_en: varchar('siteName_en', { length: 255 }),")
+      expect(output).toContain("siteName_id: varchar('siteName_id', { length: 255 }),")
+    })
+
+    it('drizzle-kit generate --dialect postgresql accepts the generated localized schema and applies cleanly', async () => {
+      const schema = generateSchemaFile(localizedBlogConfig)
+      const tmpDir = fs.mkdtempSync(path.join('/tmp', 'lontar-pg-schema-'))
+      const schemaFile = path.join(tmpDir, 'schema.ts')
+      const outDir = path.join(tmpDir, 'migrations')
+      fs.writeFileSync(schemaFile, schema)
+
+      let testDb: TestDatabase | undefined
+      try {
+        const bin = findDrizzleKitBin()
+        execFileSync(process.execPath, [
+          bin,
+          'generate',
+          '--dialect',
+          'postgresql',
+          '--schema',
+          schemaFile,
+          '--out',
+          outDir,
+        ])
+
+        const files = fs.readdirSync(outDir)
+        const sqlFiles = files.filter((f) => f.endsWith('.sql'))
+        expect(sqlFiles.length).toBeGreaterThan(0)
+
+        const sqlContent = fs.readFileSync(path.join(outDir, sqlFiles[0]!), 'utf8')
+        expect(sqlContent).toContain('CREATE TABLE "posts"')
+        expect(sqlContent).toContain('"title_en" varchar(255)')
+        expect(sqlContent).toContain('"title_id" varchar(255)')
+        expect(sqlContent).toContain('"slug_en" varchar(255)')
+        expect(sqlContent).toContain('"slug_id" varchar(255)')
+        expect(sqlContent).toContain('CREATE TABLE "posts_tags"')
+        expect(sqlContent).toContain('"_locale" varchar(10) NOT NULL')
+        expect(sqlContent).toContain('CREATE TABLE "site_settings"')
+        expect(sqlContent).toContain('"siteName_en" varchar(255)')
+        expect(sqlContent).toContain('"siteName_id" varchar(255)')
+
+        if (await isPostgresAvailable()) {
+          testDb = await setupTestDatabase()
+          const adapter = postgresAdapter({ url: testDb.url })
+          try {
+            await adapter.migrate({ migrationsDir: outDir })
+          } finally {
+            await adapter.close()
+          }
+        }
+      } finally {
+        if (testDb) {
+          await testDb.teardown()
+        }
+        fs.rmSync(tmpDir, { recursive: true, force: true })
+      }
+    })
   })
 })

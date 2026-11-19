@@ -22,6 +22,9 @@ import {
 import {
   getJunctionTableName,
   flattenGroupFields,
+  getJunctionParentLocaleOrderIndexName,
+  getJunctionParentLocaleTargetUniqueName,
+  getLocaleCodes,
   getVersionsParentForeignKeyName,
   getVersionsParentVersionUniqueName,
   getVersionsParentIdIndexName,
@@ -40,7 +43,7 @@ export function resolveDrizzleOrmMysqlCore(): string {
 export { slugToIdentifier }
 
 function isColumnRequired(field: Field): boolean {
-  return Boolean(field.required && !field.admin?.condition)
+  return Boolean(field.required && !field.admin?.condition && !field.localized)
 }
 
 function renderTextField(name: string, field: TextField): string {
@@ -257,7 +260,7 @@ function collectImports(
   globals: readonly GlobalConfig[] = [],
 ): string[] {
   const imports = new Set<string>(AUTH_BASE_IMPORTS)
-  if (findJunctionTableNames(collections).length > 0) {
+  if (findJunctionTables(collections).length > 0) {
     imports.add('unique')
   }
   for (const collection of collections) {
@@ -269,11 +272,35 @@ function collectImports(
   return Array.from(imports).sort()
 }
 
+function renderTableFieldLines(
+  fields: Record<string, Field>,
+  localeCodes: readonly string[],
+): string[] {
+  const lines: string[] = []
+  const flatFields = flattenGroupFields(fields)
+  for (const { name, field } of flatFields) {
+    if (field.type === 'relationship' && field.hasMany) {
+      continue
+    }
+    if (field.localized && localeCodes.length > 0) {
+      const colField = { ...field, required: false }
+      for (const locale of localeCodes) {
+        const colName = `${name}_${locale}`
+        lines.push(`  ${colName}: ${renderField(colName, colField)},`)
+      }
+    } else {
+      lines.push(`  ${name}: ${renderField(name, field)},`)
+    }
+  }
+  return lines
+}
+
 function renderTableDefinition(
   slug: string,
   fields: Record<string, Field>,
   isUpload = false,
   hasDrafts = false,
+  localeCodes: readonly string[] = [],
 ): string {
   const identifier = slugToIdentifier(slug)
   const lines: string[] = ["  id: int('id').autoincrement().primaryKey(),"]
@@ -292,13 +319,7 @@ function renderTableDefinition(
     lines.push("  sizes: json('sizes'),")
   }
 
-  const flatFields = flattenGroupFields(fields)
-  for (const { name, field } of flatFields) {
-    if (field.type === 'relationship' && field.hasMany) {
-      continue
-    }
-    lines.push(`  ${name}: ${renderField(name, field)},`)
-  }
+  lines.push(...renderTableFieldLines(fields, localeCodes))
 
   lines.push("  createdAt: timestamp('createdAt').defaultNow().notNull(),")
   lines.push("  updatedAt: timestamp('updatedAt').defaultNow().onUpdateNow().notNull(),")
@@ -310,17 +331,27 @@ function renderTableDefinition(
   return `export const ${identifier} = mysqlTable('${slug}', {\n${lines.join('\n')}\n})`
 }
 
-function renderCollection(collection: CollectionConfig): string {
+function renderCollection(
+  collection: CollectionConfig,
+  localeCodes: readonly string[] = [],
+): string {
   return renderTableDefinition(
     collection.slug,
     collection.fields,
     Boolean(collection.upload),
     Boolean(collection.versions?.drafts),
+    localeCodes,
   )
 }
 
-function renderGlobal(global: GlobalConfig): string {
-  return renderTableDefinition(global.slug, global.fields, false, Boolean(global.versions?.drafts))
+function renderGlobal(global: GlobalConfig, localeCodes: readonly string[] = []): string {
+  return renderTableDefinition(
+    global.slug,
+    global.fields,
+    false,
+    Boolean(global.versions?.drafts),
+    localeCodes,
+  )
 }
 
 function renderAuthTables(defaultRole = 'editor'): string {
@@ -428,8 +459,27 @@ export const rateLimit = mysqlTable(
 )`
 }
 
-function renderJunctionTable(tableName: string): string {
+function renderJunctionTable(tableName: string, isLocalized = false): string {
   const identifier = slugToIdentifier(tableName)
+  if (isLocalized) {
+    const parentLocaleOrderIdx = getJunctionParentLocaleOrderIndexName(tableName)
+    const parentLocaleTargetUnique = getJunctionParentLocaleTargetUniqueName(tableName)
+    return `export const ${identifier} = mysqlTable(
+  '${tableName}',
+  {
+    id: int('id').autoincrement().primaryKey(),
+    parentId: int('parent_id').notNull(),
+    targetId: int('target_id').notNull(),
+    _locale: varchar('_locale', { length: 10 }).notNull(),
+    order: int('order').default(0).notNull(),
+  },
+  (table) => [
+    index('${parentLocaleOrderIdx}').on(table.parentId, table._locale, table.order),
+    index('${tableName}_target_idx').on(table.targetId),
+    unique('${parentLocaleTargetUnique}').on(table.parentId, table._locale, table.targetId),
+  ],
+)`
+  }
   return `export const ${identifier} = mysqlTable(
   '${tableName}',
   {
@@ -446,20 +496,30 @@ function renderJunctionTable(tableName: string): string {
 )`
 }
 
-function findJunctionTableNames(collections: readonly CollectionConfig[]): string[] {
-  const names: string[] = []
+interface JunctionTableSpec {
+  tableName: string
+  isLocalized: boolean
+}
+
+function findJunctionTables(collections: readonly CollectionConfig[]): JunctionTableSpec[] {
+  const specs: JunctionTableSpec[] = []
   for (const col of collections) {
     for (const { name, field } of flattenGroupFields(col.fields)) {
       if (field.type === 'relationship' && field.hasMany) {
-        names.push(getJunctionTableName(col.slug, name))
+        specs.push({
+          tableName: getJunctionTableName(col.slug, name),
+          isLocalized: Boolean(field.localized),
+        })
       }
     }
   }
-  return names
+  return specs
 }
 
 function renderJunctionTables(collections: readonly CollectionConfig[]): string {
-  return findJunctionTableNames(collections).map(renderJunctionTable).join('\n\n')
+  return findJunctionTables(collections)
+    .map((s) => renderJunctionTable(s.tableName, s.isLocalized))
+    .join('\n\n')
 }
 
 function renderVersionsTable(entity: CollectionConfig | GlobalConfig): string {
@@ -509,14 +569,17 @@ function renderVersionsTables(
 
 export function generateSchemaFile(config: Config): string {
   const globals = config.globals ?? []
+  const localeCodes = getLocaleCodes(config.localization)
   const imports = collectImports(config.collections, globals)
   const ormModule = resolveDrizzleOrmMysqlCore()
   const header = `// Generated by @lontar/db-mysql. Do not edit directly.\nimport { ${imports.join(', ')} } from '${ormModule}'\n`
   const defaultRole = config.auth?.defaultRole ?? 'editor'
   const authSection = renderAuthTables(defaultRole)
-  const collectionSection = config.collections.map(renderCollection).join('\n\n')
+  const collectionSection = config.collections
+    .map((col) => renderCollection(col, localeCodes))
+    .join('\n\n')
   const versionsSection = renderVersionsTables(config.collections, globals)
-  const globalSection = globals.map(renderGlobal).join('\n\n')
+  const globalSection = globals.map((g) => renderGlobal(g, localeCodes)).join('\n\n')
   const junctionSection = renderJunctionTables(config.collections)
   const sections = [
     authSection,
