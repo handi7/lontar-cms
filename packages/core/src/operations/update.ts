@@ -4,10 +4,11 @@ import type { AuthUser } from '../auth/types'
 import type { DocStatus } from '../client/system-fields'
 import { clientFieldsToZod } from '../client/zod'
 import { toClientCollection } from '../config/to-client-config'
-import type { CollectionConfig } from '../config/types'
+import type { AccessArgs, CollectionConfig } from '../config/types'
 import type { DocumentData } from '../database/adapter'
 import { populateDoc } from '../populate'
 import { AccessDeniedError, NotFoundError, ValidationError } from './errors'
+import { extractLocaleCodes, resolveOperationLocale } from './locale'
 import {
   executeUpdate,
   resolveDraftFlag,
@@ -24,8 +25,13 @@ async function assertUpdateAccess(
   id: number,
   data: DocumentData,
   user?: AuthUser | null,
+  locale?: string,
 ): Promise<void> {
-  const allowed = await checkAccess(collection.access?.update, { user: user ?? null, id, data })
+  const accessArgs: AccessArgs = { user: user ?? null, id, data }
+  if (locale !== undefined) {
+    accessArgs.locale = locale
+  }
+  const allowed = await checkAccess(collection.access?.update, accessArgs)
   if (!allowed) {
     throw new AccessDeniedError('Access denied', { user })
   }
@@ -35,9 +41,16 @@ function validateUpdateData(
   collection: CollectionConfig,
   data: DocumentData,
   originalDoc?: DocumentData,
+  locale?: string,
+  locales?: string[],
 ): DocumentData {
   const clientCol = toClientCollection(collection)
-  const partialSchema = clientFieldsToZod(clientCol.fields, { partial: true, originalDoc })
+  const partialSchema = clientFieldsToZod(clientCol.fields, {
+    partial: true,
+    originalDoc,
+    locale,
+    locales,
+  })
   const parsed = partialSchema.safeParse(data)
   if (!parsed.success) {
     throw new ValidationError('Validation failed', { issues: parsed.error.issues })
@@ -66,6 +79,8 @@ async function prepareUpdatePayload(
   originalDoc: DocumentData,
   draft?: boolean,
   cache?: FieldAccessCache,
+  locale?: string,
+  locales?: string[],
 ): Promise<{
   validatedData: DocumentData
   status: DocStatus | undefined
@@ -80,6 +95,7 @@ async function prepareUpdatePayload(
         doc: originalDoc,
         cache,
         req: args.req,
+        locale,
       })
 
   const { _status: _ignoredStatus, ...cleanData } = writeData
@@ -99,9 +115,10 @@ async function prepareUpdatePayload(
     previousStatus,
     statusTransition,
     req: args.req,
+    locale,
   })
 
-  const validatedData = validateUpdateData(args.collection, hookData, originalDoc)
+  const validatedData = validateUpdateData(args.collection, hookData, originalDoc, locale, locales)
   return { validatedData, status, statusTransition }
 }
 
@@ -113,6 +130,8 @@ async function finalizeUpdateDoc<T>(
   status?: DocStatus,
   isDraftRevision?: boolean,
   cache?: FieldAccessCache,
+  locale?: string,
+  fallbackLocale?: string | false,
 ): Promise<T> {
   const isDraftUpdate = status === 'draft' || Boolean(isDraftRevision)
   if (args.collection.upload && !isDraftUpdate) {
@@ -129,6 +148,8 @@ async function finalizeUpdateDoc<T>(
     overrideAccess: args.overrideAccess,
     draft,
     cache,
+    locale,
+    fallbackLocale,
   })
 
   if (args.overrideAccess) {
@@ -140,6 +161,7 @@ async function finalizeUpdateDoc<T>(
     doc: populated,
     cache,
     req: args.req,
+    locale,
   })
 
   return sanitized as T
@@ -147,9 +169,15 @@ async function finalizeUpdateDoc<T>(
 
 export async function updateOperation<T = DocumentData>(args: UpdateOperationArgs): Promise<T> {
   const cache = resolveOperationContextCache(args)
+  const { locale, fallbackLocale } = resolveOperationLocale(
+    args.config,
+    args.locale,
+    args.fallbackLocale,
+  )
+  const locales = extractLocaleCodes(args.config)
 
   if (!args.overrideAccess) {
-    await assertUpdateAccess(args.collection, args.id, args.data, args.user)
+    await assertUpdateAccess(args.collection, args.id, args.data, args.user, locale)
   }
 
   const draft = resolveDraftFlag(args.collection, args.draft, args.autosave)
@@ -163,6 +191,8 @@ export async function updateOperation<T = DocumentData>(args: UpdateOperationArg
     originalDoc,
     draft,
     cache,
+    locale,
+    locales,
   )
 
   const result = await executeUpdate({
@@ -178,6 +208,7 @@ export async function updateOperation<T = DocumentData>(args: UpdateOperationArg
     autosave: args.autosave,
     userId: args.user?.id,
     config: args.config,
+    locale,
   })
 
   if (!result.success) {
@@ -192,5 +223,7 @@ export async function updateOperation<T = DocumentData>(args: UpdateOperationArg
     status,
     result.isDraftRevision,
     cache,
+    locale,
+    fallbackLocale,
   )
 }

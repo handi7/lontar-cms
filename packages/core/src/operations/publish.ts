@@ -8,9 +8,10 @@ import type { DatabaseAdapter, DocumentData } from '../database/adapter'
 import { runBeforeValidateHooks } from '../hooks'
 import type { DocStatusTransition } from '../hooks/types'
 import { populateDoc } from '../populate'
-import { AccessDeniedError, NotFoundError, ValidationError } from './errors'
-import { executeGlobalUpdate, executeUpdate, type MutationExecutionResult } from './mutation'
 import { cleanupReplacedMedia } from '../server/routes/collection-upload'
+import { AccessDeniedError, NotFoundError, ValidationError } from './errors'
+import { extractLocaleCodes, resolveOperationLocale } from './locale'
+import { executeGlobalUpdate, executeUpdate, type MutationExecutionResult } from './mutation'
 
 export interface PublishOperationArgs {
   config: Config
@@ -20,6 +21,8 @@ export interface PublishOperationArgs {
   overrideAccess?: boolean
   user?: AuthUser | null
   req?: Request
+  locale?: string
+  fallbackLocale?: string | false
 }
 
 export interface PublishGlobalOperationArgs {
@@ -29,16 +32,22 @@ export interface PublishGlobalOperationArgs {
   overrideAccess?: boolean
   user?: AuthUser | null
   req?: Request
+  locale?: string
+  fallbackLocale?: string | false
 }
 
 async function assertPublishAccess(
   collection: CollectionConfig,
   id: number,
   user?: AuthUser | null,
+  locale?: string,
+  req?: Request,
 ): Promise<void> {
   const allowed = await checkAccess(collection.access?.update, {
     user: user ?? null,
     id,
+    locale,
+    req,
   })
   if (!allowed) {
     throw new AccessDeniedError('Access denied', { user })
@@ -88,9 +97,14 @@ function validatePublishData(
   collection: CollectionConfig,
   data: DocumentData,
   originalDoc?: DocumentData,
+  localeOpts?: { locale?: string; locales?: readonly string[] },
 ): DocumentData {
   const clientCol = toClientCollection(collection)
-  const schema = clientFieldsToZod(clientCol.fields, { originalDoc })
+  const schema = clientFieldsToZod(clientCol.fields, {
+    originalDoc,
+    locale: localeOpts?.locale,
+    locales: localeOpts?.locales,
+  })
   const parsed = schema.safeParse(data)
   if (!parsed.success) {
     throw new ValidationError('Validation failed', { issues: parsed.error.issues })
@@ -105,6 +119,7 @@ async function prepareTransitionDocumentPayload(
   status: DocStatus,
   statusTransition: DocStatusTransition,
   req?: Request,
+  localeOpts?: { locale?: string; locales?: readonly string[] },
 ): Promise<DocumentData> {
   const dataForUpdate: DocumentData = { ...publishPayload, _status: status }
   if (statusTransition === 'publish') {
@@ -117,8 +132,9 @@ async function prepareTransitionDocumentPayload(
       previousStatus: (originalDoc._status as DocStatus | undefined) ?? 'draft',
       statusTransition,
       req,
+      locale: localeOpts?.locale,
     })
-    const validatedData = validatePublishData(collection, hookData, originalDoc)
+    const validatedData = validatePublishData(collection, hookData, originalDoc, localeOpts)
     return { ...hookData, ...validatedData, _status: status }
   }
   if (statusTransition === 'unpublish') {
@@ -131,6 +147,7 @@ async function prepareTransitionDocumentPayload(
       previousStatus: (originalDoc._status as DocStatus | undefined) ?? 'published',
       statusTransition,
       req,
+      locale: localeOpts?.locale,
     })
     return { ...hookData, _status: status }
   }
@@ -147,8 +164,15 @@ async function transitionDocumentStatus<T = DocumentData>(
     throw new ValidationError(`Drafts are not enabled for collection "${args.collection.slug}"`)
   }
 
+  const { locale, fallbackLocale } = resolveOperationLocale(
+    args.config,
+    args.locale,
+    args.fallbackLocale,
+  )
+  const locales = extractLocaleCodes(args.config)
+
   if (!args.overrideAccess) {
-    await assertPublishAccess(args.collection, args.id, args.user)
+    await assertPublishAccess(args.collection, args.id, args.user, locale, args.req)
   }
 
   const runTransition = async (
@@ -182,6 +206,7 @@ async function transitionDocumentStatus<T = DocumentData>(
       status,
       statusTransition,
       args.req,
+      { locale, locales },
     )
 
     const result = await executeUpdate({
@@ -196,6 +221,7 @@ async function transitionDocumentStatus<T = DocumentData>(
       userId: args.user?.id,
       config: args.config,
       deferWebhooks: true,
+      locale,
     })
 
     if (!result.success) {
@@ -221,6 +247,8 @@ async function transitionDocumentStatus<T = DocumentData>(
     user: args.user ?? null,
     req: args.req,
     overrideAccess: args.overrideAccess,
+    locale,
+    fallbackLocale,
   })
 
   if (args.overrideAccess) {
@@ -231,6 +259,7 @@ async function transitionDocumentStatus<T = DocumentData>(
     id: args.id,
     doc: populated,
     req: args.req,
+    locale,
   })
 
   return sanitized as T
@@ -247,8 +276,10 @@ export function unpublishOperation<T = DocumentData>(args: PublishOperationArgs)
 async function assertGlobalPublishAccess(
   global: GlobalConfig,
   user?: AuthUser | null,
+  locale?: string,
+  req?: Request,
 ): Promise<void> {
-  const allowed = await checkAccess(global.access?.update, { user: user ?? null })
+  const allowed = await checkAccess(global.access?.update, { user: user ?? null, locale, req })
   if (!allowed) {
     throw new AccessDeniedError('Access denied', { user })
   }
@@ -290,6 +321,8 @@ async function populateGlobalTransitionDoc<T>(args: {
   user?: AuthUser | null
   req?: Request
   overrideAccess?: boolean
+  locale?: string
+  fallbackLocale?: string | false
 }): Promise<T> {
   if (args.depth !== undefined && args.depth > 0) {
     const populated = await populateDoc(args.doc, {
@@ -300,6 +333,8 @@ async function populateGlobalTransitionDoc<T>(args: {
       user: args.user ?? null,
       req: args.req,
       overrideAccess: args.overrideAccess,
+      locale: args.locale,
+      fallbackLocale: args.fallbackLocale,
     })
     return populated as T
   }
@@ -310,9 +345,14 @@ function validateGlobalPublishData(
   global: GlobalConfig,
   data: DocumentData,
   originalDoc?: DocumentData,
+  localeOpts?: { locale?: string; locales?: readonly string[] },
 ): DocumentData {
   const clientGlobal = toClientGlobal(global)
-  const schema = clientFieldsToZod(clientGlobal.fields, { originalDoc })
+  const schema = clientFieldsToZod(clientGlobal.fields, {
+    originalDoc,
+    locale: localeOpts?.locale,
+    locales: localeOpts?.locales,
+  })
   const parsed = schema.safeParse(data)
   if (!parsed.success) {
     throw new ValidationError('Validation failed', { issues: parsed.error.issues })
@@ -327,6 +367,7 @@ async function prepareTransitionGlobalPayload(
   status: DocStatus,
   statusTransition: DocStatusTransition,
   req?: Request,
+  localeOpts?: { locale?: string; locales?: readonly string[] },
 ): Promise<DocumentData> {
   const dataForUpdate: DocumentData = { ...publishPayload, _status: status }
   if (statusTransition === 'publish') {
@@ -339,8 +380,9 @@ async function prepareTransitionGlobalPayload(
       previousStatus: (originalDoc._status as DocStatus | undefined) ?? 'draft',
       statusTransition,
       req,
+      locale: localeOpts?.locale,
     })
-    const validatedData = validateGlobalPublishData(global, hookData, originalDoc)
+    const validatedData = validateGlobalPublishData(global, hookData, originalDoc, localeOpts)
     return { ...hookData, ...validatedData, _status: status }
   }
   if (statusTransition === 'unpublish') {
@@ -353,6 +395,7 @@ async function prepareTransitionGlobalPayload(
       previousStatus: (originalDoc._status as DocStatus | undefined) ?? 'published',
       statusTransition,
       req,
+      locale: localeOpts?.locale,
     })
     return { ...hookData, _status: status }
   }
@@ -369,8 +412,15 @@ async function transitionGlobalStatus<T = DocumentData>(
     throw new ValidationError(`Drafts are not enabled for global "${args.global.slug}"`)
   }
 
+  const { locale, fallbackLocale } = resolveOperationLocale(
+    args.config,
+    args.locale,
+    args.fallbackLocale,
+  )
+  const locales = extractLocaleCodes(args.config)
+
   if (!args.overrideAccess) {
-    await assertGlobalPublishAccess(args.global, args.user)
+    await assertGlobalPublishAccess(args.global, args.user, locale, args.req)
   }
 
   const runTransition = async (
@@ -395,6 +445,7 @@ async function transitionGlobalStatus<T = DocumentData>(
       status,
       statusTransition,
       args.req,
+      { locale, locales },
     )
 
     const result = await executeGlobalUpdate({
@@ -408,6 +459,7 @@ async function transitionGlobalStatus<T = DocumentData>(
       userId: args.user?.id,
       config: args.config,
       deferWebhooks: true,
+      locale,
     })
 
     assertGlobalTransitionSuccess(result, action)
@@ -428,6 +480,8 @@ async function transitionGlobalStatus<T = DocumentData>(
     user: args.user,
     req: args.req,
     overrideAccess: args.overrideAccess,
+    locale,
+    fallbackLocale,
   })
 
   if (args.overrideAccess) {
@@ -438,7 +492,7 @@ async function transitionGlobalStatus<T = DocumentData>(
     args.global.fields,
     populated as DocumentData,
     args.user ?? null,
-    { doc: populated as DocumentData, req: args.req },
+    { doc: populated as DocumentData, req: args.req, locale },
   )
 
   return sanitized as T

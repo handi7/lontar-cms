@@ -4,6 +4,7 @@ import type { CollectionConfig, GlobalConfig } from '../config/types'
 import type { DocumentData, PaginatedVersions, StoredVersion } from '../database/adapter'
 import { AccessDeniedError, NotFoundError, ValidationError } from './errors'
 import { updateGlobalOperation } from './global'
+import { resolveOperationLocale } from './locale'
 import type { OperationContext } from './types'
 import { updateOperation } from './update'
 
@@ -52,8 +53,15 @@ async function assertReadAccess(
   collection: CollectionConfig,
   id: number,
   user?: AuthUser | null,
+  locale?: string,
+  req?: Request,
 ): Promise<void> {
-  const allowed = await checkAccess(collection.access?.read, { user: user ?? null, id })
+  const allowed = await checkAccess(collection.access?.read, {
+    user: user ?? null,
+    id,
+    locale,
+    req,
+  })
   if (!allowed) {
     throw new AccessDeniedError('Access denied', { user })
   }
@@ -63,8 +71,15 @@ async function assertUpdateAccess(
   collection: CollectionConfig,
   id: number,
   user?: AuthUser | null,
+  locale?: string,
+  req?: Request,
 ): Promise<void> {
-  const allowed = await checkAccess(collection.access?.update, { user: user ?? null, id })
+  const allowed = await checkAccess(collection.access?.update, {
+    user: user ?? null,
+    id,
+    locale,
+    req,
+  })
   if (!allowed) {
     throw new AccessDeniedError('Access denied', { user })
   }
@@ -75,9 +90,11 @@ async function assertVersionHistoryAccess(
   collection: CollectionConfig,
   id: number,
   user?: AuthUser | null,
+  locale?: string,
+  req?: Request,
 ): Promise<void> {
-  await assertReadAccess(collection, id, user)
-  await assertUpdateAccess(collection, id, user)
+  await assertReadAccess(collection, id, user, locale, req)
+  await assertUpdateAccess(collection, id, user, locale, req)
 }
 
 function assertVersionsEnabled(collection: CollectionConfig): void {
@@ -89,9 +106,10 @@ function assertVersionsEnabled(collection: CollectionConfig): void {
 export async function findVersionsOperation(
   args: FindVersionsOperationArgs,
 ): Promise<PaginatedVersions> {
+  const { locale } = resolveOperationLocale(args.config, args.locale, args.fallbackLocale)
   assertVersionsEnabled(args.collection)
   if (!args.overrideAccess) {
-    await assertVersionHistoryAccess(args.collection, args.id, args.user)
+    await assertVersionHistoryAccess(args.collection, args.id, args.user, locale, args.req)
   }
 
   if (!args.config.db.findVersions) {
@@ -115,6 +133,7 @@ export async function findVersionsOperation(
         id: args.id,
         doc: v.snapshot,
         req: args.req,
+        locale,
       }),
     })),
   )
@@ -125,9 +144,10 @@ export async function findVersionsOperation(
 export async function findVersionByIDOperation(
   args: FindVersionByIDOperationArgs,
 ): Promise<StoredVersion> {
+  const { locale } = resolveOperationLocale(args.config, args.locale, args.fallbackLocale)
   assertVersionsEnabled(args.collection)
   if (!args.overrideAccess) {
-    await assertVersionHistoryAccess(args.collection, args.id, args.user)
+    await assertVersionHistoryAccess(args.collection, args.id, args.user, locale, args.req)
   }
 
   if (!args.config.db.findVersionByID) {
@@ -152,7 +172,7 @@ export async function findVersionByIDOperation(
     args.collection.fields,
     version.snapshot,
     args.user ?? null,
-    { id: args.id, doc: version.snapshot, req: args.req },
+    { id: args.id, doc: version.snapshot, req: args.req, locale },
   )
 
   return { ...version, snapshot: sanitizedSnapshot }
@@ -161,9 +181,10 @@ export async function findVersionByIDOperation(
 export async function restoreVersionOperation<T = DocumentData>(
   args: RestoreVersionOperationArgs,
 ): Promise<T> {
+  const { locale } = resolveOperationLocale(args.config, args.locale, args.fallbackLocale)
   assertVersionsEnabled(args.collection)
   if (!args.overrideAccess) {
-    await assertVersionHistoryAccess(args.collection, args.id, args.user)
+    await assertVersionHistoryAccess(args.collection, args.id, args.user, locale, args.req)
   }
 
   const version = await findVersionByIDOperation({
@@ -186,11 +207,18 @@ export async function restoreVersionOperation<T = DocumentData>(
     overrideAccess: args.overrideAccess,
     user: args.user,
     req: args.req,
+    locale: args.locale,
+    fallbackLocale: args.fallbackLocale,
   })
 }
 
-async function assertGlobalReadAccess(global: GlobalConfig, user?: AuthUser | null): Promise<void> {
-  const allowed = await checkAccess(global.access?.read, { user: user ?? null })
+async function assertGlobalReadAccess(
+  global: GlobalConfig,
+  user?: AuthUser | null,
+  locale?: string,
+  req?: Request,
+): Promise<void> {
+  const allowed = await checkAccess(global.access?.read, { user: user ?? null, locale, req })
   if (!allowed) {
     throw new AccessDeniedError('Access denied', { user })
   }
@@ -199,8 +227,10 @@ async function assertGlobalReadAccess(global: GlobalConfig, user?: AuthUser | nu
 async function assertGlobalUpdateAccess(
   global: GlobalConfig,
   user?: AuthUser | null,
+  locale?: string,
+  req?: Request,
 ): Promise<void> {
-  const allowed = await checkAccess(global.access?.update, { user: user ?? null })
+  const allowed = await checkAccess(global.access?.update, { user: user ?? null, locale, req })
   if (!allowed) {
     throw new AccessDeniedError('Access denied', { user })
   }
@@ -209,9 +239,11 @@ async function assertGlobalUpdateAccess(
 async function assertGlobalVersionHistoryAccess(
   global: GlobalConfig,
   user?: AuthUser | null,
+  locale?: string,
+  req?: Request,
 ): Promise<void> {
-  await assertGlobalReadAccess(global, user)
-  await assertGlobalUpdateAccess(global, user)
+  await assertGlobalReadAccess(global, user, locale, req)
+  await assertGlobalUpdateAccess(global, user, locale, req)
 }
 
 function assertGlobalVersionsEnabled(global: GlobalConfig): void {
@@ -223,9 +255,10 @@ function assertGlobalVersionsEnabled(global: GlobalConfig): void {
 export async function findGlobalVersionsOperation(
   args: FindGlobalVersionsOperationArgs,
 ): Promise<PaginatedVersions> {
+  const { locale } = resolveOperationLocale(args.config, args.locale, args.fallbackLocale)
   assertGlobalVersionsEnabled(args.global)
   if (!args.overrideAccess) {
-    await assertGlobalVersionHistoryAccess(args.global, args.user)
+    await assertGlobalVersionHistoryAccess(args.global, args.user, locale, args.req)
   }
 
   if (!args.config.db.findVersions) {
@@ -252,6 +285,7 @@ export async function findGlobalVersionsOperation(
         id: parentId,
         doc: v.snapshot,
         req: args.req,
+        locale,
       }),
     })),
   )
@@ -262,9 +296,10 @@ export async function findGlobalVersionsOperation(
 export async function findGlobalVersionByIDOperation(
   args: FindGlobalVersionByIDOperationArgs,
 ): Promise<StoredVersion> {
+  const { locale } = resolveOperationLocale(args.config, args.locale, args.fallbackLocale)
   assertGlobalVersionsEnabled(args.global)
   if (!args.overrideAccess) {
-    await assertGlobalVersionHistoryAccess(args.global, args.user)
+    await assertGlobalVersionHistoryAccess(args.global, args.user, locale, args.req)
   }
 
   if (!args.config.db.findVersionByID) {
@@ -290,7 +325,7 @@ export async function findGlobalVersionByIDOperation(
     args.global.fields,
     version.snapshot,
     args.user ?? null,
-    { id: parentId, doc: version.snapshot, req: args.req },
+    { id: parentId, doc: version.snapshot, req: args.req, locale },
   )
 
   return { ...version, snapshot: sanitizedSnapshot }
@@ -299,9 +334,10 @@ export async function findGlobalVersionByIDOperation(
 export async function restoreGlobalVersionOperation<T = DocumentData>(
   args: RestoreGlobalVersionOperationArgs,
 ): Promise<T> {
+  const { locale } = resolveOperationLocale(args.config, args.locale, args.fallbackLocale)
   assertGlobalVersionsEnabled(args.global)
   if (!args.overrideAccess) {
-    await assertGlobalVersionHistoryAccess(args.global, args.user)
+    await assertGlobalVersionHistoryAccess(args.global, args.user, locale, args.req)
   }
 
   const version = await findGlobalVersionByIDOperation({
@@ -322,5 +358,7 @@ export async function restoreGlobalVersionOperation<T = DocumentData>(
     overrideAccess: args.overrideAccess,
     user: args.user,
     req: args.req,
+    locale: args.locale,
+    fallbackLocale: args.fallbackLocale,
   })
 }

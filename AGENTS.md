@@ -232,7 +232,7 @@ approval on the `npm` environment. Don't run `pnpm publish` by hand; see `docs/r
   - [x] #421 `core: localization config and the localized field option`
   - [x] #422 `db: localized schema generation on both adapters`
   - [x] #423 `db: read, write, filter and sort localized values in both adapters`
-  - [ ] #424 `api: locale and fallbackLocale in REST, Local API, hooks and access`
+  - [x] #424 `api: locale and fallbackLocale in REST, Local API, hooks and access`
   - [ ] #425 `versions: locale-aware drafts, autosave, publish and restore`
   - [ ] #426 `cli: data-preserving migrations when enabling localization or toggling localized`
   - [ ] #427 `cli: localized types from generate:types`

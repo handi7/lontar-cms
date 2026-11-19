@@ -437,7 +437,7 @@ export interface ClientFieldsToZodOptions {
   partial?: boolean
   originalDoc?: Record<string, unknown>
   locale?: string
-  locales?: string[]
+  locales?: readonly string[]
 }
 
 /**

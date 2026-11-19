@@ -1,11 +1,16 @@
 import type { Context, Hono, Next } from 'hono'
 import { bodyLimit } from 'hono/body-limit'
-import type { z } from 'zod'
 import { accessDenied, checkAccess, validateQueryAccess } from '../../access'
 import type { AuthUser, LontarVariables } from '../../auth/types'
 import { clientFieldsToZod } from '../../client/zod'
 import { toClientCollection } from '../../config/to-client-config'
-import { DEFAULT_LIMIT, MAX_LIMIT, type CollectionConfig, type Config } from '../../config/types'
+import {
+  DEFAULT_LIMIT,
+  MAX_LIMIT,
+  type CollectionConfig,
+  type Config,
+  type LocalizationConfig,
+} from '../../config/types'
 import { ForeignKeyConstraintError, type DocumentData } from '../../database/adapter'
 import {
   AccessDeniedError,
@@ -79,11 +84,15 @@ function resolvePagination(
   return { page, limit }
 }
 
-function resolveWhereFilter(rawUrl: string, collection: CollectionConfig) {
+function resolveWhereFilter(
+  rawUrl: string,
+  collection: CollectionConfig,
+  localization?: LocalizationConfig,
+) {
   const url = new URL(rawUrl)
   const where = parseWhereFromSearchParams(url.searchParams)
   if (!where) return { where: undefined }
-  const issues = validateWhere(where, collection)
+  const issues = validateWhere(where, collection, localization)
   return issues.length > 0 ? { issues } : { where }
 }
 
@@ -101,6 +110,20 @@ function extractFirstIssueMessage(issues: unknown[] | undefined, fallback: strin
   return fallback
 }
 
+function formatValidationError(c: Context, err: ValidationError): Response {
+  if (err.issues && err.issues.length > 0) {
+    return c.json(
+      {
+        error: 'Validation failed',
+        message: extractFirstIssueMessage(err.issues, err.message),
+        issues: err.issues,
+      },
+      400,
+    )
+  }
+  return c.json({ error: err.message }, 400)
+}
+
 interface FindQueryCheck {
   where?: Where
   errorResponse?: { error: string; message?: string; issues: unknown[] }
@@ -111,8 +134,10 @@ async function validateFindQuery(
   sort: string | undefined,
   collection: CollectionConfig,
   user: AuthUser | null,
+  config: Config,
 ): Promise<FindQueryCheck> {
-  const whereResult = resolveWhereFilter(rawUrl, collection)
+  const localization = config.localization
+  const whereResult = resolveWhereFilter(rawUrl, collection, localization)
   if ('issues' in whereResult && whereResult.issues) {
     return {
       errorResponse: {
@@ -124,7 +149,7 @@ async function validateFindQuery(
   }
 
   if (sort) {
-    const sortIssues = validateSort(sort, collection)
+    const sortIssues = validateSort(sort, collection, localization)
     if (sortIssues.length > 0) {
       return {
         errorResponse: {
@@ -156,8 +181,10 @@ async function handleFind(c: Context<LontarEnv>, collection: CollectionConfig, c
   const sort = c.req.query('sort')
   const depth = parseDepth(c.req.query('depth'))
   const draft = c.req.query('draft') === 'true'
+  const locale = c.req.query('locale')
+  const fallbackLocale = c.req.query('fallbackLocale')
 
-  const queryCheck = await validateFindQuery(c.req.raw.url, sort, collection, user)
+  const queryCheck = await validateFindQuery(c.req.raw.url, sort, collection, user, config)
   if (queryCheck.errorResponse) {
     return c.json(queryCheck.errorResponse, 400)
   }
@@ -175,6 +202,8 @@ async function handleFind(c: Context<LontarEnv>, collection: CollectionConfig, c
       overrideAccess: false,
       user,
       req: c.req.raw,
+      locale,
+      fallbackLocale,
     })
     return c.json(result, 200)
   } catch (err) {
@@ -182,14 +211,7 @@ async function handleFind(c: Context<LontarEnv>, collection: CollectionConfig, c
       return accessDenied(c, user)
     }
     if (err instanceof ValidationError) {
-      return c.json(
-        {
-          error: 'Validation failed',
-          message: extractFirstIssueMessage(err.issues, err.message),
-          issues: err.issues,
-        },
-        400,
-      )
+      return formatValidationError(c, err)
     }
     throw err
   }
@@ -204,6 +226,8 @@ async function handleFindByID(c: Context<LontarEnv>, collection: CollectionConfi
 
   const depth = parseDepth(c.req.query('depth'))
   const draft = c.req.query('draft') === 'true'
+  const locale = c.req.query('locale')
+  const fallbackLocale = c.req.query('fallbackLocale')
 
   try {
     const doc = await findByIDOperation({
@@ -215,6 +239,8 @@ async function handleFindByID(c: Context<LontarEnv>, collection: CollectionConfi
       overrideAccess: false,
       user,
       req: c.req.raw,
+      locale,
+      fallbackLocale,
     })
     if (!doc) {
       return c.json({ error: `Document with ID ${id} not found` }, 404)
@@ -224,19 +250,20 @@ async function handleFindByID(c: Context<LontarEnv>, collection: CollectionConfi
     if (err instanceof AccessDeniedError) {
       return accessDenied(c, user)
     }
+    if (err instanceof ValidationError) {
+      return formatValidationError(c, err)
+    }
     throw err
   }
 }
 
-async function handleCreate(
-  c: Context<LontarEnv>,
-  collection: CollectionConfig,
-  config: Config,
-  schema: z.ZodType,
-) {
+async function handleCreate(c: Context<LontarEnv>, collection: CollectionConfig, config: Config) {
   const user = c.get('user') ?? null
+  const locale = c.req.query('locale')
+  const fallbackLocale = c.req.query('fallbackLocale')
 
   if (collection.upload) {
+    const schema = clientFieldsToZod(toClientCollection(collection).fields)
     return handleUploadCreate({
       c,
       collection,
@@ -269,6 +296,8 @@ async function handleCreate(
       overrideAccess: false,
       user,
       req: c.req.raw,
+      locale,
+      fallbackLocale,
     })
     return c.json(doc, 201)
   } catch (err) {
@@ -276,14 +305,7 @@ async function handleCreate(
       return accessDenied(c, user)
     }
     if (err instanceof ValidationError) {
-      return c.json(
-        {
-          error: 'Validation failed',
-          message: extractFirstIssueMessage(err.issues, err.message),
-          issues: err.issues,
-        },
-        400,
-      )
+      return formatValidationError(c, err)
     }
     throw err
   }
@@ -308,6 +330,8 @@ async function handleJsonUpdate(
   const depth = parseDepth(c.req.query('depth'))
   const draft = c.req.query('draft') === 'true'
   const autosave = c.req.query('autosave') === 'true'
+  const locale = c.req.query('locale')
+  const fallbackLocale = c.req.query('fallbackLocale')
 
   try {
     const doc = await updateOperation({
@@ -321,6 +345,8 @@ async function handleJsonUpdate(
       overrideAccess: false,
       user,
       req: c.req.raw,
+      locale,
+      fallbackLocale,
     })
     return c.json(doc, 200)
   } catch (err) {
@@ -336,17 +362,7 @@ function handleMutationError(err: unknown, c: Context<LontarEnv>, user: AuthUser
     return c.json({ error: err.message }, 404)
   }
   if (err instanceof ValidationError) {
-    if (err.issues && err.issues.length > 0) {
-      return c.json(
-        {
-          error: err.message,
-          message: extractFirstIssueMessage(err.issues, err.message),
-          issues: err.issues,
-        },
-        400,
-      )
-    }
-    return c.json({ error: err.message }, 400)
+    return formatValidationError(c, err)
   }
   throw err
 }
@@ -359,6 +375,8 @@ async function handlePublish(c: Context<LontarEnv>, collection: CollectionConfig
   }
 
   const depth = parseDepth(c.req.query('depth'))
+  const locale = c.req.query('locale')
+  const fallbackLocale = c.req.query('fallbackLocale')
 
   try {
     const doc = await publishOperation({
@@ -369,6 +387,8 @@ async function handlePublish(c: Context<LontarEnv>, collection: CollectionConfig
       overrideAccess: false,
       user,
       req: c.req.raw,
+      locale,
+      fallbackLocale,
     })
     return c.json(doc, 200)
   } catch (err) {
@@ -388,6 +408,8 @@ async function handleUnpublish(
   }
 
   const depth = parseDepth(c.req.query('depth'))
+  const locale = c.req.query('locale')
+  const fallbackLocale = c.req.query('fallbackLocale')
 
   try {
     const doc = await unpublishOperation({
@@ -398,6 +420,8 @@ async function handleUnpublish(
       overrideAccess: false,
       user,
       req: c.req.raw,
+      locale,
+      fallbackLocale,
     })
     return c.json(doc, 200)
   } catch (err) {
@@ -435,6 +459,9 @@ async function handleDelete(c: Context<LontarEnv>, collection: CollectionConfig,
     return c.json({ error: 'Invalid document ID' }, 400)
   }
 
+  const locale = c.req.query('locale')
+  const fallbackLocale = c.req.query('fallbackLocale')
+
   try {
     const doc = await deleteOperation({
       config,
@@ -443,6 +470,8 @@ async function handleDelete(c: Context<LontarEnv>, collection: CollectionConfig,
       overrideAccess: false,
       user,
       req: c.req.raw,
+      locale,
+      fallbackLocale,
     })
     if (!doc) {
       return c.json({ error: `Document with ID ${id} not found` }, 404)
@@ -451,6 +480,9 @@ async function handleDelete(c: Context<LontarEnv>, collection: CollectionConfig,
   } catch (err) {
     if (err instanceof AccessDeniedError) {
       return accessDenied(c, user)
+    }
+    if (err instanceof ValidationError) {
+      return formatValidationError(c, err)
     }
     if (err instanceof ForeignKeyConstraintError) {
       const message = err.table
@@ -474,6 +506,8 @@ async function handleFindVersions(
   const user = c.get('user') ?? null
   const { page, limit } = resolvePagination((k) => c.req.query(k), collection, config)
   const sort = c.req.query('sort')
+  const locale = c.req.query('locale')
+  const fallbackLocale = c.req.query('fallbackLocale')
 
   try {
     const result = await findVersionsOperation({
@@ -485,6 +519,8 @@ async function handleFindVersions(
       sort,
       user,
       overrideAccess: false,
+      locale,
+      fallbackLocale,
     })
     return c.json(result, 200)
   } catch (err) {
@@ -506,6 +542,8 @@ async function handleFindVersionByID(
     return c.json({ error: 'Invalid version ID' }, 400)
   }
   const user = c.get('user') ?? null
+  const locale = c.req.query('locale')
+  const fallbackLocale = c.req.query('fallbackLocale')
 
   try {
     const result = await findVersionByIDOperation({
@@ -515,6 +553,8 @@ async function handleFindVersionByID(
       versionId,
       user,
       overrideAccess: false,
+      locale,
+      fallbackLocale,
     })
     return c.json(result, 200)
   } catch (err) {
@@ -538,6 +578,8 @@ async function handleRestoreVersion(
   const user = c.get('user') ?? null
   const depth = parseDepth(c.req.query('depth'))
   const draft = c.req.query('draft') !== undefined ? c.req.query('draft') === 'true' : undefined
+  const locale = c.req.query('locale')
+  const fallbackLocale = c.req.query('fallbackLocale')
 
   try {
     const doc = await restoreVersionOperation({
@@ -550,6 +592,8 @@ async function handleRestoreVersion(
       user,
       overrideAccess: false,
       req: c.req.raw,
+      locale,
+      fallbackLocale,
     })
     return c.json(doc, 200)
   } catch (err) {
@@ -651,8 +695,7 @@ export function registerCollectionRoutes(router: Hono<LontarEnv>, config: Config
   router.post('/:collection', postLimit, (c) => {
     const col = findCol(c)
     if (!col) return c.json({ error: `Collection "${c.req.param('collection')}" not found` }, 404)
-    const schema = clientFieldsToZod(toClientCollection(col).fields)
-    return handleCreate(c, col, config, schema)
+    return handleCreate(c, col, config)
   })
 
   router.post('/:collection/:id/publish', (c) => {

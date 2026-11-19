@@ -8,13 +8,15 @@ import { populateDocs } from '../populate'
 import type { SortItem, Where } from '../query/types'
 import { validateSort, validateWhere } from '../query/validator'
 import { AccessDeniedError, ValidationError } from './errors'
+import { resolveOperationLocale } from './locale'
 import { resolveOperationContextCache, type FindOperationArgs } from './types'
 
 async function assertReadAccess(
   collection: CollectionConfig,
   user?: AuthUser | null,
+  locale?: string,
 ): Promise<void> {
-  const allowed = await checkAccess(collection.access?.read, { user: user ?? null })
+  const allowed = await checkAccess(collection.access?.read, { user: user ?? null, locale })
   if (!allowed) {
     throw new AccessDeniedError('Access denied', { user })
   }
@@ -51,9 +53,13 @@ function resolveLimits(
   }
 }
 
-function assertValidWhere(where: Where | undefined, collection: CollectionConfig): void {
+function assertValidWhere(
+  where: Where | undefined,
+  collection: CollectionConfig,
+  config: Config,
+): void {
   if (!where) return
-  const issues = validateWhere(where, collection)
+  const issues = validateWhere(where, collection, config.localization)
   if (issues.length > 0) {
     throw new ValidationError('Validation failed', { issues })
   }
@@ -62,9 +68,10 @@ function assertValidWhere(where: Where | undefined, collection: CollectionConfig
 function assertValidSort(
   sort: string | SortItem[] | undefined,
   collection: CollectionConfig,
+  config: Config,
 ): void {
   if (!sort) return
-  const issues = validateSort(sort, collection)
+  const issues = validateSort(sort, collection, config.localization)
   if (issues.length > 0) {
     throw new ValidationError('Validation failed', { issues })
   }
@@ -88,10 +95,11 @@ async function assertFindAccess(
   collection: CollectionConfig,
   user: AuthUser | null,
   draft?: boolean,
+  locale?: string,
 ): Promise<void> {
-  await assertReadAccess(collection, user)
+  await assertReadAccess(collection, user, locale)
   if (draft) {
-    const allowed = await checkAccess(collection.access?.update, { user })
+    const allowed = await checkAccess(collection.access?.update, { user, locale })
     if (!allowed) {
       throw new AccessDeniedError('Access denied', { user })
     }
@@ -141,9 +149,14 @@ export async function findOperation<T = DocumentData>(
   args: FindOperationArgs,
 ): Promise<PaginatedDocs<T>> {
   const cache = resolveOperationContextCache(args)
+  const { locale, fallbackLocale } = resolveOperationLocale(
+    args.config,
+    args.locale,
+    args.fallbackLocale,
+  )
 
   if (!args.overrideAccess) {
-    await assertFindAccess(args.collection, args.user ?? null, args.draft)
+    await assertFindAccess(args.collection, args.user ?? null, args.draft, locale)
     await assertValidQueryAccess(
       args.where,
       args.sort,
@@ -155,8 +168,8 @@ export async function findOperation<T = DocumentData>(
   }
 
   const { page, limit } = resolveLimits(args.collection, args.config, args.page, args.limit)
-  assertValidWhere(args.where, args.collection)
-  assertValidSort(args.sort, args.collection)
+  assertValidWhere(args.where, args.collection, args.config)
+  assertValidSort(args.sort, args.collection, args.config)
 
   const where = resolveFindWhere(args.collection, args.where, args.draft)
 
@@ -166,12 +179,16 @@ export async function findOperation<T = DocumentData>(
     sort: args.sort,
     page,
     limit,
+    locale,
+    fallbackLocale,
   })
 
   const rawDocs = await hydrateDraftDocs(args.config.db, args.collection, result.docs, args.draft)
 
   const docs = await Promise.all(
-    rawDocs.map((doc) => runAfterReadHooks({ collection: args.collection, doc, req: args.req })),
+    rawDocs.map((doc) =>
+      runAfterReadHooks({ collection: args.collection, doc, req: args.req, locale }),
+    ),
   )
 
   const populated = await populateDocs({
@@ -185,6 +202,8 @@ export async function findOperation<T = DocumentData>(
     overrideAccess: args.overrideAccess,
     draft: args.draft,
     cache,
+    locale,
+    fallbackLocale,
   })
 
   const docsToReturn = args.overrideAccess
@@ -196,6 +215,7 @@ export async function findOperation<T = DocumentData>(
             doc,
             cache,
             req: args.req,
+            locale,
           }),
         ),
       )

@@ -3,10 +3,11 @@ import type { FieldAccessCache } from '../access/field-access'
 import type { AuthUser } from '../auth/types'
 import { clientFieldsToZod } from '../client/zod'
 import { toClientCollection } from '../config/to-client-config'
-import type { CollectionConfig } from '../config/types'
+import type { AccessArgs, CollectionConfig } from '../config/types'
 import type { DocumentData } from '../database/adapter'
 import { populateDoc } from '../populate'
 import { AccessDeniedError, ValidationError } from './errors'
+import { extractLocaleCodes, resolveOperationLocale } from './locale'
 import {
   executeCreate,
   resolveCreateStatus,
@@ -20,16 +21,26 @@ async function assertCreateAccess(
   collection: CollectionConfig,
   data: DocumentData,
   user?: AuthUser | null,
+  locale?: string,
 ): Promise<void> {
-  const allowed = await checkAccess(collection.access?.create, { user: user ?? null, data })
+  const accessArgs: AccessArgs = { user: user ?? null, data }
+  if (locale !== undefined) {
+    accessArgs.locale = locale
+  }
+  const allowed = await checkAccess(collection.access?.create, accessArgs)
   if (!allowed) {
     throw new AccessDeniedError('Access denied', { user })
   }
 }
 
-function validateCreateData(collection: CollectionConfig, data: DocumentData): DocumentData {
+function validateCreateData(
+  collection: CollectionConfig,
+  data: DocumentData,
+  locale?: string,
+  locales?: string[],
+): DocumentData {
   const clientCol = toClientCollection(collection)
-  const schema = clientFieldsToZod(clientCol.fields)
+  const schema = clientFieldsToZod(clientCol.fields, { locale, locales })
   const parsed = schema.safeParse(data)
   if (!parsed.success) {
     throw new ValidationError('Validation failed', { issues: parsed.error.issues })
@@ -51,6 +62,7 @@ async function canPopulateCreateDraft(
   args: CreateOperationArgs,
   docId: unknown,
   draft?: boolean,
+  locale?: string,
 ): Promise<boolean> {
   if (args.overrideAccess) return true
   if (!draft) return false
@@ -59,6 +71,7 @@ async function canPopulateCreateDraft(
     await checkAccess(args.collection.access?.update, {
       user: args.user ?? null,
       id: numericId,
+      locale,
     }),
   )
 }
@@ -66,6 +79,7 @@ async function canPopulateCreateDraft(
 async function prepareCreateWriteData(
   args: CreateOperationArgs,
   cache: FieldAccessCache,
+  locale?: string,
 ): Promise<DocumentData> {
   if (args.overrideAccess) return args.data
   return sanitizeDocWrite(args.collection.fields, args.data, 'create', {
@@ -73,17 +87,24 @@ async function prepareCreateWriteData(
     data: args.data,
     cache,
     req: args.req,
+    locale,
   })
 }
 
 export async function createOperation<T = DocumentData>(args: CreateOperationArgs): Promise<T> {
   const cache = resolveOperationContextCache(args)
+  const { locale, fallbackLocale } = resolveOperationLocale(
+    args.config,
+    args.locale,
+    args.fallbackLocale,
+  )
+  const locales = extractLocaleCodes(args.config)
 
   if (!args.overrideAccess) {
-    await assertCreateAccess(args.collection, args.data, args.user)
+    await assertCreateAccess(args.collection, args.data, args.user, locale)
   }
 
-  const writeData = await prepareCreateWriteData(args, cache)
+  const writeData = await prepareCreateWriteData(args, cache, locale)
 
   const draft = resolveDraftFlag(args.collection, args.draft, args.autosave)
   const { status, statusTransition } = resolveCreateStatus(args.collection, draft)
@@ -96,9 +117,10 @@ export async function createOperation<T = DocumentData>(args: CreateOperationArg
     previousStatus: undefined,
     statusTransition,
     req: args.req,
+    locale,
   })
 
-  const validatedData = validateCreateData(args.collection, hookData)
+  const validatedData = validateCreateData(args.collection, hookData, locale, locales)
 
   const result = await executeCreate({
     collection: args.collection,
@@ -109,10 +131,11 @@ export async function createOperation<T = DocumentData>(args: CreateOperationArg
     autosave: args.autosave,
     userId: args.user?.id,
     config: args.config,
+    locale,
   })
 
   const createdDoc = assertCreateResultSuccess(result)
-  const canPopulateDraft = await canPopulateCreateDraft(args, createdDoc.id, draft)
+  const canPopulateDraft = await canPopulateCreateDraft(args, createdDoc.id, draft, locale)
 
   const populated = await populateDoc(createdDoc, {
     collection: args.collection,
@@ -124,6 +147,8 @@ export async function createOperation<T = DocumentData>(args: CreateOperationArg
     overrideAccess: args.overrideAccess,
     draft: canPopulateDraft,
     cache,
+    locale,
+    fallbackLocale,
   })
 
   if (args.overrideAccess) {
@@ -135,6 +160,7 @@ export async function createOperation<T = DocumentData>(args: CreateOperationArg
     doc: populated,
     cache,
     req: args.req,
+    locale,
   })
 
   return sanitized as T

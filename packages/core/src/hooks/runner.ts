@@ -29,6 +29,7 @@ export async function runBeforeValidateHooks(args: {
   previousStatus?: DocStatus
   statusTransition?: DocStatusTransition
   req?: Request
+  locale?: string
 }): Promise<DocumentData> {
   const hooks = getHooks(args.collection?.hooks?.beforeValidate, args.global?.hooks?.beforeValidate)
   let currentData = args.data
@@ -41,6 +42,7 @@ export async function runBeforeValidateHooks(args: {
       previousStatus: args.previousStatus,
       statusTransition: args.statusTransition,
       req: args.req,
+      locale: args.locale,
     }
     const result = await hook(hookArgs)
     if (isRecord(result)) {
@@ -61,6 +63,7 @@ export async function runBeforeChangeHooks(args: {
   previousStatus?: DocStatus
   statusTransition?: DocStatusTransition
   req?: Request
+  locale?: string
 }): Promise<DocumentData> {
   const hooks = getHooks(args.collection?.hooks?.beforeChange, args.global?.hooks?.beforeChange)
   let currentData = args.data
@@ -73,6 +76,7 @@ export async function runBeforeChangeHooks(args: {
       previousStatus: args.previousStatus,
       statusTransition: args.statusTransition,
       req: args.req,
+      locale: args.locale,
     }
     const result = await hook(hookArgs)
     if (isRecord(result)) {
@@ -93,6 +97,7 @@ export async function runAfterChangeHooks(args: {
   previousStatus?: DocStatus
   statusTransition?: DocStatusTransition
   req?: Request
+  locale?: string
 }): Promise<DocumentData> {
   const hooks = getHooks(args.collection?.hooks?.afterChange, args.global?.hooks?.afterChange)
   let currentDoc = args.doc
@@ -105,6 +110,7 @@ export async function runAfterChangeHooks(args: {
       previousStatus: args.previousStatus,
       statusTransition: args.statusTransition,
       req: args.req,
+      locale: args.locale,
     }
     const result = await hook(hookArgs)
     if (isRecord(result)) {
@@ -120,6 +126,7 @@ export async function runAfterReadHooks(args: {
   global?: GlobalConfig
   doc: DocumentData
   req?: Request
+  locale?: string
 }): Promise<DocumentData> {
   const hooks = getHooks(args.collection?.hooks?.afterRead, args.global?.hooks?.afterRead)
   let currentDoc = args.doc
@@ -127,6 +134,7 @@ export async function runAfterReadHooks(args: {
     const hookArgs: AfterReadHookArgs = {
       doc: currentDoc,
       req: args.req,
+      locale: args.locale,
     }
     const result = await hook(hookArgs)
     if (isRecord(result)) {
@@ -144,6 +152,7 @@ export async function runBeforeDeleteHooks(args: {
   doc: DocumentData
   status?: DocStatus
   req?: Request
+  locale?: string
 }): Promise<void> {
   const hooks = getHooks(args.collection?.hooks?.beforeDelete, args.global?.hooks?.beforeDelete)
   for (const hook of hooks) {
@@ -152,6 +161,7 @@ export async function runBeforeDeleteHooks(args: {
       doc: args.doc,
       status: args.status,
       req: args.req,
+      locale: args.locale,
     }
     await hook(hookArgs)
   }
@@ -164,6 +174,7 @@ export async function runAfterDeleteHooks(args: {
   doc: DocumentData
   status?: DocStatus
   req?: Request
+  locale?: string
 }): Promise<DocumentData> {
   const hooks = getHooks(args.collection?.hooks?.afterDelete, args.global?.hooks?.afterDelete)
   let currentDoc = args.doc
@@ -173,6 +184,7 @@ export async function runAfterDeleteHooks(args: {
       doc: currentDoc,
       status: args.status,
       req: args.req,
+      locale: args.locale,
     }
     const result = await hook(hookArgs)
     if (isRecord(result)) {

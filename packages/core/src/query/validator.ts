@@ -1,4 +1,4 @@
-import type { CollectionConfig } from '../config/types'
+import type { CollectionConfig, LocalizationConfig } from '../config/types'
 import type { Field } from '../fields/types'
 import {
   BASE_SYSTEM_FIELDS,
@@ -13,45 +13,123 @@ export interface QueryValidationIssue {
   message: string
 }
 
-function addGroupFieldToAllowed(allowed: Set<string>, name: string, field: Field): void {
-  if (field.type !== 'group') return
-  for (const [subName, subField] of Object.entries(field.fields)) {
-    addFieldToAllowed(allowed, `${name}.${subName}`, subField)
-    addFieldToAllowed(allowed, `${name}__${subName}`, subField)
+function extractLocaleList(localization?: LocalizationConfig): string[] {
+  if (!localization) return []
+  return localization.locales.map((l) => (typeof l === 'string' ? l : l.code))
+}
+
+function addLocalizedVariations(allowed: Set<string>, path: string, locales: string[]): void {
+  for (const loc of locales) {
+    allowed.add(`${path}_${loc}`)
   }
 }
 
-function addArrayFieldToAllowed(allowed: Set<string>, name: string, field: Field): void {
+function addGroupFieldToAllowed(
+  allowed: Set<string>,
+  name: string,
+  field: Field,
+  locales: string[],
+  parentLocalized: boolean,
+): void {
+  if (field.type !== 'group') return
+  for (const [subName, subField] of Object.entries(field.fields)) {
+    addFieldToAllowed(allowed, `${name}.${subName}`, subField, locales, parentLocalized)
+    addFieldToAllowed(allowed, `${name}__${subName}`, subField, locales, parentLocalized)
+  }
+}
+
+function addArrayFieldToAllowed(
+  allowed: Set<string>,
+  name: string,
+  field: Field,
+  locales: string[],
+  parentLocalized: boolean,
+): void {
   if (field.type !== 'array') return
   allowed.add(`${name}.id`)
   allowed.add(`${name}__id`)
+  if (parentLocalized && locales.length > 0) {
+    for (const loc of locales) {
+      allowed.add(`${name}_${loc}.id`)
+      allowed.add(`${name}_${loc}__id`)
+    }
+  }
   for (const [subName, subField] of Object.entries(field.fields)) {
-    addFieldToAllowed(allowed, `${name}.${subName}`, subField)
-    addFieldToAllowed(allowed, `${name}__${subName}`, subField)
+    addFieldToAllowed(allowed, `${name}.${subName}`, subField, locales, false)
+    addFieldToAllowed(allowed, `${name}__${subName}`, subField, locales, false)
+    if (subField.localized && locales.length > 0) {
+      for (const loc of locales) {
+        allowed.add(`${name}.${subName}.${loc}`)
+        allowed.add(`${name}__${subName}__${loc}`)
+      }
+    }
   }
 }
 
-function addBlocksFieldToAllowed(allowed: Set<string>, name: string, field: Field): void {
+function addBlockSubFieldToAllowed(
+  allowed: Set<string>,
+  name: string,
+  blockSlug: string,
+  subName: string,
+  subField: Field,
+  locales: string[],
+): void {
+  addFieldToAllowed(allowed, `${name}.${subName}`, subField, locales, false)
+  addFieldToAllowed(allowed, `${name}__${subName}`, subField, locales, false)
+  addFieldToAllowed(allowed, `${name}.${blockSlug}.${subName}`, subField, locales, false)
+  addFieldToAllowed(allowed, `${name}__${blockSlug}__${subName}`, subField, locales, false)
+  if (subField.localized && locales.length > 0) {
+    for (const loc of locales) {
+      allowed.add(`${name}.${subName}.${loc}`)
+      allowed.add(`${name}__${subName}__${loc}`)
+      allowed.add(`${name}.${blockSlug}.${subName}.${loc}`)
+      allowed.add(`${name}__${blockSlug}__${subName}__${loc}`)
+    }
+  }
+}
+
+function addBlocksFieldToAllowed(
+  allowed: Set<string>,
+  name: string,
+  field: Field,
+  locales: string[],
+  parentLocalized: boolean,
+): void {
   if (field.type !== 'blocks') return
   allowed.add(`${name}.id`)
   allowed.add(`${name}__id`)
   allowed.add(`${name}.blockType`)
   allowed.add(`${name}__blockType`)
+  if (parentLocalized && locales.length > 0) {
+    for (const loc of locales) {
+      allowed.add(`${name}_${loc}.id`)
+      allowed.add(`${name}_${loc}__id`)
+      allowed.add(`${name}_${loc}.blockType`)
+      allowed.add(`${name}_${loc}__blockType`)
+    }
+  }
   for (const block of field.blocks) {
     for (const [subName, subField] of Object.entries(block.fields)) {
-      addFieldToAllowed(allowed, `${name}.${subName}`, subField)
-      addFieldToAllowed(allowed, `${name}__${subName}`, subField)
-      addFieldToAllowed(allowed, `${name}.${block.slug}.${subName}`, subField)
-      addFieldToAllowed(allowed, `${name}__${block.slug}__${subName}`, subField)
+      addBlockSubFieldToAllowed(allowed, name, block.slug, subName, subField, locales)
     }
   }
 }
 
-function addFieldToAllowed(allowed: Set<string>, name: string, field: Field): void {
+function addFieldToAllowed(
+  allowed: Set<string>,
+  name: string,
+  field: Field,
+  locales: string[],
+  parentLocalized = false,
+): void {
   allowed.add(name)
-  addGroupFieldToAllowed(allowed, name, field)
-  addArrayFieldToAllowed(allowed, name, field)
-  addBlocksFieldToAllowed(allowed, name, field)
+  const isLoc = parentLocalized || Boolean(field.localized)
+  if (isLoc && locales.length > 0) {
+    addLocalizedVariations(allowed, name, locales)
+  }
+  addGroupFieldToAllowed(allowed, name, field, locales, isLoc)
+  addArrayFieldToAllowed(allowed, name, field, locales, isLoc)
+  addBlocksFieldToAllowed(allowed, name, field, locales, isLoc)
 }
 
 function collectBlocksContainerPaths(containers: Set<string>, current: string, field: Field): void {
@@ -93,7 +171,10 @@ export function getGroupFields(collection: CollectionConfig): Set<string> {
   return containers
 }
 
-export function getAllowedFields(collection: CollectionConfig): Set<string> {
+export function getAllowedFields(
+  collection: CollectionConfig,
+  localization?: LocalizationConfig,
+): Set<string> {
   const allowed = new Set<string>(BASE_SYSTEM_FIELDS)
   if (collection.versions?.drafts) {
     for (const f of DRAFT_SYSTEM_FIELDS) {
@@ -105,8 +186,9 @@ export function getAllowedFields(collection: CollectionConfig): Set<string> {
       allowed.add(f)
     }
   }
+  const locales = extractLocaleList(localization)
   for (const [name, field] of Object.entries(collection.fields)) {
-    addFieldToAllowed(allowed, name, field)
+    addFieldToAllowed(allowed, name, field, locales, false)
   }
   return allowed
 }
@@ -223,11 +305,12 @@ function validateWhereNode(
 export function validateWhere(
   where: Where | undefined,
   collection: CollectionConfig,
+  localization?: LocalizationConfig,
 ): QueryValidationIssue[] {
   if (!where || typeof where !== 'object') {
     return []
   }
-  const allowed = getAllowedFields(collection)
+  const allowed = getAllowedFields(collection, localization)
   const groupFields = getGroupFields(collection)
   const issues: QueryValidationIssue[] = []
   validateWhereNode(where, allowed, groupFields, '', issues)
@@ -252,22 +335,31 @@ function collectSortableGroupFields(
   sortable: Set<string>,
   groupName: string,
   fields: Record<string, Field>,
+  locales: string[],
+  parentLocalized = false,
 ): void {
   for (const [subName, subField] of Object.entries(fields)) {
     const dotPath = `${groupName}.${subName}`
     const underPath = `${groupName}__${subName}`
+    const isLoc = parentLocalized || Boolean(subField.localized)
     if (isScalarSortable(subField)) {
       sortable.add(dotPath)
       sortable.add(underPath)
+      if (isLoc && locales.length > 0) {
+        addLocalizedVariations(sortable, dotPath, locales)
+        addLocalizedVariations(sortable, underPath, locales)
+      }
     } else if (subField.type === 'group') {
-      collectSortableGroupFields(sortable, dotPath, subField.fields)
-      collectSortableGroupFields(sortable, underPath, subField.fields)
+      collectSortableGroupFields(sortable, dotPath, subField.fields, locales, isLoc)
+      collectSortableGroupFields(sortable, underPath, subField.fields, locales, isLoc)
     }
   }
 }
 
-function collectSortableFields(collection: CollectionConfig): Set<string> {
-  const sortable = new Set<string>(BASE_SYSTEM_FIELDS)
+function addSystemSortableFields(sortable: Set<string>, collection: CollectionConfig): void {
+  for (const f of BASE_SYSTEM_FIELDS) {
+    sortable.add(f)
+  }
   if (collection.versions?.drafts) {
     for (const f of DRAFT_SYSTEM_FIELDS) {
       sortable.add(f)
@@ -278,11 +370,24 @@ function collectSortableFields(collection: CollectionConfig): Set<string> {
       sortable.add(f)
     }
   }
+}
+
+function collectSortableFields(
+  collection: CollectionConfig,
+  localization?: LocalizationConfig,
+): Set<string> {
+  const sortable = new Set<string>()
+  addSystemSortableFields(sortable, collection)
+  const locales = extractLocaleList(localization)
   for (const [name, field] of Object.entries(collection.fields)) {
+    const isLoc = Boolean(field.localized)
     if (isScalarSortable(field)) {
       sortable.add(name)
+      if (isLoc && locales.length > 0) {
+        addLocalizedVariations(sortable, name, locales)
+      }
     } else if (field.type === 'group') {
-      collectSortableGroupFields(sortable, name, field.fields)
+      collectSortableGroupFields(sortable, name, field.fields, locales, isLoc)
     }
   }
   return sortable
@@ -297,14 +402,24 @@ export function getTopKey(fieldName: string): string {
   return fieldName.slice(0, Math.min(dot, dunder))
 }
 
+function resolveTopField(collection: CollectionConfig, topKey: string): Field | undefined {
+  if (collection.fields[topKey]) return collection.fields[topKey]
+  const match = topKey.match(/^(.+)_([a-zA-Z0-9-]+)$/)
+  if (match && match[1]) {
+    const baseField = collection.fields[match[1]]
+    if (baseField?.localized) return baseField
+  }
+  return undefined
+}
+
 function isArrayOrBlocksPath(collection: CollectionConfig, fieldPath: string): boolean {
   const topKey = getTopKey(fieldPath)
-  const field = collection.fields[topKey]
+  const field = resolveTopField(collection, topKey)
   return field?.type === 'array' || field?.type === 'blocks'
 }
 
 function isContainerField(collection: CollectionConfig, fieldPath: string): boolean {
-  const field = collection.fields[fieldPath]
+  const field = resolveTopField(collection, fieldPath)
   return field?.type === 'group' || field?.type === 'array' || field?.type === 'blocks'
 }
 
@@ -325,8 +440,8 @@ function checkDisallowedSortField(
     }
   }
   const topKey = getTopKey(field)
-  const topField = collection.fields[topKey]
-  if (topField?.type === 'richText' && topKey === field) {
+  const topField = resolveTopField(collection, topKey)
+  if (topField?.type === 'richText' && (topKey === field || topKey === `${field}`)) {
     return {
       path: field,
       message: `Cannot sort on field "${field}" of type "richText"`,
@@ -366,11 +481,12 @@ function normalizeSortItems(sort: string | string[] | SortItem[] | undefined): S
 export function validateSort(
   sort: string | string[] | SortItem[] | undefined,
   collection: CollectionConfig,
+  localization?: LocalizationConfig,
 ): QueryValidationIssue[] {
   const items = normalizeSortItems(sort)
   if (items.length === 0) return []
 
-  const sortable = collectSortableFields(collection)
+  const sortable = collectSortableFields(collection, localization)
   const issues: QueryValidationIssue[] = []
 
   for (const item of items) {

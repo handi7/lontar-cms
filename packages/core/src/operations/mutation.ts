@@ -137,6 +137,7 @@ async function prepareCreatePayload(
     data: DocumentData
     draft?: boolean
     req?: Request
+    locale?: string
   },
 ): Promise<{
   finalData: DocumentData
@@ -156,6 +157,7 @@ async function prepareCreatePayload(
     previousStatus: undefined,
     statusTransition,
     req: args.req,
+    locale: args.locale,
   })
   const finalData = sanitizeConditionalFields(clientCol.fields, data)
   if (collection.versions?.drafts) {
@@ -183,6 +185,7 @@ export async function executeCreate(args: {
   autosave?: boolean
   userId?: string | null
   config?: Config
+  locale?: string
 }): Promise<MutationExecutionResult> {
   const clientCol = toClientCollection(args.collection)
   const run = async (txDb: DatabaseAdapter): Promise<MutationExecutionResult> => {
@@ -191,7 +194,11 @@ export async function executeCreate(args: {
       clientCol,
       args,
     )
-    const created = await txDb.create({ collection: args.collection, data: finalData })
+    const created = await txDb.create({
+      collection: args.collection,
+      data: finalData,
+      locale: args.locale,
+    })
     await maybeSaveVersion({
       txDb,
       collection: args.collection,
@@ -210,6 +217,7 @@ export async function executeCreate(args: {
         previousStatus: undefined,
         statusTransition,
         req: args.req,
+        locale: args.locale,
       })
       const finalDoc = args.collection.versions?.drafts
         ? { ...doc, _isPublished: doc._status === 'published' }
@@ -347,6 +355,7 @@ async function handleDraftRevisionUpdate(args: {
   autosave?: boolean
   userId?: string | null
   req?: Request
+  locale?: string
 }): Promise<MutationExecutionResult> {
   const draftDoc = buildDraftRevisionDoc(args.id, args.originalDoc, args.finalData)
   await maybeSaveVersion({
@@ -367,6 +376,7 @@ async function handleDraftRevisionUpdate(args: {
     previousStatus: args.previousStatus,
     statusTransition: args.statusTransition,
     req: args.req,
+    locale: args.locale,
   })
   return { success: true, doc: { ...doc, _isPublished: true }, isDraftRevision: true }
 }
@@ -381,6 +391,7 @@ async function prepareUpdatePayload(
     draft?: boolean
     status?: DocStatus
     statusTransition?: DocStatusTransition
+    locale?: string
   },
 ): Promise<{
   finalData: DocumentData
@@ -406,6 +417,7 @@ async function prepareUpdatePayload(
     previousStatus,
     statusTransition,
     req: args.req,
+    locale: args.locale,
   })
   const finalData = sanitizeConditionalFields(clientCol.fields, data, args.originalDoc)
   if (collection.versions?.drafts) {
@@ -545,6 +557,7 @@ async function handleParentRowUpdate(args: {
   autosave?: boolean
   userId?: string | null
   req?: Request
+  locale?: string
 }): Promise<MutationExecutionResult> {
   const dataToUpdate = resolveParentRowData({
     collection: args.collection,
@@ -557,6 +570,7 @@ async function handleParentRowUpdate(args: {
     collection: args.collection,
     id: args.id,
     data: dataToUpdate,
+    locale: args.locale,
   })
   if (!updated) {
     return {
@@ -595,6 +609,7 @@ async function handleParentRowUpdate(args: {
       previousStatus: args.previousStatus,
       statusTransition: args.statusTransition,
       req: args.req,
+      locale: args.locale,
     })
     const finalDoc = formatMutationDoc(doc, args.collection.versions?.drafts, args.statusTransition)
     return { success: true, doc: finalDoc, isDraftRevision: false }
@@ -687,6 +702,7 @@ export async function executeUpdate(args: {
   userId?: string | null
   config?: Config
   deferWebhooks?: boolean
+  locale?: string
 }): Promise<MutationExecutionResult> {
   const clientCol = toClientCollection(args.collection)
   const run = async (txDb: DatabaseAdapter): Promise<MutationExecutionResult> => {
@@ -710,6 +726,7 @@ export async function executeUpdate(args: {
           autosave: args.autosave,
           userId: args.userId,
           req: args.req,
+          locale: args.locale,
         })
       : await handleParentRowUpdate({
           txDb,
@@ -725,6 +742,7 @@ export async function executeUpdate(args: {
           autosave: args.autosave,
           userId: args.userId,
           req: args.req,
+          locale: args.locale,
         })
 
     if (execResult.success) {
@@ -844,6 +862,7 @@ async function prepareGlobalPayload(
     status?: DocStatus
     previousStatus?: DocStatus
     statusTransition?: DocStatusTransition
+    locale?: string
   },
 ): Promise<DocumentData> {
   const existing = args.existing ?? undefined
@@ -860,6 +879,7 @@ async function prepareGlobalPayload(
     previousStatus: args.previousStatus,
     statusTransition: args.statusTransition,
     req: args.req,
+    locale: args.locale,
   })
 
   const finalData = sanitizeConditionalFields(clientGlobal.fields, hookData, existing)
@@ -877,6 +897,7 @@ async function handleGlobalDraftRevisionUpdate(args: {
   autosave?: boolean
   userId?: string | null
   req?: Request
+  locale?: string
 }): Promise<MutationExecutionResult> {
   const parentId = Number(args.existing?.id ?? 1)
   const draftDoc = buildDraftRevisionDoc(parentId, args.existing ?? {}, args.finalData)
@@ -898,6 +919,7 @@ async function handleGlobalDraftRevisionUpdate(args: {
     previousStatus: args.previousStatus,
     statusTransition: args.statusTransition,
     req: args.req,
+    locale: args.locale,
   })
   return { success: true, doc: { ...doc, _isPublished: true }, isDraftRevision: true }
 }
@@ -970,6 +992,7 @@ async function handleGlobalParentRowUpdate(args: {
   autosave?: boolean
   userId?: string | null
   req?: Request
+  locale?: string
 }): Promise<MutationExecutionResult> {
   const operation = args.existing ? 'update' : 'create'
   const dataToUpdate = resolveGlobalParentRowData({
@@ -979,7 +1002,11 @@ async function handleGlobalParentRowUpdate(args: {
     status: args.status,
     statusTransition: args.statusTransition,
   })
-  const saved = await args.txDb.updateGlobal({ global: args.global, data: dataToUpdate })
+  const saved = await args.txDb.updateGlobal({
+    global: args.global,
+    data: dataToUpdate,
+    locale: args.locale,
+  })
   const parentId = Number(saved.id ?? 1)
   const pendingDraft = await resolveGlobalUnpublishPendingDraft(
     args.txDb,
@@ -1010,6 +1037,7 @@ async function handleGlobalParentRowUpdate(args: {
     previousStatus: args.previousStatus,
     statusTransition: args.statusTransition,
     req: args.req,
+    locale: args.locale,
   })
   const finalDoc = formatMutationDoc(doc, args.global.versions?.drafts, args.statusTransition)
   return { success: true, doc: finalDoc, isDraftRevision: false }
@@ -1103,6 +1131,7 @@ export async function executeGlobalUpdate(args: {
   autosave?: boolean
   userId?: string | null
   deferWebhooks?: boolean
+  locale?: string
 }): Promise<MutationExecutionResult> {
   const clientGlobal = toClientGlobal(args.global)
   const { status, previousStatus, statusTransition } = resolveGlobalUpdateStatus({
@@ -1122,6 +1151,7 @@ export async function executeGlobalUpdate(args: {
       status,
       previousStatus,
       statusTransition,
+      locale: args.locale,
     })
 
     const execResult = isGlobalDraftRevisionOfPublished(
@@ -1140,6 +1170,7 @@ export async function executeGlobalUpdate(args: {
           autosave: args.autosave,
           userId: args.userId,
           req: args.req,
+          locale: args.locale,
         })
       : await handleGlobalParentRowUpdate({
           txDb,
@@ -1152,6 +1183,7 @@ export async function executeGlobalUpdate(args: {
           autosave: args.autosave,
           userId: args.userId,
           req: args.req,
+          locale: args.locale,
         })
 
     if (execResult.success) {
