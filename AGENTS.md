@@ -237,7 +237,7 @@ approval on the `npm` environment. Don't run `pnpm publish` by hand; see `docs/r
   - [x] #423 `db: read, write, filter and sort localized values in both adapters`
   - [x] #424 `api: locale and fallbackLocale in REST, Local API, hooks and access`
   - [x] #425 `versions: locale-aware drafts, autosave, publish and restore`
-  - [ ] #426 `cli: data-preserving migrations when enabling localization or toggling localized`
+  - [x] #426 `cli: data-preserving migrations when enabling localization or toggling localized`
   - [ ] #427 `cli: localized types from generate:types`
   - [ ] #428 `admin: locale switcher and localized edit forms`
   - [ ] #429 `admin: active locale in list view, pickers, version compare and live preview`

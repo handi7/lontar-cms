@@ -570,6 +570,16 @@ pnpm lontar migrate          # run migrations
 pnpm lontar generate:types   # write lontar-types.ts
 ```
 
+### Data-preserving localization migrations
+
+When enabling localization or toggling the `localized` option on fields with existing data, `lontar migrate:create` generates non-destructive, data-preserving migrations:
+
+- **Enabling localization**: Existing data is preserved by moving it into the `defaultLocale` column (e.g. `title` becomes `title_en`), and additional locale columns are added as nullable columns.
+- **Toggling localized on or off**: Turning off localization on a field moves the default locale's value into the unlocalized column.
+- **Adding locales**: Creates new nullable locale columns without modifying or locking existing rows.
+- **Removing locales**: Emits a warning during `migrate:create` before generating `DROP COLUMN` statements, preventing silent data loss.
+- **Junction tables**: Localized `hasMany` junction tables automatically backfill existing rows with `defaultLocale` before applying NOT NULL constraints.
+
 ## Mount in Next.js
 
 ```ts

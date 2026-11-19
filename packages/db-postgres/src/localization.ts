@@ -130,15 +130,31 @@ function resolveFallbackValue(
   return val ?? null
 }
 
+function getSubfieldLocaleValue(
+  loc: string,
+  val: unknown,
+  existing: Record<string, unknown> | null,
+  defaultLoc: string | undefined,
+): unknown {
+  if (existing && loc in existing) {
+    return existing[loc]
+  }
+  if (!existing && loc === defaultLoc && val !== undefined && val !== null) {
+    return val
+  }
+  return null
+}
+
 function formatSubfieldAllLocales(
   val: unknown,
   localeCtx: ResolvedLocaleContext,
 ): Record<string, unknown> {
   const dict: Record<string, unknown> = {}
-  const existing =
-    val && typeof val === 'object' && !Array.isArray(val) ? (val as Record<string, unknown>) : {}
+  const isObject = typeof val === 'object' && val !== null && !Array.isArray(val)
+  const existing = isObject ? (val as Record<string, unknown>) : null
+  const defaultLoc = localeCtx.defaultLocale ?? localeCtx.allLocales[0]
   for (const loc of localeCtx.allLocales) {
-    dict[loc] = existing[loc] ?? null
+    dict[loc] = getSubfieldLocaleValue(loc, val, existing, defaultLoc)
   }
   return dict
 }

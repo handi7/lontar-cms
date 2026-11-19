@@ -1,9 +1,19 @@
 import { execFileSync } from 'node:child_process'
 import fs from 'node:fs'
 import path from 'node:path'
+import type { Config } from '@lontar/core'
 import { loadConfig } from '../config'
 import { findDrizzleKitBin } from '../utils/drizzle-kit'
 import { resolveMigrationsDir } from '../utils/migrations-dir'
+import {
+  applyLocalizationMigrationStatements,
+  detectLocalizationTransitions,
+  getLatestSnapshotPath,
+  inspectRemovedLocales,
+  patchSnapshotForTransitions,
+  type DrizzleSnapshot,
+  type LocalizationTransitions,
+} from './migrate-localization'
 
 export interface MigrateCreateOptions {
   cwd?: string
@@ -129,11 +139,28 @@ function processSingleMigrationFile(
   prevMtime: number | undefined,
   dialect?: string,
   rolesConfig?: { adminRole?: string; defaultRole?: string },
+  transitions?: LocalizationTransitions | null,
 ): void {
   const curMtime = fs.statSync(fullPath).mtimeMs
   if (prevMtime !== undefined && curMtime <= prevMtime) return
 
   let sql = fs.readFileSync(fullPath, 'utf-8')
+  if (transitions) {
+    const { sql: locSql, applied: locApplied } = applyLocalizationMigrationStatements(
+      sql,
+      transitions,
+      dialect,
+    )
+    if (locApplied) {
+      fs.writeFileSync(fullPath, locSql, 'utf-8')
+      sql = locSql
+    }
+    const locWarnings = inspectRemovedLocales(transitions)
+    for (const warn of locWarnings) {
+      console.warn(`[lontar:migrate] Warning: ${warn}`)
+    }
+  }
+
   const { sql: updatedSql, applied } = applyRoleBackfill(sql, dialect, rolesConfig)
   if (applied) {
     fs.writeFileSync(fullPath, updatedSql, 'utf-8')
@@ -150,13 +177,56 @@ function processMigrationFiles(
   beforeFiles: Map<string, number>,
   dialect?: string,
   rolesConfig?: { adminRole?: string; defaultRole?: string },
+  transitions?: LocalizationTransitions | null,
 ): void {
   if (!fs.existsSync(migrationsDir)) return
   for (const entry of fs.readdirSync(migrationsDir, { withFileTypes: true })) {
     if (entry.isFile() && entry.name.endsWith('.sql')) {
       const fullPath = path.join(migrationsDir, entry.name)
-      processSingleMigrationFile(fullPath, beforeFiles.get(fullPath), dialect, rolesConfig)
+      processSingleMigrationFile(
+        fullPath,
+        beforeFiles.get(fullPath),
+        dialect,
+        rolesConfig,
+        transitions,
+      )
     }
+  }
+}
+
+interface PreparedSnapshot {
+  snapshotPath: string | null
+  originalContent: string | null
+  transitions: LocalizationTransitions | null
+}
+
+function prepareSnapshotForGenerate(migrationsDir: string, config: Config): PreparedSnapshot {
+  const snapshotPath = getLatestSnapshotPath(migrationsDir)
+  if (!snapshotPath) {
+    return { snapshotPath: null, originalContent: null, transitions: null }
+  }
+
+  try {
+    const originalContent = fs.readFileSync(snapshotPath, 'utf-8')
+    const snapshot = JSON.parse(originalContent) as DrizzleSnapshot
+    const transitions = detectLocalizationTransitions(snapshot, config)
+    const hasTransitions =
+      transitions.columnTransitions.length > 0 || transitions.junctionTransitions.length > 0
+    if (hasTransitions) {
+      patchSnapshotForTransitions(snapshot, transitions)
+      fs.writeFileSync(snapshotPath, JSON.stringify(snapshot, null, 2), 'utf-8')
+    }
+    return { snapshotPath, originalContent, transitions }
+  } catch {
+    return { snapshotPath: null, originalContent: null, transitions: null }
+  }
+}
+
+function executeDrizzleKit(bin: string, args: string[], cwd: string): void {
+  if (bin.endsWith('.cjs') || bin.endsWith('.js')) {
+    execFileSync(process.execPath, [bin, ...args], { cwd, stdio: 'inherit' })
+  } else {
+    execFileSync(bin, args, { cwd, stdio: 'inherit' })
   }
 }
 
@@ -186,12 +256,15 @@ export async function migrateCreate(options: MigrateCreateOptions = {}): Promise
   }
 
   const beforeFiles = getMigrationSqlFiles(migrationsDir)
+  const prep = prepareSnapshotForGenerate(migrationsDir, config)
 
-  if (bin.endsWith('.cjs') || bin.endsWith('.js')) {
-    execFileSync(process.execPath, [bin, ...args], { cwd, stdio: 'inherit' })
-  } else {
-    execFileSync(bin, args, { cwd, stdio: 'inherit' })
+  try {
+    executeDrizzleKit(bin, args, cwd)
+  } finally {
+    if (prep.snapshotPath && prep.originalContent !== null) {
+      fs.writeFileSync(prep.snapshotPath, prep.originalContent, 'utf-8')
+    }
   }
 
-  processMigrationFiles(migrationsDir, beforeFiles, dialect, config.auth)
+  processMigrationFiles(migrationsDir, beforeFiles, dialect, config.auth, prep.transitions)
 }
