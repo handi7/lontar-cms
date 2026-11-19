@@ -47,6 +47,11 @@ export interface DiffableFieldItem {
   type: string
   fields?: unknown
   blocks?: unknown
+  localized?: boolean
+}
+
+export interface DiffOptions {
+  locale?: string
 }
 
 export type DiffableFields = readonly DiffableFieldItem[] | Record<string, DiffableFieldItem>
@@ -113,8 +118,9 @@ function diffMatchedArrayItem(
   oldInfo: ItemEntry,
   newItem: Record<string, unknown>,
   newIdx: number,
+  options?: DiffOptions,
 ): ArrayItemDiff {
-  const innerDiff = diffFields(fields, oldInfo.item, newItem)
+  const innerDiff = diffFields(fields, oldInfo.item, newItem, options)
   const orderChanged = oldInfo.index !== newIdx
   const change: ChangeType = innerDiff.hasChanges ? 'modified' : 'unchanged'
   return {
@@ -131,6 +137,7 @@ function diffArrayItems(
   fields: DiffableFields,
   oldVal: unknown,
   newVal: unknown,
+  options?: DiffOptions,
 ): { items: ArrayItemDiff[]; hasChanges: boolean } {
   const oldEntries = collectItemEntries(oldVal)
   const newEntries = collectItemEntries(newVal)
@@ -143,7 +150,7 @@ function diffArrayItems(
   for (const [newIdx, newInfo] of newEntries.entries()) {
     const oldInfo = oldMap.get(newInfo.id)
     if (!oldInfo) {
-      const innerDiff = diffFields(fields, {}, newInfo.item)
+      const innerDiff = diffFields(fields, {}, newInfo.item, options)
       items.push({
         id: newInfo.id,
         change: 'added',
@@ -152,7 +159,7 @@ function diffArrayItems(
       })
       hasChanges = true
     } else {
-      const itemDiff = diffMatchedArrayItem(fields, oldInfo, newInfo.item, newIdx)
+      const itemDiff = diffMatchedArrayItem(fields, oldInfo, newInfo.item, newIdx, options)
       items.push(itemDiff)
       if (itemDiff.change !== 'unchanged' || itemDiff.orderChanged) {
         hasChanges = true
@@ -162,7 +169,7 @@ function diffArrayItems(
 
   for (const oldInfo of oldEntries) {
     if (!newMap.has(oldInfo.id)) {
-      const innerDiff = diffFields(fields, oldInfo.item, {})
+      const innerDiff = diffFields(fields, oldInfo.item, {}, options)
       items.push({
         id: oldInfo.id,
         change: 'removed',
@@ -196,6 +203,7 @@ function diffMatchedBlockItem(
   oldInfo: ItemEntry,
   newItem: Record<string, unknown>,
   newIdx: number,
+  options?: DiffOptions,
 ): ArrayItemDiff {
   const oldType = typeof oldInfo.item.blockType === 'string' ? oldInfo.item.blockType : undefined
   const newType = typeof newItem.blockType === 'string' ? newItem.blockType : undefined
@@ -214,7 +222,7 @@ function diffMatchedBlockItem(
 
   const blockDef = findBlockDef(blocks, newType)
   const innerDiff = blockDef
-    ? diffFields(blockDef.fields, oldInfo.item, newItem)
+    ? diffFields(blockDef.fields, oldInfo.item, newItem, options)
     : { fields: {}, hasChanges: false }
 
   const change: ChangeType = innerDiff.hasChanges ? 'modified' : 'unchanged'
@@ -234,16 +242,18 @@ function buildStandaloneBlockDiff(
   blockType: string | undefined,
   oldItem: Record<string, unknown>,
   newItem: Record<string, unknown>,
+  options?: DiffOptions,
 ): Record<string, FieldDiff> {
   const blockDef = findBlockDef(blocks, blockType)
   if (!blockDef) return {}
-  return diffFields(blockDef.fields, oldItem, newItem).fields
+  return diffFields(blockDef.fields, oldItem, newItem, options).fields
 }
 
 function diffBlockItems(
   blocks: unknown,
   oldVal: unknown,
   newVal: unknown,
+  options?: DiffOptions,
 ): { items: ArrayItemDiff[]; hasChanges: boolean } {
   const oldEntries = collectItemEntries(oldVal)
   const newEntries = collectItemEntries(newVal)
@@ -263,11 +273,11 @@ function diffBlockItems(
         blockType,
         change: 'added',
         newIndex: newIdx,
-        diffs: buildStandaloneBlockDiff(blocks, blockType, {}, newInfo.item),
+        diffs: buildStandaloneBlockDiff(blocks, blockType, {}, newInfo.item, options),
       })
       hasChanges = true
     } else {
-      const itemDiff = diffMatchedBlockItem(blocks, oldInfo, newInfo.item, newIdx)
+      const itemDiff = diffMatchedBlockItem(blocks, oldInfo, newInfo.item, newIdx, options)
       items.push(itemDiff)
       if (itemDiff.change !== 'unchanged' || itemDiff.orderChanged) {
         hasChanges = true
@@ -284,7 +294,7 @@ function diffBlockItems(
         blockType,
         change: 'removed',
         oldIndex: oldInfo.index,
-        diffs: buildStandaloneBlockDiff(blocks, blockType, oldInfo.item, {}),
+        diffs: buildStandaloneBlockDiff(blocks, blockType, oldInfo.item, {}, options),
       })
       hasChanges = true
     }
@@ -297,12 +307,13 @@ function diffGroupField(
   subFields: unknown,
   oldVal: unknown,
   newVal: unknown,
+  options?: DiffOptions,
 ): { diff: GroupFieldDiff; hasChanges: boolean } {
   const oldGroup =
     typeof oldVal === 'object' && oldVal !== null ? (oldVal as Record<string, unknown>) : {}
   const newGroup =
     typeof newVal === 'object' && newVal !== null ? (newVal as Record<string, unknown>) : {}
-  const inner = diffFields(subFields as DiffableFields, oldGroup, newGroup)
+  const inner = diffFields(subFields as DiffableFields, oldGroup, newGroup, options)
   return {
     diff: { type: 'group', fields: inner.fields, hasChanges: inner.hasChanges },
     hasChanges: inner.hasChanges,
@@ -313,8 +324,9 @@ function diffArrayField(
   subFields: unknown,
   oldVal: unknown,
   newVal: unknown,
+  options?: DiffOptions,
 ): { diff: ArrayFieldDiff; hasChanges: boolean } {
-  const result = diffArrayItems(subFields as DiffableFields, oldVal, newVal)
+  const result = diffArrayItems(subFields as DiffableFields, oldVal, newVal, options)
   return {
     diff: { type: 'array', items: result.items, hasChanges: result.hasChanges },
     hasChanges: result.hasChanges,
@@ -325,27 +337,58 @@ function diffBlocksField(
   blocks: unknown,
   oldVal: unknown,
   newVal: unknown,
+  options?: DiffOptions,
 ): { diff: BlocksFieldDiff; hasChanges: boolean } {
-  const result = diffBlockItems(blocks, oldVal, newVal)
+  const result = diffBlockItems(blocks, oldVal, newVal, options)
   return {
     diff: { type: 'blocks', items: result.items, hasChanges: result.hasChanges },
     hasChanges: result.hasChanges,
   }
 }
 
-function diffSingleField(
-  field: { type: string; fields?: unknown; blocks?: unknown },
+function extractLocaleValue(val: unknown, locale: string): unknown {
+  if (
+    val &&
+    typeof val === 'object' &&
+    !Array.isArray(val) &&
+    locale in (val as Record<string, unknown>)
+  ) {
+    return (val as Record<string, unknown>)[locale]
+  }
+  return val
+}
+
+function resolveDiffValues(
+  field: { localized?: boolean },
   oldVal: unknown,
   newVal: unknown,
+  options?: DiffOptions,
+): { oldVal: unknown; newVal: unknown } {
+  if (field.localized && options?.locale && options.locale !== 'all') {
+    return {
+      oldVal: extractLocaleValue(oldVal, options.locale),
+      newVal: extractLocaleValue(newVal, options.locale),
+    }
+  }
+  return { oldVal, newVal }
+}
+
+function diffSingleField(
+  field: DiffableFieldItem,
+  rawOldVal: unknown,
+  rawNewVal: unknown,
+  options?: DiffOptions,
 ): { diff: FieldDiff; hasChanges: boolean } {
+  const { oldVal, newVal } = resolveDiffValues(field, rawOldVal, rawNewVal, options)
+
   if (field.type === 'group' && field.fields) {
-    return diffGroupField(field.fields, oldVal, newVal)
+    return diffGroupField(field.fields, oldVal, newVal, options)
   }
   if (field.type === 'array' && field.fields) {
-    return diffArrayField(field.fields, oldVal, newVal)
+    return diffArrayField(field.fields, oldVal, newVal, options)
   }
   if (field.type === 'blocks' && field.blocks) {
-    return diffBlocksField(field.blocks, oldVal, newVal)
+    return diffBlocksField(field.blocks, oldVal, newVal, options)
   }
 
   const primitive = diffPrimitive(oldVal, newVal)
@@ -385,6 +428,7 @@ export function diffFields(
   fields: DiffableFields,
   oldDoc: Record<string, unknown>,
   newDoc: Record<string, unknown>,
+  options?: DiffOptions,
 ): { fields: Record<string, FieldDiff>; hasChanges: boolean } {
   const diffs: Record<string, FieldDiff> = {}
   let hasChanges = false
@@ -393,7 +437,7 @@ export function diffFields(
   for (const { name, field } of entries) {
     const oldVal = oldDoc[name]
     const newVal = newDoc[name]
-    const { diff, hasChanges: fieldChanged } = diffSingleField(field, oldVal, newVal)
+    const { diff, hasChanges: fieldChanged } = diffSingleField(field, oldVal, newVal, options)
     diffs[name] = diff
     if (fieldChanged) {
       hasChanges = true
@@ -407,8 +451,9 @@ export function diffSnapshots(
   collection: DiffableCollection,
   oldSnapshot: Record<string, unknown>,
   newSnapshot: Record<string, unknown>,
+  options?: DiffOptions,
 ): DocumentDiff {
-  const result = diffFields(collection.fields, oldSnapshot, newSnapshot)
+  const result = diffFields(collection.fields, oldSnapshot, newSnapshot, options)
 
   if (collection.versions?.drafts) {
     const statusDiff = diffPrimitive(oldSnapshot._status, newSnapshot._status)

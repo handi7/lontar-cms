@@ -5,12 +5,13 @@ import { clientFieldsToZod } from '../client/zod'
 import { toClientCollection, toClientGlobal } from '../config/to-client-config'
 import type { CollectionConfig, Config, GlobalConfig } from '../config/types'
 import type { DatabaseAdapter, DocumentData } from '../database/adapter'
+import type { Fields } from '../fields/types'
 import { runBeforeValidateHooks } from '../hooks'
 import type { DocStatusTransition } from '../hooks/types'
 import { populateDoc } from '../populate'
 import { cleanupReplacedMedia } from '../server/routes/collection-upload'
 import { AccessDeniedError, NotFoundError, ValidationError } from './errors'
-import { extractLocaleCodes, resolveOperationLocale } from './locale'
+import { extractLocaleCodes, projectCanonicalDoc, resolveOperationLocale } from './locale'
 import { executeGlobalUpdate, executeUpdate, type MutationExecutionResult } from './mutation'
 
 export interface PublishOperationArgs {
@@ -154,6 +155,64 @@ async function prepareTransitionDocumentPayload(
   return dataForUpdate
 }
 
+function resolveProjectedDoc(
+  doc: DocumentData,
+  fields: Fields | readonly unknown[],
+  config: Config,
+  locale?: string,
+  fallbackLocale?: string | false,
+): DocumentData {
+  if (!config.localization || locale === 'all') {
+    return doc
+  }
+  return projectCanonicalDoc(doc, fields, {
+    locale,
+    fallbackLocale,
+    defaultLocale: config.localization.defaultLocale,
+  })
+}
+
+async function runWithTx<T>(
+  db: DatabaseAdapter,
+  fn: (txDb: DatabaseAdapter) => Promise<T>,
+): Promise<T> {
+  return db.transaction ? db.transaction(fn) : fn(db)
+}
+
+async function finalizeTransitionDoc<T>(
+  args: PublishOperationArgs,
+  resultDoc: DocumentData,
+  locale?: string,
+  fallbackLocale?: string | false,
+): Promise<T> {
+  const docForPopulate = resolveProjectedDoc(
+    resultDoc,
+    args.collection.fields,
+    args.config,
+    locale,
+    fallbackLocale,
+  )
+  const populated = await populateDoc(docForPopulate, {
+    collection: args.collection,
+    depth: args.depth ?? 0,
+    collections: args.config.collections,
+    db: args.config.db,
+    user: args.user ?? null,
+    req: args.req,
+    overrideAccess: args.overrideAccess,
+    locale,
+    fallbackLocale,
+  })
+  if (args.overrideAccess) return populated as T
+  const sanitized = await sanitizeDocRead(args.collection.fields, populated, args.user ?? null, {
+    id: args.id,
+    doc: populated,
+    req: args.req,
+    locale,
+  })
+  return sanitized as T
+}
+
 async function transitionDocumentStatus<T = DocumentData>(
   args: PublishOperationArgs,
   status: DocStatus,
@@ -170,6 +229,8 @@ async function transitionDocumentStatus<T = DocumentData>(
     args.fallbackLocale,
   )
   const locales = extractLocaleCodes(args.config)
+  const isLocalized = Boolean(args.config.localization)
+  const updateLocale = isLocalized && statusTransition === 'publish' ? 'all' : locale
 
   if (!args.overrideAccess) {
     await assertPublishAccess(args.collection, args.id, args.user, locale, args.req)
@@ -186,6 +247,7 @@ async function transitionDocumentStatus<T = DocumentData>(
       collection: args.collection,
       id: args.id,
       forUpdate: true,
+      locale: isLocalized ? 'all' : undefined,
     })
     if (!originalDoc) {
       throw new NotFoundError(`Document with ID ${args.id} not found`)
@@ -206,7 +268,7 @@ async function transitionDocumentStatus<T = DocumentData>(
       status,
       statusTransition,
       args.req,
-      { locale, locales },
+      { locale: updateLocale, locales },
     )
 
     const result = await executeUpdate({
@@ -221,7 +283,7 @@ async function transitionDocumentStatus<T = DocumentData>(
       userId: args.user?.id,
       config: args.config,
       deferWebhooks: true,
-      locale,
+      locale: updateLocale,
     })
 
     if (!result.success) {
@@ -231,38 +293,16 @@ async function transitionDocumentStatus<T = DocumentData>(
     return { resultDoc: result.doc, originalDoc, dispatchWebhooks: result.dispatchWebhooks }
   }
 
-  const { resultDoc, originalDoc, dispatchWebhooks } = args.config.db.transaction
-    ? await args.config.db.transaction(runTransition)
-    : await runTransition(args.config.db)
+  const { resultDoc, originalDoc, dispatchWebhooks } = await runWithTx(
+    args.config.db,
+    runTransition,
+  )
 
   dispatchWebhooks?.()
 
   await maybeCleanupPublishedMedia(args, originalDoc, resultDoc, statusTransition)
 
-  const populated = await populateDoc(resultDoc, {
-    collection: args.collection,
-    depth: args.depth ?? 0,
-    collections: args.config.collections,
-    db: args.config.db,
-    user: args.user ?? null,
-    req: args.req,
-    overrideAccess: args.overrideAccess,
-    locale,
-    fallbackLocale,
-  })
-
-  if (args.overrideAccess) {
-    return populated as T
-  }
-
-  const sanitized = await sanitizeDocRead(args.collection.fields, populated, args.user ?? null, {
-    id: args.id,
-    doc: populated,
-    req: args.req,
-    locale,
-  })
-
-  return sanitized as T
+  return finalizeTransitionDoc<T>(args, resultDoc, locale, fallbackLocale)
 }
 
 export function publishOperation<T = DocumentData>(args: PublishOperationArgs): Promise<T> {
@@ -402,6 +442,40 @@ async function prepareTransitionGlobalPayload(
   return dataForUpdate
 }
 
+async function finalizeGlobalTransitionDoc<T>(
+  args: PublishGlobalOperationArgs,
+  resultDoc: DocumentData,
+  locale?: string,
+  fallbackLocale?: string | false,
+): Promise<T> {
+  const docForPopulate = resolveProjectedDoc(
+    resultDoc,
+    args.global.fields,
+    args.config,
+    locale,
+    fallbackLocale,
+  )
+  const populated = await populateGlobalTransitionDoc<T>({
+    doc: docForPopulate,
+    global: args.global,
+    config: args.config,
+    depth: args.depth,
+    user: args.user,
+    req: args.req,
+    overrideAccess: args.overrideAccess,
+    locale,
+    fallbackLocale,
+  })
+  if (args.overrideAccess) return populated
+  const sanitized = await sanitizeDocRead(
+    args.global.fields,
+    populated as DocumentData,
+    args.user ?? null,
+    { doc: populated as DocumentData, req: args.req, locale },
+  )
+  return sanitized as T
+}
+
 async function transitionGlobalStatus<T = DocumentData>(
   args: PublishGlobalOperationArgs,
   status: DocStatus,
@@ -418,6 +492,8 @@ async function transitionGlobalStatus<T = DocumentData>(
     args.fallbackLocale,
   )
   const locales = extractLocaleCodes(args.config)
+  const isLocalized = Boolean(args.config.localization)
+  const updateLocale = isLocalized && statusTransition === 'publish' ? 'all' : locale
 
   if (!args.overrideAccess) {
     await assertGlobalPublishAccess(args.global, args.user, locale, args.req)
@@ -426,7 +502,11 @@ async function transitionGlobalStatus<T = DocumentData>(
   const runTransition = async (
     txDb: DatabaseAdapter,
   ): Promise<{ resultDoc: DocumentData; dispatchWebhooks?: () => void }> => {
-    const originalDoc = await txDb.findGlobal({ global: args.global, forUpdate: true })
+    const originalDoc = await txDb.findGlobal({
+      global: args.global,
+      forUpdate: true,
+      locale: isLocalized ? 'all' : undefined,
+    })
     if (!originalDoc) {
       throw new NotFoundError(`Global "${args.global.slug}" not found`)
     }
@@ -445,7 +525,7 @@ async function transitionGlobalStatus<T = DocumentData>(
       status,
       statusTransition,
       args.req,
-      { locale, locales },
+      { locale: updateLocale, locales },
     )
 
     const result = await executeGlobalUpdate({
@@ -459,43 +539,18 @@ async function transitionGlobalStatus<T = DocumentData>(
       userId: args.user?.id,
       config: args.config,
       deferWebhooks: true,
-      locale,
+      locale: updateLocale,
     })
 
     assertGlobalTransitionSuccess(result, action)
     return { resultDoc: result.doc, dispatchWebhooks: result.dispatchWebhooks }
   }
 
-  const { resultDoc, dispatchWebhooks } = args.config.db.transaction
-    ? await args.config.db.transaction(runTransition)
-    : await runTransition(args.config.db)
+  const { resultDoc, dispatchWebhooks } = await runWithTx(args.config.db, runTransition)
 
   dispatchWebhooks?.()
 
-  const populated = await populateGlobalTransitionDoc<T>({
-    doc: resultDoc,
-    global: args.global,
-    config: args.config,
-    depth: args.depth,
-    user: args.user,
-    req: args.req,
-    overrideAccess: args.overrideAccess,
-    locale,
-    fallbackLocale,
-  })
-
-  if (args.overrideAccess) {
-    return populated
-  }
-
-  const sanitized = await sanitizeDocRead(
-    args.global.fields,
-    populated as DocumentData,
-    args.user ?? null,
-    { doc: populated as DocumentData, req: args.req, locale },
-  )
-
-  return sanitized as T
+  return finalizeGlobalTransitionDoc<T>(args, resultDoc, locale, fallbackLocale)
 }
 
 export function publishGlobalOperation<T = DocumentData>(

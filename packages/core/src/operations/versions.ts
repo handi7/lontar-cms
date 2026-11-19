@@ -1,10 +1,11 @@
 import { checkAccess, sanitizeDocRead } from '../access'
 import type { AuthUser } from '../auth/types'
-import type { CollectionConfig, GlobalConfig } from '../config/types'
+import type { CollectionConfig, Config, GlobalConfig } from '../config/types'
 import type { DocumentData, PaginatedVersions, StoredVersion } from '../database/adapter'
+import type { Fields } from '../fields/types'
 import { AccessDeniedError, NotFoundError, ValidationError } from './errors'
 import { updateGlobalOperation } from './global'
-import { resolveOperationLocale } from './locale'
+import { projectCanonicalDoc, resolveOperationLocale } from './locale'
 import type { OperationContext } from './types'
 import { updateOperation } from './update'
 
@@ -103,10 +104,31 @@ function assertVersionsEnabled(collection: CollectionConfig): void {
   }
 }
 
+function projectVersionSnapshot(
+  snapshot: DocumentData,
+  fields: Fields,
+  config: Config,
+  locale?: string,
+  fallbackLocale?: string | false,
+): DocumentData {
+  if (!config.localization || locale === 'all') {
+    return snapshot
+  }
+  return projectCanonicalDoc(snapshot, fields, {
+    locale,
+    fallbackLocale,
+    defaultLocale: config.localization.defaultLocale,
+  })
+}
+
 export async function findVersionsOperation(
   args: FindVersionsOperationArgs,
 ): Promise<PaginatedVersions> {
-  const { locale } = resolveOperationLocale(args.config, args.locale, args.fallbackLocale)
+  const { locale, fallbackLocale } = resolveOperationLocale(
+    args.config,
+    args.locale,
+    args.fallbackLocale,
+  )
   assertVersionsEnabled(args.collection)
   if (!args.overrideAccess) {
     await assertVersionHistoryAccess(args.collection, args.id, args.user, locale, args.req)
@@ -124,18 +146,33 @@ export async function findVersionsOperation(
     sort: args.sort,
   })
 
-  if (args.overrideAccess) return result
-
   const docs = await Promise.all(
-    result.docs.map(async (v) => ({
-      ...v,
-      snapshot: await sanitizeDocRead(args.collection.fields, v.snapshot, args.user ?? null, {
-        id: args.id,
-        doc: v.snapshot,
-        req: args.req,
+    result.docs.map(async (v) => {
+      const projected = projectVersionSnapshot(
+        v.snapshot,
+        args.collection.fields,
+        args.config,
         locale,
-      }),
-    })),
+        fallbackLocale,
+      )
+
+      if (args.overrideAccess) {
+        return { ...v, snapshot: projected }
+      }
+
+      const sanitizedSnapshot = await sanitizeDocRead(
+        args.collection.fields,
+        projected,
+        args.user ?? null,
+        {
+          id: args.id,
+          doc: projected,
+          req: args.req,
+          locale,
+        },
+      )
+      return { ...v, snapshot: sanitizedSnapshot }
+    }),
   )
 
   return { ...result, docs }
@@ -144,7 +181,11 @@ export async function findVersionsOperation(
 export async function findVersionByIDOperation(
   args: FindVersionByIDOperationArgs,
 ): Promise<StoredVersion> {
-  const { locale } = resolveOperationLocale(args.config, args.locale, args.fallbackLocale)
+  const { locale, fallbackLocale } = resolveOperationLocale(
+    args.config,
+    args.locale,
+    args.fallbackLocale,
+  )
   assertVersionsEnabled(args.collection)
   if (!args.overrideAccess) {
     await assertVersionHistoryAccess(args.collection, args.id, args.user, locale, args.req)
@@ -166,13 +207,21 @@ export async function findVersionByIDOperation(
     )
   }
 
-  if (args.overrideAccess) return version
+  const projected = projectVersionSnapshot(
+    version.snapshot,
+    args.collection.fields,
+    args.config,
+    locale,
+    fallbackLocale,
+  )
+
+  if (args.overrideAccess) return { ...version, snapshot: projected }
 
   const sanitizedSnapshot = await sanitizeDocRead(
     args.collection.fields,
-    version.snapshot,
+    projected,
     args.user ?? null,
-    { id: args.id, doc: version.snapshot, req: args.req, locale },
+    { id: args.id, doc: projected, req: args.req, locale },
   )
 
   return { ...version, snapshot: sanitizedSnapshot }
@@ -181,11 +230,17 @@ export async function findVersionByIDOperation(
 export async function restoreVersionOperation<T = DocumentData>(
   args: RestoreVersionOperationArgs,
 ): Promise<T> {
-  const { locale } = resolveOperationLocale(args.config, args.locale, args.fallbackLocale)
+  const { locale, fallbackLocale } = resolveOperationLocale(
+    args.config,
+    args.locale,
+    args.fallbackLocale,
+  )
   assertVersionsEnabled(args.collection)
   if (!args.overrideAccess) {
     await assertVersionHistoryAccess(args.collection, args.id, args.user, locale, args.req)
   }
+
+  const isLocalized = Boolean(args.config.localization)
 
   const version = await findVersionByIDOperation({
     config: args.config,
@@ -193,11 +248,12 @@ export async function restoreVersionOperation<T = DocumentData>(
     id: args.id,
     versionId: args.versionId,
     overrideAccess: true,
+    locale: isLocalized ? 'all' : undefined,
   })
 
   const draft = args.draft !== undefined ? args.draft : version._status === 'draft'
 
-  return updateOperation<T>({
+  const restored = await updateOperation<DocumentData>({
     config: args.config,
     collection: args.collection,
     id: args.id,
@@ -207,9 +263,19 @@ export async function restoreVersionOperation<T = DocumentData>(
     overrideAccess: args.overrideAccess,
     user: args.user,
     req: args.req,
-    locale: args.locale,
+    locale: isLocalized ? 'all' : locale,
     fallbackLocale: args.fallbackLocale,
   })
+
+  if (isLocalized && locale !== 'all') {
+    return projectCanonicalDoc(restored, args.collection.fields, {
+      locale,
+      fallbackLocale,
+      defaultLocale: args.config.localization?.defaultLocale,
+    }) as T
+  }
+
+  return restored as T
 }
 
 async function assertGlobalReadAccess(
@@ -255,7 +321,11 @@ function assertGlobalVersionsEnabled(global: GlobalConfig): void {
 export async function findGlobalVersionsOperation(
   args: FindGlobalVersionsOperationArgs,
 ): Promise<PaginatedVersions> {
-  const { locale } = resolveOperationLocale(args.config, args.locale, args.fallbackLocale)
+  const { locale, fallbackLocale } = resolveOperationLocale(
+    args.config,
+    args.locale,
+    args.fallbackLocale,
+  )
   assertGlobalVersionsEnabled(args.global)
   if (!args.overrideAccess) {
     await assertGlobalVersionHistoryAccess(args.global, args.user, locale, args.req)
@@ -276,18 +346,31 @@ export async function findGlobalVersionsOperation(
     sort: args.sort,
   })
 
-  if (args.overrideAccess) return result
-
   const docs = await Promise.all(
-    result.docs.map(async (v) => ({
-      ...v,
-      snapshot: await sanitizeDocRead(args.global.fields, v.snapshot, args.user ?? null, {
-        id: parentId,
-        doc: v.snapshot,
-        req: args.req,
+    result.docs.map(async (v) => {
+      const projected = projectVersionSnapshot(
+        v.snapshot,
+        args.global.fields,
+        args.config,
         locale,
-      }),
-    })),
+        fallbackLocale,
+      )
+
+      if (args.overrideAccess) return { ...v, snapshot: projected }
+
+      const sanitizedSnapshot = await sanitizeDocRead(
+        args.global.fields,
+        projected,
+        args.user ?? null,
+        {
+          id: parentId,
+          doc: projected,
+          req: args.req,
+          locale,
+        },
+      )
+      return { ...v, snapshot: sanitizedSnapshot }
+    }),
   )
 
   return { ...result, docs }
@@ -296,7 +379,11 @@ export async function findGlobalVersionsOperation(
 export async function findGlobalVersionByIDOperation(
   args: FindGlobalVersionByIDOperationArgs,
 ): Promise<StoredVersion> {
-  const { locale } = resolveOperationLocale(args.config, args.locale, args.fallbackLocale)
+  const { locale, fallbackLocale } = resolveOperationLocale(
+    args.config,
+    args.locale,
+    args.fallbackLocale,
+  )
   assertGlobalVersionsEnabled(args.global)
   if (!args.overrideAccess) {
     await assertGlobalVersionHistoryAccess(args.global, args.user, locale, args.req)
@@ -319,13 +406,21 @@ export async function findGlobalVersionByIDOperation(
     throw new NotFoundError(`Version ${args.versionId} not found for global "${args.global.slug}"`)
   }
 
-  if (args.overrideAccess) return version
+  const projected = projectVersionSnapshot(
+    version.snapshot,
+    args.global.fields,
+    args.config,
+    locale,
+    fallbackLocale,
+  )
+
+  if (args.overrideAccess) return { ...version, snapshot: projected }
 
   const sanitizedSnapshot = await sanitizeDocRead(
     args.global.fields,
-    version.snapshot,
+    projected,
     args.user ?? null,
-    { id: parentId, doc: version.snapshot, req: args.req, locale },
+    { id: parentId, doc: projected, req: args.req, locale },
   )
 
   return { ...version, snapshot: sanitizedSnapshot }
@@ -334,22 +429,29 @@ export async function findGlobalVersionByIDOperation(
 export async function restoreGlobalVersionOperation<T = DocumentData>(
   args: RestoreGlobalVersionOperationArgs,
 ): Promise<T> {
-  const { locale } = resolveOperationLocale(args.config, args.locale, args.fallbackLocale)
+  const { locale, fallbackLocale } = resolveOperationLocale(
+    args.config,
+    args.locale,
+    args.fallbackLocale,
+  )
   assertGlobalVersionsEnabled(args.global)
   if (!args.overrideAccess) {
     await assertGlobalVersionHistoryAccess(args.global, args.user, locale, args.req)
   }
+
+  const isLocalized = Boolean(args.config.localization)
 
   const version = await findGlobalVersionByIDOperation({
     config: args.config,
     global: args.global,
     versionId: args.versionId,
     overrideAccess: true,
+    locale: isLocalized ? 'all' : undefined,
   })
 
   const draft = args.draft !== undefined ? args.draft : version._status === 'draft'
 
-  return updateGlobalOperation<T>({
+  const restored = await updateGlobalOperation<DocumentData>({
     config: args.config,
     global: args.global,
     data: version.snapshot,
@@ -358,7 +460,17 @@ export async function restoreGlobalVersionOperation<T = DocumentData>(
     overrideAccess: args.overrideAccess,
     user: args.user,
     req: args.req,
-    locale: args.locale,
+    locale: isLocalized ? 'all' : locale,
     fallbackLocale: args.fallbackLocale,
   })
+
+  if (isLocalized && locale !== 'all') {
+    return projectCanonicalDoc(restored, args.global.fields, {
+      locale,
+      fallbackLocale,
+      defaultLocale: args.config.localization?.defaultLocale,
+    }) as T
+  }
+
+  return restored as T
 }

@@ -209,19 +209,18 @@ function toLocalizedAllSchema(
   toZod: (field: ClientField, opts?: ClientFieldsToZodOptions) => z.ZodType,
   opts?: ClientFieldsToZodOptions,
 ): z.ZodType {
-  const isContainer = field.type === 'array' || field.type === 'blocks'
-  const innerSchema = isContainer
-    ? toZod(field, opts)
-    : field.required
-      ? toZod(field, opts)
-      : toZod(field, opts).nullish()
+  const baseInner = toZod(field, opts)
+  const innerSchema = baseInner.nullish()
 
   const recordSchema = z.record(z.string(), innerSchema)
   if (!field.required) {
     return recordSchema.nullish()
   }
   return recordSchema.refine(
-    (val) => val && typeof val === 'object' && Object.keys(val).length > 0,
+    (val) => {
+      if (!val || typeof val !== 'object') return false
+      return Object.values(val).some((v) => v !== null && v !== undefined && v !== '')
+    },
     { message: `${field.label} requires at least one locale value` },
   )
 }

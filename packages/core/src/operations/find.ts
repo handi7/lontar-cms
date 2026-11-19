@@ -8,7 +8,7 @@ import { populateDocs } from '../populate'
 import type { SortItem, Where } from '../query/types'
 import { validateSort, validateWhere } from '../query/validator'
 import { AccessDeniedError, ValidationError } from './errors'
-import { resolveOperationLocale } from './locale'
+import { projectCanonicalDoc, resolveOperationLocale, type ProjectLocaleContext } from './locale'
 import { resolveOperationContextCache, type FindOperationArgs } from './types'
 
 async function assertReadAccess(
@@ -123,6 +123,7 @@ async function hydrateDraftDocs(
   collection: CollectionConfig,
   docs: DocumentData[],
   draft?: boolean,
+  localeCtx?: ProjectLocaleContext,
 ): Promise<DocumentData[]> {
   if (!collection.versions?.drafts) {
     return docs
@@ -138,7 +139,10 @@ async function hydrateDraftDocs(
         parentId: Number(doc.id),
       })
       if (latestDraft) {
-        return { ...latestDraft.snapshot, _isPublished: isPublished }
+        const projected = localeCtx
+          ? projectCanonicalDoc(latestDraft.snapshot, collection.fields, localeCtx)
+          : latestDraft.snapshot
+        return { ...projected, _isPublished: isPublished }
       }
       return { ...doc, _isPublished: isPublished }
     }),
@@ -183,7 +187,21 @@ export async function findOperation<T = DocumentData>(
     fallbackLocale,
   })
 
-  const rawDocs = await hydrateDraftDocs(args.config.db, args.collection, result.docs, args.draft)
+  const localeCtx: ProjectLocaleContext | undefined = args.config.localization
+    ? {
+        locale,
+        fallbackLocale,
+        defaultLocale: args.config.localization.defaultLocale,
+      }
+    : undefined
+
+  const rawDocs = await hydrateDraftDocs(
+    args.config.db,
+    args.collection,
+    result.docs,
+    args.draft,
+    localeCtx,
+  )
 
   const docs = await Promise.all(
     rawDocs.map((doc) =>
