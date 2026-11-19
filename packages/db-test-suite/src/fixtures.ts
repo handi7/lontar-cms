@@ -235,10 +235,66 @@ export const longSlugVersionedCollection: CollectionConfig = {
   },
 }
 
+export const localizedPostsCollection: CollectionConfig = {
+  slug: 'localized_posts',
+  labels: { singular: 'Localized Post', plural: 'Localized Posts' },
+  fields: {
+    title: { type: 'text', required: true, localized: true },
+    slug: { type: 'slug', unique: true, required: true, localized: true },
+    content: { type: 'richText', localized: true },
+    author: { type: 'relationship', relationTo: 'users' },
+    categories: { type: 'relationship', relationTo: 'categories', hasMany: true, localized: true },
+    seo: {
+      type: 'group',
+      localized: true,
+      fields: {
+        metaTitle: { type: 'text' },
+        metaDescription: { type: 'textarea' },
+      },
+    },
+    gallery: {
+      type: 'array',
+      fields: {
+        caption: { type: 'text', localized: true },
+        year: { type: 'number', integer: true },
+      },
+    },
+    layout: {
+      type: 'blocks',
+      blocks: [
+        {
+          slug: 'hero',
+          labels: { singular: 'Hero', plural: 'Heroes' },
+          fields: {
+            heading: { type: 'text', required: true, localized: true },
+            subheading: { type: 'text' },
+          },
+        },
+      ],
+    },
+  },
+}
+
+export const localizedHeaderGlobal: GlobalConfig = {
+  slug: 'localized_header',
+  fields: {
+    siteTitle: { type: 'text', required: true, localized: true },
+    tagline: { type: 'text' },
+  },
+}
+
 export function createTestConfig(adapter: DatabaseAdapter): Config {
   return {
     secret: 'test-secret',
     db: adapter,
+    localization: {
+      locales: [
+        { code: 'en', label: 'English' },
+        { code: 'id', label: 'Bahasa Indonesia' },
+      ],
+      defaultLocale: 'en',
+      fallback: true,
+    },
     collections: [
       postsCollection,
       categoriesCollection,
@@ -250,7 +306,8 @@ export function createTestConfig(adapter: DatabaseAdapter): Config {
       versionedPostsCollection,
       versionHistoryCollection,
       longSlugVersionedCollection,
+      localizedPostsCollection,
     ],
-    globals: [headerGlobal, versionedSettingsGlobal],
+    globals: [headerGlobal, versionedSettingsGlobal, localizedHeaderGlobal],
   }
 }

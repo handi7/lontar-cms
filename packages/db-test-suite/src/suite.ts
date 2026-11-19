@@ -15,6 +15,8 @@ import {
   conditionalPostsCollection,
   createTestConfig,
   headerGlobal,
+  localizedHeaderGlobal,
+  localizedPostsCollection,
   longSlugVersionedCollection,
   nestedCollection,
   pagesCollection,
@@ -2626,5 +2628,581 @@ export function registerAdapterConformanceSuite(
         expect(latest?.snapshot.title).toBe('Draft Long Slug')
       },
     )
+
+    describe('localization', () => {
+      testCase('reads localized values with requested locale and fallback', async () => {
+        const doc = await adapter.create({
+          collection: localizedPostsCollection,
+          data: {
+            title: 'English Title',
+            slug: 'en-title',
+            content: { type: 'doc', content: [{ type: 'paragraph', text: 'Hello' }] },
+          },
+          locale: 'en',
+        })
+        expect(doc.id).toBeDefined()
+
+        // Update in 'id' with title and slug, leave content empty
+        await adapter.update({
+          collection: localizedPostsCollection,
+          id: doc.id,
+          data: {
+            title: 'Judul Indonesia',
+            slug: 'judul-id',
+          },
+          locale: 'id',
+        })
+
+        // Read with locale = 'en'
+        const enDoc = await adapter.findByID({
+          collection: localizedPostsCollection,
+          id: doc.id,
+          locale: 'en',
+        })
+        expect(enDoc).not.toBeNull()
+        expect(enDoc!.title).toBe('English Title')
+        expect(enDoc!.slug).toBe('en-title')
+        expect(enDoc!.content).toEqual({
+          type: 'doc',
+          content: [{ type: 'paragraph', text: 'Hello' }],
+        })
+
+        // Read with locale = 'id' (content falls back to 'en')
+        const idDoc = await adapter.findByID({
+          collection: localizedPostsCollection,
+          id: doc.id,
+          locale: 'id',
+        })
+        expect(idDoc).not.toBeNull()
+        expect(idDoc!.title).toBe('Judul Indonesia')
+        expect(idDoc!.slug).toBe('judul-id')
+        expect(idDoc!.content).toEqual({
+          type: 'doc',
+          content: [{ type: 'paragraph', text: 'Hello' }],
+        })
+      })
+
+      testCase('reads localized values with fallbackLocale: false and locale = all', async () => {
+        const doc = await adapter.create({
+          collection: localizedPostsCollection,
+          data: {
+            title: 'English Title',
+            slug: 'en-title-2',
+            content: { type: 'doc', content: [{ type: 'paragraph', text: 'Hello' }] },
+          },
+          locale: 'en',
+        })
+
+        await adapter.update({
+          collection: localizedPostsCollection,
+          id: doc.id,
+          data: {
+            title: 'Judul Indonesia',
+            slug: 'judul-id-2',
+          },
+          locale: 'id',
+        })
+
+        // Read with locale = 'id' and fallbackLocale = false (no fallback for content)
+        const noFbDoc = await adapter.findByID({
+          collection: localizedPostsCollection,
+          id: doc.id,
+          locale: 'id',
+          fallbackLocale: false,
+        })
+        expect(noFbDoc).not.toBeNull()
+        expect(noFbDoc!.title).toBe('Judul Indonesia')
+        expect(noFbDoc!.content).toBeNull()
+
+        // Read with locale = 'all'
+        const allDoc = await adapter.findByID({
+          collection: localizedPostsCollection,
+          id: doc.id,
+          locale: 'all',
+        })
+        expect(allDoc).not.toBeNull()
+        expect(allDoc!.title).toEqual({
+          en: 'English Title',
+          id: 'Judul Indonesia',
+        })
+        expect(allDoc!.slug).toEqual({
+          en: 'en-title-2',
+          id: 'judul-id-2',
+        })
+        expect(allDoc!.content).toEqual({
+          en: { type: 'doc', content: [{ type: 'paragraph', text: 'Hello' }] },
+          id: null,
+        })
+      })
+
+      testCase('writing to a single locale leaves other locales intact', async () => {
+        const doc = await adapter.create({
+          collection: localizedPostsCollection,
+          data: {
+            title: 'Initial EN',
+            slug: 'single-locale-slug',
+          },
+          locale: 'en',
+        })
+
+        await adapter.update({
+          collection: localizedPostsCollection,
+          id: doc.id,
+          data: {
+            title: 'Initial ID',
+          },
+          locale: 'id',
+        })
+
+        const enDoc = await adapter.findByID({
+          collection: localizedPostsCollection,
+          id: doc.id,
+          locale: 'en',
+        })
+        expect(enDoc?.title).toBe('Initial EN')
+
+        const idDoc = await adapter.findByID({
+          collection: localizedPostsCollection,
+          id: doc.id,
+          locale: 'id',
+        })
+        expect(idDoc?.title).toBe('Initial ID')
+      })
+
+      testCase('writing with locale = all writes multiple locales at once', async () => {
+        const doc = await adapter.create({
+          collection: localizedPostsCollection,
+          data: {
+            title: { en: 'Multi EN', id: 'Multi ID' },
+            slug: { en: 'multi-en', id: 'multi-id' },
+          },
+          locale: 'all',
+        })
+
+        const enDoc = await adapter.findByID({
+          collection: localizedPostsCollection,
+          id: doc.id,
+          locale: 'en',
+        })
+        expect(enDoc?.title).toBe('Multi EN')
+        expect(enDoc?.slug).toBe('multi-en')
+
+        const idDoc = await adapter.findByID({
+          collection: localizedPostsCollection,
+          id: doc.id,
+          locale: 'id',
+        })
+        expect(idDoc?.title).toBe('Multi ID')
+        expect(idDoc?.slug).toBe('multi-id')
+
+        const allDoc = await adapter.findByID({
+          collection: localizedPostsCollection,
+          id: doc.id,
+          locale: 'all',
+        })
+        expect(allDoc?.title).toEqual({ en: 'Multi EN', id: 'Multi ID' })
+      })
+
+      testCase(
+        'where filtering on localized fields resolves against requested locale without fallback',
+        async () => {
+          const doc1 = await adapter.create({
+            collection: localizedPostsCollection,
+            data: {
+              title: { en: 'Apple', id: 'Apel' },
+              slug: { en: 'apple-fruit', id: 'apel-buah' },
+            },
+            locale: 'all',
+          })
+
+          const doc2 = await adapter.create({
+            collection: localizedPostsCollection,
+            data: {
+              title: { en: 'Apel', id: 'Pohon' },
+              slug: { en: 'apel-tree', id: 'pohon-apel' },
+            },
+            locale: 'all',
+          })
+
+          // Filter with locale: 'id', title: 'Apel' -> should only match doc1
+          const resId = await adapter.find({
+            collection: localizedPostsCollection,
+            where: { title: { equals: 'Apel' } },
+            limit: 10,
+            page: 1,
+            locale: 'id',
+          })
+          expect(resId.docs).toHaveLength(1)
+          expect(resId.docs[0]!.id).toBe(doc1.id)
+
+          // Filter with locale: 'id', title: 'Apple' -> should match 0 docs (no fallback on filters)
+          const resNoFb = await adapter.find({
+            collection: localizedPostsCollection,
+            where: { title: { equals: 'Apple' } },
+            limit: 10,
+            page: 1,
+            locale: 'id',
+          })
+          expect(resNoFb.docs).toHaveLength(0)
+
+          // Filter with locale: 'en', title: 'Apel' -> should match doc2
+          const resEn = await adapter.find({
+            collection: localizedPostsCollection,
+            where: { title: { equals: 'Apel' } },
+            limit: 10,
+            page: 1,
+            locale: 'en',
+          })
+          expect(resEn.docs).toHaveLength(1)
+          expect(resEn.docs[0]!.id).toBe(doc2.id)
+        },
+      )
+
+      testCase('sorting on localized fields resolves against requested locale column', async () => {
+        const docA = await adapter.create({
+          collection: localizedPostsCollection,
+          data: {
+            title: { en: 'Banana', id: 'Cokelat' },
+            slug: { en: 'banana-sort', id: 'cokelat-sort' },
+          },
+          locale: 'all',
+        })
+
+        const docB = await adapter.create({
+          collection: localizedPostsCollection,
+          data: {
+            title: { en: 'Avocado', id: 'Durian' },
+            slug: { en: 'avocado-sort', id: 'durian-sort' },
+          },
+          locale: 'all',
+        })
+
+        // Sort by title ASC in 'en': Avocado (docB) comes before Banana (docA)
+        const resEn = await adapter.find({
+          collection: localizedPostsCollection,
+          where: { id: { in: [docA.id, docB.id] } },
+          sort: 'title',
+          limit: 10,
+          page: 1,
+          locale: 'en',
+        })
+        expect(resEn.docs.map((d) => d.id)).toEqual([docB.id, docA.id])
+
+        // Sort by title ASC in 'id': Cokelat (docA) comes before Durian (docB)
+        const resId = await adapter.find({
+          collection: localizedPostsCollection,
+          where: { id: { in: [docA.id, docB.id] } },
+          sort: 'title',
+          limit: 10,
+          page: 1,
+          locale: 'id',
+        })
+        expect(resId.docs.map((d) => d.id)).toEqual([docA.id, docB.id])
+      })
+
+      testCase(
+        'localized group fields store per-locale columns and support filtering and fallback',
+        async () => {
+          const doc = await adapter.create({
+            collection: localizedPostsCollection,
+            data: {
+              title: 'Group Post',
+              slug: 'group-post',
+              seo: { metaTitle: 'EN SEO', metaDescription: 'EN Description' },
+            },
+            locale: 'en',
+          })
+
+          await adapter.update({
+            collection: localizedPostsCollection,
+            id: doc.id,
+            data: {
+              seo: { metaTitle: 'ID SEO' },
+            },
+            locale: 'id',
+          })
+
+          // Read in 'id' -> metaTitle is 'ID SEO', metaDescription falls back to 'EN Description'
+          const idDoc = await adapter.findByID({
+            collection: localizedPostsCollection,
+            id: doc.id,
+            locale: 'id',
+          })
+          expect(idDoc?.seo).toEqual({
+            metaTitle: 'ID SEO',
+            metaDescription: 'EN Description',
+          })
+
+          // Read in 'id' with fallbackLocale: false
+          const noFbDoc = await adapter.findByID({
+            collection: localizedPostsCollection,
+            id: doc.id,
+            locale: 'id',
+            fallbackLocale: false,
+          })
+          expect(noFbDoc?.seo).toEqual({
+            metaTitle: 'ID SEO',
+            metaDescription: null,
+          })
+
+          // Read in 'all'
+          const allDoc = await adapter.findByID({
+            collection: localizedPostsCollection,
+            id: doc.id,
+            locale: 'all',
+          })
+          expect(allDoc?.seo).toEqual({
+            metaTitle: { en: 'EN SEO', id: 'ID SEO' },
+            metaDescription: { en: 'EN Description', id: null },
+          })
+
+          // Filter on group field
+          const filterRes = await adapter.find({
+            collection: localizedPostsCollection,
+            where: { 'seo.metaTitle': { equals: 'ID SEO' } },
+            limit: 10,
+            page: 1,
+            locale: 'id',
+          })
+          expect(filterRes.docs).toHaveLength(1)
+          expect(filterRes.docs[0]!.id).toBe(doc.id)
+        },
+      )
+
+      testCase(
+        'localized JSON array subfields and blocks support reading, writing, and filtering',
+        async () => {
+          const doc = await adapter.create({
+            collection: localizedPostsCollection,
+            data: {
+              title: 'Complex Nested Doc',
+              slug: 'complex-nested-doc',
+              gallery: [{ id: 'row1', caption: 'Photo 1', year: 2024 }],
+              layout: [{ id: 'blk1', blockType: 'hero', heading: 'Hero EN', subheading: 'Sub EN' }],
+            },
+            locale: 'en',
+          })
+
+          await adapter.update({
+            collection: localizedPostsCollection,
+            id: doc.id,
+            data: {
+              gallery: [{ id: 'row1', caption: 'Foto 1', year: 2024 }],
+              layout: [{ id: 'blk1', blockType: 'hero', heading: 'Hero ID', subheading: 'Sub EN' }],
+            },
+            locale: 'id',
+          })
+
+          // Read in 'en'
+          const enDoc = await adapter.findByID({
+            collection: localizedPostsCollection,
+            id: doc.id,
+            locale: 'en',
+          })
+          const enGallery = enDoc?.gallery as Array<{ caption: string; year: number }>
+          const enLayout = enDoc?.layout as Array<{ heading: string; subheading: string }>
+          expect(enGallery[0]!.caption).toBe('Photo 1')
+          expect(enLayout[0]!.heading).toBe('Hero EN')
+
+          // Read in 'id'
+          const idDoc = await adapter.findByID({
+            collection: localizedPostsCollection,
+            id: doc.id,
+            locale: 'id',
+          })
+          const idGallery = idDoc?.gallery as Array<{ caption: string; year: number }>
+          const idLayout = idDoc?.layout as Array<{ heading: string; subheading: string }>
+          expect(idGallery[0]!.caption).toBe('Foto 1')
+          expect(idLayout[0]!.heading).toBe('Hero ID')
+
+          // Filter on array localized subfield
+          const filterRes = await adapter.find({
+            collection: localizedPostsCollection,
+            where: { 'gallery.caption': { equals: 'Foto 1' } },
+            limit: 10,
+            page: 1,
+            locale: 'id',
+          })
+          expect(filterRes.docs).toHaveLength(1)
+          expect(filterRes.docs[0]!.id).toBe(doc.id)
+        },
+      )
+
+      testCase(
+        'localized hasMany relationships store and query junction rows with _locale',
+        async () => {
+          const cat1 = await adapter.create({
+            collection: categoriesCollection,
+            data: { name: 'Tech' },
+          })
+          const cat2 = await adapter.create({
+            collection: categoriesCollection,
+            data: { name: 'News' },
+          })
+          const cat3 = await adapter.create({
+            collection: categoriesCollection,
+            data: { name: 'Politik' },
+          })
+
+          const post = await adapter.create({
+            collection: localizedPostsCollection,
+            data: {
+              title: 'Junction Post',
+              slug: 'junction-post',
+              categories: [cat1.id, cat2.id],
+            },
+            locale: 'en',
+          })
+
+          await adapter.update({
+            collection: localizedPostsCollection,
+            id: post.id,
+            data: {
+              categories: [cat3.id],
+            },
+            locale: 'id',
+          })
+
+          // Read in 'en'
+          const enDoc = await adapter.findByID({
+            collection: localizedPostsCollection,
+            id: post.id,
+            locale: 'en',
+          })
+          expect(enDoc?.categories).toEqual([cat1.id, cat2.id])
+
+          // Read in 'id'
+          const idDoc = await adapter.findByID({
+            collection: localizedPostsCollection,
+            id: post.id,
+            locale: 'id',
+          })
+          expect(idDoc?.categories).toEqual([cat3.id])
+
+          // Read in 'all'
+          const allDoc = await adapter.findByID({
+            collection: localizedPostsCollection,
+            id: post.id,
+            locale: 'all',
+          })
+          expect(allDoc?.categories).toEqual({
+            en: [cat1.id, cat2.id],
+            id: [cat3.id],
+          })
+
+          // Filter by hasMany category with locale 'id'
+          const resId = await adapter.find({
+            collection: localizedPostsCollection,
+            where: { categories: { in: [cat3.id] } },
+            limit: 10,
+            page: 1,
+            locale: 'id',
+          })
+          expect(resId.docs).toHaveLength(1)
+          expect(resId.docs[0]!.id).toBe(post.id)
+
+          // Filter by hasMany category with locale 'en' -> should not match cat3
+          const resEn = await adapter.find({
+            collection: localizedPostsCollection,
+            where: { categories: { in: [cat3.id] } },
+            limit: 10,
+            page: 1,
+            locale: 'en',
+          })
+          expect(resEn.docs).toHaveLength(0)
+        },
+      )
+
+      testCase(
+        'maps unique constraint violations to UniqueConstraintError with the original field name',
+        async () => {
+          await adapter.create({
+            collection: localizedPostsCollection,
+            data: {
+              title: 'Original English',
+              slug: 'unique-slug-test',
+            },
+            locale: 'en',
+          })
+
+          // Duplicate slug in 'en' must throw UniqueConstraintError with field = 'slug'
+          let caughtErr: unknown = null
+          try {
+            await adapter.create({
+              collection: localizedPostsCollection,
+              data: {
+                title: 'Duplicate English',
+                slug: 'unique-slug-test',
+              },
+              locale: 'en',
+            })
+          } catch (err) {
+            caughtErr = err
+          }
+          expect(caughtErr).toBeInstanceOf(UniqueConstraintError)
+          expect((caughtErr as UniqueConstraintError).field).toBe('slug')
+
+          // Creating with the same slug in 'id' is allowed because unique index is per-locale
+          const idDoc = await adapter.create({
+            collection: localizedPostsCollection,
+            data: {
+              title: 'Indonesian Same Slug',
+              slug: 'unique-slug-test',
+            },
+            locale: 'id',
+          })
+          expect(idDoc.id).toBeDefined()
+        },
+      )
+
+      testCase(
+        'localized global singleton supports reading and updating with locale and locale=all',
+        async () => {
+          await adapter.updateGlobal({
+            global: localizedHeaderGlobal,
+            data: {
+              siteTitle: 'My Website',
+              tagline: 'Shared Tagline',
+            },
+            locale: 'en',
+          })
+
+          await adapter.updateGlobal({
+            global: localizedHeaderGlobal,
+            data: {
+              siteTitle: 'Situs Saya',
+            },
+            locale: 'id',
+          })
+
+          const enGlobal = await adapter.findGlobal({
+            global: localizedHeaderGlobal,
+            locale: 'en',
+          })
+          expect(enGlobal).not.toBeNull()
+          expect(enGlobal!.siteTitle).toBe('My Website')
+          expect(enGlobal!.tagline).toBe('Shared Tagline')
+
+          const idGlobal = await adapter.findGlobal({
+            global: localizedHeaderGlobal,
+            locale: 'id',
+          })
+          expect(idGlobal).not.toBeNull()
+          expect(idGlobal!.siteTitle).toBe('Situs Saya')
+          expect(idGlobal!.tagline).toBe('Shared Tagline')
+
+          const allGlobal = await adapter.findGlobal({
+            global: localizedHeaderGlobal,
+            locale: 'all',
+          })
+          expect(allGlobal).not.toBeNull()
+          expect(allGlobal!.siteTitle).toEqual({
+            en: 'My Website',
+            id: 'Situs Saya',
+          })
+          expect(allGlobal!.tagline).toBe('Shared Tagline')
+        },
+      )
+    })
   })
 }

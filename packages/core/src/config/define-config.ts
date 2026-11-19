@@ -76,6 +76,9 @@ export class LontarConfigError extends Error {
 export function defineConfig<C extends Config>(config: C): C {
   const issues = validateConfig(config)
   if (issues.length > 0) throw new LontarConfigError(issues)
+  if (config.localization && config.db) {
+    config.db.localization = config.localization
+  }
   return config
 }
 

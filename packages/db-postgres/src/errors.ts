@@ -36,6 +36,10 @@ function stripUniqueSuffix(key: string): string {
   return key
 }
 
+function stripLocaleSuffix(key: string): string {
+  return key.replace(/_[a-z]{2,3}(-[a-zA-Z0-9]{2,4})?$/, '')
+}
+
 function fuzzyFindField(cleanKey: string, fields: Record<string, unknown>): string | undefined {
   for (const name of Object.keys(fields)) {
     if (
@@ -64,6 +68,9 @@ export function findFieldName(
 
   const strippedSuffix = stripUniqueSuffix(withoutTable)
   if (strippedSuffix in fields) return strippedSuffix
+
+  const withoutLocale = stripLocaleSuffix(strippedSuffix)
+  if (withoutLocale in fields) return withoutLocale
 
   return fuzzyFindField(cleanKey, fields)
 }
