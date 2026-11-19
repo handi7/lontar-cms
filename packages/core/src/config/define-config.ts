@@ -4,6 +4,7 @@ import type {
   Block,
   BlocksField,
   Field,
+  GroupField,
   RelationshipField,
   SlugField,
   TextareaField,
@@ -82,15 +83,111 @@ function validateConfig(config: Config): string[] {
   const issues = validateSecret(config.secret)
   issues.push(...validateAuth(config.auth))
   issues.push(...validatePagination('Config', config.pagination))
+  const { issues: localizationIssues, hasLocalization } = validateLocalization(config.localization)
+  issues.push(...localizationIssues)
   const { issues: collectionIssues, collectionMap } = validateCollections(
     config.collections,
     config.db,
+    hasLocalization,
   )
   issues.push(...collectionIssues)
-  issues.push(...validateGlobals(config.globals, collectionMap, config.db))
+  issues.push(...validateGlobals(config.globals, collectionMap, config.db, hasLocalization))
   issues.push(...validateStorage(config))
   issues.push(...validateRootWebhooks(config.webhooks, collectionMap, config.globals))
   return issues
+}
+
+const LOCALE_CODE_REGEX = /^[a-zA-Z]{2,3}(-[a-zA-Z0-9]{2,4})?$/
+
+function isValidLocaleCode(code: string): boolean {
+  return LOCALE_CODE_REGEX.test(code) && code.length <= 10 && !code.includes('_')
+}
+
+function validateStringLocale(code: string, raw: string, validCodes: Set<string>): string[] {
+  if (!code || !isValidLocaleCode(code)) {
+    return [
+      `Locale code "${raw}" is invalid. Codes must match format (e.g. "en", "id", "en-US", "zh-CN") and be at most 10 characters without underscores.`,
+    ]
+  }
+  if (validCodes.has(code)) {
+    return [`Duplicate locale code "${code}" in localization.locales.`]
+  }
+  validCodes.add(code)
+  return []
+}
+
+function validateObjectLocale(obj: Record<string, unknown>, validCodes: Set<string>): string[] {
+  const code = typeof obj.code === 'string' ? obj.code.trim() : ''
+  const issues = validateStringLocale(code, String(obj.code), validCodes)
+  if (issues.length > 0) return issues
+  if (obj.label !== undefined && (typeof obj.label !== 'string' || !obj.label.trim())) {
+    return [`Locale label for code "${code}" must be a non-empty string.`]
+  }
+  return []
+}
+
+function validateLocaleItem(item: unknown, validCodes: Set<string>): string[] {
+  if (typeof item === 'string') {
+    return validateStringLocale(item.trim(), item, validCodes)
+  }
+
+  if (typeof item === 'object' && item !== null && !Array.isArray(item)) {
+    return validateObjectLocale(item as Record<string, unknown>, validCodes)
+  }
+
+  return ['Each locale in `localization.locales` must be a string code or { code, label } object.']
+}
+
+function validateLocaleList(locales: unknown): { issues: string[]; validCodes: Set<string> } {
+  if (!Array.isArray(locales)) {
+    return {
+      issues: ['`localization.locales` must be an array of locale codes or locale objects.'],
+      validCodes: new Set(),
+    }
+  }
+  if (locales.length === 0) {
+    return {
+      issues: ['`localization.locales` must contain at least one locale.'],
+      validCodes: new Set(),
+    }
+  }
+  const issues: string[] = []
+  const validCodes = new Set<string>()
+  for (const item of locales) {
+    issues.push(...validateLocaleItem(item, validCodes))
+  }
+  return { issues, validCodes }
+}
+
+function validateDefaultLocale(defaultLocale: unknown, validCodes: Set<string>): string[] {
+  if (typeof defaultLocale !== 'string' || !defaultLocale.trim()) {
+    return ['`localization.defaultLocale` must be a non-empty string.']
+  }
+  if (validCodes.size > 0 && !validCodes.has(defaultLocale)) {
+    return [`Default locale "${defaultLocale}" is not in localization.locales.`]
+  }
+  return []
+}
+
+function validateLocalization(localization: unknown): {
+  issues: string[]
+  hasLocalization: boolean
+} {
+  if (localization === undefined) {
+    return { issues: [], hasLocalization: false }
+  }
+  if (typeof localization !== 'object' || localization === null || Array.isArray(localization)) {
+    return { issues: ['`localization` must be an object.'], hasLocalization: true }
+  }
+  const loc = localization as Record<string, unknown>
+  const { issues, validCodes } = validateLocaleList(loc.locales)
+  issues.push(...validateDefaultLocale(loc.defaultLocale, validCodes))
+
+  if (loc.fallback !== undefined && typeof loc.fallback !== 'boolean') {
+    issues.push('`localization.fallback` must be a boolean.')
+  }
+
+  return { issues, hasLocalization: true }
 }
 
 function validateStorage(config: Config): string[] {
@@ -201,6 +298,7 @@ function checkIdentifierCollision(
 function validateCollections(
   collections: readonly CollectionConfig[],
   dbAdapter?: DatabaseAdapter,
+  hasLocalization = false,
 ): {
   issues: string[]
   collectionMap: Map<string, CollectionConfig>
@@ -217,7 +315,7 @@ function validateCollections(
     const collision = checkIdentifierCollision(identifiers, collection.slug, 'Collection')
     if (collision) issues.push(collision)
     collectionMap.set(collection.slug, collection)
-    issues.push(...validateCollection(collection, dbAdapter))
+    issues.push(...validateCollection(collection, dbAdapter, hasLocalization))
   }
   for (const collection of collections) {
     issues.push(
@@ -231,6 +329,7 @@ function validateGlobals(
   globals: readonly GlobalConfig[] | undefined,
   collectionMap: Map<string, CollectionConfig>,
   dbAdapter?: DatabaseAdapter,
+  hasLocalization = false,
 ): string[] {
   if (!globals) return []
   const issues: string[] = []
@@ -249,7 +348,7 @@ function validateGlobals(
     const collision = checkIdentifierCollision(identifiers, global.slug, 'Global')
     if (collision) issues.push(collision)
     seen.add(global.slug)
-    issues.push(...validateGlobal(global, dbAdapter))
+    issues.push(...validateGlobal(global, dbAdapter, hasLocalization))
     issues.push(...validateFieldTargets(`Global "${global.slug}"`, global.fields, collectionMap))
   }
   return issues
@@ -309,13 +408,25 @@ function validateRelationshipTarget(
   return []
 }
 
-function validateCollection(collection: CollectionConfig, dbAdapter?: DatabaseAdapter): string[] {
+function validateCollection(
+  collection: CollectionConfig,
+  dbAdapter?: DatabaseAdapter,
+  hasLocalization = false,
+): string[] {
   const where = `Collection "${collection.slug}"`
   const isUpload = Boolean(collection.upload)
   const hasVersions = Boolean(collection.versions)
   return [
     ...validateSlug(collection.slug, 'Collection'),
-    ...validateFields(where, collection.fields, isUpload, 1, hasVersions, dbAdapter),
+    ...validateFields(
+      where,
+      collection.fields,
+      isUpload,
+      1,
+      hasVersions,
+      dbAdapter,
+      hasLocalization,
+    ),
     ...validatePagination(where, collection.pagination),
     ...validateVersions(where, collection.versions),
     ...validateAdmin(where, collection),
@@ -407,17 +518,42 @@ function validatePagination(where: string, pagination: PaginationConfig | undefi
   return issues
 }
 
-function validateGlobal(global: GlobalConfig, dbAdapter?: DatabaseAdapter): string[] {
+function validateGlobal(
+  global: GlobalConfig,
+  dbAdapter?: DatabaseAdapter,
+  hasLocalization = false,
+): string[] {
   const where = `Global "${global.slug}"`
   const hasVersions = Boolean(global.versions)
   return [
     ...validateSlug(global.slug, 'Global'),
-    ...validateFields(where, global.fields, false, 1, hasVersions, dbAdapter),
+    ...validateFields(where, global.fields, false, 1, hasVersions, dbAdapter, hasLocalization),
     ...validateVersions(where, global.versions),
     ...validatePreview(where, global.admin?.preview),
     ...validateGlobalAccess(where, global),
     ...validateScopedWebhooks(where, global.webhooks),
   ]
+}
+
+function validateFieldLocalization(
+  where: string,
+  name: string,
+  field: Field,
+  hasLocalization: boolean,
+  containerLocalized: boolean,
+): string[] {
+  if (!field.localized) return []
+  if (!hasLocalization) {
+    return [
+      `${where}: field "${name}" has localized: true, but localization is not configured in defineConfig({ localization: ... }).`,
+    ]
+  }
+  if (containerLocalized) {
+    return [
+      `${where}: field "${name}" cannot be localized because its parent container is already localized.`,
+    ]
+  }
+  return []
 }
 
 function validateFields(
@@ -427,6 +563,8 @@ function validateFields(
   depth: number,
   hasVersions = false,
   dbAdapter?: DatabaseAdapter,
+  hasLocalization = false,
+  containerLocalized = false,
 ): string[] {
   const issues: string[] = []
   for (const [name, field] of Object.entries(fields)) {
@@ -436,7 +574,21 @@ function validateFields(
     if (depth > 1 && name === 'id') {
       issues.push(`${where}: field name "id" is reserved.`)
     }
-    issues.push(...validateField(where, name, field, fields, depth, dbAdapter))
+    issues.push(
+      ...validateFieldLocalization(where, name, field, hasLocalization, containerLocalized),
+    )
+    issues.push(
+      ...validateField(
+        where,
+        name,
+        field,
+        fields,
+        depth,
+        dbAdapter,
+        hasLocalization,
+        containerLocalized,
+      ),
+    )
   }
   return issues
 }
@@ -550,6 +702,8 @@ function validateBlocksContent(
   field: BlocksField,
   depth: number,
   dbAdapter?: DatabaseAdapter,
+  hasLocalization = false,
+  containerLocalized = false,
 ): string[] {
   const issues: string[] = []
   if (!field.blocks) return issues
@@ -572,6 +726,8 @@ function validateBlocksContent(
         depth + 1,
         false,
         dbAdapter,
+        hasLocalization,
+        containerLocalized,
       ),
     )
   }
@@ -621,6 +777,59 @@ function validateFieldAccess(where: string, name: string, access?: unknown): str
   return [...validateFieldAccessKeys(where, name, obj), ...validateFieldAccessOps(where, name, obj)]
 }
 
+function validateContainerField(
+  where: string,
+  name: string,
+  field: GroupField | ArrayField | BlocksField,
+  depth: number,
+  dbAdapter?: DatabaseAdapter,
+  hasLocalization = false,
+  containerLocalized = false,
+): string[] {
+  if (field.type === 'group') {
+    return [
+      ...validateGroupField(where, name, depth),
+      ...validateFields(
+        `${where} -> group "${name}"`,
+        field.fields,
+        false,
+        depth + 1,
+        false,
+        dbAdapter,
+        hasLocalization,
+        containerLocalized,
+      ),
+    ]
+  }
+  if (field.type === 'array') {
+    return [
+      ...validateArrayField(where, name, field, depth),
+      ...validateFields(
+        `${where} -> array "${name}"`,
+        field.fields,
+        false,
+        depth + 1,
+        false,
+        dbAdapter,
+        hasLocalization,
+        containerLocalized || Boolean(field.localized),
+      ),
+    ]
+  }
+  return [
+    ...validateBlocksField(where, name, field, depth),
+    ...validateBlocksContent(
+      where,
+      name,
+      field,
+      depth,
+      dbAdapter,
+      hasLocalization,
+      containerLocalized || Boolean(field.localized),
+    ),
+  ]
+}
+
 function validateFieldType(
   where: string,
   name: string,
@@ -628,6 +837,8 @@ function validateFieldType(
   fields: Record<string, Field>,
   depth: number,
   dbAdapter?: DatabaseAdapter,
+  hasLocalization = false,
+  containerLocalized = false,
 ): string[] {
   switch (field.type) {
     case 'text':
@@ -637,34 +848,17 @@ function validateFieldType(
     case 'slug':
       return validateSlugField(where, name, field, fields)
     case 'group':
-      return [
-        ...validateGroupField(where, name, depth),
-        ...validateFields(
-          `${where} -> group "${name}"`,
-          field.fields,
-          false,
-          depth + 1,
-          false,
-          dbAdapter,
-        ),
-      ]
     case 'array':
-      return [
-        ...validateArrayField(where, name, field, depth),
-        ...validateFields(
-          `${where} -> array "${name}"`,
-          field.fields,
-          false,
-          depth + 1,
-          false,
-          dbAdapter,
-        ),
-      ]
     case 'blocks':
-      return [
-        ...validateBlocksField(where, name, field, depth),
-        ...validateBlocksContent(where, name, field, depth, dbAdapter),
-      ]
+      return validateContainerField(
+        where,
+        name,
+        field,
+        depth,
+        dbAdapter,
+        hasLocalization,
+        containerLocalized,
+      )
     default:
       return []
   }
@@ -677,10 +871,21 @@ function validateField(
   fields: Record<string, Field>,
   depth: number,
   dbAdapter?: DatabaseAdapter,
+  hasLocalization = false,
+  containerLocalized = false,
 ): string[] {
   return [
     ...validateFieldAccess(where, name, field.access),
-    ...validateFieldType(where, name, field, fields, depth, dbAdapter),
+    ...validateFieldType(
+      where,
+      name,
+      field,
+      fields,
+      depth,
+      dbAdapter,
+      hasLocalization,
+      containerLocalized,
+    ),
   ]
 }
 

@@ -147,11 +147,11 @@ const zodByType = {
   upload: (_field: ClientUploadField) => {
     return z.number().int().positive().max(MAX_INT_32)
   },
-  group: (field: ClientGroupField) => {
-    return clientFieldsToObject(field.fields)
+  group: (field: ClientGroupField, opts?: ClientFieldsToZodOptions) => {
+    return clientFieldsToObject(field.fields, opts)
   },
-  array: (field: ClientArrayField) => {
-    const rowSchema = clientFieldsToObject(field.fields).extend({
+  array: (field: ClientArrayField, opts?: ClientFieldsToZodOptions) => {
+    const rowSchema = clientFieldsToObject(field.fields, opts).extend({
       id: z
         .string()
         .optional()
@@ -166,9 +166,9 @@ const zodByType = {
     arr = arr.max(maxRows, `Must have at most ${maxRows} items`)
     return arr
   },
-  blocks: (field: ClientBlocksField) => {
+  blocks: (field: ClientBlocksField, opts?: ClientFieldsToZodOptions) => {
     const blockSchemas = field.blocks.map((b) => {
-      return clientFieldsToObject(b.fields).extend({
+      return clientFieldsToObject(b.fields, opts).extend({
         id: z
           .string()
           .optional()
@@ -197,24 +197,68 @@ const zodByType = {
     arr = arr.max(maxRows, `Must have at most ${maxRows} items`)
     return arr
   },
-} satisfies { [K in ClientField['type']]: (field: Extract<ClientField, { type: K }>) => z.ZodType }
+} satisfies {
+  [K in ClientField['type']]: (
+    field: Extract<ClientField, { type: K }>,
+    opts?: ClientFieldsToZodOptions,
+  ) => z.ZodType
+}
+
+function toLocalizedAllSchema(
+  field: ClientField,
+  toZod: (field: ClientField, opts?: ClientFieldsToZodOptions) => z.ZodType,
+  opts?: ClientFieldsToZodOptions,
+): z.ZodType {
+  const isContainer = field.type === 'array' || field.type === 'blocks'
+  const innerSchema = isContainer
+    ? toZod(field, opts)
+    : field.required
+      ? toZod(field, opts)
+      : toZod(field, opts).nullish()
+
+  const recordSchema = z.record(z.string(), innerSchema)
+  if (!field.required) {
+    return recordSchema.nullish()
+  }
+  return recordSchema.refine(
+    (val) => val && typeof val === 'object' && Object.keys(val).length > 0,
+    { message: `${field.label} requires at least one locale value` },
+  )
+}
 
 /** Optional fields accept `null` and `undefined`, since their column is nullable. */
-export function clientFieldToZod(field: ClientField, forceValidation = false): z.ZodType {
+export function clientFieldToZod(
+  field: ClientField,
+  forceValidation = false,
+  opts?: ClientFieldsToZodOptions,
+): z.ZodType {
   if (!forceValidation && field.condition) {
     return z.unknown().optional()
   }
   // TypeScript cannot match `field.type` to its converter's parameter, hence the cast.
-  const toZod = zodByType[field.type] as (field: ClientField) => z.ZodType
-  const schema = toZod(field)
+  const toZod = zodByType[field.type] as (
+    field: ClientField,
+    opts?: ClientFieldsToZodOptions,
+  ) => z.ZodType
+
+  if (field.localized && opts?.locale === 'all') {
+    return toLocalizedAllSchema(field, toZod, opts)
+  }
+
+  const schema = toZod(field, opts)
   return field.required ? schema : schema.nullish()
 }
 
 /**
  * Returns a plain ZodObject for an array of fields without superRefine wrapper.
  */
-export function clientFieldsToObject(fields: readonly ClientField[]) {
-  return z.object(Object.fromEntries(fields.map((field) => [field.name, clientFieldToZod(field)])))
+export function clientFieldsToObject(
+  fields: readonly ClientField[],
+  opts?: ClientFieldsToZodOptions,
+) {
+  return z.object(
+    Object.fromEntries(fields.map((field) => [field.name, clientFieldToZod(field, false, opts)])),
+  )
 }
 
 function hasConditionalFields(fields: readonly ClientField[]): boolean {
@@ -392,6 +436,8 @@ function validateConditionalFields({
 export interface ClientFieldsToZodOptions {
   partial?: boolean
   originalDoc?: Record<string, unknown>
+  locale?: string
+  locales?: string[]
 }
 
 /**
@@ -404,7 +450,7 @@ export function clientFieldsToZod(
 ) {
   const isPartial = Boolean(options?.partial)
   const originalDoc = options?.originalDoc
-  const baseObj = clientFieldsToObject(fields)
+  const baseObj = clientFieldsToObject(fields, options)
   const base = isPartial ? baseObj.partial() : baseObj
 
   if (!hasConditionalFields(fields)) {
@@ -432,6 +478,8 @@ export function clientFieldsToZod(
     }
   ).partial = (opts) =>
     clientFieldsToZod(fields, {
+      ...options,
+      ...opts,
       partial: true,
       originalDoc: opts?.originalDoc ?? originalDoc,
     })

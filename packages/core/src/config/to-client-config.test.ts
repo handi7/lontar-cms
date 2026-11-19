@@ -961,4 +961,112 @@ describe('toClientConfig', () => {
       expect((field as unknown as Record<string, unknown>).access).toBeUndefined()
     }
   })
+
+  it('serializes localization config and localized flags across nested fields and globals', () => {
+    const config = defineConfig({
+      secret: SECRET,
+      db: fakeAdapter,
+      localization: {
+        locales: ['en', { code: 'id', label: 'Bahasa Indonesia' }],
+        defaultLocale: 'en',
+      },
+      collections: [
+        {
+          slug: 'posts',
+          fields: {
+            title: f.text({ localized: true, required: true }),
+            slug: f.slug({ from: 'title', localized: true }),
+            sharedCount: f.number(),
+            seo: f.group({
+              localized: true,
+              fields: {
+                metaTitle: f.text(),
+              },
+            }),
+            gallery: f.array({
+              fields: {
+                caption: f.text({ localized: true }),
+              },
+            }),
+            localizedLayout: f.blocks({
+              localized: true,
+              blocks: [
+                block({
+                  slug: 'hero',
+                  fields: {
+                    heading: f.text(),
+                  },
+                }),
+              ],
+            }),
+          },
+        },
+      ],
+      globals: [
+        {
+          slug: 'site-settings',
+          fields: {
+            siteName: f.text({ localized: true }),
+            tagline: f.text(),
+          },
+        },
+      ],
+    })
+
+    const client = toClientConfig(config)
+
+    // Version bumped to 3
+    expect(client.version).toBe(3)
+
+    // Localization serialized properly
+    expect(client.localization).toStrictEqual({
+      locales: [
+        { code: 'en', label: 'EN' },
+        { code: 'id', label: 'Bahasa Indonesia' },
+      ],
+      defaultLocale: 'en',
+      fallback: true,
+    })
+
+    const fields = client.collections[0]!.fields
+    const title = fields.find((f) => f.name === 'title')!
+    const slug = fields.find((f) => f.name === 'slug')!
+    const sharedCount = fields.find((f) => f.name === 'sharedCount')!
+    const seo = fields.find((f) => f.name === 'seo')! as Extract<
+      (typeof fields)[number],
+      { type: 'group' }
+    >
+    const gallery = fields.find((f) => f.name === 'gallery')! as Extract<
+      (typeof fields)[number],
+      { type: 'array' }
+    >
+    const localizedLayout = fields.find((f) => f.name === 'localizedLayout')! as Extract<
+      (typeof fields)[number],
+      { type: 'blocks' }
+    >
+
+    expect(title.localized).toBe(true)
+    expect(slug.localized).toBe(true)
+    expect(sharedCount.localized).toBeUndefined()
+
+    // Group inherits localized to its children
+    expect(seo.localized).toBe(true)
+    expect(seo.fields[0]?.localized).toBe(true)
+
+    // Unlocalized array with localized subfield
+    expect(gallery.localized).toBeUndefined()
+    expect(gallery.fields[0]?.localized).toBe(true)
+
+    // Localized blocks container with unlocalized subfield
+    expect(localizedLayout.localized).toBe(true)
+    expect(localizedLayout.blocks[0]?.fields[0]?.localized).toBeUndefined()
+
+    // Global with localized field
+    const globalFields = client.globals[0]!.fields
+    expect(globalFields.find((f) => f.name === 'siteName')?.localized).toBe(true)
+    expect(globalFields.find((f) => f.name === 'tagline')?.localized).toBeUndefined()
+
+    // Round-trip plain JSON
+    expect(JSON.parse(JSON.stringify(client))).toStrictEqual(client)
+  })
 })

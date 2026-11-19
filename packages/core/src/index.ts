@@ -199,6 +199,9 @@ export type {
   GlobalAccess,
   GlobalConfig,
   GlobalHooks,
+  LocaleConfig,
+  LocaleObject,
+  LocalizationConfig,
   PaginationConfig,
   VersionsConfig,
 } from './config/types'

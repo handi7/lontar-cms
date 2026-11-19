@@ -1057,5 +1057,91 @@ describe('clientFieldsToZod', () => {
       expect(result).toEqual({ title: 'Hello' })
       expect(result).not.toHaveProperty('_status')
     })
+
+    describe('localization write schemas', () => {
+      const localizedFields: ClientField[] = [
+        { name: 'title', type: 'text', label: 'Title', required: true, localized: true },
+        { name: 'slug', type: 'slug', label: 'Slug', required: true, localized: true },
+        { name: 'authorId', type: 'number', label: 'Author', required: true },
+        {
+          name: 'gallery',
+          type: 'array',
+          label: 'Gallery',
+          required: false,
+          fields: [
+            { name: 'caption', type: 'text', label: 'Caption', localized: true, required: true },
+          ],
+        },
+        {
+          name: 'localizedBlocks',
+          type: 'blocks',
+          label: 'Localized Blocks',
+          required: false,
+          localized: true,
+          blocks: [
+            {
+              slug: 'quote',
+              labels: { singular: 'Quote', plural: 'Quotes' },
+              fields: [{ name: 'text', type: 'text', label: 'Text', required: true }],
+            },
+          ],
+        },
+      ]
+
+      it('validates flat single-locale write payload by default', () => {
+        const schema = clientFieldsToZod(localizedFields)
+
+        const valid = schema.safeParse({
+          title: 'Hello World',
+          slug: 'hello-world',
+          authorId: 1,
+          gallery: [{ caption: 'Photo caption' }],
+          localizedBlocks: [{ blockType: 'quote', text: 'To be or not to be' }],
+        })
+        expect(valid.success).toBe(true)
+
+        // Invalid: missing required flat title
+        const invalid = schema.safeParse({
+          slug: 'hello-world',
+          authorId: 1,
+        })
+        expect(invalid.success).toBe(false)
+      })
+
+      it('validates locale=all write payload with localized dictionaries', () => {
+        const schemaAll = clientFieldsToZod(localizedFields, { locale: 'all' })
+
+        const valid = schemaAll.safeParse({
+          title: { en: 'Hello World', id: 'Halo Dunia' },
+          slug: { en: 'hello-world', id: 'halo-dunia' },
+          authorId: 1, // non-localized stays flat
+          gallery: [
+            {
+              caption: { en: 'Mountain photo', id: 'Foto gunung' },
+            },
+          ],
+          localizedBlocks: {
+            en: [{ blockType: 'quote', text: 'English quote' }],
+            id: [{ blockType: 'quote', text: 'Kutipan bahasa Indonesia' }],
+          },
+        })
+        expect(valid.success).toBe(true)
+
+        // Required localized field rejects empty dictionary
+        const emptyTitle = schemaAll.safeParse({
+          title: {},
+          authorId: 1,
+        })
+        expect(emptyTitle.success).toBe(false)
+
+        // Required localized field accepts single locale in dictionary
+        const partialLocales = schemaAll.safeParse({
+          title: { id: 'Halo Dunia' },
+          slug: { id: 'halo-dunia' },
+          authorId: 1,
+        })
+        expect(partialLocales.success).toBe(true)
+      })
+    })
   })
 })

@@ -1445,4 +1445,223 @@ describe('defineConfig', () => {
       )
     })
   })
+
+  describe('localization', () => {
+    it('accepts valid localization config with string codes and object locales', () => {
+      const config = defineConfig({
+        secret: SECRET,
+        db: fakeAdapter,
+        localization: {
+          locales: ['en', { code: 'id', label: 'Bahasa Indonesia' }],
+          defaultLocale: 'en',
+          fallback: true,
+        },
+        collections: [
+          notes({
+            fields: {
+              title: f.text({ localized: true }),
+            },
+          }),
+        ],
+      })
+      expect(config.localization?.defaultLocale).toBe('en')
+    })
+
+    it('rejects non-object localization', () => {
+      expect(() =>
+        defineConfig({
+          secret: SECRET,
+          db: fakeAdapter,
+          // @ts-expect-error - testing invalid localization type
+          localization: 'en',
+          collections: [notes()],
+        }),
+      ).toThrow('`localization` must be an object.')
+    })
+
+    it('rejects non-array or empty locales', () => {
+      expect(() =>
+        defineConfig({
+          secret: SECRET,
+          db: fakeAdapter,
+          // @ts-expect-error - testing invalid locales
+          localization: { locales: 'en', defaultLocale: 'en' },
+          collections: [notes()],
+        }),
+      ).toThrow('`localization.locales` must be an array of locale codes or locale objects.')
+
+      expect(() =>
+        defineConfig({
+          secret: SECRET,
+          db: fakeAdapter,
+          localization: { locales: [], defaultLocale: 'en' },
+          collections: [notes()],
+        }),
+      ).toThrow('`localization.locales` must contain at least one locale.')
+    })
+
+    it('rejects invalid locale codes', () => {
+      expect(() =>
+        defineConfig({
+          secret: SECRET,
+          db: fakeAdapter,
+          localization: {
+            locales: ['en_US', 'invalid-long-locale-code', ''],
+            defaultLocale: 'en_US',
+          },
+          collections: [notes()],
+        }),
+      ).toThrow(
+        'Locale code "en_US" is invalid. Codes must match format (e.g. "en", "id", "en-US", "zh-CN") and be at most 10 characters without underscores.',
+      )
+    })
+
+    it('rejects duplicate locale codes', () => {
+      expect(() =>
+        defineConfig({
+          secret: SECRET,
+          db: fakeAdapter,
+          localization: {
+            locales: ['en', { code: 'en', label: 'English' }],
+            defaultLocale: 'en',
+          },
+          collections: [notes()],
+        }),
+      ).toThrow('Duplicate locale code "en" in localization.locales.')
+    })
+
+    it('rejects missing or invalid defaultLocale', () => {
+      expect(() =>
+        defineConfig({
+          secret: SECRET,
+          db: fakeAdapter,
+          // @ts-expect-error - testing missing defaultLocale
+          localization: { locales: ['en', 'id'] },
+          collections: [notes()],
+        }),
+      ).toThrow('`localization.defaultLocale` must be a non-empty string.')
+
+      expect(() =>
+        defineConfig({
+          secret: SECRET,
+          db: fakeAdapter,
+          localization: { locales: ['en', 'id'], defaultLocale: 'fr' },
+          collections: [notes()],
+        }),
+      ).toThrow('Default locale "fr" is not in localization.locales.')
+    })
+
+    it('rejects non-boolean fallback', () => {
+      expect(() =>
+        defineConfig({
+          secret: SECRET,
+          db: fakeAdapter,
+          // @ts-expect-error - testing non-boolean fallback
+          localization: { locales: ['en'], defaultLocale: 'en', fallback: 'yes' },
+          collections: [notes()],
+        }),
+      ).toThrow('`localization.fallback` must be a boolean.')
+    })
+
+    it('rejects localized: true on field when localization is not configured', () => {
+      expect(() =>
+        defineConfig({
+          secret: SECRET,
+          db: fakeAdapter,
+          collections: [
+            notes({
+              fields: {
+                title: f.text({ localized: true }),
+              },
+            }),
+          ],
+        }),
+      ).toThrow(
+        'Collection "notes": field "title" has localized: true, but localization is not configured in defineConfig({ localization: ... }).',
+      )
+    })
+
+    it('rejects localized: true on subfield when array container is localized', () => {
+      expect(() =>
+        defineConfig({
+          secret: SECRET,
+          db: fakeAdapter,
+          localization: { locales: ['en', 'id'], defaultLocale: 'en' },
+          collections: [
+            notes({
+              fields: {
+                items: f.array({
+                  localized: true,
+                  fields: {
+                    title: f.text({ localized: true }),
+                  },
+                }),
+              },
+            }),
+          ],
+        }),
+      ).toThrow(
+        'Collection "notes" -> array "items": field "title" cannot be localized because its parent container is already localized.',
+      )
+    })
+
+    it('rejects localized: true on subfield when blocks container is localized', () => {
+      expect(() =>
+        defineConfig({
+          secret: SECRET,
+          db: fakeAdapter,
+          localization: { locales: ['en', 'id'], defaultLocale: 'en' },
+          collections: [
+            notes({
+              fields: {
+                content: f.blocks({
+                  localized: true,
+                  blocks: [
+                    block({
+                      slug: 'hero',
+                      fields: {
+                        heading: f.text({ localized: true }),
+                      },
+                    }),
+                  ],
+                }),
+              },
+            }),
+          ],
+        }),
+      ).toThrow(
+        'Collection "notes" -> blocks "content" -> block "hero": field "heading" cannot be localized because its parent container is already localized.',
+      )
+    })
+
+    it('allows localized: true on subfields when array or blocks container is not localized', () => {
+      const config = defineConfig({
+        secret: SECRET,
+        db: fakeAdapter,
+        localization: { locales: ['en', 'id'], defaultLocale: 'en' },
+        collections: [
+          notes({
+            fields: {
+              items: f.array({
+                fields: {
+                  title: f.text({ localized: true }),
+                },
+              }),
+              content: f.blocks({
+                blocks: [
+                  block({
+                    slug: 'hero',
+                    fields: {
+                      heading: f.text({ localized: true }),
+                    },
+                  }),
+                ],
+              }),
+            },
+          }),
+        ],
+      })
+      expect(config.collections[0]?.fields.items).toBeDefined()
+    })
+  })
 })
