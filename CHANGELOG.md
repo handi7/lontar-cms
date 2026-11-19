@@ -7,9 +7,49 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.6.0] - 2026-11-19
+
+Users, roles and field-level access (M10, tracked in #148). Admin users now have roles, collections and fields can restrict who reads and writes them, and the admin gains a users screen, an account page, password reset and invites, API keys for machine access, and rate limiting on the auth routes. `@lontar/storage-local`, `@lontar/storage-s3`, `@lontar/preview` and `@lontar/db-test-suite` have no changes of their own; they are published so their `@lontar/core` peer range moves with the rest.
+
 ### Upgrading
 
+- Existing projects need a new migration: users gain a role, and two tables are added, `apikey` and `rateLimit`. Run `lontar migrate:create` and then `lontar migrate`.
 - `apikey` and `rateLimit` (along with slugs `rate-limit` and `ratelimit`) are now reserved collection and global slugs/identifiers to avoid collisions with the auth API key and rate limiting tables. A config with a collection or global matching these reserved slugs or generating colliding schema identifiers is rejected by `defineConfig` (#375).
+- Rate limiting is on by default when `NODE_ENV=production` and off in tests (`NODE_ENV=test`, `PLAYWRIGHT=true` or `DISABLE_AUTH_RATE_LIMIT=true`). Behind a proxy, set `ipAddressHeaders` or `trustedProxies`; without either, forwarded headers are ignored (#346, #370).
+- Passwords are limited to 128 characters (#378).
+- Changing or resetting a password now revokes the user's other sessions (#369).
+- Reset and invite links are built from the configured origin, not the `Host` header (#362).
+- Requests from an IP over the API key failure limit now get `429` even with a valid key, and the key is not verified. Before, valid keys were never limited. A legitimate client behind a shared IP (NAT, proxy) that is sending bad keys can be blocked until the window ends (#413).
+- A `where` or `sort` on a field whose `read` access function depends on the document (`doc`, `id`, `data` or `siblingData`) is rejected with `400`, since there is no single document to evaluate (#415).
+- Administrator-only operations (first user, user changes) fail with `503` and `Retry-After` when the lock cannot be taken, instead of running without it (#414).
+- `GET /_lontar/first-user` no longer returns `totalUsers` (#415).
+
+### Added
+
+- Roles on users, stored on both adapters, with `auth.roles`, `auth.defaultRole` and `auth.adminRole` ([ADR 0026](docs/adr/0026-users-and-roles.md)) (#336, #338).
+- Field-level access: `access: { read, create, update }` on any field, at any depth inside `group`, `array` and `blocks`. Unreadable fields are stripped from reads, relationships, version snapshots and webhooks, and forbidden writes are dropped. Filtering or sorting on an unreadable field returns `400`. The Local API accepts `overrideAccess: false` with a `user` ([ADR 0027](docs/adr/0027-field-level-access.md)) (#337, #339).
+- `GET /api/_lontar/permissions` and `GET /api/_lontar/permissions/:collection/:id` (alias `access`), plus the `PermissionsResponse`, `CollectionPermission`, `GlobalPermission` and `FieldPermission` types from `@lontar/core/client` (#340).
+- The admin hides and locks collections and fields from those permissions (#341).
+- User management API under `/api/_lontar/users` (list, create, update, disable, enable, revoke sessions, reset password, delete) and `/api/_lontar/me` for the signed-in user. The last active administrator cannot be demoted, disabled or deleted (#342).
+- Admin users screen and account page (#343).
+- Email transport, password reset, invites and email verification (#344).
+- API keys for machine access: `lt_` keys sent as `Authorization: Bearer` or `x-api-key`, managed under `/api/_lontar/api-keys` and on the account page. Keys are stored as SHA-256 hashes and shown once (#345).
+- Rate limiting for sign-in, password reset, first-user, invites and failed API key attempts, with a memory store by default and a database store for multiple instances. `429` responses carry `Retry-After` (#346).
+- `examples/next-blog` with roles, field-level access, a seed script and e2e tests (#347).
+
+### Fixed
+
+- Session authentication is required for user and API key management routes, and Better Auth's admin plugin routes are blocked so they cannot bypass the guards (#361, #363).
+- Hidden and locked subfields are preserved on update, and nested write-only subfields behave like top-level ones (#364, #415).
+- Field access caching is scoped per request, the `DELETE` response is sanitized, and nested field access receives the document id (#365, #366, #381).
+- `GET /api/_lontar/permissions` enforces collection read access and passes group data as `siblingData` to subfield access functions (#372, #412).
+- `requireEmailVerification` no longer locks out invited users, and resending an invite to an activated user is rejected and invalidates earlier tokens (#368, #376).
+- Rate limiting: no infinite recursion when the insert fails, one client IP resolution across routes, secondary storage rejected up front, wrong current passwords counted on `/me/password`, and a fixed window on the database store (#360, #370, #371, #377, #415).
+- First-user registration and administrator changes are atomic, and the locks fail closed (#379, #414).
+- API key input is validated and a failed `lastUsedAt` update no longer fails the request (#380).
+- Email template values are escaped (#382).
+- The admin respects field permissions in validation and autosave, and scopes its caches by user (#373, #374, #383).
+- `examples/next-blog` sanitizes Local API reads on public pages (#367, #384).
 
 ## [0.5.0] - 2026-11-16
 
