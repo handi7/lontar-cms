@@ -12,11 +12,35 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  # Decides whether the change needs the full suite. Only a pull request whose files are all
+  # documentation skips it (see scripts/ci/changed-code.sh); pushes to main and release.yml's
+  # workflow_call always run everything. Skipping happens per step inside `check`, never by
+  # skipping the workflow, so `check` always reports a result for required status checks.
+  changes:
+    runs-on: ubuntu-latest
+    outputs:
+      code: ${{ steps.detect.outputs.code }}
+    steps:
+      - uses: actions/checkout@v7
+        if: github.event_name == 'pull_request'
+        with:
+          # The PR's merge commit and its first parent, the base branch tip.
+          fetch-depth: 2
+      - id: detect
+        run: |
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            scripts/ci/changed-code.sh HEAD^1 HEAD
+          else
+            echo "code=true" >> "$GITHUB_OUTPUT"
+          fi
+
   check:
+    needs: changes
     runs-on: ubuntu-latest
     services:
+      # An empty image skips the container, so docs-only runs don't wait for the databases.
       mysql:
-        image: mysql:8.4
+        image: ${{ needs.changes.outputs.code == 'true' && 'mysql:8.4' || '' }}
         env:
           MYSQL_ROOT_PASSWORD: lontar
           MYSQL_DATABASE: lontar
@@ -26,7 +50,7 @@ jobs:
           - 3306:3306
         options: --health-cmd="mysqladmin ping -h 127.0.0.1 -ulontar -plontar" --health-interval=5s --health-timeout=5s --health-retries=20
       postgres:
-        image: postgres:17-alpine
+        image: ${{ needs.changes.outputs.code == 'true' && 'postgres:17-alpine' || '' }}
         env:
           POSTGRES_USER: lontar
           POSTGRES_PASSWORD: lontar
@@ -58,10 +82,31 @@ jobs:
 
       - run: pnpm install --frozen-lockfile
       - run: pnpm format:check
+
+      - name: Docs-only change
+        if: needs.changes.outputs.code != 'true'
+        run: echo "Only documentation changed; lint, typecheck, build, package, test and e2e steps are skipped."
+
+      # Turbo's local cache, so typecheck and build replay packages whose inputs did not change.
+      # Entries untouched for a week are pruned before the cache is saved (last step).
+      - name: Restore Turbo cache
+        if: needs.changes.outputs.code == 'true'
+        uses: actions/cache@v6
+        with:
+          path: .turbo/cache
+          key: turbo-${{ runner.os }}-node22-${{ hashFiles('pnpm-lock.yaml') }}-${{ github.sha }}
+          restore-keys: |
+            turbo-${{ runner.os }}-node22-${{ hashFiles('pnpm-lock.yaml') }}-
+            turbo-${{ runner.os }}-node22-
+
       - run: pnpm lint
+        if: needs.changes.outputs.code == 'true'
       - run: pnpm typecheck
+        if: needs.changes.outputs.code == 'true'
       - run: pnpm build
+        if: needs.changes.outputs.code == 'true'
       - name: Verify example migrations are up to date
+        if: needs.changes.outputs.code == 'true'
         run: |
           pnpm --filter next-blog migrate:create
           DATABASE_URL="$POSTGRES_URL" pnpm --filter next-blog migrate:create
@@ -72,13 +117,22 @@ jobs:
           fi
       # Installs the packed tarballs outside the workspace, the way users get them.
       - name: Pack and smoke-test the packages
+        if: needs.changes.outputs.code == 'true'
         run: |
           pnpm pack:packages "$RUNNER_TEMP/packed"
           pnpm smoke:packages "$RUNNER_TEMP/packed"
       - run: pnpm test
+        if: needs.changes.outputs.code == 'true'
       - name: Install Playwright Chromium
+        if: needs.changes.outputs.code == 'true'
         run: pnpm --filter next-blog exec playwright install chromium --with-deps
       - name: Run E2E tests (MySQL)
+        if: needs.changes.outputs.code == 'true'
         run: pnpm test:e2e
       - name: Run E2E tests (PostgreSQL)
+        if: needs.changes.outputs.code == 'true'
         run: DATABASE_URL="$POSTGRES_URL" pnpm test:e2e
+
+      - name: Prune stale Turbo cache entries
+        if: needs.changes.outputs.code == 'true'
+        run: find .turbo/cache -type f -mtime +7 -delete 2>/dev/null || true

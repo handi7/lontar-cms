@@ -93,7 +93,10 @@ disagree with the build output fails the build rather than the install.
 `pnpm install` sets up a Husky pre-commit hook that runs lint-staged (eslint --fix and
 prettier on staged files only). CI (`.github/workflows/ci.yml`) runs
 `format:check` → `lint` → `typecheck` → `build` → pack + smoke test → `test` → e2e on every PR
-and on pushes to `main`.
+and on pushes to `main`. A PR whose files are all documentation (`scripts/ci/changed-code.sh`
+decides) runs only `format:check`; pushes to `main` and releases always run everything. CI
+restores Turbo's local cache (`.turbo/cache`), so `typecheck` and `build` replay unchanged
+packages; root files that affect every package go in `globalDependencies` in `turbo.json`.
 
 Releases are published by `.github/workflows/release.yml` when a `vX.Y.Z` tag is pushed, after
 approval on the `npm` environment. Don't run `pnpm publish` by hand; see `docs/releasing.md`.
