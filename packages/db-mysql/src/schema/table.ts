@@ -27,6 +27,8 @@ import type {
   Field,
   Fields,
   GlobalConfig,
+  LocaleConfig,
+  LocalizationConfig,
   NumberField,
   RelationshipField,
   RichTextField,
@@ -37,8 +39,24 @@ import type {
   UploadField,
 } from '@lontar/core'
 
+export function getLocaleCodes(
+  localization?: LocalizationConfig | readonly string[],
+): readonly string[] {
+  if (!localization) return []
+  if (Array.isArray(localization)) {
+    return (localization as readonly string[]).map((code: string): string => code)
+  }
+  const config = localization as LocalizationConfig
+  if (Array.isArray(config.locales)) {
+    return config.locales.map((loc: LocaleConfig): string =>
+      typeof loc === 'string' ? loc : loc.code,
+    )
+  }
+  return []
+}
+
 function isColumnRequired(field: Field): boolean {
-  return Boolean(field.required && !field.admin?.condition)
+  return Boolean(field.required && !field.admin?.condition && !field.localized)
 }
 
 function textToColumn(name: string, field: TextField) {
@@ -150,10 +168,29 @@ export type JunctionTable = MySqlTable & {
   parentId: AnyMySqlColumn
   targetId: AnyMySqlColumn
   order: AnyMySqlColumn
+  _locale?: AnyMySqlColumn
 }
 
 export function getJunctionTableName(collectionSlug: string, fieldName: string): string {
   return `${collectionSlug}_${fieldName}`
+}
+
+export function getJunctionParentLocaleOrderIndexName(tableName: string): string {
+  const baseName = `${tableName}_parent_locale_order_idx`
+  if (baseName.length <= 64) {
+    return baseName
+  }
+  const hash = createHash('sha256').update(baseName).digest('hex').slice(0, 8)
+  return `${baseName.slice(0, 51)}_${hash}_idx`
+}
+
+export function getJunctionParentLocaleTargetUniqueName(tableName: string): string {
+  const baseName = `${tableName}_parent_locale_target_unique`
+  if (baseName.length <= 64) {
+    return baseName
+  }
+  const hash = createHash('sha256').update(baseName).digest('hex').slice(0, 8)
+  return `${baseName.slice(0, 48)}_${hash}_unique`
 }
 
 export function getVersionsTableName(collectionSlug: string): string {
@@ -263,7 +300,24 @@ export function getGlobalVersionsTable(
   return createVersionsTable(global.slug, parentTable)
 }
 
-export function createJunctionTable(tableName: string): JunctionTable {
+export function createJunctionTable(tableName: string, isLocalized = false): JunctionTable {
+  if (isLocalized) {
+    const parentLocaleOrderIdx = getJunctionParentLocaleOrderIndexName(tableName)
+    const targetIdx = `${tableName}_target_idx`
+    const parentLocaleTargetUnique = getJunctionParentLocaleTargetUniqueName(tableName)
+    const columns = {
+      id: int('id').autoincrement().primaryKey(),
+      parentId: int('parent_id').notNull(),
+      targetId: int('target_id').notNull(),
+      _locale: varchar('_locale', { length: 10 }).notNull(),
+      order: int('order').default(0).notNull(),
+    }
+    return mysqlTable(tableName, columns, (t) => [
+      index(parentLocaleOrderIdx).on(t.parentId, t._locale, t.order),
+      index(targetIdx).on(t.targetId),
+      unique(parentLocaleTargetUnique).on(t.parentId, t._locale, t.targetId),
+    ])
+  }
   const columns = {
     id: int('id').autoincrement().primaryKey(),
     parentId: int('parent_id').notNull(),
@@ -283,11 +337,39 @@ export interface FlattenedColumnField {
   field: Field
 }
 
-function resolveFlattenedField(field: Field, isConditional: boolean): Field {
-  if (isConditional && !field.admin?.condition) {
-    return { ...field, admin: { ...field.admin, condition: {} } }
+function resolveFlattenedField(field: Field, isConditional: boolean, isLocalized: boolean): Field {
+  let resolved = field
+  if (isConditional && !resolved.admin?.condition) {
+    resolved = { ...resolved, admin: { ...resolved.admin, condition: {} } }
   }
-  return field
+  if (isLocalized && !resolved.localized) {
+    resolved = { ...resolved, localized: true }
+  }
+  return resolved
+}
+
+function flattenFieldEntry(
+  name: string,
+  field: Field,
+  prefix: string,
+  pathPrefix: string[],
+  parentConditional: boolean,
+  parentLocalized: boolean,
+): FlattenedColumnField[] {
+  const colName = prefix ? `${prefix}__${name}` : name
+  const currentPath = [...pathPrefix, name]
+  const isConditional = parentConditional || Boolean(field.admin?.condition)
+  const isLocalized = parentLocalized || Boolean(field.localized)
+  if (field.type === 'group') {
+    return flattenGroupFields(field.fields, colName, currentPath, isConditional, isLocalized)
+  }
+  return [
+    {
+      name: colName,
+      path: currentPath,
+      field: resolveFlattenedField(field, isConditional, isLocalized),
+    },
+  ]
 }
 
 export function flattenGroupFields(
@@ -295,21 +377,13 @@ export function flattenGroupFields(
   prefix = '',
   pathPrefix: string[] = [],
   parentConditional = false,
+  parentLocalized = false,
 ): FlattenedColumnField[] {
   const result: FlattenedColumnField[] = []
   for (const [name, field] of Object.entries(fields)) {
-    const colName = prefix ? `${prefix}__${name}` : name
-    const currentPath = [...pathPrefix, name]
-    const isConditional = parentConditional || Boolean(field.admin?.condition)
-    if (field.type === 'group') {
-      result.push(...flattenGroupFields(field.fields, colName, currentPath, isConditional))
-    } else {
-      result.push({
-        name: colName,
-        path: currentPath,
-        field: resolveFlattenedField(field, isConditional),
-      })
-    }
+    result.push(
+      ...flattenFieldEntry(name, field, prefix, pathPrefix, parentConditional, parentLocalized),
+    )
   }
   return result
 }
@@ -321,7 +395,7 @@ export function getCollectionJunctionTables(
   for (const { name, field } of flattenGroupFields(collection.fields)) {
     if (field.type === 'relationship' && field.hasMany) {
       const tableName = getJunctionTableName(collection.slug, name)
-      tables[name] = createJunctionTable(tableName)
+      tables[name] = createJunctionTable(tableName, Boolean(field.localized))
     }
   }
   return tables
@@ -337,11 +411,34 @@ function addUploadColumns(columns: Record<string, MySqlColumnBuilder>): void {
   columns.sizes = json('sizes')
 }
 
+function addFieldColumns(
+  columns: Record<string, MySqlColumnBuilder>,
+  fields: Fields,
+  localeCodes: readonly string[],
+): void {
+  const flatFields = flattenGroupFields(fields)
+  for (const { name, field } of flatFields) {
+    if (field.type === 'relationship' && field.hasMany) {
+      continue
+    }
+    if (field.localized && localeCodes.length > 0) {
+      const colField = { ...field, required: false }
+      for (const locale of localeCodes) {
+        const colName = `${name}_${locale}`
+        columns[colName] = fieldToColumn(colName, colField)
+      }
+    } else {
+      columns[name] = fieldToColumn(name, field)
+    }
+  }
+}
+
 function createTable(
   slug: string,
   fields: Fields,
   isUpload = false,
   hasDrafts = false,
+  localization?: LocalizationConfig | readonly string[],
 ): DynamicTable {
   const columns: Record<string, MySqlColumnBuilder> = {
     id: int('id').autoincrement().primaryKey(),
@@ -355,13 +452,8 @@ function createTable(
     addUploadColumns(columns)
   }
 
-  const flatFields = flattenGroupFields(fields)
-  for (const { name, field } of flatFields) {
-    if (field.type === 'relationship' && field.hasMany) {
-      continue
-    }
-    columns[name] = fieldToColumn(name, field)
-  }
+  const localeCodes = getLocaleCodes(localization)
+  addFieldColumns(columns, fields, localeCodes)
 
   columns.createdAt = timestamp('createdAt').defaultNow().notNull()
   columns.updatedAt = timestamp('updatedAt').defaultNow().onUpdateNow().notNull()
@@ -375,15 +467,28 @@ function createTable(
   return mysqlTable(slug, columns) as unknown as DynamicTable
 }
 
-export function collectionToTable(collection: CollectionConfig): DynamicTable {
+export function collectionToTable(
+  collection: CollectionConfig,
+  localization?: LocalizationConfig | readonly string[],
+): DynamicTable {
   return createTable(
     collection.slug,
     collection.fields,
     Boolean(collection.upload),
     Boolean(collection.versions?.drafts),
+    localization,
   )
 }
 
-export function globalToTable(global: GlobalConfig): DynamicTable {
-  return createTable(global.slug, global.fields, false, Boolean(global.versions?.drafts))
+export function globalToTable(
+  global: GlobalConfig,
+  localization?: LocalizationConfig | readonly string[],
+): DynamicTable {
+  return createTable(
+    global.slug,
+    global.fields,
+    false,
+    Boolean(global.versions?.drafts),
+    localization,
+  )
 }

@@ -4,9 +4,12 @@ import { getTableColumns } from 'drizzle-orm'
 import type { CollectionConfig, GlobalConfig } from '@lontar/core'
 import {
   collectionToTable,
+  createJunctionTable,
   createVersionsTable,
   getCollectionJunctionTables,
   getCollectionVersionsTable,
+  getJunctionParentLocaleOrderIndexName,
+  getJunctionParentLocaleTargetUniqueName,
   getVersionsParentForeignKeyName,
   getVersionsParentVersionUniqueName,
   getVersionsParentIdIndexName,
@@ -390,5 +393,197 @@ describe('collectionToTable', () => {
 
   it('getCollectionVersionsTable returns null when versions is not configured', () => {
     expect(getCollectionVersionsTable({ slug: 'posts', fields: {} })).toBeNull()
+  })
+
+  describe('localization schema generation', () => {
+    const localizedPosts: CollectionConfig = {
+      slug: 'posts',
+      fields: {
+        title: { type: 'text', required: true, localized: true },
+        slug: { type: 'slug', required: true, unique: true, localized: true },
+        summary: { type: 'textarea', localized: true },
+        views: { type: 'number', integer: true, defaultValue: 0 }, // shared
+        author: { type: 'relationship', relationTo: 'users', localized: true },
+        cover: { type: 'upload', relationTo: 'media', localized: true },
+        seo: {
+          type: 'group',
+          localized: true,
+          fields: {
+            metaTitle: { type: 'text', required: true },
+            metaDesc: { type: 'textarea' },
+          },
+        },
+        social: {
+          type: 'group',
+          fields: {
+            shareText: { type: 'text', localized: true },
+            ogImage: { type: 'upload', relationTo: 'media' }, // shared inside group
+          },
+        },
+        layout: {
+          type: 'blocks',
+          localized: true,
+          blocks: [{ slug: 'hero', fields: { heading: { type: 'text' } } }],
+        },
+        gallery: {
+          type: 'array',
+          fields: {
+            image: { type: 'upload', relationTo: 'media' },
+            caption: { type: 'text', localized: true }, // subfield localized, container shared
+          },
+        },
+        tags: {
+          type: 'relationship',
+          relationTo: 'tags',
+          hasMany: true,
+          localized: true,
+        },
+      },
+    }
+
+    it('generates per-locale columns for localized fields while keeping shared fields flat', () => {
+      const table = collectionToTable(localizedPosts, ['en', 'id'])
+      const columns = getTableColumns(table) as Record<string, AnyMySqlColumn>
+
+      // Top-level localized fields
+      expect(col(columns, 'title_en')).toBeDefined()
+      expect(col(columns, 'title_id')).toBeDefined()
+      expect(col(columns, 'slug_en')).toBeDefined()
+      expect(col(columns, 'slug_id')).toBeDefined()
+      expect(col(columns, 'summary_en')).toBeDefined()
+      expect(col(columns, 'summary_id')).toBeDefined()
+      expect(col(columns, 'author_en')).toBeDefined()
+      expect(col(columns, 'author_id')).toBeDefined()
+      expect(col(columns, 'cover_en')).toBeDefined()
+      expect(col(columns, 'cover_id')).toBeDefined()
+
+      // Shared fields are not duplicated
+      expect(columns.title).toBeUndefined()
+      expect(columns.slug).toBeUndefined()
+      expect(col(columns, 'views')).toBeDefined()
+
+      // Localized group flattens to per-locale columns
+      expect(col(columns, 'seo__metaTitle_en')).toBeDefined()
+      expect(col(columns, 'seo__metaTitle_id')).toBeDefined()
+      expect(col(columns, 'seo__metaDesc_en')).toBeDefined()
+      expect(col(columns, 'seo__metaDesc_id')).toBeDefined()
+
+      // Non-localized group with localized subfield
+      expect(col(columns, 'social__shareText_en')).toBeDefined()
+      expect(col(columns, 'social__shareText_id')).toBeDefined()
+      expect(col(columns, 'social__ogImage')).toBeDefined() // shared inside group
+
+      // Container blocks with localized: true generates per-locale JSON columns
+      expect(col(columns, 'layout_en').columnType).toBe('MySqlJson')
+      expect(col(columns, 'layout_id').columnType).toBe('MySqlJson')
+      expect(columns.layout).toBeUndefined()
+
+      // Container array without localized: true generates a single JSON column
+      expect(col(columns, 'gallery').columnType).toBe('MySqlJson')
+      expect(columns.gallery_en).toBeUndefined()
+      expect(columns.gallery_id).toBeUndefined()
+    })
+
+    it('enforces that localized columns in the database are nullable even when required: true', () => {
+      const table = collectionToTable(localizedPosts, ['en', 'id'])
+      const columns = getTableColumns(table) as Record<string, AnyMySqlColumn>
+
+      // Localized columns must be nullable in the DB so documents can be created in any locale
+      expect(col(columns, 'title_en').notNull).toBe(false)
+      expect(col(columns, 'title_id').notNull).toBe(false)
+      expect(col(columns, 'slug_en').notNull).toBe(false)
+      expect(col(columns, 'slug_id').notNull).toBe(false)
+      expect(col(columns, 'seo__metaTitle_en').notNull).toBe(false)
+      expect(col(columns, 'seo__metaTitle_id').notNull).toBe(false)
+    })
+
+    it('enforces unique constraints per locale on localized slug fields', () => {
+      const table = collectionToTable(localizedPosts, ['en', 'id'])
+      const columns = getTableColumns(table) as Record<string, AnyMySqlColumn>
+
+      expect(col(columns, 'slug_en').isUnique).toBe(true)
+      expect(col(columns, 'slug_id').isUnique).toBe(true)
+    })
+
+    it('creates localized junction table with _locale column and composite unique/index', () => {
+      const junctionTables = getCollectionJunctionTables(localizedPosts)
+      const tagsJunction = junctionTables.tags
+      expect(tagsJunction).toBeDefined()
+
+      const columns = getTableColumns(tagsJunction!) as Record<string, AnyMySqlColumn>
+      expect(col(columns, 'parentId').columnType).toBe('MySqlInt')
+      expect(col(columns, 'targetId').columnType).toBe('MySqlInt')
+      expect(col(columns, '_locale').columnType).toBe('MySqlVarChar')
+      expect(col(columns, 'order').columnType).toBe('MySqlInt')
+
+      const config = getTableConfig(tagsJunction!)
+      expect(config.name).toBe('posts_tags')
+      expect(config.indexes.map((i) => i.config.name)).toContain(
+        'posts_tags_parent_locale_order_idx',
+      )
+      expect(config.uniqueConstraints.map((u) => u.name)).toContain(
+        'posts_tags_parent_locale_target_unique',
+      )
+    })
+
+    it('truncates junction table index and unique names when length exceeds MySQL 64 chars', () => {
+      const longName = 'long_newsletter_campaign_recipient_tracking_records'
+      const orderIdx = getJunctionParentLocaleOrderIndexName(longName)
+      const targetUq = getJunctionParentLocaleTargetUniqueName(longName)
+
+      expect(orderIdx.length).toBeLessThanOrEqual(64)
+      expect(orderIdx).toMatch(/_[a-f0-9]{8}_idx$/)
+      expect(targetUq.length).toBeLessThanOrEqual(64)
+      expect(targetUq).toMatch(/_[a-f0-9]{8}_unique$/)
+
+      const jTable = createJunctionTable(longName, true)
+      const conf = getTableConfig(jTable)
+      expect(conf.indexes.map((i) => i.config.name)).toContain(orderIdx)
+      expect(conf.uniqueConstraints.map((u) => u.name)).toContain(targetUq)
+    })
+
+    it('creates localized upload collection keeping system file columns shared', () => {
+      const mediaCol: CollectionConfig = {
+        slug: 'media',
+        upload: true,
+        fields: {
+          alt: { type: 'text', localized: true },
+          caption: { type: 'textarea', localized: true },
+        },
+      }
+      const table = collectionToTable(mediaCol, ['en', 'id'])
+      const columns = getTableColumns(table) as Record<string, AnyMySqlColumn>
+
+      // Upload system columns are shared
+      expect(col(columns, 'filename')).toBeDefined()
+      expect(col(columns, 'url')).toBeDefined()
+      expect(col(columns, 'mimeType')).toBeDefined()
+      expect(col(columns, 'filesize')).toBeDefined()
+
+      // Metadata columns are per-locale
+      expect(col(columns, 'alt_en')).toBeDefined()
+      expect(col(columns, 'alt_id')).toBeDefined()
+      expect(col(columns, 'caption_en')).toBeDefined()
+      expect(col(columns, 'caption_id')).toBeDefined()
+    })
+
+    it('creates localized globals with per-locale columns', () => {
+      const headerGlobal: GlobalConfig = {
+        slug: 'header',
+        fields: {
+          siteTitle: { type: 'text', localized: true, required: true },
+          announcement: { type: 'text', localized: true },
+          logoId: { type: 'upload', relationTo: 'media' }, // shared
+        },
+      }
+      const table = globalToTable(headerGlobal, ['en', 'id'])
+      const columns = getTableColumns(table) as Record<string, AnyMySqlColumn>
+
+      expect(col(columns, 'siteTitle_en')).toBeDefined()
+      expect(col(columns, 'siteTitle_id')).toBeDefined()
+      expect(col(columns, 'announcement_en')).toBeDefined()
+      expect(col(columns, 'announcement_id')).toBeDefined()
+      expect(col(columns, 'logoId')).toBeDefined()
+    })
   })
 })
