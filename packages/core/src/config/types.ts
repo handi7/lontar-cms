@@ -186,6 +186,22 @@ export interface CollectionConfig<F extends Fields = Fields> {
   fields: F
 }
 
+export interface LocaleObject {
+  code: string
+  label?: string
+}
+
+export type LocaleConfig = string | LocaleObject
+
+export interface LocalizationConfig {
+  /** List of configured locales (locale codes or { code, label } objects). */
+  locales: readonly LocaleConfig[]
+  /** Default locale code. Must be one of the configured locales. */
+  defaultLocale: string
+  /** Whether to fall back to defaultLocale when a translation is missing. Defaults to true. */
+  fallback?: boolean
+}
+
 /** Server-only. Never sent to the admin; see toClientConfig(). */
 export interface Config {
   /** Signs sessions. */
@@ -199,6 +215,8 @@ export interface Config {
   email?: EmailAdapter | EmailConfig
   /** Optional global pagination settings. */
   pagination?: PaginationConfig
+  /** Optional content localization settings. */
+  localization?: LocalizationConfig
   /** Outgoing webhooks triggered by collection and global events. */
   webhooks?: readonly WebhookConfig[]
   collections: readonly CollectionConfig[]

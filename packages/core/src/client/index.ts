@@ -19,6 +19,8 @@ export type {
   ClientGlobal,
   ClientGlobalAdmin,
   ClientGroupField,
+  ClientLocale,
+  ClientLocalizationConfig,
   ClientNumberField,
   ClientPreviewConfig,
   ClientRelationshipField,

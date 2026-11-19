@@ -33,6 +33,8 @@ export interface BaseField {
   /** Shown in the admin. Defaults to the field name, humanized. */
   label?: string
   required?: boolean
+  /** Whether the field holds independent values per locale. Requires localization in config. */
+  localized?: boolean
   admin?: FieldAdminOptions
   access?: FieldAccess
 }

@@ -229,7 +229,7 @@ approval on the `npm` environment. Don't run `pnpm publish` by hand; see `docs/r
     - [x] Code review fixes from `main` @ b738d69: #412 (done), #413 (closed, intentional per #370), #414 (done), #415 (done)
 - [ ] **M11: Localization** (tracking in #149)
   - [x] #420 `docs: ADR for localized content storage and the locale lifecycle`
-  - [ ] #421 `core: localization config and the localized field option`
+  - [x] #421 `core: localization config and the localized field option`
   - [ ] #422 `db: localized schema generation on both adapters`
   - [ ] #423 `db: read, write, filter and sort localized values in both adapters`
   - [ ] #424 `api: locale and fallbackLocale in REST, Local API, hooks and access`

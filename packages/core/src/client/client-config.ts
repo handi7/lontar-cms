@@ -1,13 +1,24 @@
 import type { FieldCondition } from './condition'
 
 /** Bumped whenever the shape below changes incompatibly. */
-export const CLIENT_CONFIG_VERSION = 2
+export const CLIENT_CONFIG_VERSION = 3
 
 export interface ClientAuthConfig {
   roles: string[]
   defaultRole: string
   adminRole: string
   emailEnabled: boolean
+}
+
+export interface ClientLocale {
+  code: string
+  label: string
+}
+
+export interface ClientLocalizationConfig {
+  locales: ClientLocale[]
+  defaultLocale: string
+  fallback: boolean
 }
 
 /**
@@ -17,6 +28,7 @@ export interface ClientAuthConfig {
  */
 export interface ClientConfig {
   version: typeof CLIENT_CONFIG_VERSION
+  localization?: ClientLocalizationConfig
   auth?: ClientAuthConfig
   collections: ClientCollection[]
   globals: ClientGlobal[]
@@ -80,6 +92,7 @@ export interface ClientFieldBase {
   name: string
   label: string
   required: boolean
+  localized?: boolean
   condition?: FieldCondition
 }
 

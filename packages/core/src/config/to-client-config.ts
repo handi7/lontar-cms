@@ -8,6 +8,7 @@ import {
   type ClientField,
   type ClientGlobal,
   type ClientGroupField,
+  type ClientLocalizationConfig,
   type ClientNumberField,
   type ClientRelationshipField,
   type ClientRichTextField,
@@ -42,7 +43,13 @@ import type {
   UploadField,
 } from '../fields/types'
 import { humanize } from '../utils/humanize'
-import type { CollectionConfig, Config, GlobalConfig, VersionsConfig } from './types'
+import type {
+  CollectionConfig,
+  Config,
+  GlobalConfig,
+  LocalizationConfig,
+  VersionsConfig,
+} from './types'
 
 const MAX_DEFAULT_COLUMNS = 4
 export const DEFAULT_STRING_MAX_LENGTH = 255
@@ -62,16 +69,16 @@ function normalizeSelectOptions(options: readonly SelectOption[] = []): ClientSe
  * field type fail to compile until it has a converter here.
  */
 const toClientField = {
-  text: (name: string, field: TextField): ClientTextField => ({
-    ...baseField(name, field),
+  text: (name: string, field: TextField, parentLocalized?: boolean): ClientTextField => ({
+    ...baseField(name, field, parentLocalized),
     ...defined({
       minLength: field.minLength,
       maxLength: field.maxLength ?? DEFAULT_STRING_MAX_LENGTH,
       defaultValue: field.defaultValue,
     }),
   }),
-  number: (name: string, field: NumberField): ClientNumberField => ({
-    ...baseField(name, field),
+  number: (name: string, field: NumberField, parentLocalized?: boolean): ClientNumberField => ({
+    ...baseField(name, field, parentLocalized),
     ...defined({
       min: field.min,
       max: field.max,
@@ -79,8 +86,12 @@ const toClientField = {
       defaultValue: field.defaultValue,
     }),
   }),
-  textarea: (name: string, field: TextareaField): ClientTextareaField => ({
-    ...baseField(name, field),
+  textarea: (
+    name: string,
+    field: TextareaField,
+    parentLocalized?: boolean,
+  ): ClientTextareaField => ({
+    ...baseField(name, field, parentLocalized),
     ...defined({
       minLength: field.minLength,
       maxLength: field.maxLength,
@@ -88,16 +99,16 @@ const toClientField = {
       defaultValue: field.defaultValue,
     }),
   }),
-  email: (name: string, field: EmailField): ClientEmailField => ({
-    ...baseField(name, field),
+  email: (name: string, field: EmailField, parentLocalized?: boolean): ClientEmailField => ({
+    ...baseField(name, field, parentLocalized),
     ...defined({
       unique: field.unique,
       defaultValue: field.defaultValue,
       maxLength: DEFAULT_STRING_MAX_LENGTH,
     }),
   }),
-  slug: (name: string, field: SlugField): ClientSlugField => ({
-    ...baseField(name, field),
+  slug: (name: string, field: SlugField, parentLocalized?: boolean): ClientSlugField => ({
+    ...baseField(name, field, parentLocalized),
     ...defined({
       from: field.from,
       unique: field.unique,
@@ -105,50 +116,65 @@ const toClientField = {
       maxLength: DEFAULT_STRING_MAX_LENGTH,
     }),
   }),
-  checkbox: (name: string, field: CheckboxField): ClientCheckboxField => ({
-    ...baseField(name, field),
+  checkbox: (
+    name: string,
+    field: CheckboxField,
+    parentLocalized?: boolean,
+  ): ClientCheckboxField => ({
+    ...baseField(name, field, parentLocalized),
     ...defined({
       defaultValue: field.defaultValue,
     }),
   }),
-  select: (name: string, field: SelectField): ClientSelectField => ({
-    ...baseField(name, field),
+  select: (name: string, field: SelectField, parentLocalized?: boolean): ClientSelectField => ({
+    ...baseField(name, field, parentLocalized),
     options: normalizeSelectOptions(field.options),
     ...defined({
       defaultValue: field.defaultValue,
     }),
   }),
-  date: (name: string, field: DateField): ClientDateField => ({
-    ...baseField(name, field),
+  date: (name: string, field: DateField, parentLocalized?: boolean): ClientDateField => ({
+    ...baseField(name, field, parentLocalized),
     ...defined({
       defaultValue: field.defaultValue,
     }),
   }),
-  richText: (name: string, field: RichTextField): ClientRichTextField => ({
-    ...baseField(name, field),
+  richText: (
+    name: string,
+    field: RichTextField,
+    parentLocalized?: boolean,
+  ): ClientRichTextField => ({
+    ...baseField(name, field, parentLocalized),
     ...defined({
       defaultValue: field.defaultValue,
     }),
   }),
-  relationship: (name: string, field: RelationshipField): ClientRelationshipField => ({
-    ...baseField(name, field),
+  relationship: (
+    name: string,
+    field: RelationshipField,
+    parentLocalized?: boolean,
+  ): ClientRelationshipField => ({
+    ...baseField(name, field, parentLocalized),
     relationTo: field.relationTo,
     ...defined({
       hasMany: field.hasMany,
     }),
   }),
-  upload: (name: string, field: UploadField): ClientUploadField => ({
-    ...baseField(name, field),
+  upload: (name: string, field: UploadField, parentLocalized?: boolean): ClientUploadField => ({
+    ...baseField(name, field, parentLocalized),
     relationTo: field.relationTo,
   }),
-  group: (name: string, field: GroupField): ClientGroupField => ({
-    ...baseField(name, field),
-    fields: Object.entries(field.fields).map(([subName, subField]) =>
-      clientField(subName, subField),
-    ),
-  }),
-  array: (name: string, field: ArrayField): ClientArrayField => ({
-    ...baseField(name, field),
+  group: (name: string, field: GroupField, parentLocalized?: boolean): ClientGroupField => {
+    const isLocalized = Boolean(field.localized || parentLocalized)
+    return {
+      ...baseField(name, field, parentLocalized),
+      fields: Object.entries(field.fields).map(([subName, subField]) =>
+        clientField(subName, subField, isLocalized),
+      ),
+    }
+  },
+  array: (name: string, field: ArrayField, parentLocalized?: boolean): ClientArrayField => ({
+    ...baseField(name, field, parentLocalized),
     ...defined({
       minRows: field.minRows,
       maxRows: field.maxRows,
@@ -161,8 +187,8 @@ const toClientField = {
       clientField(subName, subField),
     ),
   }),
-  blocks: (name: string, field: BlocksField): ClientBlocksField => ({
-    ...baseField(name, field),
+  blocks: (name: string, field: BlocksField, parentLocalized?: boolean): ClientBlocksField => ({
+    ...baseField(name, field, parentLocalized),
     ...defined({
       minRows: field.minRows,
       maxRows: field.maxRows,
@@ -179,7 +205,26 @@ const toClientField = {
     })),
   }),
 } satisfies {
-  [K in FieldType]: (name: string, field: Extract<Field, { type: K }>) => ClientField
+  [K in FieldType]: (
+    name: string,
+    field: Extract<Field, { type: K }>,
+    parentLocalized?: boolean,
+  ) => ClientField
+}
+
+function toClientLocalization(
+  localization?: LocalizationConfig,
+): ClientLocalizationConfig | undefined {
+  if (!localization) return undefined
+  return {
+    locales: localization.locales.map((loc) =>
+      typeof loc === 'string'
+        ? { code: loc, label: loc.toUpperCase() }
+        : { code: loc.code, label: loc.label ?? loc.code.toUpperCase() },
+    ),
+    defaultLocale: localization.defaultLocale,
+    fallback: localization.fallback ?? true,
+  }
 }
 
 /**
@@ -191,9 +236,11 @@ export function toClientConfig(config: Config): ClientConfig {
   const defaultRole = config.auth?.defaultRole ?? 'editor'
   const adminRole = config.auth?.adminRole ?? 'admin'
   const emailEnabled = Boolean(config.email)
+  const localization = toClientLocalization(config.localization)
 
   return {
     version: CLIENT_CONFIG_VERSION,
+    ...(localization ? { localization } : {}),
     auth: {
       roles,
       defaultRole,
@@ -288,10 +335,14 @@ export function toClientCollection(collection: CollectionConfig): ClientCollecti
   }
 }
 
-function clientField(name: string, field: Field): ClientField {
+function clientField(name: string, field: Field, parentLocalized?: boolean): ClientField {
   // TypeScript cannot match `field.type` to its converter's parameter, hence the cast.
-  const convert = toClientField[field.type] as (name: string, field: Field) => ClientField
-  return convert(name, field)
+  const convert = toClientField[field.type] as (
+    name: string,
+    field: Field,
+    parentLocalized?: boolean,
+  ) => ClientField
+  return convert(name, field, parentLocalized)
 }
 
 function clientLabels({ slug, labels = {} }: CollectionConfig): ClientCollection['labels'] {
@@ -331,13 +382,18 @@ function clientAdmin(
 function baseField<F extends Field>(
   name: string,
   field: F,
-): Pick<ClientField, 'name' | 'label' | 'required' | 'condition'> & { type: F['type'] } {
+  parentLocalized = false,
+): Pick<ClientField, 'name' | 'label' | 'required' | 'localized' | 'condition'> & {
+  type: F['type']
+} {
+  const isLocalized = Boolean(field.localized || parentLocalized)
   return {
     name,
     type: field.type,
     label: field.label ?? humanize(name),
     required: field.required ?? false,
     ...defined({
+      localized: isLocalized ? true : undefined,
       condition: field.admin?.condition,
     }),
   }
