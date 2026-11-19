@@ -228,6 +228,18 @@ approval on the `npm` environment. Don't run `pnpm publish` by hand; see `docs/r
     - [x] Docs: #385 (done)
     - [x] Code review fixes from `main` @ b738d69: #412 (done), #413 (closed, intentional per #370), #414 (done), #415 (done)
 - [ ] **M11: Localization** (tracking in #149)
+  - [x] #420 `docs: ADR for localized content storage and the locale lifecycle`
+  - [ ] #421 `core: localization config and the localized field option`
+  - [ ] #422 `db: localized schema generation on both adapters`
+  - [ ] #423 `db: read, write, filter and sort localized values in both adapters`
+  - [ ] #424 `api: locale and fallbackLocale in REST, Local API, hooks and access`
+  - [ ] #425 `versions: locale-aware drafts, autosave, publish and restore`
+  - [ ] #426 `cli: data-preserving migrations when enabling localization or toggling localized`
+  - [ ] #427 `cli: localized types from generate:types`
+  - [ ] #428 `admin: locale switcher and localized edit forms`
+  - [ ] #429 `admin: active locale in list view, pickers, version compare and live preview`
+  - [ ] #430 `webhooks: locale in webhook payloads and preview URLs`
+  - [ ] #431 `examples/next-blog: two-locale blog with e2e`
 - [ ] **M12: Admin UX & extensibility** (tracking in #150)
 
 Update this section when a milestone or issue is done.

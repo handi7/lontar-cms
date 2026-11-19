@@ -338,6 +338,43 @@ When drafts are enabled:
 - Queries default to published documents. Pass `draft: true` (requires update access) to read the latest draft state.
 - Version history (`/versions`, a single version, and restore) holds draft content, so it requires both read and update access.
 
+### Content localization
+
+Configure multi-language content by declaring `localization` in `defineConfig` and marking fields as `localized: true`:
+
+```ts
+export default defineConfig({
+  // Global localization config
+  localization: {
+    locales: [
+      { code: 'en', label: 'English' },
+      { code: 'id', label: 'Bahasa Indonesia' },
+    ],
+    defaultLocale: 'en',
+    fallback: true, // fallback to defaultLocale when untranslated (default: true)
+  },
+  collections: [
+    collection({
+      slug: 'posts',
+      fields: {
+        title: f.text({ required: true, localized: true }),
+        slug: f.slug({ from: 'title', localized: true }),
+        content: f.richText({ localized: true }),
+        author: f.relationship({ relationTo: 'users' }), // shared across all locales
+      },
+    }),
+  ],
+})
+```
+
+- **Per-locale storage**: Top-level and flattened `group` fields store values in dedicated per-locale database columns (e.g. `title_en`, `title_id`), preserving native B-tree indexes for `where` filtering and `sort` ordering without join overhead.
+- **Unique constraints**: Fields marked `unique: true` and `localized: true` (e.g. `slug`) enforce uniqueness per language (`UNIQUE (slug_en)` and `UNIQUE (slug_id)`).
+- **Nested fields**: An entire `array` or `blocks` container can be marked `localized: true` to provide distinct layouts or block counts per language. Alternatively, keep the container shared and mark specific subfields inside rows/blocks as `localized: true`.
+- **Relationships and uploads**: Single `relationship` and `upload` fields can be localized to reference language-specific targets. `hasMany` relationships marked `localized: true` maintain independent ordering and item selection per locale.
+- **Drafts and versions**: The document entity shares a single `_status` lifecycle. Unpublished translations remain `NULL` in the parent table (triggering fallback), while in-progress draft edits live safely in version snapshots without overwriting drafts in other languages.
+
+See [ADR 0028](docs/adr/0028-localization.md) for full architectural details.
+
 ### Live preview
 
 Collections and globals can configure live preview in the admin edit form using a URL template with `{placeholder}` tokens:
@@ -720,6 +757,13 @@ const { docs, totalDocs } = await lontar.find('posts', {
 })
 // docs: Post[] with generated types
 
+// Query in a specific locale (defaults to config.localization.defaultLocale)
+const { docs: localizedPosts } = await lontar.find('posts', {
+  locale: 'id', // 'en' | 'id' | 'all'
+  fallbackLocale: 'en', // or false to disable fallback
+  where: { slug: { equals: 'tentang-kami' } },
+})
+
 // Query modular pages with populated nested relationships and blocks
 const { docs: pages } = await lontar.find('pages', {
   where: { slug: { equals: 'about' } },
@@ -728,23 +772,26 @@ const { docs: pages } = await lontar.find('pages', {
 // pages: Page[] with generated layout blocks union
 ```
 
-The Local API runs with `overrideAccess: true` by default, making server queries straightforward. To enforce access control based on an authenticated user or role, pass `{ overrideAccess: false, user }`. Because `overrideAccess: true` skips read sanitization, documents passed to React Client Components (such as props serialized into RSC payloads) or exposed on public pages should either be fetched with `{ overrideAccess: false, user }` or sanitized using `sanitizeDocRead`. The client also exposes `findByID`, `create`, `update`, `delete`, `publish`, `unpublish`, `findVersions`, `restoreVersion`, `findGlobal`, and `updateGlobal`. Pass `{ draft: true }` to read or modify drafts.
+The Local API runs with `overrideAccess: true` by default, making server queries straightforward. To enforce access control based on an authenticated user or role, pass `{ overrideAccess: false, user }`. Because `overrideAccess: true` skips read sanitization, documents passed to React Client Components (such as props serialized into RSC payloads) or exposed on public pages should either be fetched with `{ overrideAccess: false, user }` or sanitized using `sanitizeDocRead`. The client also exposes `findByID`, `create`, `update`, `delete`, `publish`, `unpublish`, `findVersions`, `restoreVersion`, `findGlobal`, and `updateGlobal`. Pass `{ draft: true }` to read or modify drafts, and `{ locale, fallbackLocale }` for localized content.
 
 From the browser or other apps, use REST:
 
 ```http
 GET /api/posts?sort=-publishedAt&limit=10&depth=1
+GET /api/posts?locale=id
+GET /api/posts?locale=id&fallbackLocale=false
+GET /api/posts?locale=all
 GET /api/posts?draft=true
 GET /api/pages?where[seo.metaTitle][equals]=Home&depth=1
-GET /api/posts/:id
-POST /api/posts
-PATCH /api/posts/:id
+GET /api/posts/:id?locale=id
+POST /api/posts?locale=id
+PATCH /api/posts/:id?locale=id
 POST /api/posts/:id/publish
 POST /api/posts/:id/unpublish
-GET /api/posts/:id/versions
+GET /api/posts/:id/versions?locale=id
 POST /api/posts/:id/versions/:versionId/restore
 DELETE /api/posts/:id
-GET /api/globals/site-settings
+GET /api/globals/site-settings?locale=id
 POST /api/globals/site-settings/publish
 ```
 
