@@ -58,7 +58,7 @@ function handleGlobalError(err: unknown, c: Context<LontarEnv>, user: AuthUser |
     if (err.issues && err.issues.length > 0) {
       return c.json(
         {
-          error: err.message,
+          error: 'Validation failed',
           message: extractFirstIssueMessage(err.issues, err.message),
           issues: err.issues,
         },
@@ -74,6 +74,8 @@ async function handleGetGlobal(c: Context<LontarEnv>, global: GlobalConfig, conf
   const user = c.get('user') ?? null
   const draft = c.req.query('draft') === 'true'
   const depth = parseDepth(c.req.query('depth'))
+  const locale = c.req.query('locale')
+  const fallbackLocale = c.req.query('fallbackLocale')
 
   try {
     const doc = await findGlobalOperation({
@@ -84,6 +86,8 @@ async function handleGetGlobal(c: Context<LontarEnv>, global: GlobalConfig, conf
       overrideAccess: false,
       user,
       req: c.req.raw,
+      locale,
+      fallbackLocale,
     })
     return c.json(doc, 200)
   } catch (err) {
@@ -102,6 +106,8 @@ async function handleUpdateGlobal(c: Context<LontarEnv>, global: GlobalConfig, c
   const depth = parseDepth(c.req.query('depth'))
   const draft = c.req.query('draft') === 'true'
   const autosave = c.req.query('autosave') === 'true'
+  const locale = c.req.query('locale')
+  const fallbackLocale = c.req.query('fallbackLocale')
 
   try {
     const doc = await updateGlobalOperation({
@@ -114,6 +120,8 @@ async function handleUpdateGlobal(c: Context<LontarEnv>, global: GlobalConfig, c
       overrideAccess: false,
       user,
       req: c.req.raw,
+      locale,
+      fallbackLocale,
     })
     return c.json(doc, 200)
   } catch (err) {
@@ -124,6 +132,8 @@ async function handleUpdateGlobal(c: Context<LontarEnv>, global: GlobalConfig, c
 async function handlePublishGlobal(c: Context<LontarEnv>, global: GlobalConfig, config: Config) {
   const user = c.get('user') ?? null
   const depth = parseDepth(c.req.query('depth'))
+  const locale = c.req.query('locale')
+  const fallbackLocale = c.req.query('fallbackLocale')
 
   try {
     const doc = await publishGlobalOperation({
@@ -133,6 +143,8 @@ async function handlePublishGlobal(c: Context<LontarEnv>, global: GlobalConfig, 
       overrideAccess: false,
       user,
       req: c.req.raw,
+      locale,
+      fallbackLocale,
     })
     return c.json(doc, 200)
   } catch (err) {
@@ -143,6 +155,8 @@ async function handlePublishGlobal(c: Context<LontarEnv>, global: GlobalConfig, 
 async function handleUnpublishGlobal(c: Context<LontarEnv>, global: GlobalConfig, config: Config) {
   const user = c.get('user') ?? null
   const depth = parseDepth(c.req.query('depth'))
+  const locale = c.req.query('locale')
+  const fallbackLocale = c.req.query('fallbackLocale')
 
   try {
     const doc = await unpublishGlobalOperation({
@@ -152,6 +166,8 @@ async function handleUnpublishGlobal(c: Context<LontarEnv>, global: GlobalConfig
       overrideAccess: false,
       user,
       req: c.req.raw,
+      locale,
+      fallbackLocale,
     })
     return c.json(doc, 200)
   } catch (err) {
@@ -174,6 +190,8 @@ async function handleFindGlobalVersions(
     MAX_LIMIT,
   )
   const sort = c.req.query('sort')
+  const locale = c.req.query('locale')
+  const fallbackLocale = c.req.query('fallbackLocale')
 
   try {
     const result = await findGlobalVersionsOperation({
@@ -184,6 +202,8 @@ async function handleFindGlobalVersions(
       sort,
       user,
       overrideAccess: false,
+      locale,
+      fallbackLocale,
     })
     return c.json(result, 200)
   } catch (err) {
@@ -201,6 +221,8 @@ async function handleFindGlobalVersionByID(
     return c.json({ error: 'Invalid version ID' }, 400)
   }
   const user = c.get('user') ?? null
+  const locale = c.req.query('locale')
+  const fallbackLocale = c.req.query('fallbackLocale')
 
   try {
     const result = await findGlobalVersionByIDOperation({
@@ -209,6 +231,8 @@ async function handleFindGlobalVersionByID(
       versionId,
       user,
       overrideAccess: false,
+      locale,
+      fallbackLocale,
     })
     return c.json(result, 200)
   } catch (err) {
@@ -228,6 +252,8 @@ async function handleRestoreGlobalVersion(
   const user = c.get('user') ?? null
   const depth = parseDepth(c.req.query('depth'))
   const draft = c.req.query('draft') !== undefined ? c.req.query('draft') === 'true' : undefined
+  const locale = c.req.query('locale')
+  const fallbackLocale = c.req.query('fallbackLocale')
 
   try {
     const result = await restoreGlobalVersionOperation({
@@ -239,6 +265,8 @@ async function handleRestoreGlobalVersion(
       user,
       overrideAccess: false,
       req: c.req.raw,
+      locale,
+      fallbackLocale,
     })
     return c.json(result, 200)
   } catch (err) {

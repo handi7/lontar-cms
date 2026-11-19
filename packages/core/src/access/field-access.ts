@@ -20,9 +20,9 @@ export function getFieldAccessCache(req?: Request): FieldAccessCache {
   return cache
 }
 
-function resolveUserKey(user: AuthUser | null): string | null {
-  if (!user) return null
-  return `${user.id ?? ''}:${user.role ?? ''}`
+function resolveUserKey(user: AuthUser | null, locale?: string): string | null {
+  const base = user ? `${user.id ?? ''}:${user.role ?? ''}` : 'anonymous'
+  return locale ? `${base}:${locale}` : base
 }
 
 function getCachedFieldAccess(
@@ -70,7 +70,7 @@ export async function checkFieldAccess(
   if (!fn) return true
 
   const effectiveCache = cache ?? (args.req ? getFieldAccessCache(args.req) : undefined)
-  const userKey = resolveUserKey(args.user)
+  const userKey = resolveUserKey(args.user, args.locale)
   const cached = getCachedFieldAccess(effectiveCache, fn, userKey)
   if (cached !== undefined) {
     return cached
@@ -80,6 +80,7 @@ export async function checkFieldAccess(
   const proxyArgs: FieldAccessArgs = {
     user: args.user,
     req: args.req,
+    locale: args.locale,
     get id() {
       documentAccessed = true
       return args.id
@@ -118,6 +119,7 @@ export interface ReadSanitizationContext {
   doc?: DocumentData
   cache?: FieldAccessCache
   req?: Request
+  locale?: string
 }
 
 async function checkReadPermission(
@@ -128,6 +130,7 @@ async function checkReadPermission(
   targetId?: string | number,
   cache?: FieldAccessCache,
   req?: Request,
+  locale?: string,
 ): Promise<boolean> {
   return checkFieldAccess(
     field.access?.read,
@@ -138,6 +141,7 @@ async function checkReadPermission(
       siblingData,
       doc: rootDoc,
       req,
+      locale,
     },
     cache,
   )
@@ -151,10 +155,20 @@ async function sanitizeFieldsRead(
   targetId?: string | number,
   cache?: FieldAccessCache,
   req?: Request,
+  locale?: string,
 ): Promise<DocumentData> {
   const result: DocumentData = { ...data }
   for (const [name, field] of Object.entries(fields)) {
-    const allowed = await checkReadPermission(field, user, data, rootDoc, targetId, cache, req)
+    const allowed = await checkReadPermission(
+      field,
+      user,
+      data,
+      rootDoc,
+      targetId,
+      cache,
+      req,
+      locale,
+    )
     if (!allowed) {
       delete result[name]
       continue
@@ -167,6 +181,7 @@ async function sanitizeFieldsRead(
       targetId,
       cache,
       req,
+      locale,
     )
   }
   return result
@@ -180,6 +195,7 @@ async function sanitizeNestedRead(
   targetId?: string | number,
   cache?: FieldAccessCache,
   req?: Request,
+  locale?: string,
 ): Promise<unknown> {
   if (value === undefined || value === null) return value
 
@@ -192,13 +208,14 @@ async function sanitizeNestedRead(
       targetId,
       cache,
       req,
+      locale,
     )
   }
   if (field.type === 'array' && Array.isArray(value)) {
-    return sanitizeArrayRead(field.fields, value, user, rootDoc, targetId, cache, req)
+    return sanitizeArrayRead(field.fields, value, user, rootDoc, targetId, cache, req, locale)
   }
   if (field.type === 'blocks' && Array.isArray(value)) {
-    return sanitizeBlocksRead(field.blocks, value, user, rootDoc, targetId, cache, req)
+    return sanitizeBlocksRead(field.blocks, value, user, rootDoc, targetId, cache, req, locale)
   }
   return value
 }
@@ -211,10 +228,11 @@ async function sanitizeArrayRowRead(
   targetId?: string | number,
   cache?: FieldAccessCache,
   req?: Request,
+  locale?: string,
 ): Promise<unknown> {
   if (typeof item !== 'object' || item === null) return item
   const row = item as Record<string, unknown>
-  return sanitizeFieldsRead(fields, row, user, rootDoc, targetId, cache, req)
+  return sanitizeFieldsRead(fields, row, user, rootDoc, targetId, cache, req, locale)
 }
 
 async function sanitizeArrayRead(
@@ -225,10 +243,13 @@ async function sanitizeArrayRead(
   targetId?: string | number,
   cache?: FieldAccessCache,
   req?: Request,
+  locale?: string,
 ): Promise<unknown[]> {
   const result: unknown[] = []
   for (const item of items) {
-    result.push(await sanitizeArrayRowRead(fields, item, user, rootDoc, targetId, cache, req))
+    result.push(
+      await sanitizeArrayRowRead(fields, item, user, rootDoc, targetId, cache, req, locale),
+    )
   }
   return result
 }
@@ -241,12 +262,13 @@ async function sanitizeBlockRowRead(
   targetId?: string | number,
   cache?: FieldAccessCache,
   req?: Request,
+  locale?: string,
 ): Promise<unknown> {
   if (typeof item !== 'object' || item === null) return item
   const block = item as Record<string, unknown>
   const blockDef = blocks.find((b) => b.slug === block.blockType)
   if (!blockDef) return block
-  return sanitizeFieldsRead(blockDef.fields, block, user, rootDoc, targetId, cache, req)
+  return sanitizeFieldsRead(blockDef.fields, block, user, rootDoc, targetId, cache, req, locale)
 }
 
 async function sanitizeBlocksRead(
@@ -257,10 +279,13 @@ async function sanitizeBlocksRead(
   targetId?: string | number,
   cache?: FieldAccessCache,
   req?: Request,
+  locale?: string,
 ): Promise<unknown[]> {
   const result: unknown[] = []
   for (const item of items) {
-    result.push(await sanitizeBlockRowRead(blocks, item, user, rootDoc, targetId, cache, req))
+    result.push(
+      await sanitizeBlockRowRead(blocks, item, user, rootDoc, targetId, cache, req, locale),
+    )
   }
   return result
 }
@@ -281,7 +306,7 @@ export async function sanitizeDocRead(
   const docId = context?.id ?? (doc.id as string | number | undefined)
   const baseDoc = context?.doc ?? doc
   const cache = resolveReadCache(context)
-  return sanitizeFieldsRead(fields, doc, user, baseDoc, docId, cache, context?.req)
+  return sanitizeFieldsRead(fields, doc, user, baseDoc, docId, cache, context?.req, context?.locale)
 }
 
 // -----------------------------------------------------------------------------
@@ -295,6 +320,7 @@ export interface WriteSanitizationContext {
   doc?: DocumentData
   cache?: FieldAccessCache
   req?: Request
+  locale?: string
 }
 
 async function checkWritePermission(
@@ -315,6 +341,7 @@ async function checkWritePermission(
       siblingData,
       doc: context.doc,
       req: context.req,
+      locale: context.locale,
     },
     context.cache,
   )

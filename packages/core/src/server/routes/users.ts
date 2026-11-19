@@ -26,6 +26,8 @@ import {
 } from '../../auth/user'
 import type { Config } from '../../config/types'
 import { resolveEmailConfig, sendEmailWithTemplate } from '../../email'
+import { ValidationError } from '../../operations/errors'
+import { resolveOperationLocale } from '../../operations/locale'
 import { resolveAdminBaseUrl } from '../admin-url'
 import type { CreateLontarOptions } from '../create-lontar'
 
@@ -765,6 +767,33 @@ async function handleChangeMePassword(
   return executeChangePassword(c, auth, user.id, validated.data, ip, rateLimiter)
 }
 
+function validateUserLocaleMiddleware(config?: Config) {
+  return async (c: Context<LontarEnv>, next: () => Promise<void>) => {
+    if (config?.localization) {
+      const rawLocale = c.req.query('locale')
+      const rawFallbackLocale = c.req.query('fallbackLocale')
+      if (rawLocale !== undefined || rawFallbackLocale !== undefined) {
+        try {
+          resolveOperationLocale(config, rawLocale, rawFallbackLocale)
+        } catch (err) {
+          if (err instanceof ValidationError) {
+            return c.json(
+              {
+                error: 'Validation failed',
+                message: err.message,
+                issues: err.issues,
+              },
+              400,
+            )
+          }
+          throw err
+        }
+      }
+    }
+    await next()
+  }
+}
+
 export function registerUserRoutes(
   router: Hono<LontarEnv>,
   auth: Auth,
@@ -772,6 +801,10 @@ export function registerUserRoutes(
   options?: CreateLontarOptions,
   rateLimiter?: RateLimiter,
 ): void {
+  const localeMiddleware = validateUserLocaleMiddleware(config)
+  router.use('/_lontar/users', localeMiddleware)
+  router.use('/_lontar/users/*', localeMiddleware)
+
   // Self-service profile and password
   router.patch('/_lontar/me', (c) => handleUpdateMe(c, auth))
   router.post('/_lontar/me/password', (c) => handleChangeMePassword(c, auth, rateLimiter))

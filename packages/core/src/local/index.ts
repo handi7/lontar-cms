@@ -38,6 +38,8 @@ export interface LocalFindOptions {
   overrideAccess?: boolean
   user?: AuthUser | null
   draft?: boolean
+  locale?: string
+  fallbackLocale?: string | false
 }
 
 export interface LocalFindByIDOptions {
@@ -46,6 +48,8 @@ export interface LocalFindByIDOptions {
   overrideAccess?: boolean
   user?: AuthUser | null
   draft?: boolean
+  locale?: string
+  fallbackLocale?: string | false
 }
 
 export interface LocalCreateOptions {
@@ -55,6 +59,8 @@ export interface LocalCreateOptions {
   user?: AuthUser | null
   draft?: boolean
   autosave?: boolean
+  locale?: string
+  fallbackLocale?: string | false
 }
 
 export interface LocalUpdateOptions {
@@ -65,6 +71,8 @@ export interface LocalUpdateOptions {
   user?: AuthUser | null
   draft?: boolean
   autosave?: boolean
+  locale?: string
+  fallbackLocale?: string | false
 }
 
 export interface LocalPublishOptions {
@@ -72,6 +80,8 @@ export interface LocalPublishOptions {
   depth?: number
   overrideAccess?: boolean
   user?: AuthUser | null
+  locale?: string
+  fallbackLocale?: string | false
 }
 
 export interface LocalFindVersionsOptions {
@@ -80,11 +90,15 @@ export interface LocalFindVersionsOptions {
   sort?: string
   overrideAccess?: boolean
   user?: AuthUser | null
+  locale?: string
+  fallbackLocale?: string | false
 }
 
 export interface LocalFindVersionByIDOptions {
   overrideAccess?: boolean
   user?: AuthUser | null
+  locale?: string
+  fallbackLocale?: string | false
 }
 
 export interface LocalRestoreVersionOptions {
@@ -92,12 +106,16 @@ export interface LocalRestoreVersionOptions {
   depth?: number
   overrideAccess?: boolean
   user?: AuthUser | null
+  locale?: string
+  fallbackLocale?: string | false
 }
 
 export interface LocalDeleteOptions {
   id?: number | string
   overrideAccess?: boolean
   user?: AuthUser | null
+  locale?: string
+  fallbackLocale?: string | false
 }
 
 export interface LocalFindGlobalOptions {
@@ -105,6 +123,8 @@ export interface LocalFindGlobalOptions {
   overrideAccess?: boolean
   user?: AuthUser | null
   draft?: boolean
+  locale?: string
+  fallbackLocale?: string | false
 }
 
 export interface LocalUpdateGlobalOptions {
@@ -114,12 +134,16 @@ export interface LocalUpdateGlobalOptions {
   user?: AuthUser | null
   draft?: boolean
   autosave?: boolean
+  locale?: string
+  fallbackLocale?: string | false
 }
 
 export interface LocalPublishGlobalOptions {
   depth?: number
   overrideAccess?: boolean
   user?: AuthUser | null
+  locale?: string
+  fallbackLocale?: string | false
 }
 
 export interface LocalFindGlobalVersionsOptions {
@@ -128,11 +152,15 @@ export interface LocalFindGlobalVersionsOptions {
   sort?: string
   overrideAccess?: boolean
   user?: AuthUser | null
+  locale?: string
+  fallbackLocale?: string | false
 }
 
 export interface LocalFindGlobalVersionByIDOptions {
   overrideAccess?: boolean
   user?: AuthUser | null
+  locale?: string
+  fallbackLocale?: string | false
 }
 
 export interface LocalRestoreGlobalVersionOptions {
@@ -140,6 +168,8 @@ export interface LocalRestoreGlobalVersionOptions {
   depth?: number
   overrideAccess?: boolean
   user?: AuthUser | null
+  locale?: string
+  fallbackLocale?: string | false
 }
 
 // Target for module augmentation from generated types (lontar generate:types)
@@ -420,6 +450,8 @@ export function getLontar(config: Config): Promise<LontarClient> {
         draft: options.draft,
         overrideAccess: options.overrideAccess ?? true,
         user: options.user,
+        locale: options.locale,
+        fallbackLocale: options.fallbackLocale,
       })
     },
 
@@ -444,6 +476,8 @@ export function getLontar(config: Config): Promise<LontarClient> {
         draft: options.draft,
         overrideAccess: options.overrideAccess ?? true,
         user: options.user,
+        locale: options.locale,
+        fallbackLocale: options.fallbackLocale,
       })
     },
 
@@ -462,6 +496,8 @@ export function getLontar(config: Config): Promise<LontarClient> {
         autosave: options.autosave,
         overrideAccess: options.overrideAccess ?? true,
         user: options.user,
+        locale: options.locale,
+        fallbackLocale: options.fallbackLocale,
       })
     },
 
@@ -482,6 +518,8 @@ export function getLontar(config: Config): Promise<LontarClient> {
         autosave: options.autosave,
         overrideAccess: options.overrideAccess ?? true,
         user: options.user,
+        locale: options.locale,
+        fallbackLocale: options.fallbackLocale,
       })
     },
 
@@ -498,6 +536,8 @@ export function getLontar(config: Config): Promise<LontarClient> {
         id,
         overrideAccess: options.overrideAccess ?? true,
         user: options.user,
+        locale: options.locale,
+        fallbackLocale: options.fallbackLocale,
       })
     },
 
@@ -521,6 +561,8 @@ export function getLontar(config: Config): Promise<LontarClient> {
         depth: options.depth,
         overrideAccess: options.overrideAccess ?? true,
         user: options.user,
+        locale: options.locale,
+        fallbackLocale: options.fallbackLocale,
       })
     },
 
@@ -544,6 +586,8 @@ export function getLontar(config: Config): Promise<LontarClient> {
         depth: options.depth,
         overrideAccess: options.overrideAccess ?? true,
         user: options.user,
+        locale: options.locale,
+        fallbackLocale: options.fallbackLocale,
       })
     },
 
@@ -565,6 +609,8 @@ export function getLontar(config: Config): Promise<LontarClient> {
         sort: options.sort,
         overrideAccess: options.overrideAccess ?? true,
         user: options.user,
+        locale: options.locale,
+        fallbackLocale: options.fallbackLocale,
       })
     },
 
@@ -587,6 +633,8 @@ export function getLontar(config: Config): Promise<LontarClient> {
         versionId,
         overrideAccess: options.overrideAccess ?? true,
         user: options.user,
+        locale: options.locale,
+        fallbackLocale: options.fallbackLocale,
       })
     },
 
@@ -611,6 +659,8 @@ export function getLontar(config: Config): Promise<LontarClient> {
         depth: options.depth,
         overrideAccess: options.overrideAccess ?? true,
         user: options.user,
+        locale: options.locale,
+        fallbackLocale: options.fallbackLocale,
       })
     },
 
@@ -626,6 +676,8 @@ export function getLontar(config: Config): Promise<LontarClient> {
         draft: options.draft,
         overrideAccess: options.overrideAccess ?? true,
         user: options.user,
+        locale: options.locale,
+        fallbackLocale: options.fallbackLocale,
       })
     },
 
@@ -650,6 +702,8 @@ export function getLontar(config: Config): Promise<LontarClient> {
         autosave: options.autosave,
         overrideAccess: options.overrideAccess ?? true,
         user: options.user,
+        locale: options.locale,
+        fallbackLocale: options.fallbackLocale,
       })
     },
 
@@ -664,6 +718,8 @@ export function getLontar(config: Config): Promise<LontarClient> {
         depth: options.depth,
         overrideAccess: options.overrideAccess ?? true,
         user: options.user,
+        locale: options.locale,
+        fallbackLocale: options.fallbackLocale,
       })
     },
 
@@ -678,6 +734,8 @@ export function getLontar(config: Config): Promise<LontarClient> {
         depth: options.depth,
         overrideAccess: options.overrideAccess ?? true,
         user: options.user,
+        locale: options.locale,
+        fallbackLocale: options.fallbackLocale,
       })
     },
 
@@ -694,6 +752,8 @@ export function getLontar(config: Config): Promise<LontarClient> {
         sort: options.sort,
         overrideAccess: options.overrideAccess ?? true,
         user: options.user,
+        locale: options.locale,
+        fallbackLocale: options.fallbackLocale,
       })
     },
 
@@ -712,6 +772,8 @@ export function getLontar(config: Config): Promise<LontarClient> {
         versionId,
         overrideAccess: options.overrideAccess ?? true,
         user: options.user,
+        locale: options.locale,
+        fallbackLocale: options.fallbackLocale,
       })
     },
 
@@ -732,6 +794,8 @@ export function getLontar(config: Config): Promise<LontarClient> {
         depth: options.depth,
         overrideAccess: options.overrideAccess ?? true,
         user: options.user,
+        locale: options.locale,
+        fallbackLocale: options.fallbackLocale,
       })
     },
   }

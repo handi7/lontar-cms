@@ -16,6 +16,8 @@ import {
   resolveOriginalDoc,
   resolveUpdateStatus,
 } from '../../operations/mutation'
+import { ValidationError } from '../../operations/errors'
+import { extractLocaleCodes, resolveOperationLocale } from '../../operations/locale'
 import { parseDepth, populateDoc } from '../../populate'
 import {
   DEFAULT_MAX_FILE_SIZE,
@@ -161,6 +163,13 @@ function parseRelationshipField(val: string, hasMany?: boolean): unknown {
 }
 
 function parseStringField(val: string, field: Field): unknown {
+  if (field.localized && (val.startsWith('{') || val.startsWith('['))) {
+    try {
+      return JSON.parse(val)
+    } catch {
+      // not valid JSON, treat as raw string
+    }
+  }
   switch (field.type) {
     case 'number':
     case 'upload':
@@ -441,6 +450,7 @@ async function applyBeforeValidateOnFormData(
     originalDoc?: DocumentData
     req?: Request
     draft?: boolean
+    locale?: string
   },
 ): Promise<DocumentData> {
   const { _status: _ignoredStatus, ...cleanFields } = parsedFields
@@ -466,6 +476,7 @@ async function applyBeforeValidateOnFormData(
     previousStatus: updateInfo?.previousStatus,
     statusTransition: createInfo ? createInfo.statusTransition : updateInfo?.statusTransition,
     req: hookArgs.req,
+    locale: hookArgs.locale,
   })
 }
 
@@ -479,6 +490,7 @@ async function parseAndValidateFields(
     req?: Request
     draft?: boolean
     user?: AuthUser | null
+    locale?: string
   },
 ): Promise<{ success: true; data: DocumentData } | { success: false; issues: z.ZodIssue[] }> {
   let parsedFields = parseFormDataFields(rawBody, collection.fields)
@@ -488,6 +500,7 @@ async function parseAndValidateFields(
       id: hookArgs.originalDoc?.id as string | number | undefined,
       data: parsedFields,
       doc: hookArgs.originalDoc,
+      locale: hookArgs.locale,
     })
   }
   if (hookArgs) {
@@ -508,6 +521,8 @@ async function respondPopulatedDoc(
   doc: DocumentData,
   user: AuthUser | null,
   status: 200 | 201,
+  locale?: string,
+  fallbackLocale?: string | false,
 ): Promise<Response> {
   const depth = parseDepth(c.req.query('depth'))
   const draft = c.req.query('draft') === 'true'
@@ -519,10 +534,14 @@ async function respondPopulatedDoc(
     user,
     req: c.req.raw,
     draft,
+    locale,
+    fallbackLocale,
   })
   const sanitized = await sanitizeDocRead(collection.fields, populated, user, {
     id: doc.id as string | number | undefined,
     doc: populated,
+    req: c.req.raw,
+    locale,
   })
   return c.json(sanitized, status)
 }
@@ -544,6 +563,7 @@ interface UploadCreateContext {
     autosave?: boolean
     userId?: string | null
     config?: Config
+    locale?: string
   }) => Promise<MutationExecutionResult>
 }
 
@@ -553,6 +573,8 @@ async function applyValidatedCreate(args: {
   uploadDoc: UploadedMediaDoc
   draft: boolean
   autosave: boolean
+  locale?: string
+  fallbackLocale?: string | false
 }): Promise<Response> {
   const { c, collection, config, user, executeCreate } = args.ctx
   const payload: DocumentData = { ...args.validationData, ...args.uploadDoc }
@@ -567,6 +589,7 @@ async function applyValidatedCreate(args: {
       autosave: args.autosave,
       userId: user?.id,
       config,
+      locale: args.locale,
     })
   } catch (err) {
     await safeDeleteMedia(config, args.uploadDoc)
@@ -578,19 +601,67 @@ async function applyValidatedCreate(args: {
     return c.json(result.body, result.status)
   }
 
-  return respondPopulatedDoc(c, collection, config, result.doc, user, 201)
+  return respondPopulatedDoc(
+    c,
+    collection,
+    config,
+    result.doc,
+    user,
+    201,
+    args.locale,
+    args.fallbackLocale,
+  )
+}
+
+function resolveUploadLocale(
+  config: Config,
+  c: Context<LontarEnv>,
+): { locale?: string; fallbackLocale?: string | false; errorResponse?: Response } {
+  try {
+    const resolved = resolveOperationLocale(
+      config,
+      c.req.query('locale'),
+      c.req.query('fallbackLocale'),
+    )
+    return { locale: resolved.locale, fallbackLocale: resolved.fallbackLocale }
+  } catch (err) {
+    if (err instanceof ValidationError) {
+      return {
+        errorResponse: c.json(
+          { error: 'Validation failed', message: err.message, issues: err.issues },
+          400,
+        ),
+      }
+    }
+    throw err
+  }
 }
 
 export async function handleUploadCreate(ctx: UploadCreateContext): Promise<Response> {
-  const { c, collection, config, schema, user, checkAccess, accessDenied } = ctx
+  const { c, collection, config, user, checkAccess, accessDenied } = ctx
 
-  const preliminaryAllowed = await checkAccess(collection.access?.create, { user })
+  const localeResult = resolveUploadLocale(config, c)
+  if (localeResult.errorResponse) {
+    return localeResult.errorResponse
+  }
+  const { locale, fallbackLocale } = localeResult
+
+  const preliminaryAllowed = await checkAccess(collection.access?.create, {
+    user,
+    locale,
+    req: c.req.raw,
+  })
   if (!preliminaryAllowed) {
     return accessDenied(c, user)
   }
 
   const rawBody = (await c.req.parseBody()) as Record<string, unknown>
-  const allowed = await checkAccess(collection.access?.create, { user, data: rawBody })
+  const allowed = await checkAccess(collection.access?.create, {
+    user,
+    data: rawBody,
+    locale,
+    req: c.req.raw,
+  })
   if (!allowed) {
     return accessDenied(c, user)
   }
@@ -614,11 +685,15 @@ export async function handleUploadCreate(ctx: UploadCreateContext): Promise<Resp
     return c.json({ error: processed.error }, processed.status)
   }
 
+  const locales = extractLocaleCodes(config)
+  const schema = clientFieldsToZod(toClientCollection(collection).fields, { locale, locales })
+
   const validation = await parseAndValidateFields(rawBody, collection, schema, {
     operation: 'create',
     req: c.req.raw,
     draft: Boolean(draft),
     user,
+    locale,
   })
   if (!validation.success) {
     await safeDeleteMedia(config, processed.uploadDoc)
@@ -631,6 +706,8 @@ export async function handleUploadCreate(ctx: UploadCreateContext): Promise<Resp
     uploadDoc: processed.uploadDoc,
     draft: Boolean(draft),
     autosave: autosaveQuery,
+    locale,
+    fallbackLocale,
   })
 }
 
@@ -653,6 +730,7 @@ interface UploadUpdateContext {
     autosave?: boolean
     userId?: string | null
     config?: Config
+    locale?: string
   }) => Promise<MutationExecutionResult>
 }
 
@@ -683,6 +761,8 @@ async function applyValidatedUpdate(args: {
   draft?: boolean
   autosave?: boolean
   userId?: string | null
+  locale?: string
+  fallbackLocale?: string | false
 }): Promise<Response> {
   const { c, id, collection, config, user, executeUpdate } = args.ctx
   const updateData: DocumentData = {
@@ -703,6 +783,7 @@ async function applyValidatedUpdate(args: {
       autosave: args.autosave,
       userId: args.userId,
       config,
+      locale: args.locale,
     })
   } catch (err) {
     await rollbackNewMedia(config, args.newUploadDoc)
@@ -718,19 +799,45 @@ async function applyValidatedUpdate(args: {
   if (!isDraftUpdate) {
     await cleanupReplacedMedia(config, args.originalDoc, args.newUploadDoc)
   }
-  return respondPopulatedDoc(c, collection, config, result.doc, user, 200)
+  return respondPopulatedDoc(
+    c,
+    collection,
+    config,
+    result.doc,
+    user,
+    200,
+    args.locale,
+    args.fallbackLocale,
+  )
 }
 
 export async function handleUploadUpdate(ctx: UploadUpdateContext): Promise<Response> {
   const { c, id, collection, config, user, checkAccess, accessDenied } = ctx
 
-  const preliminaryAllowed = await checkAccess(collection.access?.update, { user, id })
+  const localeResult = resolveUploadLocale(config, c)
+  if (localeResult.errorResponse) {
+    return localeResult.errorResponse
+  }
+  const { locale, fallbackLocale } = localeResult
+
+  const preliminaryAllowed = await checkAccess(collection.access?.update, {
+    user,
+    id,
+    locale,
+    req: c.req.raw,
+  })
   if (!preliminaryAllowed) {
     return accessDenied(c, user)
   }
 
   const rawBody = (await c.req.parseBody()) as Record<string, unknown>
-  const allowed = await checkAccess(collection.access?.update, { user, id, data: rawBody })
+  const allowed = await checkAccess(collection.access?.update, {
+    user,
+    id,
+    data: rawBody,
+    locale,
+    req: c.req.raw,
+  })
   if (!allowed) {
     return accessDenied(c, user)
   }
@@ -757,9 +864,12 @@ export async function handleUploadUpdate(ctx: UploadUpdateContext): Promise<Resp
     return c.json({ error: uploadResult.error }, uploadResult.status)
   }
 
+  const locales = extractLocaleCodes(config)
   const schema = clientFieldsToZod(toClientCollection(collection).fields, {
     partial: true,
     originalDoc,
+    locale,
+    locales,
   })
   const validation = await parseAndValidateFields(rawBody, collection, schema, {
     operation: 'update',
@@ -767,6 +877,7 @@ export async function handleUploadUpdate(ctx: UploadUpdateContext): Promise<Resp
     req: c.req.raw,
     draft: Boolean(draft),
     user,
+    locale,
   })
   if (!validation.success) {
     await rollbackNewMedia(config, uploadResult.doc)
@@ -778,9 +889,11 @@ export async function handleUploadUpdate(ctx: UploadUpdateContext): Promise<Resp
     originalDoc,
     validation,
     newUploadDoc: uploadResult.doc,
-    draft: Boolean(draft),
+    draft,
     autosave,
     userId,
+    locale,
+    fallbackLocale,
   })
 }
 

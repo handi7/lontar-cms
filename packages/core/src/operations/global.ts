@@ -8,6 +8,7 @@ import type { DatabaseAdapter, DocumentData } from '../database/adapter'
 import { runAfterReadHooks, runBeforeValidateHooks } from '../hooks'
 import { populateDoc } from '../populate'
 import { AccessDeniedError, ValidationError } from './errors'
+import { extractLocaleCodes, resolveOperationLocale } from './locale'
 import { executeGlobalUpdate, resolveDraftFlag, resolveGlobalUpdateStatus } from './mutation'
 import {
   resolveOperationContextCache,
@@ -19,13 +20,19 @@ async function assertGlobalReadAccess(
   global: GlobalConfig,
   user?: AuthUser | null,
   draft?: boolean,
+  locale?: string,
+  req?: Request,
 ): Promise<void> {
-  const allowed = await checkAccess(global.access?.read, { user: user ?? null })
+  const allowed = await checkAccess(global.access?.read, { user: user ?? null, locale, req })
   if (!allowed) {
     throw new AccessDeniedError('Access denied', { user })
   }
   if (draft) {
-    const updateAllowed = await checkAccess(global.access?.update, { user: user ?? null })
+    const updateAllowed = await checkAccess(global.access?.update, {
+      user: user ?? null,
+      locale,
+      req,
+    })
     if (!updateAllowed) {
       throw new AccessDeniedError('Access denied', { user })
     }
@@ -36,8 +43,15 @@ async function assertGlobalUpdateAccess(
   global: GlobalConfig,
   data: DocumentData,
   user?: AuthUser | null,
+  locale?: string,
+  req?: Request,
 ): Promise<void> {
-  const allowed = await checkAccess(global.access?.update, { user: user ?? null, data })
+  const allowed = await checkAccess(global.access?.update, {
+    user: user ?? null,
+    data,
+    locale,
+    req,
+  })
   if (!allowed) {
     throw new AccessDeniedError('Access denied', { user })
   }
@@ -47,9 +61,15 @@ function validateGlobalData(
   global: GlobalConfig,
   data: DocumentData,
   originalDoc?: DocumentData,
+  localeOpts?: { locale?: string; locales?: readonly string[] },
 ): DocumentData {
   const clientGlobal = toClientGlobal(global)
-  const schema = clientFieldsToZod(clientGlobal.fields, { partial: true, originalDoc })
+  const schema = clientFieldsToZod(clientGlobal.fields, {
+    partial: true,
+    originalDoc,
+    locale: localeOpts?.locale,
+    locales: localeOpts?.locales,
+  })
   const parsed = schema.safeParse(data)
   if (!parsed.success) {
     throw new ValidationError('Validation failed', { issues: parsed.error.issues })
@@ -115,12 +135,22 @@ export async function findGlobalOperation<T = DocumentData>(
   args: FindGlobalOperationArgs,
 ): Promise<T> {
   const cache = resolveOperationContextCache(args)
+  const { locale, fallbackLocale } = resolveOperationLocale(
+    args.config,
+    args.locale,
+    args.fallbackLocale,
+  )
 
   if (!args.overrideAccess) {
-    await assertGlobalReadAccess(args.global, args.user, args.draft)
+    await assertGlobalReadAccess(args.global, args.user, args.draft, locale, args.req)
   }
 
-  const doc = await args.config.db.findGlobal({ global: args.global, draft: args.draft })
+  const doc = await args.config.db.findGlobal({
+    global: args.global,
+    draft: args.draft,
+    locale,
+    fallbackLocale,
+  })
   if (!doc || isGlobalDraftHidden(args.global, doc, args.draft)) {
     return {} as T
   }
@@ -130,6 +160,7 @@ export async function findGlobalOperation<T = DocumentData>(
     global: args.global,
     doc: rawDoc,
     req: args.req,
+    locale,
   })
 
   const populated = await populateGlobalDoc<T>({
@@ -142,6 +173,8 @@ export async function findGlobalOperation<T = DocumentData>(
     overrideAccess: args.overrideAccess,
     draft: args.draft,
     cache,
+    locale,
+    fallbackLocale,
   })
 
   if (args.overrideAccess) {
@@ -152,7 +185,7 @@ export async function findGlobalOperation<T = DocumentData>(
     args.global.fields,
     populated as DocumentData,
     args.user ?? null,
-    { doc: populated as DocumentData, cache, req: args.req },
+    { doc: populated as DocumentData, cache, req: args.req, locale },
   )
 
   return sanitized as T
@@ -179,6 +212,8 @@ async function populateGlobalDoc<T>(args: {
   overrideAccess?: boolean
   draft?: boolean
   cache?: FieldAccessCache
+  locale?: string
+  fallbackLocale?: string | false
 }): Promise<T> {
   if (args.depth !== undefined && args.depth > 0) {
     const populated = await populateDoc(args.doc, {
@@ -191,6 +226,8 @@ async function populateGlobalDoc<T>(args: {
       overrideAccess: args.overrideAccess,
       draft: args.draft,
       cache: args.cache,
+      locale: args.locale,
+      fallbackLocale: args.fallbackLocale,
     })
     return populated as T
   }
@@ -201,6 +238,7 @@ async function prepareGlobalWriteData(
   args: UpdateGlobalOperationArgs,
   existing: DocumentData | null,
   cache: FieldAccessCache,
+  locale?: string,
 ): Promise<DocumentData> {
   if (args.overrideAccess) return args.data
   return sanitizeDocWrite(args.global.fields, args.data, 'update', {
@@ -209,6 +247,7 @@ async function prepareGlobalWriteData(
     doc: existing ?? undefined,
     cache,
     req: args.req,
+    locale,
   })
 }
 
@@ -216,14 +255,20 @@ export async function updateGlobalOperation<T = DocumentData>(
   args: UpdateGlobalOperationArgs,
 ): Promise<T> {
   const cache = resolveOperationContextCache(args)
+  const { locale, fallbackLocale } = resolveOperationLocale(
+    args.config,
+    args.locale,
+    args.fallbackLocale,
+  )
+  const locales = extractLocaleCodes(args.config)
 
   if (!args.overrideAccess) {
-    await assertGlobalUpdateAccess(args.global, args.data, args.user)
+    await assertGlobalUpdateAccess(args.global, args.data, args.user, locale, args.req)
   }
 
   const draft = resolveDraftFlag(args.global, args.draft, args.autosave)
   const existing = await resolveOriginalGlobalDoc(args.config.db, args.global, draft)
-  const writeData = await prepareGlobalWriteData(args, existing, cache)
+  const writeData = await prepareGlobalWriteData(args, existing, cache, locale)
 
   const { _status: _ignoredStatus, ...cleanData } = writeData
   const { status, previousStatus, statusTransition } = resolveGlobalUpdateStatus({
@@ -242,8 +287,12 @@ export async function updateGlobalOperation<T = DocumentData>(
     previousStatus,
     statusTransition,
     req: args.req,
+    locale,
   })
-  const validatedData = validateGlobalData(args.global, hookData, existing ?? undefined)
+  const validatedData = validateGlobalData(args.global, hookData, existing ?? undefined, {
+    locale,
+    locales,
+  })
 
   const result = await executeGlobalUpdate({
     global: args.global,
@@ -257,6 +306,7 @@ export async function updateGlobalOperation<T = DocumentData>(
     status,
     statusTransition,
     userId: args.user?.id,
+    locale,
   })
 
   assertGlobalUpdateSuccess(result)
@@ -271,6 +321,8 @@ export async function updateGlobalOperation<T = DocumentData>(
     overrideAccess: args.overrideAccess,
     draft,
     cache,
+    locale,
+    fallbackLocale,
   })
 
   if (args.overrideAccess) {
@@ -281,7 +333,7 @@ export async function updateGlobalOperation<T = DocumentData>(
     args.global.fields,
     populated as DocumentData,
     args.user ?? null,
-    { doc: populated as DocumentData, cache, req: args.req },
+    { doc: populated as DocumentData, cache, req: args.req, locale },
   )
 
   return sanitized as T

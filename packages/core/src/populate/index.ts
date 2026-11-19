@@ -32,6 +32,8 @@ export interface PopulateOptions {
   overrideAccess?: boolean
   draft?: boolean
   cache?: FieldAccessCache
+  locale?: string
+  fallbackLocale?: string | false
 }
 
 interface SingleRefSlot {
@@ -50,28 +52,77 @@ interface ManyRefSlot {
 
 type RefSlot = SingleRefSlot | ManyRefSlot
 
-function collectRelationshipSlot(
+function collectLocalizedManySlots(
+  dict: Record<string, unknown>,
+  targetColSlug: string,
+  slots: RefSlot[],
+): void {
+  for (const [loc, locVal] of Object.entries(dict)) {
+    if (Array.isArray(locVal)) {
+      const targetIds = locVal.filter((id): id is number => typeof id === 'number' && id > 0)
+      slots.push({
+        type: 'many',
+        targetColSlug,
+        targetIds,
+        assign: (populated) => {
+          dict[loc] = populated
+        },
+      })
+    }
+  }
+}
+
+function collectLocalizedSingleSlots(
+  dict: Record<string, unknown>,
+  targetColSlug: string,
+  slots: RefSlot[],
+): void {
+  for (const [loc, locVal] of Object.entries(dict)) {
+    if (typeof locVal === 'number' && locVal > 0) {
+      slots.push({
+        type: 'single',
+        targetColSlug,
+        targetId: locVal,
+        assign: (populated) => {
+          dict[loc] = populated
+        },
+      })
+    }
+  }
+}
+
+function collectManyRelationshipSlot(
   container: Record<string, unknown>,
   name: string,
   field: RelationshipField,
   slots: RefSlot[],
 ): void {
   const val = container[name]
-  if (field.hasMany) {
-    if (Array.isArray(val)) {
-      const targetIds = val.filter((id): id is number => typeof id === 'number' && id > 0)
-      slots.push({
-        type: 'many',
-        targetColSlug: field.relationTo,
-        targetIds,
-        assign: (populated) => {
-          container[name] = populated
-        },
-      })
-    } else {
-      container[name] = []
-    }
-  } else if (typeof val === 'number' && val > 0) {
+  if (Array.isArray(val)) {
+    const targetIds = val.filter((id): id is number => typeof id === 'number' && id > 0)
+    slots.push({
+      type: 'many',
+      targetColSlug: field.relationTo,
+      targetIds,
+      assign: (populated) => {
+        container[name] = populated
+      },
+    })
+  } else if (val && typeof val === 'object') {
+    collectLocalizedManySlots(val as Record<string, unknown>, field.relationTo, slots)
+  } else {
+    container[name] = []
+  }
+}
+
+function collectSingleRelationshipSlot(
+  container: Record<string, unknown>,
+  name: string,
+  field: RelationshipField,
+  slots: RefSlot[],
+): void {
+  const val = container[name]
+  if (typeof val === 'number' && val > 0) {
     slots.push({
       type: 'single',
       targetColSlug: field.relationTo,
@@ -80,8 +131,23 @@ function collectRelationshipSlot(
         container[name] = populated
       },
     })
+  } else if (val && typeof val === 'object' && !Array.isArray(val)) {
+    collectLocalizedSingleSlots(val as Record<string, unknown>, field.relationTo, slots)
   } else {
     container[name] = null
+  }
+}
+
+function collectRelationshipSlot(
+  container: Record<string, unknown>,
+  name: string,
+  field: RelationshipField,
+  slots: RefSlot[],
+): void {
+  if (field.hasMany) {
+    collectManyRelationshipSlot(container, name, field, slots)
+  } else {
+    collectSingleRelationshipSlot(container, name, field, slots)
   }
 }
 
@@ -101,8 +167,23 @@ function collectUploadSlot(
         container[name] = populated
       },
     })
+  } else if (val && typeof val === 'object' && !Array.isArray(val)) {
+    collectLocalizedSingleSlots(val as Record<string, unknown>, field.relationTo, slots)
   } else {
     container[name] = null
+  }
+}
+
+function collectBlocksRows(rows: readonly unknown[], field: BlocksField, slots: RefSlot[]): void {
+  const blocksBySlug = new Map(field.blocks.map((b) => [b.slug, b]))
+  for (const row of rows) {
+    if (!row || typeof row !== 'object') continue
+    const blockType = (row as Record<string, unknown>).blockType
+    if (typeof blockType !== 'string') continue
+    const blockDef = blocksBySlug.get(blockType)
+    if (blockDef) {
+      collectSlots(row as Record<string, unknown>, blockDef.fields, slots)
+    }
   }
 }
 
@@ -113,15 +194,21 @@ function collectBlocksSlots(
   slots: RefSlot[],
 ): void {
   const val = container[name]
-  if (!Array.isArray(val)) return
-  const blocksBySlug = new Map(field.blocks.map((b) => [b.slug, b]))
-  for (const row of val) {
-    if (!row || typeof row !== 'object') continue
-    const blockType = (row as Record<string, unknown>).blockType
-    if (typeof blockType !== 'string') continue
-    const blockDef = blocksBySlug.get(blockType)
-    if (blockDef) {
-      collectSlots(row as Record<string, unknown>, blockDef.fields, slots)
+  if (Array.isArray(val)) {
+    collectBlocksRows(val, field, slots)
+  } else if (val && typeof val === 'object') {
+    for (const rows of Object.values(val as Record<string, unknown>)) {
+      if (Array.isArray(rows)) {
+        collectBlocksRows(rows, field, slots)
+      }
+    }
+  }
+}
+
+function collectArrayRows(rows: readonly unknown[], field: ArrayField, slots: RefSlot[]): void {
+  for (const row of rows) {
+    if (row && typeof row === 'object') {
+      collectSlots(row as Record<string, unknown>, field.fields, slots)
     }
   }
 }
@@ -133,10 +220,13 @@ function collectArraySlots(
   slots: RefSlot[],
 ): void {
   const val = container[name]
-  if (!Array.isArray(val)) return
-  for (const row of val) {
-    if (row && typeof row === 'object') {
-      collectSlots(row as Record<string, unknown>, field.fields, slots)
+  if (Array.isArray(val)) {
+    collectArrayRows(val, field, slots)
+  } else if (val && typeof val === 'object') {
+    for (const rows of Object.values(val as Record<string, unknown>)) {
+      if (Array.isArray(rows)) {
+        collectArrayRows(rows, field, slots)
+      }
     }
   }
 }
@@ -249,6 +339,8 @@ async function fetchTargetDocs(
   db: DatabaseAdapter,
   req?: Request,
   draft?: boolean,
+  locale?: string,
+  fallbackLocale?: string | false,
 ): Promise<Map<number, DocumentData>> {
   if (targetIds.length === 0) return new Map()
   const docs: DocumentData[] = []
@@ -265,12 +357,14 @@ async function fetchTargetDocs(
       page: 1,
       where,
       overrideLimit: true,
+      locale,
+      fallbackLocale,
     })
     docs.push(...result.docs)
   }
   const hydrated = await hydrateTargetDraftDocs(targetCol, docs, db, draft)
   const transformed = await Promise.all(
-    hydrated.map((doc) => runAfterReadHooks({ collection: targetCol, doc, req })),
+    hydrated.map((doc) => runAfterReadHooks({ collection: targetCol, doc, req, locale })),
   )
   return new Map(transformed.map((d) => [d.id as number, d]))
 }
@@ -311,6 +405,8 @@ async function populateChildren(
   seen: ReadonlySet<string> = new Set(),
   overrideAccess?: boolean,
   draft?: boolean,
+  locale?: string,
+  fallbackLocale?: string | false,
 ): Promise<void> {
   const nextSeen = new Set(seen)
   for (const d of parentDocs) {
@@ -330,6 +426,8 @@ async function populateChildren(
     seen: nextSeen,
     overrideAccess,
     draft,
+    locale,
+    fallbackLocale,
   })
   for (const child of populatedChildren) {
     if (typeof child.id === 'number') {
@@ -352,6 +450,8 @@ interface PopulateTargetArgs {
   overrideAccess?: boolean
   draft?: boolean
   cache?: FieldAccessCache
+  locale?: string
+  fallbackLocale?: string | false
 }
 
 async function sanitizeTargetDocs(
@@ -360,9 +460,16 @@ async function sanitizeTargetDocs(
   user: AuthUser | null,
   cache?: FieldAccessCache,
   req?: Request,
+  locale?: string,
 ): Promise<void> {
   for (const [id, doc] of docsById.entries()) {
-    const sanitized = await sanitizeDocRead(targetCol.fields, doc, user, { id, doc, cache, req })
+    const sanitized = await sanitizeDocRead(targetCol.fields, doc, user, {
+      id,
+      doc,
+      cache,
+      req,
+      locale,
+    })
     docsById.set(id, sanitized)
   }
 }
@@ -381,17 +488,29 @@ async function populateTargetCollection(args: PopulateTargetArgs): Promise<void>
     seen,
     overrideAccess,
     draft,
+    locale,
+    fallbackLocale,
   } = args
 
-  const canRead = overrideAccess ? true : await checkAccess(targetCol.access?.read, { user })
+  const canRead = overrideAccess
+    ? true
+    : await checkAccess(targetCol.access?.read, { user, locale })
   if (!canRead) return
 
   const canDraftTarget = overrideAccess
     ? Boolean(draft)
-    : Boolean(draft && (await checkAccess(targetCol.access?.update, { user })))
+    : Boolean(draft && (await checkAccess(targetCol.access?.update, { user, locale })))
 
   const targetIds = extractTargetIds(targetSlots, targetCol.slug, seen)
-  const docsById = await fetchTargetDocs(targetCol, targetIds, db, req, canDraftTarget)
+  const docsById = await fetchTargetDocs(
+    targetCol,
+    targetIds,
+    db,
+    req,
+    canDraftTarget,
+    locale,
+    fallbackLocale,
+  )
 
   if (depth > 1 && docsById.size > 0) {
     await populateChildren(
@@ -407,11 +526,13 @@ async function populateTargetCollection(args: PopulateTargetArgs): Promise<void>
       seen,
       overrideAccess,
       canDraftTarget,
+      locale,
+      fallbackLocale,
     )
   }
 
   if (!overrideAccess) {
-    await sanitizeTargetDocs(targetCol, docsById, user, args.cache, req)
+    await sanitizeTargetDocs(targetCol, docsById, user, args.cache, req, locale)
   }
 
   assignTargetSlots(targetSlots, docsById, seen)
@@ -455,6 +576,8 @@ interface PopulateAllTargetsArgs {
   overrideAccess?: boolean
   draft?: boolean
   cache?: FieldAccessCache
+  locale?: string
+  fallbackLocale?: string | false
 }
 
 async function populateAllTargets(args: PopulateAllTargetsArgs): Promise<void> {
@@ -471,6 +594,8 @@ async function populateAllTargets(args: PopulateAllTargetsArgs): Promise<void> {
     overrideAccess,
     draft,
     cache,
+    locale,
+    fallbackLocale,
   } = args
 
   const slotsByTarget = groupSlotsByTarget(slots)
@@ -492,12 +617,26 @@ async function populateAllTargets(args: PopulateAllTargetsArgs): Promise<void> {
       overrideAccess,
       draft,
       cache,
+      locale,
+      fallbackLocale,
     })
   }
 }
 
 export async function populateDocs(options: PopulateOptions): Promise<DocumentData[]> {
-  const { docs, collection, depth, collections, db, req, overrideAccess, draft, cache } = options
+  const {
+    docs,
+    collection,
+    depth,
+    collections,
+    db,
+    req,
+    overrideAccess,
+    draft,
+    cache,
+    locale,
+    fallbackLocale,
+  } = options
   const user = options.user ?? null
   const seen = options.seen ?? new Set<string>()
 
@@ -526,6 +665,8 @@ export async function populateDocs(options: PopulateOptions): Promise<DocumentDa
     overrideAccess,
     draft,
     cache,
+    locale,
+    fallbackLocale,
   })
 
   return docs

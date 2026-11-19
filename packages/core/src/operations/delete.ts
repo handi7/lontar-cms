@@ -1,26 +1,36 @@
 import { checkAccess, sanitizeDocRead } from '../access'
 import type { AuthUser } from '../auth/types'
 import type { DocStatus } from '../client/system-fields'
-import type { CollectionConfig } from '../config/types'
+import type { AccessArgs, CollectionConfig } from '../config/types'
 import type { DatabaseAdapter, DocumentData } from '../database/adapter'
 import { runAfterDeleteHooks, runBeforeDeleteHooks } from '../hooks'
 import { handleUploadDelete } from '../server/routes/collection-upload'
 import { dispatchWebhooks } from '../webhooks'
 import { AccessDeniedError } from './errors'
+import { resolveOperationLocale } from './locale'
 import { resolveOperationContextCache, type DeleteOperationArgs } from './types'
 
 async function assertDeleteAccess(
   collection: CollectionConfig,
   id: number,
   user?: AuthUser | null,
+  locale?: string,
 ): Promise<void> {
-  const allowed = await checkAccess(collection.access?.delete, { user: user ?? null, id })
+  const accessArgs: AccessArgs = { user: user ?? null, id }
+  if (locale !== undefined) {
+    accessArgs.locale = locale
+  }
+  const allowed = await checkAccess(collection.access?.delete, accessArgs)
   if (!allowed) {
     throw new AccessDeniedError('Access denied', { user })
   }
 }
 
-async function finalizeDeleteDoc<T>(args: DeleteOperationArgs, finalDoc: DocumentData): Promise<T> {
+async function finalizeDeleteDoc<T>(
+  args: DeleteOperationArgs,
+  finalDoc: DocumentData,
+  locale?: string,
+): Promise<T> {
   if (args.overrideAccess) {
     return finalDoc as T
   }
@@ -31,6 +41,7 @@ async function finalizeDeleteDoc<T>(args: DeleteOperationArgs, finalDoc: Documen
     doc: finalDoc,
     cache,
     req: args.req,
+    locale,
   })
 
   return sanitized as T
@@ -39,12 +50,23 @@ async function finalizeDeleteDoc<T>(args: DeleteOperationArgs, finalDoc: Documen
 export async function deleteOperation<T = DocumentData>(
   args: DeleteOperationArgs,
 ): Promise<T | null> {
+  const { locale, fallbackLocale } = resolveOperationLocale(
+    args.config,
+    args.locale,
+    args.fallbackLocale,
+  )
+
   if (!args.overrideAccess) {
-    await assertDeleteAccess(args.collection, args.id, args.user)
+    await assertDeleteAccess(args.collection, args.id, args.user, locale)
   }
 
   const run = async (txDb: DatabaseAdapter): Promise<DocumentData | null> => {
-    const docToDelete = await txDb.findByID({ collection: args.collection, id: args.id })
+    const docToDelete = await txDb.findByID({
+      collection: args.collection,
+      id: args.id,
+      locale,
+      fallbackLocale,
+    })
     if (!docToDelete) {
       return null
     }
@@ -55,6 +77,7 @@ export async function deleteOperation<T = DocumentData>(
       doc: docToDelete,
       status: docToDelete._status as DocStatus | undefined,
       req: args.req,
+      locale,
     })
 
     const deleted = await txDb.delete({ collection: args.collection, id: args.id })
@@ -87,6 +110,7 @@ export async function deleteOperation<T = DocumentData>(
       doc: deletedDoc,
       status: deletedDoc._status as DocStatus | undefined,
       req: args.req,
+      locale,
     })
   } catch (err) {
     postCommitError =
@@ -105,5 +129,5 @@ export async function deleteOperation<T = DocumentData>(
     throw postCommitError
   }
 
-  return finalizeDeleteDoc<T>(args, finalDoc)
+  return finalizeDeleteDoc<T>(args, finalDoc, locale)
 }

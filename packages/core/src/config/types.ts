@@ -30,6 +30,8 @@ export interface AccessArgs<TData = unknown> {
   user: AuthUser | null
   id?: number
   data?: TData
+  req?: Request
+  locale?: string
 }
 
 export type AccessFunction<TData = unknown> = (

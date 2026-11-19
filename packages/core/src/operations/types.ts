@@ -14,6 +14,8 @@ export interface OperationContext {
   overrideAccess?: boolean
   req?: Request
   fieldAccessCache?: FieldAccessCache
+  locale?: string
+  fallbackLocale?: string | false
 }
 
 export function resolveOperationContextCache(context: OperationContext): FieldAccessCache {

@@ -11,6 +11,7 @@ export interface BeforeValidateHookArgs<T = DocumentData> {
   status?: DocStatus
   previousStatus?: DocStatus
   statusTransition?: DocStatusTransition
+  locale?: string
 }
 
 export type BeforeValidateHook<T = DocumentData> = (
@@ -25,6 +26,7 @@ export interface BeforeChangeHookArgs<T = DocumentData> {
   status?: DocStatus
   previousStatus?: DocStatus
   statusTransition?: DocStatusTransition
+  locale?: string
 }
 
 export type BeforeChangeHook<T = DocumentData> = (
@@ -39,6 +41,7 @@ export interface AfterChangeHookArgs<T = DocumentData> {
   status?: DocStatus
   previousStatus?: DocStatus
   statusTransition?: DocStatusTransition
+  locale?: string
 }
 
 export type AfterChangeHook<T = DocumentData> = (
@@ -48,6 +51,7 @@ export type AfterChangeHook<T = DocumentData> = (
 export interface AfterReadHookArgs<T = DocumentData> {
   doc: T
   req?: Request
+  locale?: string
 }
 
 export type AfterReadHook<T = DocumentData> = (
@@ -59,6 +63,7 @@ export interface BeforeDeleteHookArgs<T = DocumentData> {
   doc: T
   req?: Request
   status?: DocStatus
+  locale?: string
 }
 
 export type BeforeDeleteHook<T = DocumentData> = (
@@ -70,6 +75,7 @@ export interface AfterDeleteHookArgs<T = DocumentData> {
   doc: T
   req?: Request
   status?: DocStatus
+  locale?: string
 }
 
 export type AfterDeleteHook<T = DocumentData> = (

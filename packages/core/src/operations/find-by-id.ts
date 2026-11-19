@@ -6,14 +6,16 @@ import type { DocumentData } from '../database/adapter'
 import { runAfterReadHooks } from '../hooks'
 import { populateDoc } from '../populate'
 import { AccessDeniedError } from './errors'
+import { resolveOperationLocale } from './locale'
 import { resolveOperationContextCache, type FindByIDOperationArgs } from './types'
 
 async function assertReadAccess(
   collection: CollectionConfig,
   id: number,
   user?: AuthUser | null,
+  locale?: string,
 ): Promise<void> {
-  const allowed = await checkAccess(collection.access?.read, { user: user ?? null, id })
+  const allowed = await checkAccess(collection.access?.read, { user: user ?? null, id, locale })
   if (!allowed) {
     throw new AccessDeniedError('Access denied', { user })
   }
@@ -24,10 +26,11 @@ async function assertFindByIDAccess(
   id: number,
   user: AuthUser | null,
   draft?: boolean,
+  locale?: string,
 ): Promise<void> {
-  await assertReadAccess(collection, id, user)
+  await assertReadAccess(collection, id, user, locale)
   if (draft) {
-    const allowed = await checkAccess(collection.access?.update, { user, id })
+    const allowed = await checkAccess(collection.access?.update, { user, id, locale })
     if (!allowed) {
       throw new AccessDeniedError('Access denied', { user })
     }
@@ -63,6 +66,7 @@ async function finalizeFindByIDDoc<T>(
   args: FindByIDOperationArgs,
   populated: DocumentData | null,
   cache: FieldAccessCache,
+  locale?: string,
 ): Promise<T | null> {
   if (args.overrideAccess || !populated) {
     return populated as T
@@ -73,6 +77,7 @@ async function finalizeFindByIDDoc<T>(
     doc: populated,
     cache,
     req: args.req,
+    locale,
   })
 
   return sanitized as T
@@ -81,11 +86,22 @@ async function finalizeFindByIDDoc<T>(
 export async function findByIDOperation<T = DocumentData>(
   args: FindByIDOperationArgs,
 ): Promise<T | null> {
+  const { locale, fallbackLocale } = resolveOperationLocale(
+    args.config,
+    args.locale,
+    args.fallbackLocale,
+  )
+
   if (!args.overrideAccess) {
-    await assertFindByIDAccess(args.collection, args.id, args.user ?? null, args.draft)
+    await assertFindByIDAccess(args.collection, args.id, args.user ?? null, args.draft, locale)
   }
 
-  const doc = await args.config.db.findByID({ collection: args.collection, id: args.id })
+  const doc = await args.config.db.findByID({
+    collection: args.collection,
+    id: args.id,
+    locale,
+    fallbackLocale,
+  })
   if (!doc || isDraftHidden(args.collection, doc, args.draft)) {
     return null
   }
@@ -96,6 +112,7 @@ export async function findByIDOperation<T = DocumentData>(
     collection: args.collection,
     doc: rawDoc,
     req: args.req,
+    locale,
   })
 
   const cache = resolveOperationContextCache(args)
@@ -110,7 +127,9 @@ export async function findByIDOperation<T = DocumentData>(
     overrideAccess: args.overrideAccess,
     draft: args.draft,
     cache,
+    locale,
+    fallbackLocale,
   })
 
-  return finalizeFindByIDDoc<T>(args, populated, cache)
+  return finalizeFindByIDDoc<T>(args, populated, cache, locale)
 }
