@@ -51,8 +51,17 @@ export {
   type ArrayItemDiff,
   type BlocksFieldDiff,
   type ChangeType,
+  type DiffOptions,
   type DocumentDiff,
   type FieldDiff,
   type GroupFieldDiff,
   type PrimitiveFieldDiff,
 } from './diff'
+export {
+  extractLocaleCodes,
+  resolveOperationLocale,
+  isEmptyForFallback,
+  projectCanonicalDoc,
+  mergeDraftLocaleData,
+  type ProjectLocaleContext,
+} from './locale'

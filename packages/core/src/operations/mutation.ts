@@ -16,6 +16,8 @@ import {
 } from '../database/errors'
 import { runAfterChangeHooks, runBeforeChangeHooks } from '../hooks'
 import type { DocStatusTransition } from '../hooks/types'
+import type { Fields } from '../fields/types'
+import { mergeDraftLocaleData, projectCanonicalDoc } from './locale'
 import { dispatchWebhooks, type WebhookAction } from '../webhooks'
 
 export type MutationExecutionResult =
@@ -108,14 +110,48 @@ function buildDraftRevisionDoc(
   id: number,
   originalDoc: DocumentData,
   finalData: DocumentData,
+  fields?: Fields,
+  locale?: string,
+  defaultLocale?: string,
 ): DocumentData {
-  const { _isPublished: _readOnlyFlag, ...rest } = { ...originalDoc, ...finalData }
+  const merged =
+    fields && locale
+      ? mergeDraftLocaleData(fields, originalDoc, finalData, locale, defaultLocale)
+      : { ...originalDoc, ...finalData }
+  const { _isPublished: _readOnlyFlag, ...rest } = merged
   return {
     ...rest,
     id,
     _status: 'draft',
     updatedAt: new Date().toISOString(),
   }
+}
+
+async function resolveCanonicalSnapshot(
+  txDb: DatabaseAdapter,
+  collection: CollectionConfig,
+  parentId: number,
+  fallbackDoc: DocumentData,
+  isLocalized: boolean,
+): Promise<DocumentData> {
+  if (isLocalized && txDb.findByID) {
+    const canonical = await txDb.findByID({ collection, id: parentId, locale: 'all' })
+    if (canonical) return canonical
+  }
+  return fallbackDoc
+}
+
+async function resolveCanonicalGlobalSnapshot(
+  txDb: DatabaseAdapter,
+  global: GlobalConfig,
+  fallbackDoc: DocumentData,
+  isLocalized: boolean,
+): Promise<DocumentData> {
+  if (isLocalized && txDb.findGlobal) {
+    const canonical = await txDb.findGlobal({ global, locale: 'all' })
+    if (canonical) return canonical
+  }
+  return fallbackDoc
 }
 
 async function compensateCreate(
@@ -199,11 +235,18 @@ export async function executeCreate(args: {
       data: finalData,
       locale: args.locale,
     })
+    const snapshot = await resolveCanonicalSnapshot(
+      txDb,
+      args.collection,
+      created.id,
+      created,
+      Boolean(args.config?.localization),
+    )
     await maybeSaveVersion({
       txDb,
       collection: args.collection,
       parentId: created.id,
-      snapshot: created,
+      snapshot,
       status: (created._status as DocStatus | undefined) ?? status ?? 'published',
       autosave: args.autosave,
       userId: args.userId,
@@ -344,6 +387,24 @@ async function compensateUpdate(
   }
 }
 
+async function resolveBaseDraftSnapshot(
+  txDb: DatabaseAdapter,
+  collection: CollectionConfig,
+  id: number,
+  fallbackDoc: DocumentData,
+  isLocalized: boolean,
+): Promise<DocumentData> {
+  if (txDb.findLatestDraftVersion) {
+    const latestDraft = await txDb.findLatestDraftVersion({ collection, parentId: id })
+    if (latestDraft) return latestDraft.snapshot
+  }
+  if (isLocalized && txDb.findByID) {
+    const canonical = await txDb.findByID({ collection, id, locale: 'all' })
+    if (canonical) return canonical
+  }
+  return fallbackDoc
+}
+
 async function handleDraftRevisionUpdate(args: {
   txDb: DatabaseAdapter
   collection: CollectionConfig
@@ -356,8 +417,26 @@ async function handleDraftRevisionUpdate(args: {
   userId?: string | null
   req?: Request
   locale?: string
+  config?: Config
 }): Promise<MutationExecutionResult> {
-  const draftDoc = buildDraftRevisionDoc(args.id, args.originalDoc, args.finalData)
+  const isLocalized = Boolean(args.config?.localization)
+  const defaultLocale = args.config?.localization?.defaultLocale
+  const baseSnapshot = await resolveBaseDraftSnapshot(
+    args.txDb,
+    args.collection,
+    args.id,
+    args.originalDoc,
+    isLocalized,
+  )
+
+  const draftDoc = buildDraftRevisionDoc(
+    args.id,
+    baseSnapshot,
+    args.finalData,
+    args.collection.fields,
+    args.locale,
+    defaultLocale,
+  )
   await maybeSaveVersion({
     txDb: args.txDb,
     collection: args.collection,
@@ -378,7 +457,14 @@ async function handleDraftRevisionUpdate(args: {
     req: args.req,
     locale: args.locale,
   })
-  return { success: true, doc: { ...doc, _isPublished: true }, isDraftRevision: true }
+  const projectedDoc =
+    isLocalized && args.locale !== 'all'
+      ? projectCanonicalDoc(doc, args.collection.fields, {
+          locale: args.locale,
+          defaultLocale,
+        })
+      : doc
+  return { success: true, doc: { ...projectedDoc, _isPublished: true }, isDraftRevision: true }
 }
 
 async function prepareUpdatePayload(
@@ -466,13 +552,21 @@ async function syncParentRowVersion(args: {
   autosave?: boolean
   userId?: string | null
   pendingDraft: DocumentData | null
+  config?: Config
 }): Promise<void> {
   if (args.pendingDraft) return
+  const snapshot = await resolveCanonicalSnapshot(
+    args.txDb,
+    args.collection,
+    args.parentId,
+    args.updated,
+    Boolean(args.config?.localization),
+  )
   await maybeSaveVersion({
     txDb: args.txDb,
     collection: args.collection,
     parentId: args.parentId,
-    snapshot: args.updated,
+    snapshot,
     status: (args.updated._status as DocStatus | undefined) ?? args.status ?? 'published',
     autosave: args.autosave,
     userId: args.userId,
@@ -558,6 +652,7 @@ async function handleParentRowUpdate(args: {
   userId?: string | null
   req?: Request
   locale?: string
+  config?: Config
 }): Promise<MutationExecutionResult> {
   const dataToUpdate = resolveParentRowData({
     collection: args.collection,
@@ -595,6 +690,7 @@ async function handleParentRowUpdate(args: {
     autosave: args.autosave,
     userId: args.userId,
     pendingDraft,
+    config: args.config,
   })
 
   const docToHook = resolveHookDoc(updated, pendingDraft)
@@ -727,6 +823,7 @@ export async function executeUpdate(args: {
           userId: args.userId,
           req: args.req,
           locale: args.locale,
+          config: args.config,
         })
       : await handleParentRowUpdate({
           txDb,
@@ -743,6 +840,7 @@ export async function executeUpdate(args: {
           userId: args.userId,
           req: args.req,
           locale: args.locale,
+          config: args.config,
         })
 
     if (execResult.success) {
@@ -887,6 +985,24 @@ async function prepareGlobalPayload(
   return finalData
 }
 
+async function resolveBaseGlobalDraftSnapshot(
+  txDb: DatabaseAdapter,
+  global: GlobalConfig,
+  parentId: number,
+  fallbackDoc: DocumentData,
+  isLocalized: boolean,
+): Promise<DocumentData> {
+  if (txDb.findLatestDraftVersion) {
+    const latestDraft = await txDb.findLatestDraftVersion({ global, parentId })
+    if (latestDraft) return latestDraft.snapshot
+  }
+  if (isLocalized && txDb.findGlobal) {
+    const canonical = await txDb.findGlobal({ global, locale: 'all' })
+    if (canonical) return canonical
+  }
+  return fallbackDoc
+}
+
 async function handleGlobalDraftRevisionUpdate(args: {
   txDb: DatabaseAdapter
   global: GlobalConfig
@@ -898,9 +1014,27 @@ async function handleGlobalDraftRevisionUpdate(args: {
   userId?: string | null
   req?: Request
   locale?: string
+  config?: Config
 }): Promise<MutationExecutionResult> {
   const parentId = Number(args.existing?.id ?? 1)
-  const draftDoc = buildDraftRevisionDoc(parentId, args.existing ?? {}, args.finalData)
+  const isLocalized = Boolean(args.config?.localization)
+  const defaultLocale = args.config?.localization?.defaultLocale
+  const baseSnapshot = await resolveBaseGlobalDraftSnapshot(
+    args.txDb,
+    args.global,
+    parentId,
+    args.existing ?? {},
+    isLocalized,
+  )
+
+  const draftDoc = buildDraftRevisionDoc(
+    parentId,
+    baseSnapshot,
+    args.finalData,
+    args.global.fields,
+    args.locale,
+    defaultLocale,
+  )
   await maybeSaveGlobalVersion({
     txDb: args.txDb,
     global: args.global,
@@ -921,7 +1055,14 @@ async function handleGlobalDraftRevisionUpdate(args: {
     req: args.req,
     locale: args.locale,
   })
-  return { success: true, doc: { ...doc, _isPublished: true }, isDraftRevision: true }
+  const projectedDoc =
+    isLocalized && args.locale !== 'all'
+      ? projectCanonicalDoc(doc, args.global.fields, {
+          locale: args.locale,
+          defaultLocale,
+        })
+      : doc
+  return { success: true, doc: { ...projectedDoc, _isPublished: true }, isDraftRevision: true }
 }
 
 async function resolveGlobalUnpublishPendingDraft(
@@ -950,13 +1091,20 @@ async function syncGlobalParentRowVersion(args: {
   autosave?: boolean
   userId?: string | null
   pendingDraft: DocumentData | null
+  config?: Config
 }): Promise<void> {
   if (args.pendingDraft) return
+  const snapshot = await resolveCanonicalGlobalSnapshot(
+    args.txDb,
+    args.global,
+    args.saved,
+    Boolean(args.config?.localization),
+  )
   await maybeSaveGlobalVersion({
     txDb: args.txDb,
     global: args.global,
     parentId: args.parentId,
-    snapshot: args.saved,
+    snapshot,
     status: (args.saved._status as DocStatus | undefined) ?? args.status ?? 'published',
     autosave: args.autosave,
     userId: args.userId,
@@ -993,6 +1141,7 @@ async function handleGlobalParentRowUpdate(args: {
   userId?: string | null
   req?: Request
   locale?: string
+  config?: Config
 }): Promise<MutationExecutionResult> {
   const operation = args.existing ? 'update' : 'create'
   const dataToUpdate = resolveGlobalParentRowData({
@@ -1024,6 +1173,7 @@ async function handleGlobalParentRowUpdate(args: {
     autosave: args.autosave,
     userId: args.userId,
     pendingDraft,
+    config: args.config,
   })
 
   const docToHook = resolveHookDoc(saved, pendingDraft)
@@ -1171,6 +1321,7 @@ export async function executeGlobalUpdate(args: {
           userId: args.userId,
           req: args.req,
           locale: args.locale,
+          config: args.config,
         })
       : await handleGlobalParentRowUpdate({
           txDb,
@@ -1184,6 +1335,7 @@ export async function executeGlobalUpdate(args: {
           userId: args.userId,
           req: args.req,
           locale: args.locale,
+          config: args.config,
         })
 
     if (execResult.success) {

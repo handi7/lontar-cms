@@ -8,7 +8,12 @@ import type { DatabaseAdapter, DocumentData } from '../database/adapter'
 import { runAfterReadHooks, runBeforeValidateHooks } from '../hooks'
 import { populateDoc } from '../populate'
 import { AccessDeniedError, ValidationError } from './errors'
-import { extractLocaleCodes, resolveOperationLocale } from './locale'
+import {
+  extractLocaleCodes,
+  projectCanonicalDoc,
+  resolveOperationLocale,
+  type ProjectLocaleContext,
+} from './locale'
 import { executeGlobalUpdate, resolveDraftFlag, resolveGlobalUpdateStatus } from './mutation'
 import {
   resolveOperationContextCache,
@@ -107,6 +112,7 @@ async function hydrateGlobalDraftDoc(
   global: GlobalConfig,
   baseDoc: DocumentData,
   draft?: boolean,
+  localeCtx?: ProjectLocaleContext,
 ): Promise<DocumentData> {
   if (!global.versions?.drafts) {
     return baseDoc
@@ -118,7 +124,10 @@ async function hydrateGlobalDraftDoc(
   const parentId = Number(baseDoc.id ?? 1)
   const latestDraft = await db.findLatestDraftVersion({ global, parentId })
   if (latestDraft) {
-    return { ...latestDraft.snapshot, _isPublished: isPublished }
+    const projected = localeCtx
+      ? projectCanonicalDoc(latestDraft.snapshot, global.fields, localeCtx)
+      : latestDraft.snapshot
+    return { ...projected, _isPublished: isPublished }
   }
   return { ...baseDoc, _isPublished: isPublished }
 }
@@ -155,7 +164,21 @@ export async function findGlobalOperation<T = DocumentData>(
     return {} as T
   }
 
-  const rawDoc = await hydrateGlobalDraftDoc(args.config.db, args.global, doc, args.draft)
+  const localeCtx: ProjectLocaleContext | undefined = args.config.localization
+    ? {
+        locale,
+        fallbackLocale,
+        defaultLocale: args.config.localization.defaultLocale,
+      }
+    : undefined
+
+  const rawDoc = await hydrateGlobalDraftDoc(
+    args.config.db,
+    args.global,
+    doc,
+    args.draft,
+    localeCtx,
+  )
   const transformed = await runAfterReadHooks({
     global: args.global,
     doc: rawDoc,

@@ -3,6 +3,7 @@ export type {
   ArrayItemDiff,
   BlocksFieldDiff,
   ChangeType,
+  DiffOptions,
   DiffableCollection,
   DiffableFields,
   DocumentDiff,

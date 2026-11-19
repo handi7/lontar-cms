@@ -6,7 +6,7 @@ import type { DocumentData } from '../database/adapter'
 import { runAfterReadHooks } from '../hooks'
 import { populateDoc } from '../populate'
 import { AccessDeniedError } from './errors'
-import { resolveOperationLocale } from './locale'
+import { projectCanonicalDoc, resolveOperationLocale, type ProjectLocaleContext } from './locale'
 import { resolveOperationContextCache, type FindByIDOperationArgs } from './types'
 
 async function assertReadAccess(
@@ -47,6 +47,7 @@ async function hydrateDraftDoc(
   parentId: number,
   baseDoc: DocumentData,
   draft?: boolean,
+  localeCtx?: ProjectLocaleContext,
 ): Promise<DocumentData> {
   if (!collection.versions?.drafts) {
     return baseDoc
@@ -57,7 +58,10 @@ async function hydrateDraftDoc(
   }
   const latestDraft = await db.findLatestDraftVersion({ collection, parentId })
   if (latestDraft) {
-    return { ...latestDraft.snapshot, _isPublished: isPublished }
+    const projected = localeCtx
+      ? projectCanonicalDoc(latestDraft.snapshot, collection.fields, localeCtx)
+      : latestDraft.snapshot
+    return { ...projected, _isPublished: isPublished }
   }
   return { ...baseDoc, _isPublished: isPublished }
 }
@@ -106,7 +110,22 @@ export async function findByIDOperation<T = DocumentData>(
     return null
   }
 
-  const rawDoc = await hydrateDraftDoc(args.config.db, args.collection, args.id, doc, args.draft)
+  const localeCtx: ProjectLocaleContext | undefined = args.config.localization
+    ? {
+        locale,
+        fallbackLocale,
+        defaultLocale: args.config.localization.defaultLocale,
+      }
+    : undefined
+
+  const rawDoc = await hydrateDraftDoc(
+    args.config.db,
+    args.collection,
+    args.id,
+    doc,
+    args.draft,
+    localeCtx,
+  )
 
   const transformed = await runAfterReadHooks({
     collection: args.collection,

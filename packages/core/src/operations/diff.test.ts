@@ -7,6 +7,7 @@ import {
   type ArrayFieldDiff,
   type BlocksFieldDiff,
   type GroupFieldDiff,
+  type PrimitiveFieldDiff,
 } from './diff'
 
 describe('diffSnapshots', () => {
@@ -328,6 +329,62 @@ describe('diffSnapshots', () => {
       change: 'modified',
       oldValue: 'draft',
       value: 'published',
+    })
+  })
+
+  it('diffs localized fields per locale when locale option is specified', () => {
+    const col = collection({
+      slug: 'posts',
+      fields: {
+        title: f.text({ localized: true }),
+        content: f.textarea({ localized: true }),
+        slug: f.text(), // non-localized
+      },
+    })
+
+    const oldSnapshot = {
+      id: 1,
+      title: { en: 'Hello', id: 'Halo' },
+      content: { en: 'World', id: 'Dunia' },
+      slug: 'hello-world',
+    }
+
+    const newSnapshot = {
+      id: 1,
+      title: { en: 'Hello', id: 'Halo Semesta' }, // modified in 'id', unchanged in 'en'
+      content: { en: 'World', id: 'Dunia' }, // unchanged in both
+      slug: 'hello-world',
+    }
+
+    // Default / raw comparison (or locale: 'all')
+    const diffAll = diffSnapshots(col, oldSnapshot, newSnapshot)
+    expect(diffAll.hasChanges).toBe(true)
+    expect((diffAll.fields.title as PrimitiveFieldDiff).change).toBe('modified')
+
+    // Single locale comparison: 'en' has no changes
+    const diffEn = diffSnapshots(col, oldSnapshot, newSnapshot, { locale: 'en' })
+    expect(diffEn.hasChanges).toBe(false)
+    expect(diffEn.fields.title).toEqual({
+      type: 'primitive',
+      change: 'unchanged',
+      oldValue: 'Hello',
+      value: 'Hello',
+    })
+    expect(diffEn.fields.slug).toEqual({
+      type: 'primitive',
+      change: 'unchanged',
+      oldValue: 'hello-world',
+      value: 'hello-world',
+    })
+
+    // Single locale comparison: 'id' was modified
+    const diffId = diffSnapshots(col, oldSnapshot, newSnapshot, { locale: 'id' })
+    expect(diffId.hasChanges).toBe(true)
+    expect(diffId.fields.title).toEqual({
+      type: 'primitive',
+      change: 'modified',
+      oldValue: 'Halo',
+      value: 'Halo Semesta',
     })
   })
 })
