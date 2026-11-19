@@ -268,12 +268,25 @@ async function authenticateApiKey(
   rateLimiter: RateLimiter,
   clientIp?: string,
 ): Promise<ApiKeyAuthResult> {
+  const ip = clientIp ?? rateLimiter.getClientIp(rawReq)
+
+  // Reject blocked IPs before touching the DB, so floods of invalid keys are cheap
+  // and a correct guess past the limit does not succeed (#413).
+  const blocked = await rateLimiter.checkApiKeyFailureLimit(ip)
+  if (!blocked.allowed) {
+    return {
+      ok: false,
+      status: 429,
+      error: 'Too many failed API key attempts. Please try again later.',
+      retryAfter: blocked.retryAfter ?? rateLimiter.rules.apiKeyFailure.window,
+    }
+  }
+
   const result = await verifyApiKey(auth, apiKeyToken)
   if (result.valid && result.user) {
     return { ok: true, user: result.user, apiKey: result.apiKey ?? null }
   }
 
-  const ip = clientIp ?? rateLimiter.getClientIp(rawReq)
   const failureRecord = await rateLimiter.recordApiKeyFailure(ip)
   if (!failureRecord.allowed) {
     const retryAfter = failureRecord.retryAfter ?? rateLimiter.rules.apiKeyFailure.window

@@ -476,7 +476,7 @@ describe('Rate Limiting Integration (/api/_lontar & /api/auth)', () => {
     expect(await otherIpRes.json()).toEqual({ message: 'Password changed successfully' })
   })
 
-  it('valid API keys are never rate limited, even after IP reaches failed key rate limit (#370)', async () => {
+  it('rejects API keys from an IP over the failure limit before verifying them (#413)', async () => {
     const config: Config = {
       secret: 'test-secret-that-is-at-least-32-chars-long-12345',
       db: mockDbAdapter,
@@ -536,11 +536,20 @@ describe('Rate Limiting Integration (/api/_lontar & /api/auth)', () => {
     const r3 = await badReq()
     expect(r3.status).toBe(429)
 
-    // Valid API key from the SAME IP must NOT be blocked (valid keys are never rate limited!)
-    const validRes = await app.request('/api/_lontar/me', {
+    // Valid API key from the SAME blocked IP is rejected too, without verification (#413)
+    const blockedValidRes = await app.request('/api/_lontar/me', {
       headers: {
         authorization: `Bearer ${validRawKey}`,
         'x-forwarded-for': testIp,
+      },
+    })
+    expect(blockedValidRes.status).toBe(429)
+
+    // Valid API key from a different IP is unaffected
+    const validRes = await app.request('/api/_lontar/me', {
+      headers: {
+        authorization: `Bearer ${validRawKey}`,
+        'x-forwarded-for': '198.51.100.100',
       },
     })
     expect(validRes.status).toBe(200)
