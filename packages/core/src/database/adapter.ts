@@ -11,7 +11,7 @@ export {
   formatCheckConstraintError,
 } from './errors'
 import type { DocStatus, SystemFields } from '../client/system-fields'
-import type { CollectionConfig, Config, GlobalConfig } from '../config/types'
+import type { CollectionConfig, Config, GlobalConfig, LocalizationConfig } from '../config/types'
 import type { SortItem, Where } from '../query/types'
 
 /** Field values keyed by field name, as written by create and update. */
@@ -75,6 +75,10 @@ export interface FindArgs {
    * Used for internal engine queries such as depth population batch fetching.
    */
   overrideLimit?: boolean
+  /** Requested locale code, or 'all'. */
+  locale?: string
+  /** Explicit fallback locale code, or false to disable fallback. */
+  fallbackLocale?: string | false
 }
 
 export interface PaginatedDocs<T = StoredDoc> {
@@ -102,6 +106,8 @@ export interface DatabaseAdapter {
   readonly maxStringLength?: number
   /** Underlying adapter for Better Auth (e.g. drizzleAdapter). */
   readonly authAdapter?: unknown
+  /** Optional content localization settings. */
+  localization?: LocalizationConfig
 
   // Runtime: called while serving requests.
   find(args: FindArgs): Promise<PaginatedDocs>
@@ -109,21 +115,38 @@ export interface DatabaseAdapter {
     collection: CollectionConfig
     id: number
     forUpdate?: boolean
+    locale?: string
+    fallbackLocale?: string | false
   }): Promise<StoredDoc | null>
-  create(args: { collection: CollectionConfig; data: DocumentData }): Promise<StoredDoc>
+  create(args: {
+    collection: CollectionConfig
+    data: DocumentData
+    locale?: string
+  }): Promise<StoredDoc>
   update(args: {
     collection: CollectionConfig
     id: number
     data: DocumentData
+    locale?: string
   }): Promise<StoredDoc | null>
-  delete(args: { collection: CollectionConfig; id: number }): Promise<StoredDoc | null>
+  delete(args: {
+    collection: CollectionConfig
+    id: number
+    locale?: string
+  }): Promise<StoredDoc | null>
 
   findGlobal(args: {
     global: GlobalConfig
     draft?: boolean
     forUpdate?: boolean
+    locale?: string
+    fallbackLocale?: string | false
   }): Promise<StoredDoc | null>
-  updateGlobal(args: { global: GlobalConfig; data: DocumentData }): Promise<StoredDoc>
+  updateGlobal(args: {
+    global: GlobalConfig
+    data: DocumentData
+    locale?: string
+  }): Promise<StoredDoc>
 
   // Version history (when versions are enabled)
   saveVersion?(args: SaveVersionArgs): Promise<StoredVersion>

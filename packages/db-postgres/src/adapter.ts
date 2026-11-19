@@ -43,6 +43,7 @@ import {
   type FindVersionsArgs,
   type GlobalConfig,
   type GroupField,
+  type LocalizationConfig,
   type PaginatedDocs,
   type PaginatedVersions,
   type SaveVersionArgs,
@@ -59,16 +60,24 @@ import {
   createVersionsTable,
   flattenGroupFields,
   getCollectionJunctionTables,
+  getLocaleCodes,
   globalToTable,
   type DynamicTable,
   type JunctionTable,
   type VersionsTable,
 } from './schema/table'
+import {
+  projectStoredDoc,
+  resolveLocaleContext,
+  sanitizeDataWithLocale,
+  type ResolvedLocaleContext,
+} from './localization'
 
 export interface PostgresAdapterOptions {
   url: string
   pool?: pg.PoolConfig
   onPoolError?: (err: Error, client?: pg.PoolClient) => void
+  localization?: LocalizationConfig
 }
 
 export type PostgresAdapter = DatabaseAdapter & {
@@ -450,6 +459,51 @@ function resolveField(fields: Fields, fieldPath: string): Field | undefined {
   return undefined
 }
 
+function checkStepLocalized(
+  f: Field,
+  parts: string[],
+  i: number,
+): { isLocalized: boolean; nextFields?: Fields; skipCount?: number } {
+  const isLoc = Boolean(f.localized)
+  if (i === parts.length - 1) {
+    return { isLocalized: isLoc }
+  }
+  if (f.type === 'group' || f.type === 'array') {
+    return { isLocalized: isLoc, nextFields: f.fields, skipCount: 0 }
+  }
+  if (f.type === 'blocks') {
+    const blockDef = f.blocks.find((b) => b.slug === parts[i + 1])
+    return {
+      isLocalized: isLoc,
+      nextFields: blockDef?.fields,
+      skipCount: blockDef ? 1 : 0,
+    }
+  }
+  return { isLocalized: isLoc }
+}
+
+function isPathLocalized(fields: Fields, fieldPath: string): boolean {
+  const parts = fieldPath.includes('.') ? fieldPath.split('.') : fieldPath.split('__')
+  let currentFields: Fields = fields
+  let inheritedLocalized = false
+
+  for (let i = 0; i < parts.length; i++) {
+    const part = parts[i]
+    if (!part) return inheritedLocalized
+    const f: Field | undefined = currentFields[part]
+    if (!f) return inheritedLocalized
+
+    const step = checkStepLocalized(f, parts, i)
+    if (step.isLocalized) inheritedLocalized = true
+    if (!step.nextFields) {
+      return inheritedLocalized
+    }
+    currentFields = step.nextFields
+    i += step.skipCount ?? 0
+  }
+  return inheritedLocalized
+}
+
 function castFieldValue(collection: CollectionConfig, fieldName: string, value: unknown): unknown {
   if (value === null || value === undefined) return value
   const sysVal = castSystemField(fieldName, value)
@@ -517,32 +571,58 @@ function buildCondition(column: PgColumn, operator: string, value: unknown): SQL
   )
 }
 
+function resolveJunctionLocaleFilter(
+  junctionTable: JunctionTable,
+  localeCtx?: ResolvedLocaleContext,
+): SQL {
+  if (!junctionTable._locale) return sql``
+  const loc =
+    localeCtx?.requestedLocale && !localeCtx.isAll
+      ? localeCtx.requestedLocale
+      : localeCtx?.defaultLocale
+  return loc ? sql` AND ${junctionTable._locale} = ${loc}` : sql``
+}
+
+function buildHasManyEquals(
+  table: DynamicTable,
+  junctionTable: JunctionTable,
+  val: unknown,
+  locFilter: SQL,
+  isNot = false,
+): SQL | undefined {
+  const id = Number(val)
+  if (Number.isNaN(id)) return undefined
+  return isNot
+    ? sql`${table.id} NOT IN (SELECT ${junctionTable.parentId} FROM ${junctionTable} WHERE ${junctionTable.targetId} = ${id}${locFilter})`
+    : sql`${table.id} IN (SELECT ${junctionTable.parentId} FROM ${junctionTable} WHERE ${junctionTable.targetId} = ${id}${locFilter})`
+}
+
+function buildHasManyIn(
+  table: DynamicTable,
+  junctionTable: JunctionTable,
+  val: unknown,
+  locFilter: SQL,
+): SQL | undefined {
+  const arr = Array.isArray(val) ? val : [val]
+  const ids = arr.map(Number).filter((n) => !Number.isNaN(n))
+  return ids.length > 0
+    ? sql`${table.id} IN (SELECT ${junctionTable.parentId} FROM ${junctionTable} WHERE ${inArray(junctionTable.targetId, ids)}${locFilter})`
+    : undefined
+}
+
 function parseHasManyOpCondition(
   table: DynamicTable,
   junctionTable: JunctionTable,
   op: string,
   val: unknown,
+  localeCtx?: ResolvedLocaleContext,
 ): SQL | undefined {
   if (val === undefined || val === null) return undefined
-  if (op === 'equals') {
-    const id = Number(val)
-    return Number.isNaN(id)
-      ? undefined
-      : sql`${table.id} IN (SELECT ${junctionTable.parentId} FROM ${junctionTable} WHERE ${junctionTable.targetId} = ${id})`
-  }
-  if (op === 'not_equals') {
-    const id = Number(val)
-    return Number.isNaN(id)
-      ? undefined
-      : sql`${table.id} NOT IN (SELECT ${junctionTable.parentId} FROM ${junctionTable} WHERE ${junctionTable.targetId} = ${id})`
-  }
-  if (op === 'in') {
-    const arr = Array.isArray(val) ? val : [val]
-    const ids = arr.map(Number).filter((n) => !Number.isNaN(n))
-    return ids.length > 0
-      ? sql`${table.id} IN (SELECT ${junctionTable.parentId} FROM ${junctionTable} WHERE ${inArray(junctionTable.targetId, ids)})`
-      : undefined
-  }
+  const locFilter = resolveJunctionLocaleFilter(junctionTable, localeCtx)
+
+  if (op === 'equals') return buildHasManyEquals(table, junctionTable, val, locFilter, false)
+  if (op === 'not_equals') return buildHasManyEquals(table, junctionTable, val, locFilter, true)
+  if (op === 'in') return buildHasManyIn(table, junctionTable, val, locFilter)
   return undefined
 }
 
@@ -550,16 +630,17 @@ function parseHasManyConditions(
   table: DynamicTable,
   junctionTable: JunctionTable | undefined,
   filter: unknown,
+  localeCtx?: ResolvedLocaleContext,
 ): SQL[] {
   if (!junctionTable) return []
   if (filter === null || typeof filter !== 'object') {
-    const cond = parseHasManyOpCondition(table, junctionTable, 'equals', filter)
+    const cond = parseHasManyOpCondition(table, junctionTable, 'equals', filter, localeCtx)
     return cond ? [cond] : []
   }
 
   const conditions: SQL[] = []
   for (const [op, rawVal] of Object.entries(filter as Record<string, unknown>)) {
-    const cond = parseHasManyOpCondition(table, junctionTable, op, rawVal)
+    const cond = parseHasManyOpCondition(table, junctionTable, op, rawVal, localeCtx)
     if (cond) conditions.push(cond)
   }
   return conditions
@@ -605,12 +686,15 @@ function parseGroupConditions(
   junctionTables: Record<string, JunctionTable>,
   fieldName: string,
   filter: Record<string, unknown>,
+  localeCtx?: ResolvedLocaleContext,
 ): SQL[] {
   const conditions: SQL[] = []
   for (const [subName, subVal] of Object.entries(filter)) {
     if (subVal === undefined) continue
     const nestedPath = `${fieldName}.${subName}`
-    conditions.push(...parseFieldConditions(collection, table, junctionTables, nestedPath, subVal))
+    conditions.push(
+      ...parseFieldConditions(collection, table, junctionTables, nestedPath, subVal, localeCtx),
+    )
   }
   return conditions
 }
@@ -786,23 +870,69 @@ function getTopKey(fieldName: string): string {
   return fieldName.split(/\.|__/)[0] ?? fieldName
 }
 
+function resolveTargetLocale(localeCtx?: ResolvedLocaleContext): string | undefined {
+  return localeCtx?.requestedLocale && !localeCtx.isAll
+    ? localeCtx.requestedLocale
+    : localeCtx?.defaultLocale
+}
+
+function resolveJsonArrayColumn(
+  table: DynamicTable,
+  topKey: string,
+  topField: Field,
+  loc?: string,
+): PgColumn | undefined {
+  const topColName = topField.localized && loc ? `${topKey}_${loc}` : topKey
+  if (!Object.hasOwn(table, topColName)) return undefined
+  return table[topColName]
+}
+
+function resolveSubFieldJsonPathInfo(
+  collection: CollectionConfig,
+  fieldName: string,
+  pathInfo: JsonPathInfo,
+  loc?: string,
+): JsonPathInfo {
+  const subField = resolveField(collection.fields, fieldName)
+  if (subField?.localized && loc) {
+    return {
+      ...pathInfo,
+      jsonPath: `${pathInfo.jsonPath}.${loc}`,
+      subSegments: [...pathInfo.subSegments, loc],
+    }
+  }
+  return pathInfo
+}
+
 function parseJsonFieldConditions(
   collection: CollectionConfig,
   table: DynamicTable,
   fieldName: string,
   filter: unknown,
+  localeCtx?: ResolvedLocaleContext,
 ): SQL[] | null {
   const topKey = getTopKey(fieldName)
   if (topKey === fieldName) return null
   const topField = collection.fields[topKey]
   if (topField?.type !== 'array' && topField?.type !== 'blocks') return null
 
-  if (!Object.hasOwn(table, topKey)) return []
-  const column = table[topKey]
+  const loc = resolveTargetLocale(localeCtx)
+  const column = resolveJsonArrayColumn(table, topKey, topField, loc)
   if (!column) return []
 
-  const pathInfo = resolveJsonPathInfo(topField, fieldName, topKey)
+  const basePathInfo = resolveJsonPathInfo(topField, fieldName, topKey)
+  const pathInfo = resolveSubFieldJsonPathInfo(collection, fieldName, basePathInfo, loc)
   return parseJsonArrayConditions(column, pathInfo, filter)
+}
+
+function resolveFilterColumnName(
+  collection: CollectionConfig,
+  fieldName: string,
+  loc?: string,
+): string {
+  const baseCol = fieldName.replace(/\./g, '__')
+  const isLoc = isPathLocalized(collection.fields, fieldName)
+  return isLoc && loc ? `${baseCol}_${loc}` : baseCol
 }
 
 function parseFieldConditions(
@@ -811,25 +941,25 @@ function parseFieldConditions(
   junctionTables: Record<string, JunctionTable>,
   fieldName: string,
   filter: unknown,
+  localeCtx?: ResolvedLocaleContext,
 ): SQL[] {
   const field = resolveField(collection.fields, fieldName)
   if (isContainerFilterObject(field, filter)) {
-    return parseGroupConditions(collection, table, junctionTables, fieldName, filter)
+    return parseGroupConditions(collection, table, junctionTables, fieldName, filter, localeCtx)
   }
 
-  const jsonConds = parseJsonFieldConditions(collection, table, fieldName, filter)
+  const jsonConds = parseJsonFieldConditions(collection, table, fieldName, filter, localeCtx)
   if (jsonConds !== null) {
     return jsonConds
   }
 
-  const colName = fieldName.replace(/\./g, '__')
+  const colName = resolveFilterColumnName(collection, fieldName, resolveTargetLocale(localeCtx))
   if (field?.type === 'relationship' && field.hasMany) {
-    const jTable = junctionTables[colName] || junctionTables[fieldName]
-    return parseHasManyConditions(table, jTable, filter)
+    const jTable = junctionTables[colName] ?? junctionTables[fieldName]
+    return parseHasManyConditions(table, jTable, filter, localeCtx)
   }
 
-  if (!Object.hasOwn(table, colName)) return []
-  const column = table[colName]
+  const column = Object.hasOwn(table, colName) ? table[colName] : undefined
   if (!column) return []
 
   return parseStandardColumnConditions(collection, column, fieldName, filter)
@@ -841,9 +971,10 @@ function resolveLogicalGroup(
   junctionTables: Record<string, JunctionTable>,
   group: Where[],
   combiner: (...conditions: SQL[]) => SQL | undefined,
+  localeCtx?: ResolvedLocaleContext,
 ): SQL | undefined {
   const clauses = group
-    .map((subWhere) => resolveWhere(collection, table, junctionTables, subWhere))
+    .map((subWhere) => resolveWhere(collection, table, junctionTables, subWhere, localeCtx))
     .filter((c): c is SQL => Boolean(c))
   return clauses.length > 0 ? combiner(...clauses) : undefined
 }
@@ -854,14 +985,15 @@ function resolveWhereEntry(
   junctionTables: Record<string, JunctionTable>,
   key: string,
   val: unknown,
+  localeCtx?: ResolvedLocaleContext,
 ): SQL | SQL[] | undefined {
   if (key === 'or' && Array.isArray(val)) {
-    return resolveLogicalGroup(collection, table, junctionTables, val as Where[], or)
+    return resolveLogicalGroup(collection, table, junctionTables, val as Where[], or, localeCtx)
   }
   if (key === 'and' && Array.isArray(val)) {
-    return resolveLogicalGroup(collection, table, junctionTables, val as Where[], and)
+    return resolveLogicalGroup(collection, table, junctionTables, val as Where[], and, localeCtx)
   }
-  return parseFieldConditions(collection, table, junctionTables, key, val)
+  return parseFieldConditions(collection, table, junctionTables, key, val, localeCtx)
 }
 
 function resolveWhere(
@@ -869,13 +1001,14 @@ function resolveWhere(
   table: DynamicTable,
   junctionTables: Record<string, JunctionTable>,
   where?: Where,
+  localeCtx?: ResolvedLocaleContext,
 ): SQL | undefined {
   if (!where || typeof where !== 'object') return undefined
 
   const clauses: SQL[] = []
   for (const [key, val] of Object.entries(where)) {
     if (val === undefined) continue
-    const resolved = resolveWhereEntry(collection, table, junctionTables, key, val)
+    const resolved = resolveWhereEntry(collection, table, junctionTables, key, val, localeCtx)
     if (Array.isArray(resolved)) {
       clauses.push(...resolved)
     } else if (resolved) {
@@ -902,17 +1035,28 @@ function defaultOrderBy(table: DynamicTable): SQL[] {
   return list
 }
 
-function explicitOrderBy(table: DynamicTable, sortItems: SortItem[]): SQL[] {
+function resolveSortColumnName(item: SortItem, collection: CollectionConfig, loc?: string): string {
+  const baseCol = item.field.replace(/\./g, '__')
+  const isLoc = isPathLocalized(collection.fields, item.field)
+  return isLoc && loc ? `${baseCol}_${loc}` : baseCol
+}
+
+function explicitOrderBy(
+  table: DynamicTable,
+  collection: CollectionConfig,
+  sortItems: SortItem[],
+  localeCtx?: ResolvedLocaleContext,
+): SQL[] {
   const orderByList: SQL[] = []
   let hasId = false
   let lastDirection: 'asc' | 'desc' = 'desc'
+  const loc = resolveTargetLocale(localeCtx)
 
   for (const item of sortItems) {
-    const colName = item.field.replace(/\./g, '__')
+    const colName = resolveSortColumnName(item, collection, loc)
     if (colName === 'id') hasId = true
     lastDirection = item.direction
-    if (!Object.hasOwn(table, colName)) continue
-    const column = table[colName]
+    const column = Object.hasOwn(table, colName) ? table[colName] : undefined
     if (column) {
       orderByList.push(
         item.direction === 'desc'
@@ -933,12 +1077,17 @@ function explicitOrderBy(table: DynamicTable, sortItems: SortItem[]): SQL[] {
   return orderByList
 }
 
-function resolveOrderBy(table: DynamicTable, sort?: string | SortItem[]): SQL[] {
+function resolveOrderBy(
+  table: DynamicTable,
+  collection: CollectionConfig,
+  sort?: string | SortItem[],
+  localeCtx?: ResolvedLocaleContext,
+): SQL[] {
   const sortItems = normalizeSortItems(sort)
   if (sortItems.length === 0) {
     return defaultOrderBy(table)
   }
-  return explicitOrderBy(table, sortItems)
+  return explicitOrderBy(table, collection, sortItems, localeCtx)
 }
 
 interface AdapterCaches {
@@ -947,20 +1096,30 @@ interface AdapterCaches {
   versionsTableCache: Map<string, VersionsTable>
 }
 
-function getTable(caches: AdapterCaches, collection: CollectionConfig): DynamicTable {
-  let table = caches.tableCache.get(collection.slug)
+function getTable(
+  caches: AdapterCaches,
+  collection: CollectionConfig,
+  localization?: LocalizationConfig,
+): DynamicTable {
+  const cacheKey = `${collection.slug}:${localization ? getLocaleCodes(localization).join(',') : ''}`
+  let table = caches.tableCache.get(cacheKey)
   if (!table) {
-    table = collectionToTable(collection)
-    caches.tableCache.set(collection.slug, table)
+    table = collectionToTable(collection, localization)
+    caches.tableCache.set(cacheKey, table)
   }
   return table
 }
 
-function getGlobalTable(caches: AdapterCaches, global: GlobalConfig): DynamicTable {
-  let table = caches.tableCache.get(global.slug)
+function getGlobalTable(
+  caches: AdapterCaches,
+  global: GlobalConfig,
+  localization?: LocalizationConfig,
+): DynamicTable {
+  const cacheKey = `${global.slug}:${localization ? getLocaleCodes(localization).join(',') : ''}`
+  let table = caches.tableCache.get(cacheKey)
   if (!table) {
-    table = globalToTable(global)
-    caches.tableCache.set(global.slug, table)
+    table = globalToTable(global, localization)
+    caches.tableCache.set(cacheKey, table)
   }
   return table
 }
@@ -968,6 +1127,7 @@ function getGlobalTable(caches: AdapterCaches, global: GlobalConfig): DynamicTab
 function getEntityVersionsTable(
   caches: AdapterCaches,
   args: { collection?: CollectionConfig; global?: GlobalConfig },
+  localization?: LocalizationConfig,
 ): VersionsTable {
   const target = args.collection ?? args.global
   if (!target) {
@@ -977,8 +1137,8 @@ function getEntityVersionsTable(
   let table = caches.versionsTableCache.get(versionsSlug)
   if (!table) {
     const parentTable = args.collection
-      ? getTable(caches, args.collection)
-      : getGlobalTable(caches, args.global!)
+      ? getTable(caches, args.collection, localization)
+      : getGlobalTable(caches, args.global!, localization)
     const isUpload = Boolean(args.collection?.upload)
     table = createVersionsTable(target.slug, parentTable, isUpload)
     caches.versionsTableCache.set(versionsSlug, table)
@@ -998,12 +1158,86 @@ function getJunctionTables(
   return tables
 }
 
-async function syncSingleHasManyRelation(
+async function syncLocalizedAllLocales(
   executor: DbExecutor,
   jTable: JunctionTable,
   parentId: number,
   targetIds: unknown,
 ): Promise<void> {
+  if (typeof targetIds !== 'object' || targetIds === null || Array.isArray(targetIds)) {
+    return
+  }
+  for (const [loc, ids] of Object.entries(targetIds as Record<string, unknown>)) {
+    await executor
+      .delete(jTable)
+      .where(and(eq(jTable.parentId, parentId), eq(jTable._locale!, loc)))
+    if (!Array.isArray(ids) || ids.length === 0) continue
+    const rows = ids
+      .map((tid, index) => ({
+        parentId,
+        targetId: Number(tid),
+        _locale: loc,
+        order: index,
+      }))
+      .filter((row) => !Number.isNaN(row.targetId))
+    if (rows.length > 0) {
+      await executor.insert(jTable).values(rows)
+    }
+  }
+}
+
+async function syncLocalizedSingleLocale(
+  executor: DbExecutor,
+  jTable: JunctionTable,
+  parentId: number,
+  targetIds: unknown,
+  loc: string,
+): Promise<void> {
+  await executor.delete(jTable).where(and(eq(jTable.parentId, parentId), eq(jTable._locale!, loc)))
+  if (!Array.isArray(targetIds) || targetIds.length === 0) return
+  const rows = targetIds
+    .map((tid, index) => ({
+      parentId,
+      targetId: Number(tid),
+      _locale: loc,
+      order: index,
+    }))
+    .filter((row) => !Number.isNaN(row.targetId))
+  if (rows.length > 0) {
+    await executor.insert(jTable).values(rows)
+  }
+}
+
+async function syncLocalizedJunctionRelation(
+  executor: DbExecutor,
+  jTable: JunctionTable,
+  parentId: number,
+  targetIds: unknown,
+  localeCtx: ResolvedLocaleContext,
+): Promise<void> {
+  if (localeCtx.isAll) {
+    await syncLocalizedAllLocales(executor, jTable, parentId, targetIds)
+    return
+  }
+  const loc = localeCtx.requestedLocale
+  if (loc) {
+    await syncLocalizedSingleLocale(executor, jTable, parentId, targetIds, loc)
+  }
+}
+
+async function syncSingleHasManyRelation(
+  executor: DbExecutor,
+  jTable: JunctionTable,
+  parentId: number,
+  targetIds: unknown,
+  localeCtx?: ResolvedLocaleContext,
+): Promise<void> {
+  const isLocalized = Boolean(jTable._locale)
+  if (isLocalized && localeCtx) {
+    await syncLocalizedJunctionRelation(executor, jTable, parentId, targetIds, localeCtx)
+    return
+  }
+
   await executor.delete(jTable).where(eq(jTable.parentId, parentId))
   if (!Array.isArray(targetIds) || targetIds.length === 0) return
 
@@ -1046,7 +1280,7 @@ function extractRelationData(data: DocumentData, name: string): unknown {
   return cur
 }
 
-function setTargetRelationIds(doc: StoredDoc, fieldName: string, ids: number[]): void {
+function setTargetRelationIds(doc: StoredDoc, fieldName: string, ids: unknown): void {
   if (!fieldName.includes('__')) {
     doc[fieldName] = ids
     return
@@ -1085,12 +1319,114 @@ async function syncHasManyRelations(
   collection: CollectionConfig,
   parentId: number,
   data: DocumentData,
+  localeCtx?: ResolvedLocaleContext,
 ): Promise<void> {
   const junctionTables = getJunctionTables(caches, collection)
   for (const [name, jTable] of Object.entries(junctionTables)) {
     const val = extractRelationData(data, name)
     if (val !== undefined) {
-      await syncSingleHasManyRelation(executor, jTable, parentId, val)
+      await syncSingleHasManyRelation(executor, jTable, parentId, val, localeCtx)
+    }
+  }
+}
+
+async function populateLocalizedHasManyAll(
+  executor: DbExecutor,
+  jTable: JunctionTable,
+  docs: StoredDoc[],
+  fieldName: string,
+  parentIds: number[],
+  allLocales: readonly string[],
+): Promise<void> {
+  for (const doc of docs) {
+    const dict: Record<string, number[]> = {}
+    for (const loc of allLocales) {
+      dict[loc] = []
+    }
+    setTargetRelationIds(doc, fieldName, dict)
+  }
+  const rows = (await executor
+    .select({
+      parentId: jTable.parentId,
+      targetId: jTable.targetId,
+      _locale: jTable._locale!,
+    })
+    .from(jTable)
+    .where(inArray(jTable.parentId, parentIds))
+    .orderBy(asc(jTable.order))) as Array<{ parentId: number; targetId: number; _locale: string }>
+
+  for (const row of rows) {
+    const doc = docs.find((d) => d.id === row.parentId)
+    if (doc) {
+      const dict = doc[fieldName] as Record<string, number[]> | undefined
+      const list = dict?.[row._locale]
+      if (Array.isArray(list)) {
+        list.push(row.targetId)
+      }
+    }
+  }
+}
+
+async function populateLocalizedHasManySingle(
+  executor: DbExecutor,
+  jTable: JunctionTable,
+  docs: StoredDoc[],
+  fieldName: string,
+  parentIds: number[],
+  localeCtx: ResolvedLocaleContext,
+): Promise<void> {
+  for (const doc of docs) {
+    setTargetRelationIds(doc, fieldName, [])
+  }
+  const reqLocale = localeCtx.requestedLocale!
+  const locsToFetch = [reqLocale]
+  if (localeCtx.fallbackLocale && localeCtx.fallbackLocale !== reqLocale) {
+    locsToFetch.push(localeCtx.fallbackLocale)
+  }
+  const rows = (await executor
+    .select({
+      parentId: jTable.parentId,
+      targetId: jTable.targetId,
+      _locale: jTable._locale!,
+    })
+    .from(jTable)
+    .where(and(inArray(jTable.parentId, parentIds), inArray(jTable._locale!, locsToFetch)))
+    .orderBy(asc(jTable.order))) as Array<{ parentId: number; targetId: number; _locale: string }>
+
+  for (const doc of docs) {
+    const reqList = rows
+      .filter((r) => r.parentId === doc.id && r._locale === reqLocale)
+      .map((r) => r.targetId)
+    if (
+      reqList.length === 0 &&
+      localeCtx.fallbackLocale &&
+      localeCtx.fallbackLocale !== reqLocale
+    ) {
+      const fbList = rows
+        .filter((r) => r.parentId === doc.id && r._locale === localeCtx.fallbackLocale)
+        .map((r) => r.targetId)
+      setTargetRelationIds(doc, fieldName, fbList)
+    } else {
+      setTargetRelationIds(doc, fieldName, reqList)
+    }
+  }
+}
+
+async function populateStandardHasMany(
+  executor: DbExecutor,
+  jTable: JunctionTable,
+  docs: StoredDoc[],
+  fieldName: string,
+  parentIds: number[],
+): Promise<void> {
+  for (const doc of docs) {
+    setTargetRelationIds(doc, fieldName, [])
+  }
+  const rows = await fetchJunctionRows(executor, jTable, parentIds)
+  for (const row of rows) {
+    const doc = docs.find((d) => d.id === row.parentId)
+    if (doc) {
+      pushTargetRelationId(doc, fieldName, row.targetId)
     }
   }
 }
@@ -1100,6 +1436,7 @@ async function populateHasManyRelations(
   caches: AdapterCaches,
   collection: CollectionConfig,
   docs: StoredDoc[],
+  localeCtx?: ResolvedLocaleContext,
 ): Promise<void> {
   if (docs.length === 0) return
   const junctionTables = getJunctionTables(caches, collection)
@@ -1109,15 +1446,23 @@ async function populateHasManyRelations(
   const parentIds = docs.map((d) => d.id)
 
   for (const [fieldName, jTable] of junctionEntries) {
-    for (const doc of docs) {
-      setTargetRelationIds(doc, fieldName, [])
+    const isLocalized = Boolean(jTable._locale)
+    if (!isLocalized || (!localeCtx?.requestedLocale && !localeCtx?.isAll)) {
+      await populateStandardHasMany(executor, jTable, docs, fieldName, parentIds)
+      continue
     }
-    const rows = await fetchJunctionRows(executor, jTable, parentIds)
-    for (const row of rows) {
-      const doc = docs.find((d) => d.id === row.parentId)
-      if (doc) {
-        pushTargetRelationId(doc, fieldName, row.targetId)
-      }
+
+    if (localeCtx.isAll) {
+      await populateLocalizedHasManyAll(
+        executor,
+        jTable,
+        docs,
+        fieldName,
+        parentIds,
+        localeCtx.allLocales,
+      )
+    } else {
+      await populateLocalizedHasManySingle(executor, jTable, docs, fieldName, parentIds, localeCtx)
     }
   }
 }
@@ -1128,15 +1473,20 @@ async function findDocByID(
   collection: CollectionConfig,
   id: number,
   forUpdate?: boolean,
+  localeCtx?: ResolvedLocaleContext,
+  localization?: LocalizationConfig,
 ): Promise<StoredDoc | null> {
   try {
-    const table = getTable(caches, collection)
+    const table = getTable(caches, collection, localization)
     const baseQuery = executor.select().from(table).where(eq(table.id, id)).limit(1)
     const query = forUpdate ? baseQuery.for('update') : baseQuery
     const [row] = (await query) as [Record<string, unknown> | undefined]
     if (!row) return null
-    const doc = toStoredDoc(row, collection.fields)
-    await populateHasManyRelations(executor, caches, collection, [doc])
+    const doc =
+      localeCtx && localeCtx.allLocales.length > 0
+        ? projectStoredDoc(row, collection.fields, localeCtx)
+        : toStoredDoc(row, collection.fields)
+    await populateHasManyRelations(executor, caches, collection, [doc], localeCtx)
     return doc
   } catch (err) {
     handleDatabaseError(err, toErrorContext(collection))
@@ -1148,18 +1498,22 @@ async function createDoc(
   caches: AdapterCaches,
   collection: CollectionConfig,
   data: DocumentData,
+  localeCtx?: ResolvedLocaleContext,
+  localization?: LocalizationConfig,
 ): Promise<StoredDoc> {
   try {
     return await executor.transaction(async (tx) => {
-      const table = getTable(caches, collection)
-      const values = sanitizeData(collection, data) as unknown as InsertValues
+      const table = getTable(caches, collection, localization)
+      const values = (localeCtx && localeCtx.allLocales.length > 0
+        ? sanitizeDataWithLocale(collection.fields, data, localeCtx)
+        : sanitizeData(collection, data)) as unknown as InsertValues
       const [inserted] = (await tx
         .insert(table)
         .values(values)
         .returning({ id: table.id })) as unknown as [{ id: number }]
       const id = Number(inserted.id)
-      await syncHasManyRelations(tx, caches, collection, id, data)
-      const created = await findDocByID(tx, caches, collection, id)
+      await syncHasManyRelations(tx, caches, collection, id, data, localeCtx)
+      const created = await findDocByID(tx, caches, collection, id, false, localeCtx, localization)
       if (!created) {
         throw new Error(`Failed to retrieve created document in collection "${collection.slug}".`)
       }
@@ -1176,20 +1530,24 @@ async function updateDoc(
   collection: CollectionConfig,
   id: number,
   data: DocumentData,
+  localeCtx?: ResolvedLocaleContext,
+  localization?: LocalizationConfig,
 ): Promise<StoredDoc | null> {
   try {
     return await executor.transaction(async (tx) => {
-      const existing = await findDocByID(tx, caches, collection, id, true)
+      const existing = await findDocByID(tx, caches, collection, id, true, undefined, localization)
       if (!existing) return null
 
-      const table = getTable(caches, collection)
+      const table = getTable(caches, collection, localization)
       const values = {
-        ...sanitizeData(collection, data),
+        ...(localeCtx && localeCtx.allLocales.length > 0
+          ? sanitizeDataWithLocale(collection.fields, data, localeCtx, existing)
+          : sanitizeData(collection, data)),
         updatedAt: new Date(),
       } as unknown as UpdateSetValues
       await tx.update(table).set(values).where(eq(table.id, id))
-      await syncHasManyRelations(tx, caches, collection, id, data)
-      return findDocByID(tx, caches, collection, id)
+      await syncHasManyRelations(tx, caches, collection, id, data, localeCtx)
+      return findDocByID(tx, caches, collection, id, false, localeCtx, localization)
     })
   } catch (err) {
     handleDatabaseError(err, toErrorContext(collection))
@@ -1201,10 +1559,12 @@ async function removeDoc(
   caches: AdapterCaches,
   collection: CollectionConfig,
   id: number,
+  localeCtx?: ResolvedLocaleContext,
+  localization?: LocalizationConfig,
 ): Promise<StoredDoc | null> {
   try {
     return await executor.transaction(async (tx) => {
-      const existing = await findDocByID(tx, caches, collection, id)
+      const existing = await findDocByID(tx, caches, collection, id, false, localeCtx, localization)
       if (!existing) return null
 
       const junctionTables = getJunctionTables(caches, collection)
@@ -1212,7 +1572,7 @@ async function removeDoc(
         await tx.delete(jTable).where(eq(jTable.parentId, id))
       }
 
-      const table = getTable(caches, collection)
+      const table = getTable(caches, collection, localization)
       await tx.delete(table).where(eq(table.id, id))
       return existing
     })
@@ -1248,12 +1608,14 @@ function buildFindDocsQuery(
   sort: string | SortItem[] | undefined,
   safeLimit: number,
   offset: number,
+  collection: CollectionConfig,
+  localeCtx?: ResolvedLocaleContext,
 ) {
   const query = executor.select().from(table)
   if (whereSql) {
     query.where(whereSql)
   }
-  const orderByList = resolveOrderBy(table, sort)
+  const orderByList = resolveOrderBy(table, collection, sort, localeCtx)
   if (orderByList.length > 0) {
     query.orderBy(...orderByList)
   }
@@ -1266,23 +1628,43 @@ function buildFindDocsQuery(
 async function findDocs(
   executor: DbExecutor,
   caches: AdapterCaches,
-  { collection, limit, page, sort, where, overrideLimit }: FindArgs,
+  args: FindArgs,
+  localization?: LocalizationConfig,
 ): Promise<PaginatedDocs> {
   try {
-    const table = getTable(caches, collection)
+    const collection = args.collection
+    const localeCtx = resolveLocaleContext(localization, args.locale, args.fallbackLocale)
+    const table = getTable(caches, collection, localization)
     const junctionTables = getJunctionTables(caches, collection)
-    const safeLimit = computeSafeLimit(limit, collection.pagination?.maxLimit, overrideLimit)
-    const safePage = Math.max(1, page)
+    const safeLimit = computeSafeLimit(
+      args.limit,
+      collection.pagination?.maxLimit,
+      args.overrideLimit,
+    )
+    const safePage = Math.max(1, args.page)
     const offset = (safePage - 1) * safeLimit
-    const whereSql = resolveWhere(collection, table, junctionTables, where)
+    const whereSql = resolveWhere(collection, table, junctionTables, args.where, localeCtx)
 
     const totalDocs = await countMatchingDocs(executor, table, whereSql)
     const totalPages = safeLimit === 0 ? 1 : Math.ceil(totalDocs / safeLimit)
 
-    const query = buildFindDocsQuery(executor, table, whereSql, sort, safeLimit, offset)
+    const query = buildFindDocsQuery(
+      executor,
+      table,
+      whereSql,
+      args.sort,
+      safeLimit,
+      offset,
+      collection,
+      localeCtx,
+    )
     const rows = (await query) as Record<string, unknown>[]
-    const docs = rows.map((r) => toStoredDoc(r, collection.fields))
-    await populateHasManyRelations(executor, caches, collection, docs)
+    const docs = rows.map((r) =>
+      localeCtx.allLocales.length > 0
+        ? projectStoredDoc(r, collection.fields, localeCtx)
+        : toStoredDoc(r, collection.fields),
+    )
+    await populateHasManyRelations(executor, caches, collection, docs, localeCtx)
     return {
       docs,
       totalDocs,
@@ -1291,7 +1673,7 @@ async function findDocs(
       totalPages,
     }
   } catch (err) {
-    handleDatabaseError(err, toErrorContext(collection))
+    handleDatabaseError(err, toErrorContext(args.collection))
   }
 }
 
@@ -1300,13 +1682,18 @@ async function findGlobalDoc(
   caches: AdapterCaches,
   global: GlobalConfig,
   forUpdate?: boolean,
+  localeCtx?: ResolvedLocaleContext,
+  localization?: LocalizationConfig,
 ): Promise<StoredDoc | null> {
   try {
-    const table = getGlobalTable(caches, global)
+    const table = getGlobalTable(caches, global, localization)
     const baseQuery = executor.select().from(table).limit(1)
     const query = forUpdate ? baseQuery.for('update') : baseQuery
     const [row] = (await query) as [Record<string, unknown> | undefined]
-    return row ? toStoredDoc(row, global.fields) : null
+    if (!row) return null
+    return localeCtx && localeCtx.allLocales.length > 0
+      ? projectStoredDoc(row, global.fields, localeCtx)
+      : toStoredDoc(row, global.fields)
   } catch (err) {
     handleDatabaseError(err, toErrorContext(global))
   }
@@ -1317,12 +1704,17 @@ async function updateGlobalDoc(
   caches: AdapterCaches,
   global: GlobalConfig,
   data: DocumentData,
+  localeCtx?: ResolvedLocaleContext,
+  localization?: LocalizationConfig,
 ): Promise<StoredDoc> {
   try {
     return await executor.transaction(async (tx) => {
-      const table = getGlobalTable(caches, global)
-      const existing = await findGlobalDoc(tx, caches, global, true)
-      const values = sanitizeData(global, data)
+      const table = getGlobalTable(caches, global, localization)
+      const existing = await findGlobalDoc(tx, caches, global, true, undefined, localization)
+      const values =
+        localeCtx && localeCtx.allLocales.length > 0
+          ? sanitizeDataWithLocale(global.fields, data, localeCtx, existing ?? undefined)
+          : sanitizeData(global, data)
 
       if (existing) {
         const setValues = {
@@ -1338,7 +1730,7 @@ async function updateGlobalDoc(
         await tx.insert(table).values(insertValues)
       }
 
-      const updated = await findGlobalDoc(tx, caches, global)
+      const updated = await findGlobalDoc(tx, caches, global, false, localeCtx, localization)
       if (!updated) {
         throw new Error(`Failed to retrieve global "${global.slug}".`)
       }
@@ -1493,17 +1885,18 @@ async function saveVersion(
   executor: DbExecutor,
   caches: AdapterCaches,
   args: SaveVersionArgs,
+  localization?: LocalizationConfig,
 ): Promise<StoredVersion> {
   const target = args.collection ?? args.global!
   const parentId = args.parentId ?? 1
   try {
     const parentTable = args.collection
-      ? getTable(caches, args.collection)
-      : getGlobalTable(caches, args.global!)
+      ? getTable(caches, args.collection, localization)
+      : getGlobalTable(caches, args.global!, localization)
 
     await executor.select().from(parentTable).where(eq(parentTable.id, parentId)).for('update')
 
-    const vTable = getEntityVersionsTable(caches, args)
+    const vTable = getEntityVersionsTable(caches, args, localization)
     const maxPerDoc = target.versions?.maxPerDoc ?? DEFAULT_MAX_PER_DOC
 
     const autosaveResult = await tryUpdateAutosave(executor, vTable, { ...args, parentId })
@@ -1580,11 +1973,12 @@ async function findVersions(
   executor: DbExecutor,
   caches: AdapterCaches,
   args: FindVersionsArgs,
+  localization?: LocalizationConfig,
 ): Promise<PaginatedVersions> {
   const target = args.collection ?? args.global!
   try {
     const parentId = args.parentId ?? 1
-    const vTable = getEntityVersionsTable(caches, args)
+    const vTable = getEntityVersionsTable(caches, args, localization)
     const page = Math.max(1, args.page ?? 1)
     const limit = args.limit ?? DEFAULT_LIMIT
     const offset = (page - 1) * limit
@@ -1628,11 +2022,12 @@ async function findVersionByID(
     parentId?: number
     versionId: number
   },
+  localization?: LocalizationConfig,
 ): Promise<StoredVersion | null> {
   const target = args.collection ?? args.global!
   try {
     const parentId = args.parentId ?? 1
-    const vTable = getEntityVersionsTable(caches, args)
+    const vTable = getEntityVersionsTable(caches, args, localization)
     const rows = await executor
       .select()
       .from(vTable)
@@ -1651,11 +2046,12 @@ async function findLatestDraftVersion(
   executor: DbExecutor,
   caches: AdapterCaches,
   args: { collection?: CollectionConfig; global?: GlobalConfig; parentId?: number },
+  localization?: LocalizationConfig,
 ): Promise<StoredVersion | null> {
   const target = args.collection ?? args.global!
   try {
     const parentId = args.parentId ?? 1
-    const vTable = getEntityVersionsTable(caches, args)
+    const vTable = getEntityVersionsTable(caches, args, localization)
     const rows = await executor
       .select()
       .from(vTable)
@@ -1680,9 +2076,10 @@ async function hasVersionWithFilename(
   caches: AdapterCaches,
   collection: CollectionConfig,
   filename: string,
+  localization?: LocalizationConfig,
 ): Promise<boolean> {
   try {
-    const vTable = getEntityVersionsTable(caches, { collection })
+    const vTable = getEntityVersionsTable(caches, { collection }, localization)
     const result = await executor
       .select({ id: vTable.id })
       .from(vTable)
@@ -1698,29 +2095,54 @@ function createDatabaseOperations(
   executor: DbExecutor,
   caches: AdapterCaches,
   authAdapter?: unknown,
+  getLocalization?: () => LocalizationConfig | undefined,
 ): DatabaseAdapter {
   return {
     name: 'postgres',
     dialect: 'postgresql',
     authAdapter,
-    find: (args) => findDocs(executor, caches, args),
-    findByID: ({ collection, id, forUpdate }) =>
-      findDocByID(executor, caches, collection, id, forUpdate),
-    create: ({ collection, data }) => createDoc(executor, caches, collection, data),
-    update: ({ collection, id, data }) => updateDoc(executor, caches, collection, id, data),
-    delete: ({ collection, id }) => removeDoc(executor, caches, collection, id),
-    findGlobal: ({ global, forUpdate }) => findGlobalDoc(executor, caches, global, forUpdate),
-    updateGlobal: ({ global, data }) => updateGlobalDoc(executor, caches, global, data),
-    saveVersion: (args) => saveVersion(executor, caches, args),
-    findVersions: (args) => findVersions(executor, caches, args),
-    findVersionByID: (args) => findVersionByID(executor, caches, args),
-    findLatestDraftVersion: (args) => findLatestDraftVersion(executor, caches, args),
+    find: (args) => findDocs(executor, caches, args, getLocalization?.()),
+    findByID: ({ collection, id, forUpdate, locale, fallbackLocale }) => {
+      const locConfig = getLocalization?.()
+      const localeCtx = resolveLocaleContext(locConfig, locale, fallbackLocale)
+      return findDocByID(executor, caches, collection, id, forUpdate, localeCtx, locConfig)
+    },
+    create: ({ collection, data, locale }) => {
+      const locConfig = getLocalization?.()
+      const localeCtx = resolveLocaleContext(locConfig, locale)
+      return createDoc(executor, caches, collection, data, localeCtx, locConfig)
+    },
+    update: ({ collection, id, data, locale }) => {
+      const locConfig = getLocalization?.()
+      const localeCtx = resolveLocaleContext(locConfig, locale)
+      return updateDoc(executor, caches, collection, id, data, localeCtx, locConfig)
+    },
+    delete: ({ collection, id, locale }) => {
+      const locConfig = getLocalization?.()
+      const localeCtx = resolveLocaleContext(locConfig, locale)
+      return removeDoc(executor, caches, collection, id, localeCtx, locConfig)
+    },
+    findGlobal: ({ global, draft: _draft, forUpdate, locale, fallbackLocale }) => {
+      const locConfig = getLocalization?.()
+      const localeCtx = resolveLocaleContext(locConfig, locale, fallbackLocale)
+      return findGlobalDoc(executor, caches, global, forUpdate, localeCtx, locConfig)
+    },
+    updateGlobal: ({ global, data, locale }) => {
+      const locConfig = getLocalization?.()
+      const localeCtx = resolveLocaleContext(locConfig, locale)
+      return updateGlobalDoc(executor, caches, global, data, localeCtx, locConfig)
+    },
+    saveVersion: (args) => saveVersion(executor, caches, args, getLocalization?.()),
+    findVersions: (args) => findVersions(executor, caches, args, getLocalization?.()),
+    findVersionByID: (args) => findVersionByID(executor, caches, args, getLocalization?.()),
+    findLatestDraftVersion: (args) =>
+      findLatestDraftVersion(executor, caches, args, getLocalization?.()),
     pruneVersions: (args) => {
       const target = args.collection ?? args.global!
       try {
         return pruneVersionsInternal(
           executor,
-          getEntityVersionsTable(caches, args),
+          getEntityVersionsTable(caches, args, getLocalization?.()),
           args.parentId ?? 1,
           args.maxPerDoc,
         )
@@ -1729,12 +2151,23 @@ function createDatabaseOperations(
       }
     },
     hasVersionWithFilename: (args) =>
-      hasVersionWithFilename(executor, caches, args.collection, args.filename),
+      hasVersionWithFilename(executor, caches, args.collection, args.filename, getLocalization?.()),
     async transaction<T>(cb: (txDb: DatabaseAdapter) => Promise<T>): Promise<T> {
       try {
         return await executor.transaction(async (tx) => {
-          const txOps = createDatabaseOperations(tx, caches, authAdapter)
-          return await cb(txOps)
+          const txOps = createDatabaseOperations(tx, caches, authAdapter, getLocalization)
+          const txAdapter: DatabaseAdapter = {
+            ...txOps,
+            get localization() {
+              return getLocalization?.()
+            },
+            set localization(loc: LocalizationConfig | undefined) {
+              if (getLocalization) {
+                // handled by outer scope
+              }
+            },
+          }
+          return await cb(txAdapter)
         })
       } catch (err) {
         handleDatabaseError(err)
@@ -1792,10 +2225,23 @@ export function postgresAdapter(options: PostgresAdapterOptions): PostgresAdapte
     versionsTableCache: new Map(),
   }
 
-  const ops = createDatabaseOperations(db, caches, authAdapter)
+  let currentLocalization = options.localization
+  const ops = createDatabaseOperations(db, caches, authAdapter, () => currentLocalization)
 
   return {
     ...ops,
+    get localization() {
+      return currentLocalization
+    },
+    set localization(loc: LocalizationConfig | undefined) {
+      currentLocalization = loc
+    },
+    toSchemaFile(config: Config): string {
+      if (config.localization) {
+        currentLocalization = config.localization
+      }
+      return generateSchemaFile(config)
+    },
     async migrate({ migrationsDir }: { migrationsDir: string }): Promise<void> {
       await migrate(db, { migrationsFolder: migrationsDir })
     },
