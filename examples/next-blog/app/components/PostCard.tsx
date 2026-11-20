@@ -3,6 +3,7 @@ import type { Category, Post } from '@/lontar-types'
 
 export interface PostCardProps {
   post: Post
+  locale?: string
 }
 
 function formatDate(dateStr?: string | null): string {
@@ -35,10 +36,13 @@ function getCategories(categories: Post['categories']): Category[] {
   return categories.filter((c): c is Category => typeof c === 'object' && c !== null)
 }
 
-export function PostCard({ post }: PostCardProps) {
+export function PostCard({ post, locale }: PostCardProps) {
   const cover = getCover(post.cover)
   const authorName = getAuthorName(post.author)
   const postCategories = getCategories(post.categories)
+  const postHref = locale
+    ? `/${locale}/posts/${post.slug || post.id}`
+    : `/posts/${post.slug || post.id}`
 
   return (
     <article
@@ -82,7 +86,11 @@ export function PostCard({ post }: PostCardProps) {
             {postCategories.map((c) => (
               <Link
                 key={c.id}
-                href={`/categories/${encodeURIComponent(c.slug || c.id)}`}
+                href={
+                  locale
+                    ? `/${locale}/categories/${encodeURIComponent(c.slug || c.id)}`
+                    : `/categories/${encodeURIComponent(c.slug || c.id)}`
+                }
                 style={{
                   fontSize: '0.75rem',
                   fontWeight: 600,
@@ -110,7 +118,7 @@ export function PostCard({ post }: PostCardProps) {
           }}
         >
           <Link
-            href={`/posts/${post.slug || post.id}`}
+            href={postHref}
             style={{
               color: '#0f172a',
               textDecoration: 'none',
@@ -119,6 +127,20 @@ export function PostCard({ post }: PostCardProps) {
             {post.title}
           </Link>
         </h2>
+
+        {post.excerpt && (
+          <p
+            data-testid="post-card-excerpt"
+            style={{
+              fontSize: '0.875rem',
+              color: '#64748b',
+              margin: '0 0 1rem',
+              lineHeight: 1.5,
+            }}
+          >
+            {post.excerpt}
+          </p>
+        )}
 
         <div
           style={{

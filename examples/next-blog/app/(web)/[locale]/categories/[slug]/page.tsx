@@ -3,13 +3,17 @@ import { notFound } from 'next/navigation'
 import type { Metadata } from 'next'
 import config from '@/lontar.config'
 import { getLontar } from '@lontar/core'
-import type { Category } from '@/lontar-types'
+import type { Category, Locale } from '@/lontar-types'
 import { PostCard } from '@/app/components/PostCard'
 
 export const dynamic = 'force-dynamic'
 
-interface CategoryPageProps {
-  params: Promise<{ slug: string }>
+function isValidLocale(loc: string): loc is Locale {
+  return loc === 'en' || loc === 'id'
+}
+
+interface LocaleCategoryPageProps {
+  params: Promise<{ locale: string; slug: string }>
 }
 
 async function getCategory(slug: string): Promise<Category | null> {
@@ -33,7 +37,7 @@ async function getCategory(slug: string): Promise<Category | null> {
   return null
 }
 
-export async function generateMetadata({ params }: CategoryPageProps): Promise<Metadata> {
+export async function generateMetadata({ params }: LocaleCategoryPageProps): Promise<Metadata> {
   const { slug } = await params
   const category = await getCategory(slug)
   if (!category) {
@@ -45,10 +49,13 @@ export async function generateMetadata({ params }: CategoryPageProps): Promise<M
   }
 }
 
-export default async function CategoryPage({ params }: CategoryPageProps) {
-  const { slug } = await params
-  const category = await getCategory(slug)
+export default async function LocaleCategoryPage({ params }: LocaleCategoryPageProps) {
+  const { locale, slug } = await params
+  if (!isValidLocale(locale)) {
+    notFound()
+  }
 
+  const category = await getCategory(slug)
   if (!category) {
     notFound()
   }
@@ -59,6 +66,7 @@ export default async function CategoryPage({ params }: CategoryPageProps) {
     limit: 50,
     depth: 1,
     overrideAccess: false,
+    locale,
   })
 
   const posts = docs.filter((p) => {
@@ -75,7 +83,7 @@ export default async function CategoryPage({ params }: CategoryPageProps) {
     <main style={{ maxWidth: '1040px', margin: '0 auto', padding: '2.5rem 1.5rem' }}>
       <div style={{ marginBottom: '2rem' }}>
         <Link
-          href="/"
+          href={`/${locale}`}
           style={{
             color: '#64748b',
             textDecoration: 'none',
@@ -104,30 +112,57 @@ export default async function CategoryPage({ params }: CategoryPageProps) {
         <h1
           data-testid="category-title"
           style={{
-            fontSize: '2.25rem',
+            fontSize: '2.5rem',
             fontWeight: 800,
+            letterSpacing: '-0.025em',
             margin: '0 0 0.5rem',
             color: '#0f172a',
           }}
         >
           {category.name}
         </h1>
-        <p style={{ color: '#64748b', margin: 0 }}>
+        <p style={{ color: '#64748b', margin: 0, fontSize: '1rem' }}>
           {posts.length} {posts.length === 1 ? 'article' : 'articles'} in this category
         </p>
       </header>
 
       {posts.length === 0 ? (
         <div
+          data-testid="no-posts"
           style={{
             textAlign: 'center',
-            padding: '3rem 2rem',
+            padding: '4rem 2rem',
             backgroundColor: '#ffffff',
             borderRadius: '12px',
             border: '1px solid #e2e8f0',
           }}
         >
-          <p style={{ color: '#64748b', margin: 0 }}>No published posts in this category yet.</p>
+          <h2
+            style={{
+              fontSize: '1.25rem',
+              fontWeight: 600,
+              color: '#334155',
+              margin: '0 0 0.5rem',
+            }}
+          >
+            No published posts in this category
+          </h2>
+          <Link
+            href={`/${locale}`}
+            style={{
+              display: 'inline-block',
+              marginTop: '1rem',
+              padding: '0.5rem 1rem',
+              backgroundColor: '#2563eb',
+              color: '#ffffff',
+              borderRadius: '6px',
+              textDecoration: 'none',
+              fontWeight: 500,
+              fontSize: '0.875rem',
+            }}
+          >
+            View all articles
+          </Link>
         </div>
       ) : (
         <div
@@ -138,7 +173,7 @@ export default async function CategoryPage({ params }: CategoryPageProps) {
           }}
         >
           {posts.map((post) => (
-            <PostCard key={post.id} post={post} />
+            <PostCard key={post.id} post={post} locale={locale} />
           ))}
         </div>
       )}

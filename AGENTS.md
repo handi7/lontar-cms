@@ -230,7 +230,7 @@ approval on the `npm` environment. Don't run `pnpm publish` by hand; see `docs/r
     - [x] Minor: #379 (done), #380 (done), #383 (done), #384 (done)
     - [x] Docs: #385 (done)
     - [x] Code review fixes from `main` @ b738d69: #412 (done), #413 (closed, intentional per #370), #414 (done), #415 (done)
-- [ ] **M11: Localization** (tracking in #149)
+- [x] **M11: Localization** (Done; tracking in #149)
   - [x] #420 `docs: ADR for localized content storage and the locale lifecycle`
   - [x] #421 `core: localization config and the localized field option`
   - [x] #422 `db: localized schema generation on both adapters`
@@ -241,8 +241,8 @@ approval on the `npm` environment. Don't run `pnpm publish` by hand; see `docs/r
   - [x] #427 `cli: localized types from generate:types`
   - [x] #428 `admin: locale switcher and localized edit forms`
   - [x] #429 `admin: active locale in list view, pickers, version compare and live preview`
-  - [ ] #430 `webhooks: locale in webhook payloads and preview URLs`
-  - [ ] #431 `examples/next-blog: two-locale blog with e2e`
+  - [x] #430 `webhooks: locale in webhook payloads and preview URLs`
+  - [x] #431 `examples/next-blog: two-locale blog with e2e`
 - [ ] **M12: Admin UX & extensibility** (tracking in #150)
 
 Update this section when a milestone or issue is done.
@@ -251,4 +251,5 @@ Update this section when a milestone or issue is done.
 
 - Before starting a milestone or any change touching more than one package, propose a plan and wait for approval.
 - Run typecheck and tests before declaring a task done.
+- When merging PRs into `main`, always use regular merge commits (`gh pr merge --merge`), never squash merge.
 - If something in this file, `README.md`, or `docs/` is unclear or contradicts itself, ask instead of guessing.

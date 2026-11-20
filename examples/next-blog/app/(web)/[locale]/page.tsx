@@ -1,12 +1,18 @@
 import Link from 'next/link'
+import { notFound } from 'next/navigation'
 import config from '@/lontar.config'
 import { getLontar } from '@lontar/core'
-import type { Category, Post } from '@/lontar-types'
+import type { Category, Locale, Post } from '@/lontar-types'
 import { PostCard } from '@/app/components/PostCard'
 
 export const dynamic = 'force-dynamic'
 
-interface HomePageProps {
+function isValidLocale(loc: string): loc is Locale {
+  return loc === 'en' || loc === 'id'
+}
+
+interface LocaleHomePageProps {
+  params: Promise<{ locale: string }>
   searchParams?: Promise<{ category?: string }>
 }
 
@@ -33,11 +39,14 @@ function filterPostsByCategory(
 function CategoryFilter({
   categories,
   activeCategory,
+  locale,
 }: {
   categories: Category[]
   activeCategory?: string
+  locale: string
 }) {
   if (categories.length === 0) return null
+  const baseHref = `/${locale}`
 
   return (
     <section
@@ -51,7 +60,7 @@ function CategoryFilter({
       }}
     >
       <Link
-        href="/"
+        href={baseHref}
         style={{
           padding: '0.4rem 0.85rem',
           borderRadius: '9999px',
@@ -69,7 +78,11 @@ function CategoryFilter({
         return (
           <Link
             key={cat.id}
-            href={isSelected ? '/' : `/?category=${encodeURIComponent(cat.slug || cat.id)}`}
+            href={
+              isSelected
+                ? baseHref
+                : `${baseHref}?category=${encodeURIComponent(cat.slug || cat.id)}`
+            }
             style={{
               padding: '0.4rem 0.85rem',
               borderRadius: '9999px',
@@ -127,7 +140,12 @@ function EmptyState({ activeCategory }: { activeCategory?: string }) {
   )
 }
 
-export default async function HomePage({ searchParams }: HomePageProps) {
+export default async function LocaleHomePage({ params, searchParams }: LocaleHomePageProps) {
+  const { locale } = await params
+  if (!isValidLocale(locale)) {
+    notFound()
+  }
+
   const resolvedParams = searchParams ? await searchParams : {}
   const activeCategory = resolvedParams.category
 
@@ -140,6 +158,7 @@ export default async function HomePage({ searchParams }: HomePageProps) {
       limit: 20,
       depth: 1,
       overrideAccess: false,
+      locale,
     }),
   ])
 
@@ -159,7 +178,7 @@ export default async function HomePage({ searchParams }: HomePageProps) {
             color: '#0f172a',
           }}
         >
-          Insights, Stories &amp; Tutorials
+          {locale === 'id' ? 'Wawasan, Cerita & Tutorial' : 'Insights, Stories & Tutorials'}
         </h1>
         <p
           style={{
@@ -170,12 +189,13 @@ export default async function HomePage({ searchParams }: HomePageProps) {
             lineHeight: 1.6,
           }}
         >
-          A blog powered by Lontar CMS. Content, relationships, rich text, and responsive media
-          served seamlessly through the Local API.
+          {locale === 'id'
+            ? 'Blog multibahasa ditenagai oleh Lontar CMS dengan dukungan lokalisasi penuh.'
+            : 'A blog powered by Lontar CMS. Content, relationships, rich text, and responsive media served seamlessly through the Local API.'}
         </p>
       </section>
 
-      <CategoryFilter categories={categories} activeCategory={activeCategory} />
+      <CategoryFilter categories={categories} activeCategory={activeCategory} locale={locale} />
 
       {posts.length === 0 ? (
         <EmptyState activeCategory={activeCategory} />
@@ -188,7 +208,7 @@ export default async function HomePage({ searchParams }: HomePageProps) {
           }}
         >
           {posts.map((post) => (
-            <PostCard key={post.id} post={post} />
+            <PostCard key={post.id} post={post} locale={locale} />
           ))}
         </div>
       )}

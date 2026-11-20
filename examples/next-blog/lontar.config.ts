@@ -72,7 +72,7 @@ const media = collection({
     delete: ({ user }) => isEditorOrAdmin(user),
   },
   fields: {
-    alt: f.text({ required: true }),
+    alt: f.text({ required: true, localized: true }),
   },
 })
 
@@ -87,7 +87,7 @@ const posts = collection({
     useAsTitle: 'title',
     defaultColumns: ['title', '_status', 'publishedAt'],
     preview: {
-      url: '/posts/{slug}?preview=1',
+      url: '/{locale}/posts/{slug}?preview=1',
     },
   },
   access: {
@@ -97,12 +97,13 @@ const posts = collection({
     delete: ({ user }) => isEditorOrAdmin(user),
   },
   fields: {
-    title: f.text({ required: true, maxLength: 120 }),
-    slug: f.slug({ from: 'title', unique: true }),
+    title: f.text({ required: true, maxLength: 120, localized: true }),
+    slug: f.slug({ from: 'title', unique: true, localized: true }),
     cover: f.upload({ relationTo: 'media' }),
     author: f.relationship({ relationTo: 'authors' }),
     categories: f.relationship({ relationTo: 'categories', hasMany: true }),
-    content: f.richText(),
+    excerpt: f.textarea({ localized: true }),
+    content: f.richText({ localized: true }),
     publishedAt: f.date({
       access: {
         create: ({ user }) => isEditorOrAdmin(user),
@@ -199,7 +200,7 @@ const pages = collection({
     useAsTitle: 'title',
     defaultColumns: ['title', 'slug', '_status', 'createdAt'],
     preview: {
-      url: '/{slug}?preview=1',
+      url: '/{locale}/{slug}?preview=1',
     },
   },
   access: {
@@ -209,9 +210,10 @@ const pages = collection({
     delete: ({ user }) => isAdmin(user),
   },
   fields: {
-    title: f.text({ required: true, maxLength: 120 }),
-    slug: f.slug({ from: 'title', unique: true }),
+    title: f.text({ required: true, maxLength: 120, localized: true }),
+    slug: f.slug({ from: 'title', unique: true, localized: true }),
     seo: f.group({
+      localized: true,
       fields: {
         metaTitle: f.text(),
         metaDescription: f.textarea(),
@@ -225,6 +227,7 @@ const pages = collection({
       },
     }),
     layout: f.blocks({
+      localized: true,
       blocks: [heroBlock, richTextBlock, galleryBlock, callToActionBlock],
     }),
   },
@@ -262,6 +265,14 @@ function getDatabaseAdapter() {
 }
 
 export default defineConfig({
+  localization: {
+    locales: [
+      { code: 'en', label: 'English' },
+      { code: 'id', label: 'Indonesian' },
+    ],
+    defaultLocale: 'en',
+    fallback: true,
+  },
   secret: process.env.LONTAR_SECRET || 'dev-secret-at-least-32-chars-long-12345',
   email: consoleEmailAdapter(),
   db: getDatabaseAdapter(),

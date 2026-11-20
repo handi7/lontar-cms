@@ -8,6 +8,7 @@ import { RichText } from '@/app/components/RichText'
 export interface PostLivePreviewProps {
   initialPost: Post
   serverUrl?: string
+  locale?: string
 }
 
 function formatDate(dateStr?: string | null): string {
@@ -146,7 +147,41 @@ function AuthorBio({ author }: { author?: Author | null }) {
   )
 }
 
-export function PostLivePreview({ initialPost, serverUrl }: PostLivePreviewProps) {
+function extractCoverMedia(cover: Post['cover']): Media | null {
+  return typeof cover === 'object' && cover !== null ? cover : null
+}
+
+function extractAuthor(author: Post['author']): Author | null {
+  return typeof author === 'object' && author !== null ? author : null
+}
+
+function extractCategories(categories: Post['categories']): Category[] {
+  if (!Array.isArray(categories)) return []
+  return categories.filter((c): c is Category => typeof c === 'object' && c !== null)
+}
+
+function DraftBadge({ status }: { status: Post['_status'] }) {
+  if (status !== 'draft') return null
+  return (
+    <span
+      data-testid="preview-badge"
+      style={{
+        padding: '0.25rem 0.625rem',
+        borderRadius: '9999px',
+        backgroundColor: '#fef3c7',
+        color: '#92400e',
+        fontSize: '0.75rem',
+        fontWeight: 600,
+        textTransform: 'uppercase',
+        letterSpacing: '0.05em',
+      }}
+    >
+      Draft Preview
+    </span>
+  )
+}
+
+export function PostLivePreview({ initialPost, serverUrl, locale }: PostLivePreviewProps) {
   const defaultServerUrl =
     typeof window !== 'undefined' ? window.location.origin : 'http://localhost:3000'
 
@@ -154,13 +189,13 @@ export function PostLivePreview({ initialPost, serverUrl }: PostLivePreviewProps
     initialData: initialPost,
     serverURL: serverUrl || defaultServerUrl,
     collection: 'posts',
+    initialLocale: locale,
   })
 
-  const coverMedia = typeof post.cover === 'object' && post.cover !== null ? post.cover : null
-  const author = typeof post.author === 'object' && post.author !== null ? post.author : null
-  const categories = Array.isArray(post.categories)
-    ? post.categories.filter((c): c is Category => typeof c === 'object' && c !== null)
-    : []
+  const coverMedia = extractCoverMedia(post.cover)
+  const author = extractAuthor(post.author)
+  const categories = extractCategories(post.categories)
+  const backHref = locale ? `/${locale}` : '/'
 
   return (
     <article style={{ maxWidth: '820px', margin: '0 auto', padding: '2.5rem 1.5rem' }}>
@@ -173,7 +208,7 @@ export function PostLivePreview({ initialPost, serverUrl }: PostLivePreviewProps
         }}
       >
         <Link
-          href="/"
+          href={backHref}
           style={{
             color: '#64748b',
             textDecoration: 'none',
@@ -186,23 +221,7 @@ export function PostLivePreview({ initialPost, serverUrl }: PostLivePreviewProps
           &larr; Back to all articles
         </Link>
 
-        {post._status === 'draft' && (
-          <span
-            data-testid="preview-badge"
-            style={{
-              padding: '0.25rem 0.625rem',
-              borderRadius: '9999px',
-              backgroundColor: '#fef3c7',
-              color: '#92400e',
-              fontSize: '0.75rem',
-              fontWeight: 600,
-              textTransform: 'uppercase',
-              letterSpacing: '0.05em',
-            }}
-          >
-            Draft Preview
-          </span>
-        )}
+        <DraftBadge status={post._status} />
       </div>
 
       <CategoryBadges categories={categories} />
@@ -223,6 +242,21 @@ export function PostLivePreview({ initialPost, serverUrl }: PostLivePreviewProps
 
       <PostMetaBar author={author} publishedAt={post.publishedAt} />
       <CoverImage cover={coverMedia} title={post.title} />
+
+      {post.excerpt && (
+        <p
+          data-testid="post-excerpt"
+          style={{
+            fontSize: '1.25rem',
+            color: '#475569',
+            marginBottom: '2rem',
+            lineHeight: 1.6,
+            fontStyle: 'italic',
+          }}
+        >
+          {post.excerpt}
+        </p>
+      )}
 
       <div data-testid="post-content" style={{ fontSize: '1.0625rem' }}>
         <RichText content={post.content} />
