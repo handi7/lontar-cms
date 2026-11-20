@@ -8,6 +8,7 @@ import type {
   WebhookEvent,
 } from '../config/types'
 import type { DocumentData } from '../database/adapter'
+import { projectCanonicalDoc } from '../operations/locale'
 import { deliverWebhook, type DeliverWebhookArgs } from './deliver'
 import type { WebhookAction, WebhookDeliveryResult, WebhookPayload } from './types'
 
@@ -29,6 +30,7 @@ export interface DispatchWebhooksArgs {
   status?: DocStatus
   previousStatus?: DocStatus
   autosave?: boolean
+  locale?: string
   options?: Partial<Omit<DeliverWebhookArgs, 'url' | 'payload' | 'secret'>>
 }
 
@@ -165,6 +167,7 @@ export function buildWebhookPayload(args: {
   status?: DocStatus
   previousStatus?: DocStatus
   includeDoc?: boolean
+  locale?: string
 }): WebhookPayload {
   const payload: WebhookPayload = {
     event: args.event,
@@ -190,6 +193,10 @@ export function buildWebhookPayload(args: {
     payload.previousStatus = args.previousStatus
   }
 
+  if (args.locale !== undefined) {
+    payload.locale = args.locale
+  }
+
   if (args.includeDoc) {
     payload.doc = args.doc
   }
@@ -197,18 +204,51 @@ export function buildWebhookPayload(args: {
   return payload
 }
 
+function resolveFields(args: DispatchWebhooksArgs) {
+  if (args.collection) return args.collection.fields
+  if (args.global) return args.global.fields
+  return {}
+}
+
+function projectDocForLocale(
+  doc: DocumentData,
+  fields: CollectionConfig['fields'],
+  locale?: string,
+  config?: Config,
+): DocumentData {
+  if (!locale || locale === 'all' || !config?.localization) {
+    return doc
+  }
+  return projectCanonicalDoc(doc, fields ?? {}, {
+    locale,
+    defaultLocale: config.localization.defaultLocale,
+  })
+}
+
+async function resolveTargetDoc(
+  target: TargetWebhook,
+  args: DispatchWebhooksArgs,
+): Promise<DocumentData> {
+  if (!target.includeDoc) {
+    return args.doc
+  }
+  const fields = resolveFields(args)
+  let docToSend = projectDocForLocale(args.doc, fields, args.locale, args.config)
+  if (target.overrideAccess === false) {
+    docToSend = await sanitizeDocRead(fields, docToSend, null, {
+      id: docToSend.id as string | number | undefined,
+      doc: docToSend,
+      locale: args.locale,
+    })
+  }
+  return docToSend
+}
+
 async function prepareTargetDelivery(
   target: TargetWebhook,
   args: DispatchWebhooksArgs,
 ): Promise<WebhookDeliveryResult> {
-  let docToSend = args.doc
-  if (target.includeDoc && target.overrideAccess === false) {
-    const fields = args.collection?.fields ?? args.global?.fields ?? {}
-    docToSend = await sanitizeDocRead(fields, args.doc, null, {
-      id: args.doc.id as string | number | undefined,
-      doc: args.doc,
-    })
-  }
+  const docToSend = await resolveTargetDoc(target, args)
 
   const payload = buildWebhookPayload({
     event: args.event,
@@ -218,6 +258,7 @@ async function prepareTargetDelivery(
     status: args.status,
     previousStatus: args.previousStatus,
     includeDoc: target.includeDoc,
+    locale: args.locale,
   })
 
   return deliverWebhook({

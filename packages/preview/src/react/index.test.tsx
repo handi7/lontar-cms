@@ -150,4 +150,51 @@ describe('useLivePreview', () => {
     // Populated author object was preserved!
     expect(screen.getByTestId('author-name').textContent).toBe('Alice Author')
   })
+
+  it('exposes locale when postMessage arrives with locale', () => {
+    const mockTop = {} as Window
+    Object.defineProperty(window, 'top', {
+      value: mockTop,
+      configurable: true,
+    })
+
+    function LocalizedConsumer() {
+      const { data, isLive, locale } = useLivePreview<{ title: string }>({
+        initialData: { title: 'English Title' },
+        initialLocale: 'en',
+        serverURL: 'http://localhost:3000',
+        collection: 'posts',
+      })
+
+      return (
+        <div>
+          <h1 data-testid="title">{data.title}</h1>
+          <span data-testid="is-live">{isLive ? 'Live' : 'Static'}</span>
+          <span data-testid="locale">{locale ?? 'no-locale'}</span>
+        </div>
+      )
+    }
+
+    render(<LocalizedConsumer />)
+    expect(screen.getByTestId('locale').textContent).toBe('en')
+
+    act(() => {
+      window.dispatchEvent(
+        new MessageEvent('message', {
+          origin: 'http://localhost:3000',
+          data: {
+            source: 'lontar-preview',
+            version: 1,
+            collection: 'posts',
+            document: { title: 'Indonesian Title' },
+            locale: 'id',
+          },
+        }),
+      )
+    })
+
+    expect(screen.getByTestId('title').textContent).toBe('Indonesian Title')
+    expect(screen.getByTestId('locale').textContent).toBe('id')
+    expect(screen.getByTestId('is-live').textContent).toBe('Live')
+  })
 })

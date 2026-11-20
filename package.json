@@ -29,6 +29,8 @@
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",
+    "@rolldown/binding-linux-x64-gnu": "1.2.15",
+    "@tailwindcss/oxide-linux-x64-gnu": "4.3.4",
     "@types/node": "^26.6.6",
     "eslint": "^10.13.0",
     "eslint-plugin-sonarjs": "^4.2.2",

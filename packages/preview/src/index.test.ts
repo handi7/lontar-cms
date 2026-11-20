@@ -485,7 +485,7 @@ describe('subscribeLivePreview', () => {
       }),
     )
 
-    expect(onChange).toHaveBeenCalledWith({ title: 'Indonesian Title' })
+    expect(onChange).toHaveBeenCalledWith({ title: 'Indonesian Title' }, { locale: 'id' })
     unsubscribe()
   })
 })

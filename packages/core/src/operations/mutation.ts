@@ -298,6 +298,7 @@ export async function executeCreate(args: {
       event,
       doc: result.doc,
       status: docStatus,
+      locale: args.locale,
     })
   }
 
@@ -739,6 +740,7 @@ function dispatchPostUpdateWebhooks(args: {
   result: Extract<MutationExecutionResult, { success: true }>
   originalDoc: DocumentData
   fallbackTransition?: DocStatusTransition
+  locale?: string
 }): void {
   const statusTransition = args.result.statusTransition ?? args.fallbackTransition
   const previousStatus =
@@ -753,6 +755,7 @@ function dispatchPostUpdateWebhooks(args: {
     previousDoc: args.originalDoc,
     status: docStatus,
     previousStatus,
+    locale: args.locale,
   })
 }
 
@@ -764,6 +767,7 @@ function handlePostUpdateWebhooks(args: {
   fallbackTransition?: DocStatusTransition
   deferWebhooks?: boolean
   autosave?: boolean
+  locale?: string
 }): MutationExecutionResult {
   if (args.autosave) {
     return args.result
@@ -775,6 +779,7 @@ function handlePostUpdateWebhooks(args: {
       result: args.result,
       originalDoc: args.originalDoc,
       fallbackTransition: args.fallbackTransition,
+      locale: args.locale,
     })
   }
   if (args.deferWebhooks) {
@@ -799,6 +804,7 @@ export async function executeUpdate(args: {
   config?: Config
   deferWebhooks?: boolean
   locale?: string
+  webhookLocale?: string
 }): Promise<MutationExecutionResult> {
   const clientCol = toClientCollection(args.collection)
   const run = async (txDb: DatabaseAdapter): Promise<MutationExecutionResult> => {
@@ -877,6 +883,7 @@ export async function executeUpdate(args: {
       fallbackTransition: args.statusTransition,
       deferWebhooks: args.deferWebhooks,
       autosave: args.autosave,
+      locale: args.webhookLocale ?? args.locale,
     })
   }
 
@@ -1216,6 +1223,7 @@ function dispatchPostGlobalWebhooks(args: {
   existing: DocumentData | null
   statusTransition?: DocStatusTransition
   previousStatus?: DocStatus
+  locale?: string
 }): void {
   const isExisting = Boolean(args.existing)
   const statusTransition = args.result.statusTransition ?? args.statusTransition
@@ -1235,6 +1243,7 @@ function dispatchPostGlobalWebhooks(args: {
     previousDoc: args.existing ?? undefined,
     status: docStatus,
     previousStatus,
+    locale: args.locale,
   })
 }
 
@@ -1247,6 +1256,7 @@ function handlePostGlobalWebhooks(args: {
   previousStatus?: DocStatus
   deferWebhooks?: boolean
   autosave?: boolean
+  locale?: string
 }): MutationExecutionResult {
   if (args.autosave) {
     return args.result
@@ -1259,6 +1269,7 @@ function handlePostGlobalWebhooks(args: {
       existing: args.existing,
       statusTransition: args.statusTransition,
       previousStatus: args.previousStatus,
+      locale: args.locale,
     })
   }
   if (args.deferWebhooks) {
@@ -1282,6 +1293,7 @@ export async function executeGlobalUpdate(args: {
   userId?: string | null
   deferWebhooks?: boolean
   locale?: string
+  webhookLocale?: string
 }): Promise<MutationExecutionResult> {
   const clientGlobal = toClientGlobal(args.global)
   const { status, previousStatus, statusTransition } = resolveGlobalUpdateStatus({
@@ -1373,6 +1385,7 @@ export async function executeGlobalUpdate(args: {
       previousStatus,
       deferWebhooks: args.deferWebhooks,
       autosave: args.autosave,
+      locale: args.webhookLocale ?? args.locale,
     })
   }
 

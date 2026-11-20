@@ -10,11 +10,15 @@ export interface LontarPreviewMessage<T = unknown> {
   locale?: string
 }
 
+export interface LivePreviewMeta {
+  locale?: string
+}
+
 export interface SubscribeLivePreviewOptions<T> {
   initialData: T
   serverURL: string
   collection?: string
-  onChange: (data: T) => void
+  onChange: (data: T, meta?: LivePreviewMeta) => void
 }
 
 function isObject(val: unknown): val is Record<string, unknown> {
@@ -179,7 +183,11 @@ export function subscribeLivePreview<T>(options: SubscribeLivePreviewOptions<T>)
 
     if (data.document !== undefined) {
       const merged: T = mergeLivePreviewData(options.initialData, data.document)
-      options.onChange(merged)
+      if (data.locale !== undefined) {
+        options.onChange(merged, { locale: data.locale })
+      } else {
+        options.onChange(merged)
+      }
     }
   }
 

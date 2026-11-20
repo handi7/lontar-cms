@@ -122,6 +122,7 @@ export async function deleteOperation<T = DocumentData>(
       event: 'delete',
       doc: finalDoc,
       status: deletedDoc._status as DocStatus | undefined,
+      locale,
     })
   }
 

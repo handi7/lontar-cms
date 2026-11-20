@@ -11,6 +11,12 @@ importers:
       '@eslint/js':
         specifier: ^10.0.1
         version: 10.0.1(eslint@10.13.0(jiti@2.7.0)(supports-color@7.2.0))
+      '@rolldown/binding-linux-x64-gnu':
+        specifier: 1.2.15
+        version: 1.2.15
+      '@tailwindcss/oxide-linux-x64-gnu':
+        specifier: 4.3.4
+        version: 4.3.4
       '@types/node':
         specifier: ^26.6.6
         version: 26.6.6
@@ -1874,7 +1880,6 @@ packages:
     engines: {node: ^20.19.0 || >=22.12.0}
     cpu: [x64]
     os: [linux]
-    libc: [glibc]
 
   '@rolldown/binding-linux-x64-musl@1.2.15':
     resolution: {integrity: sha512-/cvV/7v5VGz/moiz0XKRj2dE8DzsKyhIu1KpOvJGPjRywg3yscON889UGvAe8zfiJLHup7VLjBduoGWi3HusWQ==}
@@ -2013,7 +2018,6 @@ packages:
     engines: {node: '>= 20'}
     cpu: [x64]
     os: [linux]
-    libc: [glibc]
 
   '@tailwindcss/oxide-linux-x64-musl@4.3.4':
     resolution: {integrity: sha512-PaAZ2FjJaZk9SQLYtKIfQWiFm/xtl7pX2MKPgCzn0mS/VU54yu+vP457AJdB2XFLxU3gO2abLCt8N7Lg4EbKNg==}
@@ -5227,8 +5231,7 @@ snapshots:
   '@rolldown/binding-linux-s390x-gnu@1.2.15':
     optional: true
 
-  '@rolldown/binding-linux-x64-gnu@1.2.15':
-    optional: true
+  '@rolldown/binding-linux-x64-gnu@1.2.15': {}
 
   '@rolldown/binding-linux-x64-musl@1.2.15':
     optional: true
@@ -5341,8 +5344,7 @@ snapshots:
   '@tailwindcss/oxide-linux-arm64-musl@4.3.4':
     optional: true
 
-  '@tailwindcss/oxide-linux-x64-gnu@4.3.4':
-    optional: true
+  '@tailwindcss/oxide-linux-x64-gnu@4.3.4': {}
 
   '@tailwindcss/oxide-linux-x64-musl@4.3.4':
     optional: true

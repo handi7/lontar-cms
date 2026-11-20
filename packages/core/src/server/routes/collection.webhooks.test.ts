@@ -4,7 +4,7 @@ import { defineConfig } from '../../config/define-config'
 import { global } from '../../config/global'
 import type { DatabaseAdapter, StoredDoc } from '../../database/adapter'
 import { fields as f } from '../../fields'
-import { drainPendingWebhooks, verifyWebhookSignature } from '../../webhooks'
+import { drainPendingWebhooks, verifyWebhookSignature, type WebhookPayload } from '../../webhooks'
 import { createLontar } from '../create-lontar'
 
 function createMockAdapter(
@@ -990,5 +990,204 @@ describe('outgoing webhooks integration', () => {
     await drainPendingWebhooks()
 
     expect(capturedDeliveries).toHaveLength(0)
+  })
+
+  it('delivers webhook with locale and projected doc for writes in non-default locale', async () => {
+    const { adapter } = createMockAdapter()
+    const posts = collection({
+      slug: 'posts',
+      access: publicAccess,
+      fields: {
+        title: f.text({ localized: true }),
+        slug: f.text(),
+      },
+      webhooks: [
+        {
+          url: 'https://mysite.com/revalidate',
+          events: ['create', 'update'],
+          includeDoc: true,
+        },
+      ],
+    })
+
+    const config = defineConfig({
+      secret: 'app-secret',
+      db: adapter,
+      localization: {
+        locales: ['en', 'id'],
+        defaultLocale: 'en',
+      },
+      collections: [posts],
+    })
+
+    const app = createLontar(config)
+    const res = await app.request('/api/posts?locale=id', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ title: 'Halo Dunia', slug: 'halo-dunia' }),
+    })
+
+    expect(res.status).toBe(201)
+    await drainPendingWebhooks()
+
+    expect(capturedDeliveries).toHaveLength(1)
+    const payload = JSON.parse(capturedDeliveries[0]!.body) as WebhookPayload
+    expect(payload.event).toBe('create')
+    expect(payload.collection).toBe('posts')
+    expect(payload.locale).toBe('id')
+    expect(payload.doc).toMatchObject({
+      title: 'Halo Dunia',
+      slug: 'halo-dunia',
+    })
+  })
+
+  it('delivers publish webhook with target locale on publish', async () => {
+    const { adapter, storage } = createMockAdapter()
+    storage.set(1, {
+      id: 1,
+      title: { en: 'Hello World', id: 'Halo Dunia' },
+      _status: 'draft',
+      createdAt: '2026-11-10T00:00:00.000Z',
+      updatedAt: '2026-11-10T00:00:00.000Z',
+    })
+
+    const posts = collection({
+      slug: 'posts',
+      access: publicAccess,
+      versions: { drafts: true },
+      fields: {
+        title: f.text({ localized: true }),
+      },
+      webhooks: [
+        {
+          url: 'https://mysite.com/revalidate',
+          events: ['publish'],
+          includeDoc: true,
+        },
+      ],
+    })
+
+    const config = defineConfig({
+      secret: 'app-secret',
+      db: adapter,
+      localization: {
+        locales: ['en', 'id'],
+        defaultLocale: 'en',
+      },
+      collections: [posts],
+    })
+
+    const app = createLontar(config)
+    const res = await app.request('/api/posts/1/publish?locale=id', {
+      method: 'POST',
+    })
+
+    expect(res.status).toBe(200)
+    await drainPendingWebhooks()
+
+    expect(capturedDeliveries).toHaveLength(1)
+    const payload = JSON.parse(capturedDeliveries[0]!.body) as WebhookPayload
+    expect(payload.event).toBe('publish')
+    expect(payload.locale).toBe('id')
+    expect(payload.doc).toMatchObject({
+      id: 1,
+      title: 'Halo Dunia',
+    })
+  })
+
+  it('does not fire publish webhook when saving draft or autosaving in a non-default locale', async () => {
+    const { adapter, storage } = createMockAdapter()
+    storage.set(1, {
+      id: 1,
+      title: 'Published Title',
+      _status: 'published',
+      createdAt: '2026-11-10T00:00:00.000Z',
+      updatedAt: '2026-11-10T00:00:00.000Z',
+    })
+
+    const posts = collection({
+      slug: 'posts',
+      access: publicAccess,
+      versions: { drafts: true },
+      fields: {
+        title: f.text({ localized: true }),
+      },
+      webhooks: [
+        {
+          url: 'https://mysite.com/revalidate',
+          events: ['publish'],
+        },
+      ],
+    })
+
+    const config = defineConfig({
+      secret: 'app-secret',
+      db: adapter,
+      localization: {
+        locales: ['en', 'id'],
+        defaultLocale: 'en',
+      },
+      collections: [posts],
+    })
+
+    const app = createLontar(config)
+
+    // Draft save in id
+    const draftRes = await app.request('/api/posts/1?draft=true&locale=id', {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ title: 'Draft in Indonesian' }),
+    })
+    expect(draftRes.status).toBe(200)
+    await drainPendingWebhooks()
+    expect(capturedDeliveries).toHaveLength(0)
+
+    // Autosave in id
+    const autosaveRes = await app.request('/api/posts/1?autosave=true&locale=id', {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ title: 'Autosave in Indonesian' }),
+    })
+    expect(autosaveRes.status).toBe(200)
+    await drainPendingWebhooks()
+    expect(capturedDeliveries).toHaveLength(0)
+  })
+
+  it('omits locale field in webhook payload for non-localized collections', async () => {
+    const { adapter } = createMockAdapter()
+    const posts = collection({
+      slug: 'posts',
+      access: publicAccess,
+      fields: {
+        title: f.text(),
+      },
+      webhooks: [
+        {
+          url: 'https://mysite.com/revalidate',
+          events: ['create'],
+        },
+      ],
+    })
+
+    const config = defineConfig({
+      secret: 'app-secret',
+      db: adapter,
+      collections: [posts],
+    })
+
+    const app = createLontar(config)
+    const res = await app.request('/api/posts', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ title: 'Simple Post' }),
+    })
+
+    expect(res.status).toBe(201)
+    await drainPendingWebhooks()
+
+    expect(capturedDeliveries).toHaveLength(1)
+    const payload = JSON.parse(capturedDeliveries[0]!.body) as WebhookPayload
+    expect(payload.event).toBe('create')
+    expect(payload.locale).toBeUndefined()
   })
 })

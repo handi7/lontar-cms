@@ -5,11 +5,13 @@ export interface UseLivePreviewOptions<T> {
   initialData: T
   serverURL: string
   collection?: string
+  initialLocale?: string
 }
 
 export interface UseLivePreviewResult<T> {
   data: T
   isLive: boolean
+  locale?: string
 }
 
 /**
@@ -20,6 +22,7 @@ export interface UseLivePreviewResult<T> {
 export function useLivePreview<T>(options: UseLivePreviewOptions<T>): UseLivePreviewResult<T> {
   const [data, setData] = useState<T>(options.initialData)
   const [isLive, setIsLive] = useState(false)
+  const [locale, setLocale] = useState<string | undefined>(options.initialLocale)
 
   useEffect(() => {
     if (!isLive) {
@@ -32,14 +35,17 @@ export function useLivePreview<T>(options: UseLivePreviewOptions<T>): UseLivePre
       initialData: options.initialData,
       serverURL: options.serverURL,
       collection: options.collection,
-      onChange: (nextDoc) => {
+      onChange: (nextDoc, meta) => {
         setData(nextDoc)
         setIsLive(true)
+        if (meta?.locale !== undefined) {
+          setLocale(meta.locale)
+        }
       },
     })
 
     return unsubscribe
   }, [options.serverURL, options.collection, options.initialData])
 
-  return { data, isLive }
+  return { data, isLive, locale }
 }
