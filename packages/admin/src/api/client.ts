@@ -226,6 +226,8 @@ export interface FetchCollectionDocsOptions {
   sort?: string
   where?: Where
   draft?: boolean
+  locale?: string
+  fallbackLocale?: string | false
 }
 
 export async function fetchCollectionDocs(
@@ -239,6 +241,10 @@ export async function fetchCollectionDocs(
   if (options.limit) params.set('limit', String(options.limit))
   if (options.sort) params.set('sort', options.sort)
   if (options.draft) params.set('draft', 'true')
+  if (options.locale) params.set('locale', options.locale)
+  if (options.fallbackLocale !== undefined) {
+    params.set('fallbackLocale', String(options.fallbackLocale))
+  }
   if (options.where) serializeQueryParam(params, 'where', options.where)
 
   const query = params.toString() ? `?${params.toString()}` : ''

@@ -1,5 +1,6 @@
+import { useContext } from 'react'
 import { useSearch } from '@tanstack/react-router'
-import { useAdmin } from '../context/AdminContext'
+import { AdminContext } from '../context/AdminContext'
 
 export interface UseLocaleResult {
   hasLocalization: boolean
@@ -30,8 +31,8 @@ function resolveSearchLocale(): string | undefined {
 }
 
 export function useLocale(): UseLocaleResult {
-  const { config } = useAdmin()
-  const localization = config.localization
+  const ctx = useContext(AdminContext)
+  const localization = ctx?.config?.localization
   const searchLocale = resolveSearchLocale()
 
   if (!localization || !localization.locales || localization.locales.length === 0) {

@@ -40,10 +40,12 @@ function TestWrapper({
   children,
   defaultValues = {},
   onSubmit,
+  configOverride,
 }: {
   children: (methods: ReturnType<typeof useForm<Record<string, unknown>>>) => React.ReactNode
   defaultValues?: Record<string, unknown>
   onSubmit?: React.FormEventHandler<HTMLFormElement>
+  configOverride?: Partial<ClientConfig>
 }) {
   const queryClient = new QueryClient({
     defaultOptions: {
@@ -60,7 +62,7 @@ function TestWrapper({
       <PortalContainerProvider>
         <AdminContext.Provider
           value={{
-            config: mockConfig,
+            config: { ...mockConfig, ...configOverride },
             apiBase: '/api',
             basePath: '/admin',
           }}
@@ -335,5 +337,64 @@ describe('UploadPicker', () => {
     // Clicking browse clears the error
     fireEvent.click(screen.getByTestId('upload-picker-browse-btn'))
     expect(screen.queryByTestId('upload-picker-error')).toBeNull()
+  })
+
+  it('queries upload doc with active locale and fallbackLocale (#429)', async () => {
+    window.history.pushState({}, '', '/admin/posts/1?locale=id')
+
+    const fetchUrls: string[] = []
+    vi.mocked(fetch).mockImplementation((input: RequestInfo | URL) => {
+      const url = getRequestUrl(input)
+      fetchUrls.push(url)
+      if (url.includes('/api/media/1')) {
+        return mockJsonResponse({
+          id: 1,
+          filename: 'photo.jpg',
+          filesize: 1024,
+          mimeType: 'image/jpeg',
+          url: '/media/photo.jpg',
+          alt: 'Foto Pemandangan',
+        })
+      }
+      return mockJsonResponse({}, 404)
+    })
+
+    const field: ClientUploadField = {
+      name: 'cover',
+      label: 'Cover Image',
+      type: 'upload',
+      relationTo: 'media',
+      required: false,
+    }
+
+    render(
+      <TestWrapper
+        defaultValues={{ cover: 1 }}
+        configOverride={{
+          localization: {
+            locales: [
+              { code: 'en', label: 'English' },
+              { code: 'id', label: 'Indonesian' },
+            ],
+            defaultLocale: 'en',
+            fallback: true,
+          },
+        }}
+      >
+        {({ register, setValue, watch }) => (
+          <UploadPicker field={field} register={register} setValue={setValue} watch={watch} />
+        )}
+      </TestWrapper>,
+    )
+
+    await waitFor(() => {
+      expect(screen.getByText('photo.jpg')).toBeTruthy()
+    })
+
+    expect(fetchUrls.some((u) => u.includes('locale=id') && u.includes('fallbackLocale=en'))).toBe(
+      true,
+    )
+
+    window.history.pushState({}, '', '/')
   })
 })

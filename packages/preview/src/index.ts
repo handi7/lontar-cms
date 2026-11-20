@@ -7,6 +7,7 @@ export interface LontarPreviewMessage<T = unknown> {
   version: 1
   collection: string
   document: T
+  locale?: string
 }
 
 export interface SubscribeLivePreviewOptions<T> {

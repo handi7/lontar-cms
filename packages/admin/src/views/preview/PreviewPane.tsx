@@ -13,6 +13,7 @@ export interface PreviewPaneProps {
   urlTemplate: string
   values: Record<string, unknown>
   savedValues?: Record<string, unknown> | null
+  locale?: string
   onClose: () => void
   className?: string
   containerWidth?: number
@@ -303,7 +304,7 @@ export function PreviewPane(props: PreviewPaneProps) {
     }
   }
 
-  const resolved = resolvePreviewUrl(props.urlTemplate, props.savedValues ?? {})
+  const resolved = resolvePreviewUrl(props.urlTemplate, props.savedValues ?? {}, props.locale)
 
   const isUnsaved =
     resolved.missingTokens.length > 0 &&
@@ -318,6 +319,7 @@ export function PreviewPane(props: PreviewPaneProps) {
     targetOrigin: resolved.origin,
     collectionSlug: props.collectionSlug,
     values: props.values,
+    locale: props.locale,
   })
 
   useEffect(() => {

@@ -24,12 +24,40 @@ vi.mock('../api/client', async () => {
   }
 })
 
+let capturedNavigateSearch: ((prev: Record<string, unknown>) => Record<string, unknown>) | undefined
+
+const mockNavigate = vi.fn(
+  (opts: { search?: (prev: Record<string, unknown>) => Record<string, unknown> }) => {
+    if (typeof opts?.search === 'function') {
+      capturedNavigateSearch = opts.search
+    }
+  },
+)
+
 vi.mock('@tanstack/react-router', () => ({
   useParams: () => ({ collection: 'articles' }),
-  useNavigate: () => vi.fn(),
-  Link: ({ children, to }: { children: React.ReactNode; to: string }) => (
-    <a href={to}>{children}</a>
-  ),
+  useNavigate: () => mockNavigate,
+  Link: ({
+    children,
+    to,
+    search,
+  }: {
+    children: React.ReactNode
+    to: string
+    search?: (prev: Record<string, unknown>) => Record<string, unknown>
+  }) => {
+    const s = typeof search === 'function' ? search({}) : {}
+    const params = new URLSearchParams()
+    if (s && typeof s === 'object') {
+      for (const [k, v] of Object.entries(s)) {
+        if (typeof v === 'string' || typeof v === 'number' || typeof v === 'boolean') {
+          params.set(k, String(v))
+        }
+      }
+    }
+    const query = params.toString() ? `?${params.toString()}` : ''
+    return <a href={`${to}${query}`}>{children}</a>
+  },
 }))
 
 const mockArticlesCollection: ClientCollection = {
@@ -84,11 +112,12 @@ describe('CollectionListView permissions (#341)', () => {
 
   afterEach(cleanup)
 
-  function renderWithProviders() {
+  function renderWithProviders(configOverride?: Partial<ClientConfig>) {
     const adminConfig: ClientConfig = {
       version: CLIENT_CONFIG_VERSION,
       collections: [mockArticlesCollection],
       globals: [],
+      ...configOverride,
     }
 
     return render(
@@ -199,5 +228,64 @@ describe('CollectionListView permissions (#341)', () => {
     renderWithProviders()
 
     expect(await screen.findByText('Page Not Found')).toBeTruthy()
+  })
+
+  it('renders LocaleSwitcher and queries with active locale and fallbackLocale (#429)', async () => {
+    vi.mocked(client.fetchPermissions).mockResolvedValue({
+      collections: {
+        articles: mockCollectionPerm(),
+      },
+      globals: {},
+    })
+
+    renderWithProviders({
+      localization: {
+        locales: [
+          { code: 'en', label: 'English' },
+          { code: 'id', label: 'Indonesian' },
+        ],
+        defaultLocale: 'en',
+        fallback: true,
+      },
+    })
+
+    expect(await screen.findByText('Articles')).toBeTruthy()
+
+    // Locale switcher is rendered
+    expect(screen.getByTestId('locale-switcher')).toBeTruthy()
+
+    // fetchCollectionDocs was called with locale='en' and fallbackLocale='en'
+    expect(client.fetchCollectionDocs).toHaveBeenCalledWith(
+      '/api',
+      'articles',
+      expect.objectContaining({
+        locale: 'en',
+        fallbackLocale: 'en',
+      }),
+    )
+
+    // Create link preserves locale
+    const createLink = screen.getByRole('link', { name: /Create Article/i })
+    expect(createLink.getAttribute('href')).toContain('locale=en')
+
+    // Wait for table to load
+    expect(await screen.findByText('Article 1')).toBeTruthy()
+
+    // Edit link preserves locale
+    const editLinks = screen.getAllByRole('link', { name: 'Edit' })
+    expect(editLinks[0]?.getAttribute('href')).toContain('locale=en')
+
+    // Switch locale using switcher
+    const switcher = screen.getByTestId('locale-switcher')
+    switcher.click()
+
+    const idOption = await screen.findByTestId('locale-option-id')
+    idOption.click()
+
+    expect(mockNavigate).toHaveBeenCalledTimes(1)
+    expect(capturedNavigateSearch?.({ page: 2 })).toEqual({
+      page: 2,
+      locale: 'id',
+    })
   })
 })

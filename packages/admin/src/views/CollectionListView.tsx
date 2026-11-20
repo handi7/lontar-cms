@@ -1,6 +1,6 @@
 import { useState, useMemo, useEffect } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { Link, useParams } from '@tanstack/react-router'
+import { Link, useNavigate, useParams } from '@tanstack/react-router'
 import {
   useReactTable,
   getCoreRowModel,
@@ -18,6 +18,7 @@ import type {
 } from '@lontar/core/client'
 import { useAdmin, useCollection } from '../context/AdminContext'
 import { usePermissions } from '../context/PermissionsContext'
+import { useLocale } from '../hooks/useLocale'
 import { cn } from '../lib/utils'
 import {
   fetchCollectionDocs,
@@ -40,6 +41,7 @@ import { CollectionFilterBar, resolveSearchField, type ActiveFilter } from './Co
 import { ConfirmDeleteDialog } from './ConfirmDeleteDialog'
 import { DocumentStatusBadge } from './DocumentStatusBadge'
 import { EmptyCard } from './EmptyCard'
+import { LocaleSwitcher } from './LocaleSwitcher'
 import { NotFoundView } from './NotFoundView'
 import { ViewHeader } from './ViewHeader'
 
@@ -190,6 +192,7 @@ interface DataCellRendererProps {
   titleKey: string
   isUploadCollection: boolean
   collectionSlug: string
+  activeLocale?: string
 }
 
 function renderMediaThumbnailCell(
@@ -219,6 +222,7 @@ function DataCellRenderer({
   titleKey,
   isUploadCollection,
   collectionSlug,
+  activeLocale,
 }: DataCellRendererProps) {
   if (colKey === '_status') {
     return <DocumentStatusBadge doc={rowDoc} />
@@ -233,6 +237,9 @@ function DataCellRenderer({
       <Link
         to="/$collection/$id"
         params={{ collection: collectionSlug, id: String(rowDoc.id) }}
+        search={(prev: Record<string, unknown>) =>
+          activeLocale ? { ...prev, locale: activeLocale } : prev
+        }
         className="lt:font-semibold lt:text-foreground lt:underline lt:underline-offset-2"
       >
         {content}
@@ -277,6 +284,7 @@ function buildColumns(
   isDeleting: boolean,
   canDelete: boolean = true,
   fieldPermissions?: Record<string, FieldPermission>,
+  activeLocale?: string,
 ): ColumnDef<Record<string, unknown>>[] {
   const columnKeys =
     collection.admin.defaultColumns.length > 0
@@ -321,6 +329,7 @@ function buildColumns(
           titleKey={titleKey}
           isUploadCollection={Boolean(collection.upload)}
           collectionSlug={collection.slug}
+          activeLocale={activeLocale}
         />
       ),
     }
@@ -335,7 +344,13 @@ function buildColumns(
       return (
         <div className="lt:flex lt:items-center lt:gap-2">
           <Button asChild variant="ghost" size="sm" className={rowActionClass}>
-            <Link to="/$collection/$id" params={{ collection: collection.slug, id }}>
+            <Link
+              to="/$collection/$id"
+              params={{ collection: collection.slug, id }}
+              search={(prev: Record<string, unknown>) =>
+                activeLocale ? { ...prev, locale: activeLocale } : prev
+              }
+            >
               Edit
             </Link>
           </Button>
@@ -454,15 +469,22 @@ function CollectionTable({ table, data, onPageChange }: CollectionTableProps) {
 interface EmptyStateProps {
   collection: ClientCollection
   canCreate?: boolean
+  activeLocale?: string
 }
 
-function EmptyState({ collection, canCreate = true }: EmptyStateProps) {
+function EmptyState({ collection, canCreate = true, activeLocale }: EmptyStateProps) {
   return (
     <EmptyCard>
       <p className={emptyTextClass}>No {collection.labels.plural.toLowerCase()} found.</p>
       {canCreate && (
         <Button asChild variant="outline">
-          <Link to="/$collection/create" params={{ collection: collection.slug }}>
+          <Link
+            to="/$collection/create"
+            params={{ collection: collection.slug }}
+            search={(prev: Record<string, unknown>) =>
+              activeLocale ? { ...prev, locale: activeLocale } : prev
+            }
+          >
             Create the first {collection.labels.singular.toLowerCase()}
           </Link>
         </Button>
@@ -478,6 +500,7 @@ interface ListContentProps {
   hasActiveFilters: boolean
   collection: ClientCollection
   canCreate?: boolean
+  activeLocale?: string
   onClearFilters: () => void
   table: Table<Record<string, unknown>>
   data?: PaginatedDocs
@@ -491,6 +514,7 @@ function ListContent({
   hasActiveFilters,
   collection,
   canCreate = true,
+  activeLocale,
   onClearFilters,
   table,
   data,
@@ -513,7 +537,7 @@ function ListContent({
         </EmptyCard>
       )
     }
-    return <EmptyState collection={collection} canCreate={canCreate} />
+    return <EmptyState collection={collection} canCreate={canCreate} activeLocale={activeLocale} />
   }
   return <CollectionTable table={table} data={data} onPageChange={onPageChange} />
 }
@@ -641,9 +665,11 @@ function useCollectionDocsQuery(
   sortParam: string | undefined,
   where: Where | undefined,
   hasDrafts?: boolean,
+  locale?: string,
+  fallbackLocale?: string | false,
 ) {
   return useQuery({
-    queryKey: [slug, page, sortParam, where, hasDrafts ? 'draft' : 'published'],
+    queryKey: [slug, page, sortParam, where, hasDrafts ? 'draft' : 'published', locale],
     queryFn: () =>
       slug
         ? fetchCollectionDocs(apiBase, slug, {
@@ -652,6 +678,8 @@ function useCollectionDocsQuery(
             sort: sortParam,
             where,
             draft: hasDrafts,
+            locale,
+            fallbackLocale,
           })
         : null,
     enabled: Boolean(slug),
@@ -678,12 +706,49 @@ function useCollectionPermissionsState(slug: string) {
   }
 }
 
+function renderListHeaderActions(
+  hasLocalization: boolean,
+  locales: Array<{ code: string; label: string }>,
+  activeLocale: string | undefined,
+  onLocaleChange: (locale: string) => void,
+  canCreate: boolean,
+  collection: ClientCollection,
+) {
+  if (!hasLocalization && !canCreate) return undefined
+  return (
+    <div className="lt:flex lt:items-center lt:gap-3">
+      {hasLocalization && activeLocale && (
+        <LocaleSwitcher
+          locales={locales}
+          activeLocale={activeLocale}
+          onLocaleChange={onLocaleChange}
+        />
+      )}
+      {canCreate && (
+        <Button asChild>
+          <Link
+            to="/$collection/create"
+            params={{ collection: collection.slug }}
+            search={(prev: Record<string, unknown>) =>
+              activeLocale ? { ...prev, locale: activeLocale } : prev
+            }
+          >
+            Create {collection.labels.singular}
+          </Link>
+        </Button>
+      )}
+    </div>
+  )
+}
+
 interface CollectionListTableProps {
   collection: ClientCollection
 }
 
 function CollectionListTable({ collection }: CollectionListTableProps) {
   const { apiBase } = useAdmin()
+  const navigate = useNavigate()
+  const { hasLocalization, activeLocale, fallbackLocale, locales } = useLocale()
   const [sorting, setSorting] = useState<SortingState>([])
 
   const {
@@ -698,6 +763,12 @@ function CollectionListTable({ collection }: CollectionListTableProps) {
     handleRemoveFilter,
     handleClearAll,
   } = useListFilters()
+
+  const handleLocaleChange = (newLocale: string) => {
+    void navigate({
+      search: ((prev: Record<string, unknown>) => ({ ...prev, locale: newLocale })) as never,
+    })
+  }
 
   const {
     deleteError,
@@ -733,11 +804,20 @@ function CollectionListTable({ collection }: CollectionListTableProps) {
     sortParam,
     where,
     hasDrafts,
+    hasLocalization ? activeLocale : undefined,
+    fallbackLocale,
   )
 
   const columns = useMemo(() => {
-    return buildColumns(collection, handleDelete, isDeleting, canDelete, collectionPerm?.fields)
-  }, [collection, handleDelete, isDeleting, canDelete, collectionPerm?.fields])
+    return buildColumns(
+      collection,
+      handleDelete,
+      isDeleting,
+      canDelete,
+      collectionPerm?.fields,
+      activeLocale,
+    )
+  }, [collection, handleDelete, isDeleting, canDelete, collectionPerm?.fields, activeLocale])
 
   const docs = useMemo(() => data?.docs ?? [], [data?.docs])
 
@@ -766,15 +846,14 @@ function CollectionListTable({ collection }: CollectionListTableProps) {
     <div>
       <ViewHeader
         title={collection.labels.plural}
-        actions={
-          canCreate ? (
-            <Button asChild>
-              <Link to="/$collection/create" params={{ collection: collection.slug }}>
-                Create {collection.labels.singular}
-              </Link>
-            </Button>
-          ) : undefined
-        }
+        actions={renderListHeaderActions(
+          hasLocalization,
+          locales,
+          activeLocale,
+          handleLocaleChange,
+          canCreate,
+          collection,
+        )}
       >
         <Badge variant="secondary" className="lt:mt-1.5">
           {data?.totalDocs ?? 0} items
@@ -812,6 +891,7 @@ function CollectionListTable({ collection }: CollectionListTableProps) {
         hasActiveFilters={hasActiveFilters}
         collection={collection}
         canCreate={canCreate}
+        activeLocale={activeLocale}
         onClearFilters={handleClearAll}
         table={table}
         data={data ?? undefined}

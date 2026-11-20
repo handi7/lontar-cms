@@ -3,6 +3,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import type { UseFormRegister, UseFormSetValue, UseFormWatch } from 'react-hook-form'
 import type { ClientConfig, ClientUploadField } from '@lontar/core/client'
 import { AdminContext } from '../context/AdminContext'
+import { useLocale } from '../hooks/useLocale'
 import { fetchCollectionDocs, fetchDoc, createDoc, formatApiErrorMessage } from '../api/client'
 import { Alert } from '../components/ui/alert'
 import { cn } from '../lib/utils'
@@ -164,20 +165,27 @@ function MediaOptionRow(props: MediaOptionRowProps) {
 interface MediaDropdownProps {
   relationTo: string
   apiBase: string
+  locale?: string
+  fallbackLocale?: string
   onSelect: (doc: Record<string, unknown>) => void
   onCancel?: () => void
 }
 
 function MediaDropdown(props: MediaDropdownProps) {
-  const { relationTo, apiBase, onSelect, onCancel } = props
+  const { relationTo, apiBase, locale, fallbackLocale, onSelect, onCancel } = props
   const [searchTerm, setSearchTerm] = useState('')
 
   const query = useQuery({
-    queryKey: ['media-picker-options', relationTo, searchTerm],
+    queryKey: ['media-picker-options', relationTo, searchTerm, locale],
     queryFn: () => {
       const trimmed = searchTerm.trim()
       const where = trimmed ? { filename: { contains: trimmed } } : undefined
-      return fetchCollectionDocs(apiBase, relationTo, { limit: 20, where })
+      return fetchCollectionDocs(apiBase, relationTo, {
+        limit: 20,
+        where,
+        locale,
+        fallbackLocale,
+      })
     },
   })
 
@@ -261,11 +269,23 @@ function EmptyPickerActions({
   )
 }
 
-function useUploadDoc(apiBase: string, relationTo: string, selectedId: number | null) {
+function useUploadDoc(
+  apiBase: string,
+  relationTo: string,
+  selectedId: number | null,
+  locale?: string,
+  fallbackLocale?: string,
+) {
   const isEnabled = typeof selectedId === 'number' && selectedId > 0
   return useQuery({
-    queryKey: ['collection-doc', relationTo, selectedId],
-    queryFn: () => (isEnabled && selectedId ? fetchDoc(apiBase, relationTo, selectedId) : null),
+    queryKey: ['collection-doc', relationTo, selectedId, locale],
+    queryFn: () =>
+      isEnabled && selectedId
+        ? fetchDoc(apiBase, relationTo, selectedId, {
+            locale,
+            fallbackLocale,
+          })
+        : null,
     enabled: isEnabled,
   })
 }
@@ -307,6 +327,8 @@ export function UploadPicker({ field, register, setValue, watch, disabled }: Upl
   const apiBase = adminCtx?.apiBase ?? '/api'
   const basePath = adminCtx?.basePath ?? '/admin'
   const accept = getTargetUploadAccept(adminCtx?.config, field.relationTo)
+  const { hasLocalization, activeLocale, fallbackLocale } = useLocale()
+  const currentLocale = hasLocalization ? activeLocale : undefined
 
   const [uploadError, setUploadError] = useState<string | null>(null)
   const [isSearching, setIsSearching] = useState(false)
@@ -318,7 +340,13 @@ export function UploadPicker({ field, register, setValue, watch, disabled }: Upl
   const rawValue = watch ? watch(field.name) : undefined
   const selectedId = extractNumericId(rawValue)
 
-  const docQuery = useUploadDoc(apiBase, field.relationTo, selectedId)
+  const docQuery = useUploadDoc(
+    apiBase,
+    field.relationTo,
+    selectedId,
+    currentLocale,
+    fallbackLocale,
+  )
   const uploadMutation = useUploadMutation(
     apiBase,
     field.relationTo,
@@ -355,6 +383,8 @@ export function UploadPicker({ field, register, setValue, watch, disabled }: Upl
       <MediaDropdown
         relationTo={field.relationTo}
         apiBase={apiBase}
+        locale={currentLocale}
+        fallbackLocale={fallbackLocale}
         onSelect={(doc) => handleSelectDoc(Number(doc.id))}
         onCancel={() => setIsSearching(false)}
       />

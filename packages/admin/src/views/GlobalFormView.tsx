@@ -579,6 +579,7 @@ export interface GlobalPreviewSectionProps {
   slug: string
   values: Record<string, unknown>
   savedValues?: Record<string, unknown> | null
+  locale?: string
   onClose: () => void
   activeView?: 'edit' | 'preview'
 }
@@ -597,6 +598,7 @@ function GlobalPreviewSection(props: GlobalPreviewSectionProps) {
         urlTemplate={props.urlTemplate}
         values={props.values}
         savedValues={props.savedValues}
+        locale={props.locale}
         onClose={props.onClose}
       />
     </div>
@@ -937,6 +939,7 @@ function GlobalEditor({ global, slug, apiBase }: GlobalEditorProps) {
             slug={global.slug}
             values={formatDocForSubmit(global.fields, formValues, true, fieldPermissions, 'edit')}
             savedValues={globalQuery.data}
+            locale={currentLocale}
             onClose={editorView.close}
             activeView={editorView.activeView}
           />

@@ -3,6 +3,7 @@ import { useQuery } from '@tanstack/react-query'
 import type { UseFormRegister, UseFormSetValue, UseFormWatch } from 'react-hook-form'
 import type { ClientRelationshipField } from '@lontar/core/client'
 import { AdminContext } from '../context/AdminContext'
+import { useLocale } from '../hooks/useLocale'
 import { fetchCollectionDocs, fetchDoc } from '../api/client'
 import { Badge } from '../components/ui/badge'
 import { Tooltip, TooltipContent, TooltipTrigger } from '../components/ui/tooltip'
@@ -91,6 +92,8 @@ interface RelationshipSearchDropdownProps {
   singularLabel: string
   pluralLabel: string
   apiBase: string
+  locale?: string
+  fallbackLocale?: string
   excludeIds?: number[]
   onSelect: (doc: Record<string, unknown>) => void
   onCancel?: () => void
@@ -137,6 +140,8 @@ function RelationshipSearchDropdown({
   titleField,
   pluralLabel,
   apiBase,
+  locale,
+  fallbackLocale,
   excludeIds,
   onSelect,
   onCancel,
@@ -144,11 +149,16 @@ function RelationshipSearchDropdown({
   const [searchTerm, setSearchTerm] = useState('')
 
   const query = useQuery({
-    queryKey: ['relationship-options', relationTo, searchTerm],
+    queryKey: ['relationship-options', relationTo, searchTerm, locale],
     queryFn: () => {
       const trimmed = searchTerm.trim()
       const where = trimmed ? { [titleField]: { contains: trimmed } } : undefined
-      return fetchCollectionDocs(apiBase, relationTo, { limit: 20, where })
+      return fetchCollectionDocs(apiBase, relationTo, {
+        limit: 20,
+        where,
+        locale,
+        fallbackLocale,
+      })
     },
   })
 
@@ -220,6 +230,8 @@ function SingleRelationshipPicker({
   const { apiBase, basePath, titleField, singularLabel, pluralLabel } = useRelationshipConfig(
     field.relationTo,
   )
+  const { hasLocalization, activeLocale, fallbackLocale } = useLocale()
+  const currentLocale = hasLocalization ? activeLocale : undefined
 
   useEffect(() => {
     register(field.name)
@@ -230,8 +242,14 @@ function SingleRelationshipPicker({
   const [isSearching, setIsSearching] = useState(false)
 
   const docQuery = useQuery({
-    queryKey: ['collection-doc', field.relationTo, selectedId],
-    queryFn: () => (selectedId ? fetchDoc(apiBase, field.relationTo, selectedId) : null),
+    queryKey: ['collection-doc', field.relationTo, selectedId, currentLocale],
+    queryFn: () =>
+      selectedId
+        ? fetchDoc(apiBase, field.relationTo, selectedId, {
+            locale: currentLocale,
+            fallbackLocale,
+          })
+        : null,
     enabled: typeof selectedId === 'number' && selectedId > 0,
   })
 
@@ -244,6 +262,8 @@ function SingleRelationshipPicker({
       singularLabel={singularLabel}
       pluralLabel={pluralLabel}
       apiBase={apiBase}
+      locale={currentLocale}
+      fallbackLocale={fallbackLocale}
       onSelect={(doc) => {
         setValue?.(field.name, Number(doc.id), { shouldValidate: true, shouldDirty: true })
         setIsSearching(false)
@@ -384,14 +404,22 @@ function ManyItemRow(props: ManyItemRowProps) {
   )
 }
 
-function useManySelectedDocs(apiBase: string, relationTo: string, selectedIds: number[]) {
+function useManySelectedDocs(
+  apiBase: string,
+  relationTo: string,
+  selectedIds: number[],
+  locale?: string,
+  fallbackLocale?: string,
+) {
   const query = useQuery({
-    queryKey: ['relationship-selected-docs', relationTo, selectedIds],
+    queryKey: ['relationship-selected-docs', relationTo, selectedIds, locale],
     queryFn: async () => {
       if (selectedIds.length === 0) return []
       const res = await fetchCollectionDocs(apiBase, relationTo, {
         limit: selectedIds.length,
         where: { id: { in: selectedIds } },
+        locale,
+        fallbackLocale,
       })
       return res.docs
     },
@@ -468,6 +496,8 @@ function ManyRelationshipPicker({
   const { apiBase, basePath, titleField, singularLabel, pluralLabel } = useRelationshipConfig(
     field.relationTo,
   )
+  const { hasLocalization, activeLocale, fallbackLocale } = useLocale()
+  const currentLocale = hasLocalization ? activeLocale : undefined
 
   useEffect(() => {
     register(field.name)
@@ -476,7 +506,13 @@ function ManyRelationshipPicker({
   const rawValue = watch ? watch(field.name) : undefined
   const selectedIds = useMemo(() => normalizeManyIds(rawValue), [rawValue])
   const [isSearching, setIsSearching] = useState(false)
-  const docsMap = useManySelectedDocs(apiBase, field.relationTo, selectedIds)
+  const docsMap = useManySelectedDocs(
+    apiBase,
+    field.relationTo,
+    selectedIds,
+    currentLocale,
+    fallbackLocale,
+  )
 
   const handleMove = (from: number, to: number) => {
     setValue?.(field.name, reorderItems(selectedIds, from, to), {
@@ -536,6 +572,8 @@ function ManyRelationshipPicker({
             singularLabel={singularLabel}
             pluralLabel={pluralLabel}
             apiBase={apiBase}
+            locale={currentLocale}
+            fallbackLocale={fallbackLocale}
             excludeIds={selectedIds}
             onSelect={handleAdd}
             onCancel={() => setIsSearching(false)}

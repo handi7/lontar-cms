@@ -110,4 +110,35 @@ describe('usePreviewPostMessage', () => {
       'https://example.com',
     )
   })
+
+  it('includes locale in preview message when provided', () => {
+    const postMessage = vi.fn()
+    const iframe = {
+      contentWindow: { postMessage },
+    } as unknown as HTMLIFrameElement
+    const iframeRef = { current: iframe }
+
+    const { result } = renderHook(() =>
+      usePreviewPostMessage({
+        iframeRef,
+        enabled: true,
+        targetOrigin: 'https://example.com',
+        collectionSlug: 'posts',
+        values: { title: 'Indonesian Post' },
+        locale: 'id',
+      }),
+    )
+
+    result.current.postImmediate()
+    expect(postMessage).toHaveBeenCalledWith(
+      {
+        source: 'lontar-preview',
+        version: 1,
+        collection: 'posts',
+        document: { title: 'Indonesian Post' },
+        locale: 'id',
+      },
+      'https://example.com',
+    )
+  })
 })

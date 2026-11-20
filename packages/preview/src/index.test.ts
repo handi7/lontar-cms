@@ -456,4 +456,36 @@ describe('subscribeLivePreview', () => {
 
     unsubscribe()
   })
+
+  it('handles incoming messages carrying locale information', () => {
+    const mockTop = {} as Window
+    Object.defineProperty(window, 'top', {
+      value: mockTop,
+      configurable: true,
+    })
+
+    const onChange = vi.fn()
+    const unsubscribe = subscribeLivePreview({
+      initialData: { title: 'English Title' },
+      serverURL: 'http://localhost:3000',
+      collection: 'posts',
+      onChange,
+    })
+
+    window.dispatchEvent(
+      new MessageEvent('message', {
+        origin: 'http://localhost:3000',
+        data: {
+          source: 'lontar-preview',
+          version: 1,
+          collection: 'posts',
+          document: { title: 'Indonesian Title' },
+          locale: 'id',
+        },
+      }),
+    )
+
+    expect(onChange).toHaveBeenCalledWith({ title: 'Indonesian Title' })
+    unsubscribe()
+  })
 })

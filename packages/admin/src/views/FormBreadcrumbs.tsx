@@ -1,5 +1,6 @@
 import { Link } from '@tanstack/react-router'
 import { ChevronRight } from 'lucide-react'
+import { useLocale } from '../hooks/useLocale'
 
 export interface CollectionBreadcrumbsProps {
   collectionLabel: string
@@ -12,6 +13,8 @@ export function CollectionBreadcrumbs({
   collectionSlug,
   currentTitle,
 }: CollectionBreadcrumbsProps) {
+  const { activeLocale } = useLocale()
+
   return (
     <nav
       aria-label="Breadcrumb"
@@ -20,6 +23,9 @@ export function CollectionBreadcrumbs({
       <Link
         to="/$collection"
         params={{ collection: collectionSlug }}
+        search={(prev: Record<string, unknown>) =>
+          activeLocale ? { ...prev, locale: activeLocale } : prev
+        }
         className="lt:transition-colors lt:hover:text-foreground"
       >
         {collectionLabel}
