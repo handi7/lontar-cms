@@ -6,6 +6,7 @@ export interface UsePreviewPostMessageOptions {
   targetOrigin?: string
   collectionSlug: string
   values: Record<string, unknown>
+  locale?: string
   debounceMs?: number
 }
 
@@ -15,11 +16,14 @@ export function usePreviewPostMessage({
   targetOrigin,
   collectionSlug,
   values,
+  locale,
   debounceMs = 150,
 }: UsePreviewPostMessageOptions): { postImmediate: () => void } {
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const latestValuesRef = useRef(values)
   latestValuesRef.current = values
+  const latestLocaleRef = useRef(locale)
+  latestLocaleRef.current = locale
 
   const postImmediate = () => {
     if (!enabled || !targetOrigin || !iframeRef.current?.contentWindow) {
@@ -30,6 +34,7 @@ export function usePreviewPostMessage({
       version: 1,
       collection: collectionSlug,
       document: latestValuesRef.current,
+      ...(latestLocaleRef.current ? { locale: latestLocaleRef.current } : {}),
     }
     iframeRef.current.contentWindow.postMessage(message, targetOrigin)
   }

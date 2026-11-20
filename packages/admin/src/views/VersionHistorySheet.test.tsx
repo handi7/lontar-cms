@@ -1,7 +1,13 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
-import type { ClientCollection, ClientGlobal, ClientPaginatedVersions } from '@lontar/core/client'
+import type {
+  ClientCollection,
+  ClientConfig,
+  ClientGlobal,
+  ClientPaginatedVersions,
+} from '@lontar/core/client'
+import { AdminContext } from '../context/AdminContext'
 import { PortalContainerProvider } from '../context/PortalContainer'
 import { VersionHistorySheet } from './VersionHistorySheet'
 
@@ -79,26 +85,37 @@ function renderVersionHistorySheet(
       mutations: { retry: false },
     },
   }),
+  configOverride?: Partial<ClientConfig>,
 ) {
+  const adminConfig = {
+    collections: [mockCollection],
+    globals: [mockGlobal],
+    ...configOverride,
+  } as ClientConfig
+
   return render(
     <div className="lontar-admin">
       <PortalContainerProvider>
-        <QueryClientProvider client={queryClient}>
-          <VersionHistorySheet
-            open={true}
-            onOpenChange={vi.fn()}
-            apiBase="http://localhost:3000/api"
-            collection={mockCollection}
-            id={1}
-            currentDoc={{
-              id: 1,
-              title: 'Current Title',
-              content: 'Updated Body',
-              _status: 'draft',
-            }}
-            {...props}
-          />
-        </QueryClientProvider>
+        <AdminContext.Provider
+          value={{ config: adminConfig, apiBase: 'http://localhost:3000/api', basePath: '/admin' }}
+        >
+          <QueryClientProvider client={queryClient}>
+            <VersionHistorySheet
+              open={true}
+              onOpenChange={vi.fn()}
+              apiBase="http://localhost:3000/api"
+              collection={mockCollection}
+              id={1}
+              currentDoc={{
+                id: 1,
+                title: 'Current Title',
+                content: 'Updated Body',
+                _status: 'draft',
+              }}
+              {...props}
+            />
+          </QueryClientProvider>
+        </AdminContext.Provider>
       </PortalContainerProvider>
     </div>,
   )
@@ -517,5 +534,92 @@ describe('VersionHistorySheet', () => {
     })
 
     expect(screen.queryByRole('button', { name: /Restore v2/i })).toBeNull()
+  })
+
+  it('renders locale compare selector and updates diff comparison per locale (#429)', async () => {
+    const localizedCollection: ClientCollection = {
+      slug: 'posts',
+      labels: { singular: 'Post', plural: 'Posts' },
+      versions: { drafts: true },
+      admin: { useAsTitle: 'title', defaultColumns: ['title'] },
+      fields: [{ name: 'title', label: 'Title', type: 'text', localized: true, required: true }],
+    }
+
+    const localizedVersions: ClientPaginatedVersions = {
+      docs: [
+        {
+          id: 1,
+          parentId: 1,
+          versionNumber: 1,
+          autosave: false,
+          snapshot: {
+            id: 1,
+            title: { en: 'English V1', id: 'Indo V1' },
+            _status: 'draft',
+          },
+          _status: 'draft',
+          createdAt: '2026-11-09T09:00:00.000Z',
+          createdBy: null,
+        },
+      ],
+      totalDocs: 1,
+      limit: 10,
+      page: 1,
+      totalPages: 1,
+    }
+
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockImplementation((url: string) => {
+        if (url.includes('/api/posts/1/versions')) {
+          return mockJsonResponse(localizedVersions)
+        }
+        return mockJsonResponse({}, 404)
+      }),
+    )
+
+    renderVersionHistorySheet(
+      {
+        collection: localizedCollection,
+        currentDoc: {
+          id: 1,
+          title: { en: 'English V1', id: 'Indo Current' },
+          _status: 'draft',
+        },
+      },
+      undefined,
+      {
+        localization: {
+          locales: [
+            { code: 'en', label: 'English' },
+            { code: 'id', label: 'Indonesian' },
+          ],
+          defaultLocale: 'en',
+          fallback: true,
+        },
+      },
+    )
+
+    await waitFor(() => {
+      expect(screen.getByTestId('version-compare-locale-select')).toBeTruthy()
+    })
+
+    // Initially activeLocale is 'en' (defaultLocale).
+    // In 'en', snapshot is 'English V1' and current is 'English V1' -> no changes.
+    expect(screen.getByText('No changes detected between these snapshots.')).toBeTruthy()
+
+    // Switch compare locale to 'id'
+    const selectTrigger = screen.getByTestId('version-compare-locale-select')
+    fireEvent.click(selectTrigger)
+
+    const idOption = await screen.findByTestId('version-compare-locale-id')
+    fireEvent.click(idOption)
+
+    // In 'id', snapshot is 'Indo V1' and current is 'Indo Current' -> modified!
+    await waitFor(() => {
+      expect(screen.getByText('Modified')).toBeTruthy()
+      expect(screen.getByText('Indo V1')).toBeTruthy()
+      expect(screen.getByText('Indo Current')).toBeTruthy()
+    })
   })
 })

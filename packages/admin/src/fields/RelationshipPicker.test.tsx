@@ -43,10 +43,12 @@ function TestWrapper({
   children,
   defaultValues = {},
   onSubmit,
+  configOverride,
 }: {
   children: (methods: ReturnType<typeof useForm<Record<string, unknown>>>) => React.ReactNode
   defaultValues?: Record<string, unknown>
   onSubmit?: React.FormEventHandler<HTMLFormElement>
+  configOverride?: Partial<ClientConfig>
 }) {
   const queryClient = new QueryClient({
     defaultOptions: {
@@ -63,7 +65,7 @@ function TestWrapper({
       <PortalContainerProvider>
         <AdminContext.Provider
           value={{
-            config: mockConfig,
+            config: { ...mockConfig, ...configOverride },
             apiBase: '/api',
             basePath: '/admin',
           }}
@@ -455,5 +457,65 @@ describe('Many RelationshipPicker (hasMany: true)', () => {
 
     fireEvent.keyDown(searchInput, { key: 'Enter', code: 'Enter' })
     expect(onSubmit).not.toHaveBeenCalled()
+  })
+
+  it('queries doc and dropdown options with active locale and fallbackLocale (#429)', async () => {
+    window.history.pushState({}, '', '/admin/posts/1?locale=id')
+
+    const fetchUrls: string[] = []
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockImplementation((url: string) => {
+        fetchUrls.push(url)
+        if (url.includes('/api/categories/10')) {
+          return mockJsonResponse({ id: 10, name: 'Kategori (ID)' })
+        }
+        if (url.includes('/api/categories')) {
+          return mockJsonResponse({
+            docs: [{ id: 10, name: 'Kategori (ID)' }],
+            totalDocs: 1,
+            limit: 100,
+            page: 1,
+            totalPages: 1,
+          })
+        }
+        return mockJsonResponse({}, 404)
+      }),
+    )
+
+    render(
+      <TestWrapper
+        defaultValues={{ categories: [10] }}
+        configOverride={{
+          localization: {
+            locales: [
+              { code: 'en', label: 'English' },
+              { code: 'id', label: 'Indonesian' },
+            ],
+            defaultLocale: 'en',
+            fallback: true,
+          },
+        }}
+      >
+        {({ register, setValue, watch }) => (
+          <RelationshipPicker
+            field={categoriesField}
+            register={register}
+            setValue={setValue}
+            watch={watch}
+          />
+        )}
+      </TestWrapper>,
+    )
+
+    await waitFor(() => {
+      expect(screen.getByText('Kategori (ID)')).toBeTruthy()
+    })
+
+    expect(fetchUrls.some((u) => u.includes('locale=id') && u.includes('fallbackLocale=en'))).toBe(
+      true,
+    )
+
+    window.history.pushState({}, '', '/')
   })
 })

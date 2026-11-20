@@ -15,6 +15,14 @@ import {
 } from '../components/ui/sheet'
 import { Button } from '../components/ui/button'
 import { Badge } from '../components/ui/badge'
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '../components/ui/select'
+import { useLocale } from '../hooks/useLocale'
 import { History, Maximize2, Minimize2, RotateCcw } from 'lucide-react'
 import {
   fetchDocVersions,
@@ -192,6 +200,43 @@ function VersionList({
   )
 }
 
+interface CompareLocaleSelectProps {
+  locales: Array<{ code: string; label: string }>
+  value: string
+  onChange: (val: string) => void
+}
+
+function CompareLocaleSelect({ locales, value, onChange }: CompareLocaleSelectProps) {
+  return (
+    <div className="lt:flex lt:items-center lt:gap-1.5">
+      <span className="lt:text-xs lt:text-muted-foreground">Locale:</span>
+      <Select value={value} onValueChange={onChange}>
+        <SelectTrigger
+          aria-label="Compare locale"
+          data-testid="version-compare-locale-select"
+          className="lt:h-8 lt:w-[130px] lt:text-xs"
+        >
+          <SelectValue placeholder="All Locales" />
+        </SelectTrigger>
+        <SelectContent>
+          <SelectItem value="all" data-testid="version-compare-locale-all">
+            All Locales
+          </SelectItem>
+          {locales.map((loc) => (
+            <SelectItem
+              key={loc.code}
+              value={loc.code}
+              data-testid={`version-compare-locale-${loc.code}`}
+            >
+              {loc.label} ({loc.code})
+            </SelectItem>
+          ))}
+        </SelectContent>
+      </Select>
+    </div>
+  )
+}
+
 interface VersionDiffPanelProps {
   entity: ClientCollection | ClientGlobal
   selectedVersion: ClientVersion | undefined
@@ -209,6 +254,9 @@ function VersionDiffPanel({
   isRestoring,
   canRestore = true,
 }: VersionDiffPanelProps) {
+  const { hasLocalization, locales, activeLocale } = useLocale()
+  const [compareLocale, setCompareLocale] = useState<string>(activeLocale || 'all')
+
   if (!selectedVersion) {
     return (
       <div className="lt:flex lt:items-center lt:justify-center lt:h-full lt:text-xs lt:text-muted-foreground lt:p-8 lt:border lt:border-dashed lt:rounded-md">
@@ -217,7 +265,10 @@ function VersionDiffPanel({
     )
   }
 
-  const diff = diffSnapshots(entity, selectedVersion.snapshot, currentDoc ?? {})
+  const effectiveLocale = compareLocale === 'all' ? undefined : compareLocale
+  const diff = diffSnapshots(entity, selectedVersion.snapshot, currentDoc ?? {}, {
+    locale: effectiveLocale,
+  })
 
   return (
     <div className="lt:flex lt:flex-col lt:gap-3 lt:h-full lt:overflow-hidden">
@@ -230,18 +281,27 @@ function VersionDiffPanel({
             Recorded {formatVersionDate(selectedVersion.createdAt)}
           </span>
         </div>
-        {canRestore && (
-          <Button
-            type="button"
-            size="sm"
-            className="lt:gap-1.5"
-            onClick={onAskRestore}
-            disabled={isRestoring}
-          >
-            <RotateCcw className="lt:size-3.5" />
-            <span>Restore v{selectedVersion.versionNumber}</span>
-          </Button>
-        )}
+        <div className="lt:flex lt:items-center lt:gap-2">
+          {hasLocalization && locales.length > 1 && (
+            <CompareLocaleSelect
+              locales={locales}
+              value={compareLocale}
+              onChange={setCompareLocale}
+            />
+          )}
+          {canRestore && (
+            <Button
+              type="button"
+              size="sm"
+              className="lt:gap-1.5"
+              onClick={onAskRestore}
+              disabled={isRestoring}
+            >
+              <RotateCcw className="lt:size-3.5" />
+              <span>Restore v{selectedVersion.versionNumber}</span>
+            </Button>
+          )}
+        </div>
       </div>
 
       <div className="lt:flex-1 lt:overflow-y-auto lt:pr-1">

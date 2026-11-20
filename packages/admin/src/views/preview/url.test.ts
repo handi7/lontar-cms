@@ -43,4 +43,25 @@ describe('resolvePreviewUrl', () => {
     expect(result.url).toBe('/posts/my-post?preview=1')
     expect(result.origin).toBeDefined()
   })
+
+  it('resolves {locale} token when locale parameter is passed', () => {
+    const result = resolvePreviewUrl(
+      'https://example.com/{locale}/posts/{slug}?preview=1',
+      { slug: 'my-post' },
+      'id',
+    )
+
+    expect(result.ready).toBe(true)
+    expect(result.missingTokens).toEqual([])
+    expect(result.url).toBe('https://example.com/id/posts/my-post?preview=1')
+  })
+
+  it('reports missing locale token when template requires {locale} and locale is missing', () => {
+    const result = resolvePreviewUrl('https://example.com/{locale}/posts/{slug}', {
+      slug: 'my-post',
+    })
+
+    expect(result.ready).toBe(false)
+    expect(result.missingTokens).toEqual(['locale'])
+  })
 })

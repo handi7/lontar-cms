@@ -48,8 +48,10 @@ function resolveOrigin(url: string): string | undefined {
 export function resolvePreviewUrl(
   template: string,
   values: Record<string, unknown>,
+  locale?: string,
 ): ResolvedPreviewUrl {
-  const missingTokens = findMissingTokens(template, values)
+  const effectiveValues = locale ? { locale, ...values } : values
+  const missingTokens = findMissingTokens(template, effectiveValues)
   if (missingTokens.length > 0) {
     return {
       ready: false,
@@ -58,7 +60,7 @@ export function resolvePreviewUrl(
   }
 
   const resolvedUrl = template.replace(TOKEN_PATTERN, (_match, token: string) => {
-    return encodeURIComponent(formatTokenValue(values[token]))
+    return encodeURIComponent(formatTokenValue(effectiveValues[token]))
   })
 
   return {

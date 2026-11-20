@@ -240,7 +240,7 @@ approval on the `npm` environment. Don't run `pnpm publish` by hand; see `docs/r
   - [x] #426 `cli: data-preserving migrations when enabling localization or toggling localized`
   - [x] #427 `cli: localized types from generate:types`
   - [x] #428 `admin: locale switcher and localized edit forms`
-  - [ ] #429 `admin: active locale in list view, pickers, version compare and live preview`
+  - [x] #429 `admin: active locale in list view, pickers, version compare and live preview`
   - [ ] #430 `webhooks: locale in webhook payloads and preview URLs`
   - [ ] #431 `examples/next-blog: two-locale blog with e2e`
 - [ ] **M12: Admin UX & extensibility** (tracking in #150)

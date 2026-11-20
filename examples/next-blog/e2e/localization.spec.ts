@@ -234,4 +234,202 @@ test.describe('Admin Localization & Edit Forms (#428)', () => {
 
     // Both English and Indonesian titles have been verified and persisted separately!
   })
+
+  test('list view switcher and navigation locale persistence (#429)', async ({ page }) => {
+    // Intercept client config to provide localization settings
+    await page.route('**/api/_lontar/config', async (route) => {
+      const response = await route.fetch()
+      const json = (await response.json()) as ClientConfig
+      json.localization = {
+        locales: [
+          { code: 'en', label: 'English' },
+          { code: 'id', label: 'Indonesian' },
+        ],
+        defaultLocale: 'en',
+        fallback: true,
+      }
+      await route.fulfill({ json })
+    })
+
+    await page.route('**/api/posts?*', async (route) => {
+      const url = new URL(route.request().url())
+      await route.fulfill({
+        json: {
+          docs: [
+            {
+              id: '1',
+              title: url.searchParams.get('locale') === 'id' ? 'Judul Pos ID' : 'Post Title EN',
+              slug: 'post-1',
+              createdAt: '2026-01-01T00:00:00.000Z',
+            },
+          ],
+          totalDocs: 1,
+          limit: 10,
+          page: 1,
+          totalPages: 1,
+          hasNextPage: false,
+          hasPrevPage: false,
+        },
+      })
+    })
+
+    await login(page)
+
+    // Go to posts list
+    await page.goto('/admin/posts')
+
+    // 1. Locale switcher is visible in list view header
+    const listSwitcher = page.getByTestId('locale-switcher')
+    await expect(listSwitcher).toBeVisible({ timeout: 15000 })
+    await expect(listSwitcher).toContainText('English (en)')
+
+    // 2. Switch to Indonesian
+    await listSwitcher.click()
+    const idOption = page.getByTestId('locale-option-id')
+    await expect(idOption).toBeVisible()
+    await idOption.click()
+
+    await expect(page).toHaveURL(/locale=id/)
+    await expect(listSwitcher).toContainText('Indonesian (id)')
+
+    // Verify list displays Indonesian document
+    await expect(page.getByText('Judul Pos ID')).toBeVisible()
+
+    // 3. Create button preserves active locale
+    const createBtn = page.getByRole('link', { name: 'Create Post' })
+    await expect(createBtn).toHaveAttribute('href', expect.stringContaining('locale=id'))
+
+    // 4. Row title link preserves active locale
+    const rowTitleLink = page.getByRole('link', { name: 'Judul Pos ID' })
+    await expect(rowTitleLink).toHaveAttribute('href', expect.stringContaining('locale=id'))
+
+    // Mock single post fetch for edit view navigation
+    await page.route('**/api/posts/1?*', async (route) => {
+      await route.fulfill({
+        json: {
+          id: '1',
+          title: 'Judul Pos ID',
+          slug: 'post-1',
+          createdAt: '2026-01-01T00:00:00.000Z',
+          _status: 'draft',
+        },
+      })
+    })
+    await page.route('**/api/posts/1/permissions', async (route) => {
+      await route.fulfill({
+        json: { read: true, update: true, delete: true, fields: {} },
+      })
+    })
+    await page.route('**/api/_lontar/versions/posts/1*', async (route) => {
+      await route.fulfill({
+        json: { docs: [], totalDocs: 0, page: 1, totalPages: 1 },
+      })
+    })
+
+    // 5. Navigate to post edit view and check breadcrumbs back to list
+    await rowTitleLink.click()
+    await expect(page).toHaveURL(/\/admin\/posts\/1\?.*locale=id/)
+
+    // Breadcrumb link back to collection preserves locale
+    const breadcrumbLink = page
+      .getByRole('navigation', { name: 'Breadcrumb' })
+      .getByRole('link', { name: 'Posts' })
+    await expect(breadcrumbLink).toHaveAttribute('href', expect.stringContaining('locale=id'))
+  })
+
+  test('live preview resolves {locale} token and updates on locale change (#429)', async ({
+    page,
+  }) => {
+    // Intercept client config to provide localization settings and preview url with {locale}
+    await page.route('**/api/_lontar/config', async (route) => {
+      const response = await route.fetch()
+      const json = (await response.json()) as ClientConfig
+      json.localization = {
+        locales: [
+          { code: 'en', label: 'English' },
+          { code: 'id', label: 'Indonesian' },
+        ],
+        defaultLocale: 'en',
+        fallback: true,
+      }
+      const postsCol = json.collections?.find((c) => c.slug === 'posts')
+      if (postsCol) {
+        postsCol.admin.preview = {
+          url: '/{locale}/posts/{slug}?preview=1',
+        }
+        for (const field of postsCol.fields) {
+          if (field.name === 'title') {
+            field.localized = true
+          }
+        }
+      }
+      await route.fulfill({ json })
+    })
+
+    // Mock document
+    await page.route('**/api/posts/1?*', async (route) => {
+      const url = new URL(route.request().url())
+      const locale = url.searchParams.get('locale') || 'en'
+      await route.fulfill({
+        json: {
+          id: '1',
+          title: locale === 'id' ? 'Judul Indo' : 'English Title',
+          slug: 'test-slug',
+          _status: 'draft',
+        },
+      })
+    })
+
+    await page.route('**/api/posts/1', async (route) => {
+      await route.fulfill({
+        json: {
+          id: '1',
+          title: 'English Title',
+          slug: 'test-slug',
+          _status: 'draft',
+        },
+      })
+    })
+
+    await page.route('**/api/posts/1/permissions', async (route) => {
+      await route.fulfill({
+        json: {
+          read: true,
+          update: true,
+          delete: true,
+          fields: {},
+        },
+      })
+    })
+
+    await page.route('**/api/_lontar/versions/posts/1*', async (route) => {
+      await route.fulfill({
+        json: { docs: [], totalDocs: 0, page: 1, totalPages: 1 },
+      })
+    })
+
+    await login(page)
+
+    // Open post in Indonesian
+    await page.goto('/admin/posts/1?locale=id')
+
+    // Open Live Preview
+    const livePreviewBtn = page.getByRole('button', { name: 'Live Preview' })
+    await expect(livePreviewBtn).toBeVisible({ timeout: 15000 })
+    await livePreviewBtn.click()
+
+    // Verify preview iframe was created and its src has {locale} resolved to id!
+    const iframe = page.locator('iframe[title="Live Preview"]')
+    await expect(iframe).toBeVisible()
+    await expect(iframe).toHaveAttribute('src', '/id/posts/test-slug?preview=1')
+
+    // Switch locale to English
+    const switcher = page.getByTestId('locale-switcher')
+    await switcher.click()
+    await page.getByTestId('locale-option-en').click()
+    await expect(page).toHaveURL(/locale=en/)
+
+    // Verify preview iframe src was updated to English (/en/posts/test-slug?preview=1)
+    await expect(iframe).toHaveAttribute('src', '/en/posts/test-slug?preview=1')
+  })
 })

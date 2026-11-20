@@ -730,6 +730,7 @@ interface PreviewPaneWrapperProps {
   urlTemplate?: string
   values: Record<string, unknown>
   savedValues?: Record<string, unknown> | null
+  locale?: string
   onClose: () => void
   activeView?: 'edit' | 'preview'
 }
@@ -749,6 +750,7 @@ function PreviewPaneWrapper(props: PreviewPaneWrapperProps) {
         urlTemplate={props.urlTemplate}
         values={props.values}
         savedValues={props.savedValues}
+        locale={props.locale}
         onClose={props.onClose}
       />
     </div>
@@ -863,6 +865,7 @@ interface CollectionEditorSplitLayoutProps {
   readOnlyDoc: boolean
   fallbackDoc?: Record<string, unknown> | null
   hasLocalization?: boolean
+  currentLocale?: string
   submitLabel: string
   isSubmitting: boolean
   savePending: boolean
@@ -901,6 +904,7 @@ function CollectionEditorSplitLayout(props: CollectionEditorSplitLayoutProps) {
             props.mode,
           )}
           savedValues={props.doc}
+          locale={props.currentLocale}
           onClose={props.editorView.close}
           activeView={props.editorView.activeView}
         />
@@ -1379,6 +1383,7 @@ function CollectionEditor({ collection, mode, id }: CollectionEditorProps) {
         doc={docQuery.data}
         fallbackDoc={fallbackDoc}
         hasLocalization={hasLocalization}
+        currentLocale={currentLocale}
         onPublish={onPublish}
         control={control}
         register={register}
