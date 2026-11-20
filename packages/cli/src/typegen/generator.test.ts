@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest'
+import path from 'node:path'
 import ts from 'typescript'
 import {
   generateTypes,
@@ -660,4 +661,282 @@ describe('generateTypes', () => {
       "declare module '@lontar/core' {\n  interface UserRoleExtension {\n    role: UserRole\n  }",
     )
   })
+
+  it('generates Locale union, single-locale and all-locales shapes for localized config (#427)', () => {
+    const config: Config = {
+      secret: 'test-secret',
+      db: { name: 'mock' } as unknown as Config['db'],
+      localization: {
+        locales: ['en', 'id'],
+        defaultLocale: 'en',
+      },
+      collections: [
+        {
+          slug: 'authors',
+          fields: {
+            name: { type: 'text', required: true },
+          },
+        },
+        {
+          slug: 'media',
+          upload: true,
+          fields: {
+            alt: { type: 'text', localized: true },
+          },
+        },
+        {
+          slug: 'posts',
+          fields: {
+            title: { type: 'text', required: true, localized: true },
+            content: { type: 'textarea', localized: true },
+            slug: { type: 'slug' },
+            author: { type: 'relationship', relationTo: 'authors', localized: true },
+            cover: { type: 'upload', relationTo: 'media', localized: true },
+            status: {
+              type: 'select',
+              options: ['draft', 'published'],
+              localized: true,
+            },
+            meta: {
+              type: 'group',
+              localized: true,
+              fields: {
+                title: { type: 'text', required: true },
+                desc: { type: 'textarea' },
+              },
+            },
+            tags: {
+              type: 'array',
+              fields: {
+                label: { type: 'text', required: true, localized: true },
+              },
+            },
+            perLocaleItems: {
+              type: 'array',
+              localized: true,
+              fields: {
+                name: { type: 'text', required: true },
+              },
+            },
+            layout: {
+              type: 'blocks',
+              blocks: [
+                {
+                  slug: 'hero',
+                  fields: {
+                    heading: { type: 'text', required: true, localized: true },
+                  },
+                },
+              ],
+            },
+            perLocaleBlocks: {
+              type: 'blocks',
+              localized: true,
+              blocks: [
+                {
+                  slug: 'cta',
+                  fields: {
+                    text: { type: 'text', required: true },
+                  },
+                },
+              ],
+            },
+          },
+        },
+      ],
+      globals: [
+        {
+          slug: 'site-settings',
+          label: 'Site Settings',
+          fields: {
+            siteName: { type: 'text', required: true, localized: true },
+            footerText: { type: 'textarea' },
+          },
+        },
+      ],
+    }
+
+    const output = generateTypes(config)
+
+    // Locale union
+    expect(output).toContain('export type Locale = "en" | "id"')
+
+    // Single-locale Post interface
+    expect(output).toContain('export interface Post {')
+    expect(output).toContain('  title: string')
+    expect(output).toContain('  content?: string | null')
+    expect(output).toContain('  slug?: string | null')
+    expect(output).toContain('  author?: number | Author | null')
+    expect(output).toContain('  cover?: number | Media | null')
+    expect(output).toContain('  status?: "draft" | "published" | null')
+    expect(output).toContain('  meta?: {')
+    expect(output).toContain('    title: string')
+    expect(output).toContain('    desc?: string | null')
+    expect(output).toContain('  tags?: Array<{')
+    expect(output).toContain('    label: string')
+    expect(output).toContain('  perLocaleItems?: Array<{')
+    expect(output).toContain('    name: string')
+    expect(output).toContain('  layout?: Array<PostLayoutBlock> | null')
+    expect(output).toContain('  perLocaleBlocks?: Array<PostPerLocaleBlocksBlock> | null')
+
+    // All-locales Post interface
+    expect(output).toContain('export interface PostAllLocales {')
+    expect(output).toContain('  title: Record<Locale, string>')
+    expect(output).toContain('  content?: Record<Locale, string> | null')
+    expect(output).toContain('  slug?: string | null')
+    expect(output).toContain('  author?: Record<Locale, number | Author> | null')
+    expect(output).toContain('  cover?: Record<Locale, number | Media> | null')
+    expect(output).toContain('  status?: Record<Locale, "draft" | "published"> | null')
+    expect(output).toContain('    title: Record<Locale, string>')
+    expect(output).toContain('    desc?: Record<Locale, string> | null')
+    expect(output).toContain('    label: Record<Locale, string>')
+    expect(output).toContain('  perLocaleItems?: Record<Locale, Array<{')
+    expect(output).toContain('  layout?: Array<PostLayoutBlockAllLocales> | null')
+    expect(output).toContain(
+      '  perLocaleBlocks?: Record<Locale, Array<PostPerLocaleBlocksBlock>> | null',
+    )
+
+    // Single-locale vs All-locales Blocks
+    expect(output).toContain('export interface PostLayoutHeroBlock {')
+    expect(output).toContain('  heading: string')
+    expect(output).toContain('export type PostLayoutBlock = PostLayoutHeroBlock')
+
+    expect(output).toContain('export interface PostLayoutHeroBlockAllLocales {')
+    expect(output).toContain('  heading: Record<Locale, string>')
+    expect(output).toContain(
+      'export type PostLayoutBlockAllLocales = PostLayoutHeroBlockAllLocales',
+    )
+
+    // Single-locale and All-locales Globals
+    expect(output).toContain('export interface SiteSettings {')
+    expect(output).toContain('  siteName: string')
+    expect(output).toContain('  footerText?: string | null')
+
+    expect(output).toContain('export interface SiteSettingsAllLocales {')
+    expect(output).toContain('  siteName: Record<Locale, string>')
+    expect(output).toContain('  footerText?: string | null')
+
+    // Module Augmentation
+    expect(output).toContain("declare module '@lontar/core' {")
+    expect(output).toContain('  interface LontarLocaleExtension {\n    locale: Locale\n  }')
+    expect(output).toContain(
+      '  interface LontarCollectionsAll {\n    authors: AuthorAllLocales\n    media: MediaAllLocales\n    posts: PostAllLocales\n  }',
+    )
+    expect(output).toContain(
+      '  interface LontarGlobalsAll {\n    "site-settings": SiteSettingsAllLocales\n  }',
+    )
+
+    // Verify valid TS compilation
+    const transpileResult = ts.transpileModule(output, {
+      compilerOptions: {
+        module: ts.ModuleKind.ESNext,
+        target: ts.ScriptTarget.ES2022,
+      },
+    })
+    expect(transpileResult.outputText).toBeDefined()
+  })
+
+  it('enforces type-safety on Local API locale options and all-locales return shapes (#427)', () => {
+    const config: Config = {
+      secret: 'test-secret',
+      db: { name: 'mock' } as unknown as Config['db'],
+      localization: {
+        locales: ['en', 'id'],
+        defaultLocale: 'en',
+      },
+      collections: [
+        {
+          slug: 'posts',
+          fields: {
+            title: { type: 'text', required: true, localized: true },
+            summary: { type: 'text' },
+          },
+        },
+      ],
+    }
+
+    const output = generateTypes(config)
+
+    const validSnippet = `
+${output}
+
+import type { LontarClient } from '@lontar/core'
+
+declare const lontar: LontarClient
+
+async function runTypeChecks() {
+  // Valid queries:
+  const p1 = await lontar.find('posts')
+  const title1: string = p1.docs[0].title
+  const summary1: string | null | undefined = p1.docs[0].summary
+
+  const p2 = await lontar.find('posts', { locale: 'en' })
+  const title2: string = p2.docs[0].title
+
+  const p3 = await lontar.find('posts', { locale: 'all' })
+  const titleMap: Record<Locale, string> = p3.docs[0].title
+  const summaryMap: string | null | undefined = p3.docs[0].summary
+
+  const p4 = await lontar.findByID('posts', 1, { locale: 'all' })
+  if (p4) {
+    const title4: Record<Locale, string> = p4.title
+  }
+
+  const p5 = await lontar.findByID('posts', { id: 1, locale: 'all' })
+  if (p5) {
+    const title5: Record<Locale, string> = p5.title
+  }
+}
+`
+
+    const invalidSnippet = `
+${output}
+
+import type { LontarClient } from '@lontar/core'
+
+declare const lontar: LontarClient
+
+async function runInvalidLocale() {
+  await lontar.find('posts', { locale: 'misspelled-locale' })
+}
+`
+
+    const compilerOptions: ts.CompilerOptions = {
+      noEmit: true,
+      target: ts.ScriptTarget.ESNext,
+      module: ts.ModuleKind.ESNext,
+      moduleResolution: ts.ModuleResolutionKind.Bundler,
+      strict: true,
+      skipLibCheck: true,
+    }
+
+    const virtualPath = path.resolve(__dirname, 'virtual-test.ts')
+    const invalidPath = path.resolve(__dirname, 'invalid-test.ts')
+
+    const host = ts.createCompilerHost(compilerOptions)
+    const originalGetSourceFile = host.getSourceFile.bind(host)
+    host.getSourceFile = (fileName, languageVersion, onError, shouldCreateNewSourceFile) => {
+      if (fileName === virtualPath) {
+        return ts.createSourceFile(fileName, validSnippet, languageVersion, true)
+      }
+      if (fileName === invalidPath) {
+        return ts.createSourceFile(fileName, invalidSnippet, languageVersion, true)
+      }
+      return originalGetSourceFile(fileName, languageVersion, onError, shouldCreateNewSourceFile)
+    }
+
+    const program = ts.createProgram([virtualPath, invalidPath], compilerOptions, host)
+    const validSource = program.getSourceFile(virtualPath)
+    const invalidSource = program.getSourceFile(invalidPath)
+
+    const validDiagnostics = ts.getPreEmitDiagnostics(program, validSource)
+    expect(validDiagnostics).toHaveLength(0)
+
+    const invalidDiagnostics = ts.getPreEmitDiagnostics(program, invalidSource)
+    expect(invalidDiagnostics.length).toBeGreaterThan(0)
+    const errorMessages = invalidDiagnostics.map((d) =>
+      ts.flattenDiagnosticMessageText(d.messageText, ' '),
+    )
+    expect(errorMessages.some((msg) => msg.includes('misspelled-locale'))).toBe(true)
+  }, 15000)
 })

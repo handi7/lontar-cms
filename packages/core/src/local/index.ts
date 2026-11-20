@@ -38,8 +38,8 @@ export interface LocalFindOptions {
   overrideAccess?: boolean
   user?: AuthUser | null
   draft?: boolean
-  locale?: string
-  fallbackLocale?: string | false
+  locale?: LontarLocaleOrAll
+  fallbackLocale?: LontarFallbackLocale
 }
 
 export interface LocalFindByIDOptions {
@@ -48,8 +48,8 @@ export interface LocalFindByIDOptions {
   overrideAccess?: boolean
   user?: AuthUser | null
   draft?: boolean
-  locale?: string
-  fallbackLocale?: string | false
+  locale?: LontarLocaleOrAll
+  fallbackLocale?: LontarFallbackLocale
 }
 
 export interface LocalCreateOptions {
@@ -59,8 +59,8 @@ export interface LocalCreateOptions {
   user?: AuthUser | null
   draft?: boolean
   autosave?: boolean
-  locale?: string
-  fallbackLocale?: string | false
+  locale?: LontarLocaleOrAll
+  fallbackLocale?: LontarFallbackLocale
 }
 
 export interface LocalUpdateOptions {
@@ -71,8 +71,8 @@ export interface LocalUpdateOptions {
   user?: AuthUser | null
   draft?: boolean
   autosave?: boolean
-  locale?: string
-  fallbackLocale?: string | false
+  locale?: LontarLocaleOrAll
+  fallbackLocale?: LontarFallbackLocale
 }
 
 export interface LocalPublishOptions {
@@ -80,8 +80,8 @@ export interface LocalPublishOptions {
   depth?: number
   overrideAccess?: boolean
   user?: AuthUser | null
-  locale?: string
-  fallbackLocale?: string | false
+  locale?: LontarLocale
+  fallbackLocale?: LontarFallbackLocale
 }
 
 export interface LocalFindVersionsOptions {
@@ -90,15 +90,15 @@ export interface LocalFindVersionsOptions {
   sort?: string
   overrideAccess?: boolean
   user?: AuthUser | null
-  locale?: string
-  fallbackLocale?: string | false
+  locale?: LontarLocaleOrAll
+  fallbackLocale?: LontarFallbackLocale
 }
 
 export interface LocalFindVersionByIDOptions {
   overrideAccess?: boolean
   user?: AuthUser | null
-  locale?: string
-  fallbackLocale?: string | false
+  locale?: LontarLocaleOrAll
+  fallbackLocale?: LontarFallbackLocale
 }
 
 export interface LocalRestoreVersionOptions {
@@ -106,16 +106,16 @@ export interface LocalRestoreVersionOptions {
   depth?: number
   overrideAccess?: boolean
   user?: AuthUser | null
-  locale?: string
-  fallbackLocale?: string | false
+  locale?: LontarLocale
+  fallbackLocale?: LontarFallbackLocale
 }
 
 export interface LocalDeleteOptions {
   id?: number | string
   overrideAccess?: boolean
   user?: AuthUser | null
-  locale?: string
-  fallbackLocale?: string | false
+  locale?: LontarLocale
+  fallbackLocale?: LontarFallbackLocale
 }
 
 export interface LocalFindGlobalOptions {
@@ -123,8 +123,8 @@ export interface LocalFindGlobalOptions {
   overrideAccess?: boolean
   user?: AuthUser | null
   draft?: boolean
-  locale?: string
-  fallbackLocale?: string | false
+  locale?: LontarLocaleOrAll
+  fallbackLocale?: LontarFallbackLocale
 }
 
 export interface LocalUpdateGlobalOptions {
@@ -134,16 +134,16 @@ export interface LocalUpdateGlobalOptions {
   user?: AuthUser | null
   draft?: boolean
   autosave?: boolean
-  locale?: string
-  fallbackLocale?: string | false
+  locale?: LontarLocaleOrAll
+  fallbackLocale?: LontarFallbackLocale
 }
 
 export interface LocalPublishGlobalOptions {
   depth?: number
   overrideAccess?: boolean
   user?: AuthUser | null
-  locale?: string
-  fallbackLocale?: string | false
+  locale?: LontarLocale
+  fallbackLocale?: LontarFallbackLocale
 }
 
 export interface LocalFindGlobalVersionsOptions {
@@ -152,15 +152,15 @@ export interface LocalFindGlobalVersionsOptions {
   sort?: string
   overrideAccess?: boolean
   user?: AuthUser | null
-  locale?: string
-  fallbackLocale?: string | false
+  locale?: LontarLocaleOrAll
+  fallbackLocale?: LontarFallbackLocale
 }
 
 export interface LocalFindGlobalVersionByIDOptions {
   overrideAccess?: boolean
   user?: AuthUser | null
-  locale?: string
-  fallbackLocale?: string | false
+  locale?: LontarLocaleOrAll
+  fallbackLocale?: LontarFallbackLocale
 }
 
 export interface LocalRestoreGlobalVersionOptions {
@@ -168,8 +168,8 @@ export interface LocalRestoreGlobalVersionOptions {
   depth?: number
   overrideAccess?: boolean
   user?: AuthUser | null
-  locale?: string
-  fallbackLocale?: string | false
+  locale?: LontarLocale
+  fallbackLocale?: LontarFallbackLocale
 }
 
 // Target for module augmentation from generated types (lontar generate:types)
@@ -178,44 +178,105 @@ export interface LontarCollections {}
 
 // Target for module augmentation from generated types (lontar generate:types)
 // eslint-disable-next-line @typescript-eslint/no-empty-object-type
+export interface LontarCollectionsAll {}
+
+// Target for module augmentation from generated types (lontar generate:types)
+// eslint-disable-next-line @typescript-eslint/no-empty-object-type
 export interface LontarGlobals {}
+
+// Target for module augmentation from generated types (lontar generate:types)
+// eslint-disable-next-line @typescript-eslint/no-empty-object-type
+export interface LontarGlobalsAll {}
+
+// Target for module augmentation from generated types (lontar generate:types)
+// eslint-disable-next-line @typescript-eslint/no-empty-object-type
+export interface LontarLocaleExtension {}
+
+export type LontarLocale = LontarLocaleExtension extends { locale: infer L }
+  ? [L] extends [string]
+    ? L
+    : string
+  : string
+
+export type LontarLocaleOrAll = LontarLocaleExtension extends { locale: infer L }
+  ? [L] extends [string]
+    ? L | 'all'
+    : string
+  : string
+
+export type LontarFallbackLocale = LontarLocaleExtension extends { locale: infer L }
+  ? [L] extends [string]
+    ? L | false
+    : string | false
+  : string | false
+
+export type ResolvedCollectionDoc<K extends keyof LontarCollections, O> = O extends {
+  locale: 'all'
+}
+  ? K extends keyof LontarCollectionsAll
+    ? LontarCollectionsAll[K]
+    : LontarCollections[K]
+  : LontarCollections[K]
+
+export type ResolvedGlobalDoc<K extends keyof LontarGlobals, O> = O extends { locale: 'all' }
+  ? K extends keyof LontarGlobalsAll
+    ? LontarGlobalsAll[K]
+    : LontarGlobals[K]
+  : LontarGlobals[K]
 
 export interface LontarClient {
   readonly config: Config
-  find<K extends keyof LontarCollections>(
+  find<K extends keyof LontarCollections, O extends LocalFindOptions = LocalFindOptions>(
     collectionSlug: K,
-    options?: LocalFindOptions,
-  ): Promise<PaginatedDocs<LontarCollections[K]>>
+    options?: O,
+  ): Promise<PaginatedDocs<ResolvedCollectionDoc<K, O>>>
   find<T = DocumentData>(
     collectionSlug: string,
     options?: LocalFindOptions,
   ): Promise<PaginatedDocs<T>>
 
-  findByID<K extends keyof LontarCollections>(
+  findByID<
+    K extends keyof LontarCollections,
+    O extends LocalFindByIDOptions = LocalFindByIDOptions,
+  >(
     collectionSlug: K,
-    idOrOptions: number | string | LocalFindByIDOptions,
-    maybeOptions?: Omit<LocalFindByIDOptions, 'id'>,
-  ): Promise<LontarCollections[K] | null>
+    options: O & { id: number | string },
+  ): Promise<ResolvedCollectionDoc<K, O> | null>
+  findByID<
+    K extends keyof LontarCollections,
+    O extends Omit<LocalFindByIDOptions, 'id'> = Omit<LocalFindByIDOptions, 'id'>,
+  >(
+    collectionSlug: K,
+    id: number | string,
+    options?: O,
+  ): Promise<ResolvedCollectionDoc<K, O> | null>
   findByID<T = DocumentData>(
     collectionSlug: string,
     idOrOptions: number | string | LocalFindByIDOptions,
     maybeOptions?: Omit<LocalFindByIDOptions, 'id'>,
   ): Promise<T | null>
 
-  create<K extends keyof LontarCollections>(
+  create<K extends keyof LontarCollections, O extends LocalCreateOptions = LocalCreateOptions>(
     collectionSlug: K,
-    dataOrOptions: Partial<LontarCollections[K]> | LocalCreateOptions,
-  ): Promise<LontarCollections[K]>
+    dataOrOptions: Partial<LontarCollections[K]> | O,
+  ): Promise<ResolvedCollectionDoc<K, O>>
   create<T = DocumentData>(
     collectionSlug: string,
     dataOrOptions: DocumentData | LocalCreateOptions,
   ): Promise<T>
 
-  update<K extends keyof LontarCollections>(
+  update<K extends keyof LontarCollections, O extends LocalUpdateOptions = LocalUpdateOptions>(
     collectionSlug: K,
-    idOrOptions: number | string | LocalUpdateOptions,
-    maybeDataOrOptions?: Partial<LontarCollections[K]> | Omit<LocalUpdateOptions, 'id'>,
-  ): Promise<LontarCollections[K]>
+    options: O & { id: number | string },
+  ): Promise<ResolvedCollectionDoc<K, O>>
+  update<
+    K extends keyof LontarCollections,
+    O extends Omit<LocalUpdateOptions, 'id'> = Omit<LocalUpdateOptions, 'id'>,
+  >(
+    collectionSlug: K,
+    id: number | string,
+    maybeDataOrOptions?: Partial<LontarCollections[K]> | O,
+  ): Promise<ResolvedCollectionDoc<K, O>>
   update<T = DocumentData>(
     collectionSlug: string,
     idOrOptions: number | string | LocalUpdateOptions,
@@ -281,16 +342,22 @@ export interface LontarClient {
     options?: LocalRestoreVersionOptions,
   ): Promise<T>
 
-  findGlobal<K extends keyof LontarGlobals>(
+  findGlobal<
+    K extends keyof LontarGlobals,
+    O extends LocalFindGlobalOptions = LocalFindGlobalOptions,
+  >(
     globalSlug: K,
-    options?: LocalFindGlobalOptions,
-  ): Promise<LontarGlobals[K]>
+    options?: O,
+  ): Promise<ResolvedGlobalDoc<K, O>>
   findGlobal<T = DocumentData>(globalSlug: string, options?: LocalFindGlobalOptions): Promise<T>
 
-  updateGlobal<K extends keyof LontarGlobals>(
+  updateGlobal<
+    K extends keyof LontarGlobals,
+    O extends LocalUpdateGlobalOptions = LocalUpdateGlobalOptions,
+  >(
     globalSlug: K,
-    dataOrOptions?: Partial<LontarGlobals[K]> | LocalUpdateGlobalOptions,
-  ): Promise<LontarGlobals[K]>
+    dataOrOptions?: Partial<LontarGlobals[K]> | O,
+  ): Promise<ResolvedGlobalDoc<K, O>>
   updateGlobal<T = DocumentData>(
     globalSlug: string,
     dataOrOptions?: DocumentData | LocalUpdateGlobalOptions,
