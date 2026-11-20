@@ -10,28 +10,42 @@ function parsePayload(rawBody: string): WebhookPayload | null {
   }
 }
 
-function revalidatePosts(slug?: unknown): void {
+function revalidatePosts(slug?: unknown, locale?: string): void {
   revalidatePath('/')
   revalidatePath('/posts/[slug]', 'page')
   if (typeof slug === 'string' && slug.length > 0) {
     revalidatePath(`/posts/${slug}`)
   }
+  if (locale) {
+    revalidatePath(`/${locale}`)
+    revalidatePath(`/${locale}/posts/[slug]`, 'page')
+    if (typeof slug === 'string' && slug.length > 0) {
+      revalidatePath(`/${locale}/posts/${slug}`)
+    }
+  }
   revalidateTag('posts')
 }
 
-function revalidatePages(slug?: unknown): void {
+function revalidatePages(slug?: unknown, locale?: string): void {
   revalidatePath('/[slug]', 'page')
   if (typeof slug === 'string' && slug.length > 0) {
     revalidatePath(`/${slug}`)
   }
+  if (locale) {
+    revalidatePath(`/${locale}`)
+    revalidatePath(`/${locale}/[slug]`, 'page')
+    if (typeof slug === 'string' && slug.length > 0) {
+      revalidatePath(`/${locale}/${slug}`)
+    }
+  }
   revalidateTag('pages')
 }
 
-function revalidateTarget(collection?: string, doc?: WebhookPayload['doc']): void {
+function revalidateTarget(collection?: string, doc?: WebhookPayload['doc'], locale?: string): void {
   if (collection === 'posts') {
-    revalidatePosts(doc?.slug)
+    revalidatePosts(doc?.slug, locale)
   } else if (collection === 'pages') {
-    revalidatePages(doc?.slug)
+    revalidatePages(doc?.slug, locale)
   }
 }
 
@@ -64,7 +78,7 @@ export async function POST(request: Request): Promise<NextResponse> {
     return NextResponse.json({ error: 'Invalid JSON payload' }, { status: 400 })
   }
 
-  revalidateTarget(payload.collection, payload.doc)
+  revalidateTarget(payload.collection, payload.doc, payload.locale)
 
   return NextResponse.json({
     revalidated: true,

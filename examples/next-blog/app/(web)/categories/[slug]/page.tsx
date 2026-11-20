@@ -59,6 +59,7 @@ export default async function CategoryPage({ params }: CategoryPageProps) {
     limit: 50,
     depth: 1,
     overrideAccess: false,
+    locale: 'en',
   })
 
   const posts = docs.filter((p) => {
@@ -138,7 +139,7 @@ export default async function CategoryPage({ params }: CategoryPageProps) {
           }}
         >
           {posts.map((post) => (
-            <PostCard key={post.id} post={post} />
+            <PostCard key={post.id} post={post} locale="en" />
           ))}
         </div>
       )}

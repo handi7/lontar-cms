@@ -26,6 +26,7 @@ async function getPost(
     draft: options.draft,
     overrideAccess: false,
     user: options.user ?? null,
+    locale: 'en',
   })
 
   if (docs.length > 0) return docs[0]
@@ -38,6 +39,7 @@ async function getPost(
         draft: options.draft,
         overrideAccess: false,
         user: options.user ?? null,
+        locale: 'en',
       })
     } catch {
       return null
@@ -80,5 +82,5 @@ export default async function PostPage({ params, searchParams }: PostPageProps) 
     notFound()
   }
 
-  return <PostLivePreview initialPost={post} />
+  return <PostLivePreview initialPost={post} locale="en" />
 }

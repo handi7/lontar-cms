@@ -14,8 +14,8 @@ A complete real-world Next.js App Router blog demonstrating Lontar CMS integrati
 - **Milestone 8 Drafts & Versions**:
   - Native `_status` system field (`draft` | `published`).
   - Document sidebar with Draft and Publish controls, version history compare and restore, and autosave.
-  - **Live Preview**: Configured via `admin.preview: { url: '/posts/{slug}?preview=1' }`. The preview iframe connects using `@lontar/preview/react`'s `useLivePreview` hook, updating content in real time as editors type.
-  - **On-Demand Cache Revalidation**: Outgoing webhooks in `lontar.config.ts` target `/api/revalidate`. On publish or unpublish events, HMAC-SHA256 signatures are verified using `verifyWebhookSignature` from `@lontar/core`, and Next.js revalidates cached routes via `revalidatePath` and `revalidateTag`.
+  - **Live Preview**: Configured via `admin.preview: { url: '/{locale}/posts/{slug}?preview=1' }`. The preview iframe connects using `@lontar/preview/react`'s `useLivePreview` hook, updating content in real time as editors type.
+  - **On-Demand Cache Revalidation**: Outgoing webhooks in `lontar.config.ts` target `/api/revalidate`. On publish or unpublish events, HMAC-SHA256 signatures are verified using `verifyWebhookSignature` from `@lontar/core`, and Next.js revalidates cached routes via `revalidatePath` and `revalidateTag` per locale.
 - **Milestone 10 Users, Roles & Field-Level Access Control**:
   - **Roles**: `admin`, `editor`, and `author` (default role for new users is `author`).
   - **Collection & Global Permissions**:
@@ -27,6 +27,14 @@ A complete real-world Next.js App Router blog demonstrating Lontar CMS integrati
     - `posts.publishedAt`: Writable only by `admin` and `editor`. Rendered disabled/read-only with a lock icon for `author`.
     - `pages.seo.reviewNotes`: Nested field inside `seo` group. Visible and writable only by `admin`. Hidden from `editor`.
   - **API Keys**: Machine-to-machine authentication via `x-api-key: <key>` header or `Authorization: Bearer <key>`.
+- **Milestone 11 Localization**:
+  - **Locales**: Configured with English (`en`, default) and Indonesian (`id`) with fallback enabled (`fallback: true`).
+  - **Localized Fields**:
+    - `posts`: `title`, `slug` (unique per locale), `excerpt`, `content` (rich text).
+    - `pages`: `title`, `slug` (unique per locale), `seo` (nested group), and `layout` (content blocks).
+    - `media`: `alt`.
+  - **Routing & Navigation**: Frontend routes organized under `/[locale]/...` (`/en` and `/id`) with an interactive language switcher in the header. Untranslated content seamlessly falls back to English.
+  - **Localized Live Preview & Revalidation**: Live preview automatically resolves the `{locale}` placeholder in preview URLs and passes the active locale to `useLivePreview`. Cache revalidation targets per-locale paths upon webhook delivery.
 
 ## Prerequisites
 

@@ -4,6 +4,7 @@ import Link from 'next/link'
 import config from '@/lontar.config'
 import { getLontar } from '@lontar/core'
 import type { SiteSettings } from '@/lontar-types'
+import { LanguageSwitcher } from '@/app/components/LanguageSwitcher'
 
 export const metadata: Metadata = {
   title: 'Next.js Blog with Lontar CMS',
@@ -88,6 +89,7 @@ export default async function RootLayout({ children }: { children: ReactNode }) 
               >
                 Articles
               </Link>
+              <LanguageSwitcher />
               <Link
                 href="/admin"
                 data-testid="nav-admin"

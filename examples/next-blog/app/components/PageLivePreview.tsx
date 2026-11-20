@@ -7,9 +7,10 @@ import { BlockRenderer } from '@/app/components/BlockRenderer'
 export interface PageLivePreviewProps {
   initialPage: Page
   serverUrl?: string
+  locale?: string
 }
 
-export function PageLivePreview({ initialPage, serverUrl }: PageLivePreviewProps) {
+export function PageLivePreview({ initialPage, serverUrl, locale }: PageLivePreviewProps) {
   const defaultServerUrl =
     typeof window !== 'undefined' ? window.location.origin : 'http://localhost:3000'
 
@@ -17,6 +18,7 @@ export function PageLivePreview({ initialPage, serverUrl }: PageLivePreviewProps
     initialData: initialPage,
     serverURL: serverUrl || defaultServerUrl,
     collection: 'pages',
+    initialLocale: locale,
   })
 
   return (

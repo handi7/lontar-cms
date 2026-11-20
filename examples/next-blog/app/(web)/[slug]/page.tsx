@@ -21,6 +21,7 @@ async function getPage(slug: string, options: { draft?: boolean } = {}): Promise
     depth: 1,
     limit: 1,
     draft: options.draft,
+    locale: 'en',
   })
 
   if (docs.length > 0) return docs[0]
@@ -31,6 +32,7 @@ async function getPage(slug: string, options: { draft?: boolean } = {}): Promise
       return await lontar.findByID('pages', numericId, {
         depth: 1,
         draft: options.draft,
+        locale: 'en',
       })
     } catch {
       return null
@@ -61,6 +63,7 @@ async function resolvePageForRequest(
     ? ((await sanitizeDocRead(pagesCollection.fields, rawPage as unknown as DocumentData, user, {
         id: rawPage.id,
         doc: rawPage as unknown as DocumentData,
+        locale: 'en',
       })) as unknown as Page)
     : rawPage
 
@@ -86,5 +89,5 @@ export default async function CMSPage({ params, searchParams }: PageProps) {
     notFound()
   }
 
-  return <PageLivePreview initialPage={page} />
+  return <PageLivePreview initialPage={page} locale="en" />
 }

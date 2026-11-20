@@ -140,6 +140,7 @@ export default async function HomePage({ searchParams }: HomePageProps) {
       limit: 20,
       depth: 1,
       overrideAccess: false,
+      locale: 'en',
     }),
   ])
 
@@ -188,7 +189,7 @@ export default async function HomePage({ searchParams }: HomePageProps) {
           }}
         >
           {posts.map((post) => (
-            <PostCard key={post.id} post={post} />
+            <PostCard key={post.id} post={post} locale="en" />
           ))}
         </div>
       )}
