@@ -11,6 +11,20 @@ describe('queryKeys factory (#233)', () => {
       'published',
     ])
     expect(queryKeys.document('articles', 42)).toEqual(['document', 'articles', '42', 'published'])
+    expect(queryKeys.document('articles', 1, true, 'id')).toEqual([
+      'document',
+      'articles',
+      '1',
+      'draft',
+      'id',
+    ])
+    expect(queryKeys.document('articles', 1, false, 'en')).toEqual([
+      'document',
+      'articles',
+      '1',
+      'published',
+      'en',
+    ])
   })
 
   it('builds documentPrefix query key for invalidating any draft or published document queries', () => {
@@ -35,6 +49,7 @@ describe('queryKeys factory (#233)', () => {
 
   it('builds global and globalVersions query keys', () => {
     expect(queryKeys.global('settings')).toEqual(['globals', 'settings'])
+    expect(queryKeys.global('settings', 'id')).toEqual(['globals', 'settings', 'id'])
     expect(queryKeys.globalVersions('/api', 'settings')).toEqual([
       'global-versions',
       '/api',

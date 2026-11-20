@@ -13,15 +13,20 @@ import * as client from '../api/client'
 import type * as ClientModule from '../api/client'
 import { PermissionsProvider } from '../context/PermissionsContext'
 import { AdminContext } from '../context/AdminContext'
+import { chooseSelectOption } from '../test/radix'
 
 let mockRouteParams: { collection?: string; id?: string } = {
   collection: 'articles',
   id: '1',
 }
+let mockRouteSearch: { locale?: string } = {}
+const mockNavigate = vi.fn()
 
 vi.mock('@tanstack/react-router', () => ({
   useParams: () => mockRouteParams,
-  useNavigate: () => vi.fn(),
+  useSearch: () => mockRouteSearch,
+  useNavigate: () => mockNavigate,
+  useBlocker: vi.fn(),
   Link: ({ children, to }: { children: React.ReactNode; to: string }) => (
     <a href={to}>{children}</a>
   ),
@@ -390,6 +395,227 @@ describe('CollectionFormView permissions (#341)', () => {
         'articles',
         expect.objectContaining({ title: 'New Article' }),
         { draft: false },
+      )
+    })
+  })
+})
+
+describe('CollectionFormView localization (#428)', () => {
+  let queryClient: QueryClient
+
+  const localizedCollection: ClientCollection = {
+    slug: 'articles',
+    labels: { singular: 'Article', plural: 'Articles' },
+    versions: { drafts: true },
+    admin: { useAsTitle: 'title', defaultColumns: ['title'] },
+    fields: [
+      { name: 'title', label: 'Title', type: 'text', required: true, localized: true },
+      { name: 'slug', label: 'Slug', type: 'text', required: true, localized: false },
+    ],
+  }
+
+  const localizedConfig: ClientConfig = {
+    version: CLIENT_CONFIG_VERSION,
+    collections: [localizedCollection],
+    globals: [],
+    localization: {
+      locales: [
+        { code: 'en', label: 'English' },
+        { code: 'id', label: 'Indonesian' },
+      ],
+      defaultLocale: 'en',
+      fallback: true,
+    },
+  }
+
+  beforeEach(() => {
+    vi.clearAllMocks()
+    mockRouteParams = { collection: 'articles', id: '1' }
+    mockRouteSearch = {}
+    queryClient = new QueryClient({
+      defaultOptions: {
+        queries: { retry: false },
+      },
+    })
+
+    vi.mocked(client.fetchPermissions).mockResolvedValue({
+      collections: { articles: mockCollectionPerm() },
+      globals: {},
+    })
+
+    vi.mocked(client.fetchDocumentPermissions).mockResolvedValue(mockCollectionPerm())
+
+    vi.mocked(client.fetchDocVersions).mockResolvedValue({
+      docs: [],
+      totalDocs: 0,
+      limit: 10,
+      page: 1,
+      totalPages: 1,
+    })
+  })
+
+  afterEach(cleanup)
+
+  function renderLocalizedView(mode: 'create' | 'edit') {
+    return render(
+      <div className="lontar-admin">
+        <PortalContainerProvider>
+          <QueryClientProvider client={queryClient}>
+            <AdminContext.Provider
+              value={{
+                config: localizedConfig,
+                apiBase: '/api',
+                basePath: '/admin',
+              }}
+            >
+              <PermissionsProvider apiBase="/api" user={{ id: 'u1' }}>
+                <CollectionFormView mode={mode} />
+              </PermissionsProvider>
+            </AdminContext.Provider>
+          </QueryClientProvider>
+        </PortalContainerProvider>
+      </div>,
+    )
+  }
+
+  it('renders LocaleSwitcher and badges in edit view header', async () => {
+    vi.mocked(client.fetchDoc).mockResolvedValue({
+      id: 1,
+      title: 'English Title',
+      slug: 'english-title',
+      _status: 'draft',
+      createdAt: '2026-01-01T00:00:00.000Z',
+      updatedAt: '2026-01-01T00:00:00.000Z',
+    })
+
+    renderLocalizedView('edit')
+
+    expect(await screen.findByTestId('locale-switcher')).toBeTruthy()
+    expect(screen.getByTestId('field-localized-title').textContent).toContain('Localized')
+    expect(screen.getByTestId('field-shared-slug').textContent).toContain('Shared')
+  })
+
+  it('fetches document with locale from URL search param', async () => {
+    mockRouteSearch = { locale: 'id' }
+
+    vi.mocked(client.fetchDoc).mockImplementation((_apiBase, _slug, _id, options) => {
+      if (options?.locale === 'id') {
+        return Promise.resolve({
+          id: 1,
+          title: null,
+          slug: 'shared-slug',
+          _status: 'draft',
+          createdAt: '2026-01-01T00:00:00.000Z',
+          updatedAt: '2026-01-01T00:00:00.000Z',
+        })
+      }
+      return Promise.resolve({
+        id: 1,
+        title: 'English Fallback Title',
+        slug: 'shared-slug',
+        _status: 'draft',
+        createdAt: '2026-01-01T00:00:00.000Z',
+        updatedAt: '2026-01-01T00:00:00.000Z',
+      })
+    })
+
+    renderLocalizedView('edit')
+
+    await screen.findByTestId('locale-switcher')
+
+    expect(client.fetchDoc).toHaveBeenCalledWith(
+      '/api',
+      'articles',
+      '1',
+      expect.objectContaining({ locale: 'id', fallbackLocale: 'none' }),
+    )
+
+    expect(client.fetchDoc).toHaveBeenCalledWith(
+      '/api',
+      'articles',
+      '1',
+      expect.objectContaining({ locale: 'en', fallbackLocale: 'none' }),
+    )
+
+    const titleInput = await screen.findByLabelText<HTMLInputElement>(/Title/i)
+    expect(titleInput.getAttribute('placeholder')).toBe('English Fallback Title')
+  })
+
+  it('asks confirmation when switching locale with unsaved changes', async () => {
+    mockRouteSearch = { locale: 'en' }
+
+    vi.mocked(client.fetchDoc).mockResolvedValue({
+      id: 1,
+      title: 'Original Title',
+      slug: 'orig-slug',
+      _status: 'draft',
+      createdAt: '2026-01-01T00:00:00.000Z',
+      updatedAt: '2026-01-01T00:00:00.000Z',
+    })
+
+    renderLocalizedView('edit')
+
+    const titleInput = await screen.findByLabelText<HTMLInputElement>(/Title/i)
+    fireEvent.change(titleInput, { target: { value: 'Modified Title' } })
+
+    const confirmMock = vi.fn().mockReturnValue(false)
+    window.confirm = confirmMock
+
+    const switcherTrigger = screen.getByTestId('locale-switcher')
+    chooseSelectOption(switcherTrigger, 'Indonesian (id)')
+
+    await waitFor(() => {
+      expect(confirmMock).toHaveBeenCalledWith(expect.stringContaining('unsaved changes'))
+    })
+    expect(mockNavigate).not.toHaveBeenCalled()
+
+    confirmMock.mockReturnValue(true)
+    chooseSelectOption(switcherTrigger, 'Indonesian (id)')
+
+    await waitFor(() => {
+      expect(mockNavigate).toHaveBeenCalledTimes(1)
+    })
+    const navArg = mockNavigate.mock.calls[0]?.[0] as { search?: unknown } | undefined
+    expect(typeof navArg?.search).toBe('function')
+    delete (window as unknown as Record<string, unknown>).confirm
+  })
+
+  it('submits update with active locale', async () => {
+    mockRouteSearch = { locale: 'id' }
+
+    vi.mocked(client.fetchDoc).mockResolvedValue({
+      id: 1,
+      title: 'Indonesian Title',
+      slug: 'shared-slug',
+      _status: 'draft',
+      createdAt: '2026-01-01T00:00:00.000Z',
+      updatedAt: '2026-01-01T00:00:00.000Z',
+    })
+
+    vi.mocked(client.updateDoc).mockResolvedValue({
+      id: 1,
+      title: 'Updated Indonesian Title',
+      slug: 'shared-slug',
+      _status: 'published',
+      createdAt: '2026-01-01T00:00:00.000Z',
+      updatedAt: '2026-01-01T00:00:00.000Z',
+    })
+
+    renderLocalizedView('edit')
+
+    const titleInput = await screen.findByLabelText<HTMLInputElement>(/Title/i)
+    fireEvent.change(titleInput, { target: { value: 'Updated Indonesian Title' } })
+
+    const publishBtn = screen.getByRole('button', { name: /^Publish$/ })
+    fireEvent.click(publishBtn)
+
+    await waitFor(() => {
+      expect(client.updateDoc).toHaveBeenCalledWith(
+        '/api',
+        'articles',
+        '1',
+        expect.objectContaining({ title: 'Updated Indonesian Title' }),
+        expect.objectContaining({ draft: false, locale: 'id' }),
       )
     })
   })

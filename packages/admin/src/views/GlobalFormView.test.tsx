@@ -526,4 +526,128 @@ describe('GlobalFormView permissions (#341)', () => {
       expect(savedPayloads[0]?.siteTitle).toBe('My Site')
     })
   })
+
+  describe('GlobalFormView localization (#428)', () => {
+    const configWithLocalization: ClientConfig = {
+      version: CLIENT_CONFIG_VERSION,
+      collections: [],
+      globals: [
+        {
+          slug: 'settings',
+          label: 'Site Settings',
+          versions: { drafts: true },
+          fields: [
+            {
+              name: 'siteTitle',
+              label: 'Site Title',
+              type: 'text',
+              required: true,
+              localized: true,
+            },
+            {
+              name: 'description',
+              label: 'Description',
+              type: 'textarea',
+              required: false,
+              localized: false,
+            },
+          ],
+        },
+      ],
+      localization: {
+        locales: [
+          { code: 'en', label: 'English' },
+          { code: 'id', label: 'Indonesian' },
+        ],
+        defaultLocale: 'en',
+        fallback: true,
+      },
+    }
+
+    it('renders LocaleSwitcher and badges in global view header', async () => {
+      vi.stubGlobal(
+        'fetch',
+        vi.fn().mockImplementation((url: string) => {
+          if (url.includes('/_lontar/config')) {
+            return mockJsonResponse(configWithLocalization)
+          }
+          if (url.includes('/auth/get-session')) {
+            return mockJsonResponse({ user: mockAuthUser, session: mockAuthSession })
+          }
+          if (url.includes('/_lontar/permissions/globals/settings')) {
+            return mockJsonResponse({ read: true, update: true, fields: {} })
+          }
+          if (url.includes('/api/globals/settings/versions')) {
+            return mockJsonResponse({ docs: [], totalDocs: 0, limit: 10, page: 1, totalPages: 1 })
+          }
+          if (url.includes('/api/globals/settings')) {
+            return mockJsonResponse({
+              siteTitle: 'English Title',
+              description: 'Shared Description',
+              _status: 'published',
+              createdAt: '2026-01-01T00:00:00.000Z',
+              updatedAt: '2026-01-01T00:00:00.000Z',
+            })
+          }
+          return Promise.reject(new Error(`Unhandled URL: ${url}`))
+        }),
+      )
+
+      const history = createMemoryHistory({ initialEntries: ['/admin/globals/settings'] })
+      render(<Admin apiBase="/api" basePath="/admin" history={history} />)
+
+      expect(await screen.findByTestId('locale-switcher')).toBeTruthy()
+      expect(screen.getByTestId('field-localized-siteTitle').textContent).toContain('Localized')
+      expect(screen.getByTestId('field-shared-description').textContent).toContain('Shared')
+    })
+
+    it('loads fallback placeholder when active locale field is empty', async () => {
+      vi.stubGlobal(
+        'fetch',
+        vi.fn().mockImplementation((url: string) => {
+          if (url.includes('/_lontar/config')) {
+            return mockJsonResponse(configWithLocalization)
+          }
+          if (url.includes('/auth/get-session')) {
+            return mockJsonResponse({ user: mockAuthUser, session: mockAuthSession })
+          }
+          if (url.includes('/_lontar/permissions/globals/settings')) {
+            return mockJsonResponse({ read: true, update: true, fields: {} })
+          }
+          if (url.includes('/api/globals/settings/versions')) {
+            return mockJsonResponse({ docs: [], totalDocs: 0, limit: 10, page: 1, totalPages: 1 })
+          }
+          if (url.includes('/api/globals/settings')) {
+            const parsedUrl = new URL(url, 'http://localhost')
+            const locale = parsedUrl.searchParams.get('locale')
+            if (locale === 'id') {
+              return mockJsonResponse({
+                siteTitle: null,
+                description: 'Shared Description',
+                _status: 'published',
+                createdAt: '2026-01-01T00:00:00.000Z',
+                updatedAt: '2026-01-01T00:00:00.000Z',
+              })
+            }
+            return mockJsonResponse({
+              siteTitle: 'English Global Title',
+              description: 'Shared Description',
+              _status: 'published',
+              createdAt: '2026-01-01T00:00:00.000Z',
+              updatedAt: '2026-01-01T00:00:00.000Z',
+            })
+          }
+          return Promise.reject(new Error(`Unhandled URL: ${url}`))
+        }),
+      )
+
+      const history = createMemoryHistory({ initialEntries: ['/admin/globals/settings?locale=id'] })
+      render(<Admin apiBase="/api" basePath="/admin" history={history} />)
+
+      const titleInput = await screen.findByLabelText<HTMLInputElement>(/site title/i)
+      await waitFor(() => {
+        expect(titleInput.getAttribute('placeholder')).toBe('English Global Title')
+      })
+    })
+  })
 })

@@ -6,8 +6,10 @@
 
 export const queryKeys = {
   /** Single collection document */
-  document: (slug: string, id: string | number, hasDrafts?: boolean) =>
-    ['document', slug, String(id), hasDrafts ? 'draft' : 'published'] as const,
+  document: (slug: string, id: string | number, hasDrafts?: boolean, locale?: string) =>
+    locale !== undefined
+      ? (['document', slug, String(id), hasDrafts ? 'draft' : 'published', locale] as const)
+      : (['document', slug, String(id), hasDrafts ? 'draft' : 'published'] as const),
 
   /** Prefix matching any document query for a given id (both draft and published) */
   documentPrefix: (slug: string, id: string | number) => ['document', slug, String(id)] as const,
@@ -19,7 +21,8 @@ export const queryKeys = {
       : (['doc-versions', apiBase, slug, String(id)] as const),
 
   /** Single global document */
-  global: (slug: string) => ['globals', slug] as const,
+  global: (slug: string, locale?: string) =>
+    locale !== undefined ? (['globals', slug, locale] as const) : (['globals', slug] as const),
 
   /** Global versions list or prefix for invalidation */
   globalVersions: (apiBase: string, slug: string, page?: number) =>

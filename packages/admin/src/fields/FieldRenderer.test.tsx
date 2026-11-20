@@ -2200,4 +2200,112 @@ describe('group field rendering and binding', () => {
       expect(screen.queryByText('Conditional Secret')).toBeNull()
     })
   })
+
+  describe('localization markers and fallback placeholders (#428)', () => {
+    const localizedTitle: ClientTextField = {
+      name: 'title',
+      type: 'text',
+      label: 'Title',
+      required: true,
+      localized: true,
+    }
+
+    const sharedSlug: ClientTextField = {
+      name: 'slug',
+      type: 'text',
+      label: 'Slug',
+      required: true,
+      localized: false,
+    }
+
+    it('renders localized badge for localized field and shared badge for shared field when hasLocalization is true', () => {
+      render(
+        <FormWrapper defaultValues={{}}>
+          {({ control, register }) => (
+            <div>
+              <FieldRenderer
+                field={localizedTitle}
+                control={control}
+                register={register}
+                hasLocalization={true}
+              />
+              <FieldRenderer
+                field={sharedSlug}
+                control={control}
+                register={register}
+                hasLocalization={true}
+              />
+            </div>
+          )}
+        </FormWrapper>,
+      )
+
+      expect(screen.getByTestId('field-localized-title').textContent).toContain('Localized')
+      expect(screen.getByTestId('field-shared-slug').textContent).toContain('Shared')
+    })
+
+    it('omits localization badges when hasLocalization is false or not provided', () => {
+      render(
+        <FormWrapper defaultValues={{}}>
+          {({ control, register }) => (
+            <div>
+              <FieldRenderer
+                field={localizedTitle}
+                control={control}
+                register={register}
+                hasLocalization={false}
+              />
+            </div>
+          )}
+        </FormWrapper>,
+      )
+
+      expect(screen.queryByTestId('field-localized-title')).toBeNull()
+      expect(screen.queryByTestId('field-shared-title')).toBeNull()
+    })
+
+    it('displays fallbackValue as input placeholder when field is empty', () => {
+      render(
+        <FormWrapper defaultValues={{ title: '' }}>
+          {({ control, register }) => (
+            <FieldRenderer
+              field={localizedTitle}
+              control={control}
+              register={register}
+              hasLocalization={true}
+              fallbackValue="English Fallback Title"
+            />
+          )}
+        </FormWrapper>,
+      )
+
+      const input = screen.getByRole('textbox', { name: /Title/i })
+      expect(input.getAttribute('placeholder')).toBe('English Fallback Title')
+    })
+
+    it('renders localization badge on checkbox field', () => {
+      const localizedCheckbox: ClientCheckboxField = {
+        name: 'featured',
+        type: 'checkbox',
+        label: 'Featured',
+        required: false,
+        localized: true,
+      }
+
+      render(
+        <FormWrapper defaultValues={{}}>
+          {({ control, register }) => (
+            <FieldRenderer
+              field={localizedCheckbox}
+              control={control}
+              register={register}
+              hasLocalization={true}
+            />
+          )}
+        </FormWrapper>,
+      )
+
+      expect(screen.getByTestId('field-localized-featured').textContent).toContain('Localized')
+    })
+  })
 })

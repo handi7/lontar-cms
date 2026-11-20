@@ -35,6 +35,7 @@ import {
   Trash2,
 } from 'lucide-react'
 import { Button } from '../components/ui/button'
+import { Badge } from '../components/ui/badge'
 import { computeDefaultValues, isFieldReadOnly } from '../utils/form-utils'
 import { Field, FieldError, FieldLabel } from '../components/ui/field'
 import { Checkbox } from '../components/ui/checkbox'
@@ -66,6 +67,53 @@ export interface FieldRendererProps {
   permissions?: FieldPermission
   disabled?: boolean
   readOnlyDoc?: boolean
+  fallbackValue?: unknown
+  hasLocalization?: boolean
+  parentLocalized?: boolean
+}
+
+export interface FieldLocalizationBadgeProps {
+  hasLocalization?: boolean
+  isLocalized?: boolean
+  fullName: string
+}
+
+export function FieldLocalizationBadge({
+  hasLocalization,
+  isLocalized,
+  fullName,
+}: FieldLocalizationBadgeProps) {
+  if (!hasLocalization) return null
+  if (isLocalized) {
+    return (
+      <Badge
+        variant="outline"
+        className="lt:text-[0.6875rem] lt:h-4 lt:px-1.5 lt:py-0 lt:font-normal lt:text-muted-foreground lt:ml-1"
+        data-testid={`field-localized-${fullName}`}
+      >
+        Localized
+      </Badge>
+    )
+  }
+  return (
+    <Badge
+      variant="secondary"
+      className="lt:text-[0.6875rem] lt:h-4 lt:px-1.5 lt:py-0 lt:font-normal lt:text-muted-foreground lt:ml-1"
+      data-testid={`field-shared-${fullName}`}
+    >
+      Shared
+    </Badge>
+  )
+}
+
+function resolveFallbackPlaceholder(fallbackValue: unknown): string | undefined {
+  if (typeof fallbackValue === 'string' && fallbackValue.trim() !== '') {
+    return fallbackValue
+  }
+  if (typeof fallbackValue === 'number') {
+    return String(fallbackValue)
+  }
+  return undefined
 }
 
 /**
@@ -123,7 +171,13 @@ interface ControlledProps<T extends ClientField> {
   disabled?: boolean
 }
 
-function TextFieldInput({ field, control, a11y, disabled }: ControlledProps<ClientTextField>) {
+function TextFieldInput({
+  field,
+  control,
+  a11y,
+  disabled,
+  placeholder,
+}: ControlledProps<ClientTextField> & { placeholder?: string }) {
   return (
     <Controller
       control={control}
@@ -134,6 +188,7 @@ function TextFieldInput({ field, control, a11y, disabled }: ControlledProps<Clie
           type="text"
           minLength={field.minLength}
           maxLength={field.maxLength}
+          placeholder={placeholder}
           disabled={disabled || controlled.disabled}
           {...a11yProps(a11y)}
           {...controlled}
@@ -144,7 +199,13 @@ function TextFieldInput({ field, control, a11y, disabled }: ControlledProps<Clie
   )
 }
 
-function NumberFieldInput({ field, control, a11y, disabled }: ControlledProps<ClientNumberField>) {
+function NumberFieldInput({
+  field,
+  control,
+  a11y,
+  disabled,
+  placeholder,
+}: ControlledProps<ClientNumberField> & { placeholder?: string }) {
   return (
     <Controller
       control={control}
@@ -156,6 +217,7 @@ function NumberFieldInput({ field, control, a11y, disabled }: ControlledProps<Cl
           step={field.integer ? '1' : 'any'}
           min={field.min}
           max={field.max}
+          placeholder={placeholder}
           disabled={disabled || controlled.disabled}
           {...a11yProps(a11y)}
           {...controlled}
@@ -175,7 +237,8 @@ function TextareaFieldInput({
   control,
   a11y,
   disabled,
-}: ControlledProps<ClientTextareaField>) {
+  placeholder,
+}: ControlledProps<ClientTextareaField> & { placeholder?: string }) {
   return (
     <Controller
       control={control}
@@ -186,6 +249,7 @@ function TextareaFieldInput({
           rows={field.rows ?? 4}
           minLength={field.minLength}
           maxLength={field.maxLength}
+          placeholder={placeholder}
           disabled={disabled || controlled.disabled}
           {...a11yProps(a11y)}
           {...controlled}
@@ -196,7 +260,13 @@ function TextareaFieldInput({
   )
 }
 
-function EmailFieldInput({ field, control, a11y, disabled }: ControlledProps<ClientEmailField>) {
+function EmailFieldInput({
+  field,
+  control,
+  a11y,
+  disabled,
+  placeholder,
+}: ControlledProps<ClientEmailField> & { placeholder?: string }) {
   return (
     <Controller
       control={control}
@@ -206,6 +276,7 @@ function EmailFieldInput({ field, control, a11y, disabled }: ControlledProps<Cli
           id={field.name}
           type="email"
           maxLength={field.maxLength}
+          placeholder={placeholder}
           disabled={disabled || controlled.disabled}
           {...a11yProps(a11y)}
           {...controlled}
@@ -222,12 +293,18 @@ function CheckboxFieldInput({
   a11y,
   disabled,
   isLocked,
+  hasLocalization,
+  isLocalized,
+  fullName,
 }: {
   field: ClientCheckboxField
   control: Control<Record<string, unknown>>
   a11y: FieldA11y
   disabled?: boolean
   isLocked?: boolean
+  hasLocalization?: boolean
+  isLocalized?: boolean
+  fullName?: string
 }) {
   // `defaultValue={false}` matches what react-hook-form read from the native
   // checkbox this replaced when the form had no default. A stored null is left
@@ -255,6 +332,11 @@ function CheckboxFieldInput({
           >
             <span>{field.label}</span>
             {field.required && <span className="lontar-required">*</span>}
+            <FieldLocalizationBadge
+              hasLocalization={hasLocalization}
+              isLocalized={isLocalized}
+              fullName={fullName ?? field.name}
+            />
             {isLocked && (
               <span title="Read-only" className="lt:inline-flex lt:items-center">
                 <Lock
@@ -376,10 +458,12 @@ function SlugFieldInput({
   mode,
   a11y,
   disabled,
+  placeholder,
 }: ControlledProps<ClientSlugField> & {
   setValue?: UseFormSetValue<Record<string, unknown>>
   watch?: UseFormWatch<Record<string, unknown>>
   mode?: 'create' | 'edit'
+  placeholder?: string
 }) {
   const [isCustomized, setIsCustomized] = useState(mode === 'edit')
   const sourceValue = watch && field.from ? watch(field.from) : undefined
@@ -413,6 +497,7 @@ function SlugFieldInput({
             id={field.name}
             type="text"
             maxLength={field.maxLength}
+            placeholder={placeholder}
             disabled={disabled || controlled.disabled}
             {...a11yProps(a11y)}
             {...controlled}
@@ -479,22 +564,62 @@ function StandardFieldInput({
   a11y,
   disabled,
   isLocked,
+  placeholder,
+  hasLocalization,
+  isLocalized,
+  fullName,
 }: {
   field: ClientField
   control: Control<Record<string, unknown>>
   a11y: FieldA11y
   disabled?: boolean
   isLocked?: boolean
+  placeholder?: string
+  hasLocalization?: boolean
+  isLocalized?: boolean
+  fullName?: string
 }) {
   switch (field.type) {
     case 'text':
-      return <TextFieldInput field={field} control={control} a11y={a11y} disabled={disabled} />
+      return (
+        <TextFieldInput
+          field={field}
+          control={control}
+          a11y={a11y}
+          disabled={disabled}
+          placeholder={placeholder}
+        />
+      )
     case 'number':
-      return <NumberFieldInput field={field} control={control} a11y={a11y} disabled={disabled} />
+      return (
+        <NumberFieldInput
+          field={field}
+          control={control}
+          a11y={a11y}
+          disabled={disabled}
+          placeholder={placeholder}
+        />
+      )
     case 'textarea':
-      return <TextareaFieldInput field={field} control={control} a11y={a11y} disabled={disabled} />
+      return (
+        <TextareaFieldInput
+          field={field}
+          control={control}
+          a11y={a11y}
+          disabled={disabled}
+          placeholder={placeholder}
+        />
+      )
     case 'email':
-      return <EmailFieldInput field={field} control={control} a11y={a11y} disabled={disabled} />
+      return (
+        <EmailFieldInput
+          field={field}
+          control={control}
+          a11y={a11y}
+          disabled={disabled}
+          placeholder={placeholder}
+        />
+      )
     case 'checkbox':
       return (
         <CheckboxFieldInput
@@ -503,6 +628,9 @@ function StandardFieldInput({
           a11y={a11y}
           disabled={disabled}
           isLocked={isLocked}
+          hasLocalization={hasLocalization}
+          isLocalized={isLocalized}
+          fullName={fullName}
         />
       )
     case 'select':
@@ -524,6 +652,10 @@ function FieldInput({
   a11y,
   disabled,
   isLocked,
+  placeholder,
+  hasLocalization,
+  isLocalized,
+  fullName,
 }: {
   field: ClientField
   control: Control<Record<string, unknown>>
@@ -534,6 +666,10 @@ function FieldInput({
   a11y: FieldA11y
   disabled?: boolean
   isLocked?: boolean
+  placeholder?: string
+  hasLocalization?: boolean
+  isLocalized?: boolean
+  fullName?: string
 }) {
   if (field.type === 'slug') {
     return (
@@ -545,6 +681,7 @@ function FieldInput({
         mode={mode}
         a11y={a11y}
         disabled={disabled}
+        placeholder={placeholder}
       />
     )
   }
@@ -588,6 +725,10 @@ function FieldInput({
       a11y={a11y}
       disabled={disabled}
       isLocked={isLocked}
+      placeholder={placeholder}
+      hasLocalization={hasLocalization}
+      isLocalized={isLocalized}
+      fullName={fullName}
     />
   )
 }
@@ -605,6 +746,16 @@ interface GroupFieldRendererProps {
   disabled?: boolean
   readOnlyDoc?: boolean
   isLocked?: boolean
+  fallbackValue?: unknown
+  hasLocalization?: boolean
+  parentLocalized?: boolean
+}
+
+function extractSubProperty(obj: unknown, key: string): unknown {
+  if (obj && typeof obj === 'object' && Object.hasOwn(obj, key)) {
+    return (obj as Record<string, unknown>)[key]
+  }
+  return undefined
 }
 
 function GroupFieldRenderer({
@@ -620,7 +771,12 @@ function GroupFieldRenderer({
   disabled,
   readOnlyDoc,
   isLocked,
+  fallbackValue,
+  hasLocalization,
+  parentLocalized,
 }: GroupFieldRendererProps) {
+  const isLocalized = Boolean(field.localized || parentLocalized)
+
   return (
     <fieldset
       className="lontar-field-group lt:rounded-lg lt:border lt:border-border lt:p-4 lt:flex lt:flex-col lt:gap-4"
@@ -629,6 +785,11 @@ function GroupFieldRenderer({
       <legend className="lt:text-sm lt:font-semibold lt:text-foreground lt:px-1 lt:flex lt:items-center lt:gap-1.5">
         <span>{field.label}</span>
         {field.required && <span className="lontar-required lt:ml-1 lt:text-destructive">*</span>}
+        <FieldLocalizationBadge
+          hasLocalization={hasLocalization}
+          isLocalized={isLocalized}
+          fullName={fullName}
+        />
         {isLocked && (
           <span title="Read-only" className="lt:inline-flex lt:items-center">
             <Lock
@@ -643,10 +804,9 @@ function GroupFieldRenderer({
         const subPerm = permissions?.fields?.[subField.name]
         if (subPerm && subPerm.read === false) return null
 
-        const subError =
-          error && typeof error === 'object' && Object.hasOwn(error, subField.name)
-            ? (error as Record<string, unknown>)[subField.name]
-            : undefined
+        const subError = extractSubProperty(error, subField.name)
+        const subFallback = extractSubProperty(fallbackValue, subField.name)
+
         return (
           <FieldRenderer
             key={subField.name}
@@ -661,6 +821,9 @@ function GroupFieldRenderer({
             permissions={subPerm}
             disabled={disabled}
             readOnlyDoc={readOnlyDoc}
+            fallbackValue={subFallback}
+            hasLocalization={hasLocalization}
+            parentLocalized={isLocalized}
           />
         )
       })}
@@ -693,6 +856,8 @@ interface ArrayFieldRendererProps {
   permissions?: FieldPermission
   disabled?: boolean
   readOnlyDoc?: boolean
+  hasLocalization?: boolean
+  parentLocalized?: boolean
 }
 
 interface ArrayRowRendererProps {
@@ -711,6 +876,8 @@ interface ArrayRowRendererProps {
   permissions?: FieldPermission
   disabled?: boolean
   readOnlyDoc?: boolean
+  hasLocalization?: boolean
+  parentLocalized?: boolean
   onMoveUp: () => void
   onMoveDown: () => void
   onRemove: () => void
@@ -772,6 +939,8 @@ function ArrayRowRenderer({
   permissions,
   disabled,
   readOnlyDoc,
+  hasLocalization,
+  parentLocalized,
   onMoveUp,
   onMoveDown,
   onRemove,
@@ -890,6 +1059,8 @@ function ArrayRowRenderer({
                 permissions={subPerm}
                 disabled={disabled}
                 readOnlyDoc={readOnlyDoc}
+                hasLocalization={hasLocalization}
+                parentLocalized={parentLocalized}
               />
             )
           })}
@@ -908,6 +1079,8 @@ function ArrayHeader({
   hasBounds,
   isLocked,
   fullName,
+  hasLocalization,
+  isLocalized,
 }: {
   label: string
   required: boolean
@@ -917,6 +1090,8 @@ function ArrayHeader({
   hasBounds: boolean
   isLocked?: boolean
   fullName?: string
+  hasLocalization?: boolean
+  isLocalized?: boolean
 }) {
   return (
     <div className="lt:flex lt:items-center lt:justify-between lt:gap-2">
@@ -924,6 +1099,13 @@ function ArrayHeader({
         <legend className="lt:text-sm lt:font-semibold lt:text-foreground lt:px-1 lt:flex lt:items-center lt:gap-1.5">
           <span>{label}</span>
           {required && <span className="lontar-required lt:text-destructive">*</span>}
+          {fullName && (
+            <FieldLocalizationBadge
+              hasLocalization={hasLocalization}
+              isLocalized={isLocalized}
+              fullName={fullName}
+            />
+          )}
           {isLocked && (
             <span title="Read-only" className="lt:inline-flex lt:items-center">
               <Lock
@@ -987,6 +1169,8 @@ function ArrayFieldRenderer({
   permissions,
   disabled,
   readOnlyDoc,
+  hasLocalization,
+  parentLocalized,
 }: ArrayFieldRendererProps) {
   const { fields, append, remove, move, insert } = useFieldArray({
     control,
@@ -998,6 +1182,7 @@ function ArrayFieldRenderer({
 
   const isLocked = isFieldReadOnly(permissions, mode, readOnlyDoc)
   const effectiveDisabled = disabled || isLocked
+  const isLocalized = Boolean(field.localized || parentLocalized)
 
   return (
     <fieldset
@@ -1013,6 +1198,8 @@ function ArrayFieldRenderer({
         hasBounds={hasBounds}
         isLocked={isLocked}
         fullName={fullName}
+        hasLocalization={hasLocalization}
+        isLocalized={isLocalized}
       />
 
       {rootErrorMessage && (
@@ -1042,6 +1229,8 @@ function ArrayFieldRenderer({
               permissions={permissions}
               disabled={effectiveDisabled}
               readOnlyDoc={readOnlyDoc}
+              hasLocalization={hasLocalization}
+              parentLocalized={isLocalized}
               onMoveUp={() => move(index, index - 1)}
               onMoveDown={() => move(index, index + 1)}
               onRemove={() => remove(index)}
@@ -1090,6 +1279,8 @@ interface BlockRowRendererProps {
   permissions?: FieldPermission
   disabled?: boolean
   readOnlyDoc?: boolean
+  hasLocalization?: boolean
+  parentLocalized?: boolean
   onMoveUp: () => void
   onMoveDown: () => void
   onRemove: () => void
@@ -1133,6 +1324,8 @@ function BlockRowRenderer({
   permissions,
   disabled,
   readOnlyDoc,
+  hasLocalization,
+  parentLocalized,
   onMoveUp,
   onMoveDown,
   onRemove,
@@ -1258,6 +1451,8 @@ function BlockRowRenderer({
                 permissions={subPerm}
                 disabled={disabled}
                 readOnlyDoc={readOnlyDoc}
+                hasLocalization={hasLocalization}
+                parentLocalized={parentLocalized}
               />
             )
           })}
@@ -1324,6 +1519,8 @@ interface BlocksFieldRendererProps {
   permissions?: FieldPermission
   disabled?: boolean
   readOnlyDoc?: boolean
+  hasLocalization?: boolean
+  parentLocalized?: boolean
 }
 
 function BlocksFieldRenderer({
@@ -1338,6 +1535,8 @@ function BlocksFieldRenderer({
   permissions,
   disabled,
   readOnlyDoc,
+  hasLocalization,
+  parentLocalized,
 }: BlocksFieldRendererProps) {
   const { fields, append, remove, move, insert } = useFieldArray({
     control,
@@ -1351,6 +1550,7 @@ function BlocksFieldRenderer({
 
   const isLocked = isFieldReadOnly(permissions, mode, readOnlyDoc)
   const effectiveDisabled = disabled || isLocked
+  const isLocalized = Boolean(field.localized || parentLocalized)
 
   return (
     <fieldset
@@ -1366,6 +1566,8 @@ function BlocksFieldRenderer({
         hasBounds={hasBounds}
         isLocked={isLocked}
         fullName={fullName}
+        hasLocalization={hasLocalization}
+        isLocalized={isLocalized}
       />
 
       {rootErrorMessage && (
@@ -1403,6 +1605,8 @@ function BlocksFieldRenderer({
               permissions={permissions}
               disabled={effectiveDisabled}
               readOnlyDoc={readOnlyDoc}
+              hasLocalization={hasLocalization}
+              parentLocalized={isLocalized}
               onMoveUp={() => move(index, index - 1)}
               onMoveDown={() => move(index, index + 1)}
               onRemove={() => remove(index)}
@@ -1445,6 +1649,9 @@ interface StandardFieldRendererProps {
   mode?: 'create' | 'edit'
   disabled?: boolean
   isLocked?: boolean
+  fallbackValue?: unknown
+  hasLocalization?: boolean
+  parentLocalized?: boolean
 }
 
 function StandardFieldRenderer({
@@ -1458,6 +1665,9 @@ function StandardFieldRenderer({
   mode,
   disabled,
   isLocked,
+  fallbackValue,
+  hasLocalization,
+  parentLocalized,
 }: StandardFieldRendererProps) {
   const errorId = `${fullName}-error`
   const hasError = Boolean(errorMessage)
@@ -1466,6 +1676,8 @@ function StandardFieldRenderer({
     invalid: hasError,
     required: field.required,
   }
+  const isLocalized = Boolean(field.localized || parentLocalized)
+  const placeholder = resolveFallbackPlaceholder(fallbackValue)
 
   return (
     <Field className="lontar-field-group" data-invalid={hasError || undefined}>
@@ -1473,6 +1685,11 @@ function StandardFieldRenderer({
         <FieldLabel htmlFor={fullName} className="lontar-label">
           <span>{field.label}</span>
           {field.required && <span className="lontar-required">*</span>}
+          <FieldLocalizationBadge
+            hasLocalization={hasLocalization}
+            isLocalized={isLocalized}
+            fullName={fullName}
+          />
           {isLocked && (
             <span title="Read-only" className="lt:inline-flex lt:items-center">
               <Lock
@@ -1494,6 +1711,10 @@ function StandardFieldRenderer({
         a11y={a11y}
         disabled={disabled}
         isLocked={isLocked}
+        placeholder={placeholder}
+        hasLocalization={hasLocalization}
+        isLocalized={isLocalized}
+        fullName={fullName}
       />
       <FieldError
         id={errorId}
@@ -1516,6 +1737,9 @@ function UnconditionalFieldRenderer({
   permissions,
   disabled,
   readOnlyDoc,
+  fallbackValue,
+  hasLocalization,
+  parentLocalized,
 }: FieldRendererProps) {
   const fullName = pathPrefix ? `${pathPrefix}.${field.name}` : field.name
 
@@ -1536,6 +1760,9 @@ function UnconditionalFieldRenderer({
         disabled={effectiveDisabled}
         readOnlyDoc={readOnlyDoc}
         isLocked={isLocked}
+        fallbackValue={fallbackValue}
+        hasLocalization={hasLocalization}
+        parentLocalized={parentLocalized}
       />
     )
   }
@@ -1554,6 +1781,8 @@ function UnconditionalFieldRenderer({
         permissions={permissions}
         disabled={disabled}
         readOnlyDoc={readOnlyDoc}
+        hasLocalization={hasLocalization}
+        parentLocalized={parentLocalized}
       />
     )
   }
@@ -1572,6 +1801,8 @@ function UnconditionalFieldRenderer({
         permissions={permissions}
         disabled={disabled}
         readOnlyDoc={readOnlyDoc}
+        hasLocalization={hasLocalization}
+        parentLocalized={parentLocalized}
       />
     )
   }
@@ -1593,6 +1824,9 @@ function UnconditionalFieldRenderer({
       mode={mode}
       disabled={effectiveDisabled}
       isLocked={isLocked}
+      fallbackValue={fallbackValue}
+      hasLocalization={hasLocalization}
+      parentLocalized={parentLocalized}
     />
   )
 }

@@ -33,6 +33,8 @@ import {
   signOut,
   unpublishDoc,
   updateDoc,
+  fetchGlobal,
+  saveGlobal,
 } from './client'
 
 describe('ApiClientError and API Client error handling', () => {
@@ -215,6 +217,43 @@ describe('ApiClientError and API Client error handling', () => {
       await unpublishDoc('/api', 'posts', 1)
       expect(fetchSpy).toHaveBeenLastCalledWith(
         '/api/posts/1/unpublish',
+        expect.objectContaining({ method: 'POST' }),
+      )
+    })
+
+    it('passes locale and fallbackLocale query params (#428)', async () => {
+      const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue({
+        ok: true,
+        json: vi.fn().mockResolvedValue({ id: 1, title: 'Halo' }),
+      } as unknown as Response)
+
+      await fetchDoc('/api', 'posts', 1, { locale: 'id', fallbackLocale: 'none', draft: true })
+      expect(fetchSpy).toHaveBeenLastCalledWith(
+        '/api/posts/1?draft=true&locale=id&fallbackLocale=none',
+        { credentials: 'include' },
+      )
+
+      await updateDoc('/api', 'posts', 1, { title: 'Halo' }, { locale: 'id', autosave: true })
+      expect(fetchSpy).toHaveBeenLastCalledWith(
+        '/api/posts/1?draft=true&autosave=true&locale=id',
+        expect.objectContaining({ method: 'PATCH' }),
+      )
+
+      await createDoc('/api', 'posts', { title: 'Halo' }, { locale: 'id', draft: true })
+      expect(fetchSpy).toHaveBeenLastCalledWith(
+        '/api/posts?draft=true&locale=id',
+        expect.objectContaining({ method: 'POST' }),
+      )
+
+      await fetchGlobal('/api', 'settings', { locale: 'id', fallbackLocale: 'false' })
+      expect(fetchSpy).toHaveBeenLastCalledWith(
+        '/api/globals/settings?locale=id&fallbackLocale=false',
+        { credentials: 'include' },
+      )
+
+      await saveGlobal('/api', 'settings', { title: 'Halo' }, { locale: 'id', autosave: true })
+      expect(fetchSpy).toHaveBeenLastCalledWith(
+        '/api/globals/settings?draft=true&autosave=true&locale=id',
         expect.objectContaining({ method: 'POST' }),
       )
     })

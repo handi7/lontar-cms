@@ -1,6 +1,6 @@
 import { useState, useEffect, useMemo, useCallback, useRef } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { useNavigate, useParams } from '@tanstack/react-router'
+import { useNavigate, useParams, useBlocker } from '@tanstack/react-router'
 import {
   useForm,
   type Control,
@@ -19,6 +19,7 @@ import {
   clientFieldsToZod,
   type ClientCollection,
   type ClientField,
+  type ClientLocale,
   type CollectionPermission,
   type FieldPermission,
 } from '@lontar/core/client'
@@ -54,6 +55,8 @@ import { VersionHistorySheet } from './VersionHistorySheet'
 import { PreviewPane } from './preview/PreviewPane'
 import { EditorSplitLayout, useEditorView } from './preview/EditorSplitLayout'
 import { useAutosave } from '../hooks/useAutosave'
+import { useLocale } from '../hooks/useLocale'
+import { LocaleSwitcher } from './LocaleSwitcher'
 import { cn } from '../lib/utils'
 
 function getFormTitle(mode: 'create' | 'edit', singular: string, id?: string): string {
@@ -112,6 +115,8 @@ export interface FormFieldsProps {
   doc?: Record<string, unknown> | null
   permissions?: Record<string, FieldPermission>
   readOnlyDoc?: boolean
+  fallbackDoc?: Record<string, unknown> | null
+  hasLocalization?: boolean
 }
 
 function FormFields({
@@ -128,6 +133,8 @@ function FormFields({
   doc,
   permissions,
   readOnlyDoc,
+  fallbackDoc,
+  hasLocalization,
 }: FormFieldsProps) {
   const uploadConfig = typeof collection.upload === 'object' ? collection.upload : undefined
   const accept = uploadConfig?.mimeTypes?.join(',')
@@ -165,6 +172,7 @@ function FormFields({
           {collection.fields.map((field) => {
             const fieldPerm = permissions?.[field.name]
             if (fieldPerm?.read === false) return null
+            const fallbackValue = fallbackDoc ? fallbackDoc[field.name] : undefined
             return (
               <FieldRenderer
                 key={field.name}
@@ -177,6 +185,8 @@ function FormFields({
                 error={errors[field.name]}
                 permissions={fieldPerm}
                 readOnlyDoc={readOnlyDoc}
+                fallbackValue={fallbackValue}
+                hasLocalization={hasLocalization}
               />
             )
           })}
@@ -198,6 +208,7 @@ export interface UseDocMutationsOptions {
   setSuccessMsg: (msg: string | null) => void
   onSaveSuccess?: () => void
   onDocApplied?: (doc: Record<string, unknown>) => void
+  locale?: string
 }
 
 export interface SaveDocArgs {
@@ -217,6 +228,7 @@ function useDocMutations({
   setSuccessMsg,
   onSaveSuccess,
   onDocApplied,
+  locale,
 }: UseDocMutationsOptions) {
   const queryClient = useQueryClient()
   const navigate = useNavigate()
@@ -225,20 +237,17 @@ function useDocMutations({
     mutationFn: async ({ data, draft }: SaveDocArgs) => {
       setApiError(null)
       setSuccessMsg(null)
-      if (mode === 'create') return createDoc(apiBase, slug, data, { draft })
+      if (mode === 'create') return createDoc(apiBase, slug, data, { draft, locale })
       if (!id) throw new Error('Missing document id')
-      return updateDoc(apiBase, slug, id, data, { draft })
+      return updateDoc(apiBase, slug, id, data, { draft, locale })
     },
     onSuccess: (savedDoc, variables) => {
       void queryClient.invalidateQueries({ queryKey: [slug] })
       if (id) {
         queryClient.setQueryData(
-          queryKeys.document(slug, id, Boolean(collection.versions?.drafts)),
+          queryKeys.document(slug, id, Boolean(collection.versions?.drafts), locale),
           savedDoc,
         )
-        void queryClient.invalidateQueries({
-          queryKey: queryKeys.documentPrefix(slug, id),
-        })
         void queryClient.invalidateQueries({
           queryKey: queryKeys.docVersions(apiBase, slug, id),
         })
@@ -249,6 +258,7 @@ function useDocMutations({
       onSaveSuccess?.()
       onDocApplied?.(savedDoc)
       if (mode === 'create') {
+        reset()
         void navigate({ to: '/$collection', params: { collection: slug } })
       } else {
         if (collection.versions?.drafts) {
@@ -277,18 +287,15 @@ function useDocMutations({
       setApiError(null)
       setSuccessMsg(null)
       if (!id) throw new Error('Missing collection or id')
-      return unpublishDoc(apiBase, slug, id)
+      return unpublishDoc(apiBase, slug, id, { locale })
     },
     onSuccess: (unpublishedDoc) => {
       void queryClient.invalidateQueries({ queryKey: [slug] })
       if (id) {
         queryClient.setQueryData(
-          queryKeys.document(slug, id, Boolean(collection.versions?.drafts)),
+          queryKeys.document(slug, id, Boolean(collection.versions?.drafts), locale),
           unpublishedDoc,
         )
-        void queryClient.invalidateQueries({
-          queryKey: queryKeys.documentPrefix(slug, id),
-        })
         void queryClient.invalidateQueries({
           queryKey: queryKeys.docVersions(apiBase, slug, id),
         })
@@ -323,6 +330,8 @@ function useDocMutations({
           queryKey: queryKeys.documentPermissionsPrefix(apiBase, slug, id),
         })
       }
+      onSaveSuccess?.()
+      reset()
       void navigate({ to: '/$collection', params: { collection: slug } })
     },
     onError: (err: Error) => {
@@ -339,12 +348,48 @@ function useDocumentQuery(
   slug?: string,
   id?: string,
   hasDrafts?: boolean,
+  locale?: string,
+  fallbackLocale?: string,
 ) {
   const isEdit = mode === 'edit' && Boolean(slug) && Boolean(id)
   return useQuery({
-    queryKey: slug && id ? queryKeys.document(slug, id, Boolean(hasDrafts)) : ['document'],
-    queryFn: () => (slug && id ? fetchDoc(apiBase, slug, id, { draft: hasDrafts }) : null),
+    queryKey: slug && id ? queryKeys.document(slug, id, Boolean(hasDrafts), locale) : ['document'],
+    queryFn: () =>
+      slug && id ? fetchDoc(apiBase, slug, id, { draft: hasDrafts, locale, fallbackLocale }) : null,
     enabled: isEdit,
+    refetchOnWindowFocus: false,
+  })
+}
+
+function useFallbackDocumentQuery(
+  apiBase: string,
+  slug?: string,
+  id?: string,
+  hasDrafts?: boolean,
+  hasLocalization?: boolean,
+  activeLocale?: string,
+  fallbackLocale?: string,
+) {
+  const isEnabled =
+    Boolean(slug && id) &&
+    Boolean(hasLocalization) &&
+    Boolean(fallbackLocale) &&
+    activeLocale !== fallbackLocale
+
+  return useQuery({
+    queryKey:
+      slug && id
+        ? queryKeys.document(slug, id, Boolean(hasDrafts), fallbackLocale)
+        : ['fallbackDocument'],
+    queryFn: () =>
+      slug && id && fallbackLocale
+        ? fetchDoc(apiBase, slug, id, {
+            draft: hasDrafts,
+            locale: fallbackLocale,
+            fallbackLocale: 'none',
+          })
+        : null,
+    enabled: isEnabled,
     refetchOnWindowFocus: false,
   })
 }
@@ -498,6 +543,7 @@ interface UseCollectionAutosaveOptions {
   onDocApplied?: (doc: Record<string, unknown>) => void
   permissions?: Record<string, FieldPermission>
   readOnlyDoc?: boolean
+  locale?: string
 }
 
 function isCollectionAutosaveEnabled(
@@ -535,6 +581,7 @@ function useCollectionAutosave({
   onDocApplied,
   permissions,
   readOnlyDoc,
+  locale,
 }: UseCollectionAutosaveOptions) {
   const queryClient = useQueryClient()
   const autosaveEnabled = isCollectionAutosaveEnabled(mode, collection.versions, id, readOnlyDoc)
@@ -553,7 +600,7 @@ function useCollectionAutosave({
     const payload = formatDocForSubmit(collection.fields, values, true, permissions, mode)
     const data =
       collection.upload && selectedFile ? buildUploadFormData(payload, selectedFile) : payload
-    return updateDoc(apiBase, collection.slug, id, data, { autosave: true })
+    return updateDoc(apiBase, collection.slug, id, data, { autosave: true, locale })
   }, [
     apiBase,
     collection.fields,
@@ -564,6 +611,7 @@ function useCollectionAutosave({
     selectedFile,
     permissions,
     mode,
+    locale,
   ])
 
   const onSuccess = useCallback(
@@ -572,7 +620,7 @@ function useCollectionAutosave({
       reset(formatDocForForm(collection.fields, savedDoc), { keepValues: true })
       if (id) {
         queryClient.setQueryData(
-          queryKeys.document(collection.slug, id, Boolean(collection.versions?.drafts)),
+          queryKeys.document(collection.slug, id, Boolean(collection.versions?.drafts), locale),
           savedDoc,
         )
         void queryClient.invalidateQueries({
@@ -589,6 +637,7 @@ function useCollectionAutosave({
       collection.slug,
       collection.versions?.drafts,
       id,
+      locale,
       onDocApplied,
       queryClient,
       reset,
@@ -710,6 +759,7 @@ export interface UseResetFormOnDocLoadedOptions {
   doc: Record<string, unknown> | null | undefined
   id?: string
   collectionSlug: string
+  locale?: string
   fields: ClientField[]
   isDirty: boolean
   reset: (values?: Record<string, unknown>) => void
@@ -721,6 +771,7 @@ function useResetFormOnDocLoaded({
   doc,
   id,
   collectionSlug,
+  locale,
   fields,
   isDirty,
   reset,
@@ -728,7 +779,7 @@ function useResetFormOnDocLoaded({
   lastAppliedDocRef,
 }: UseResetFormOnDocLoadedOptions) {
   const lastLoadedKeyRef = useRef<string | null>(null)
-  const currentKey = `${collectionSlug}:${id ?? ''}`
+  const currentKey = `${collectionSlug}:${id ?? ''}:${locale ?? ''}`
 
   useEffect(() => {
     if (!doc) return
@@ -810,6 +861,8 @@ interface CollectionEditorSplitLayoutProps {
   onFileChange: (file: File | null) => void
   fileError: string | null
   readOnlyDoc: boolean
+  fallbackDoc?: Record<string, unknown> | null
+  hasLocalization?: boolean
   submitLabel: string
   isSubmitting: boolean
   savePending: boolean
@@ -874,6 +927,8 @@ function CollectionEditorSplitLayout(props: CollectionEditorSplitLayoutProps) {
           doc={props.doc}
           permissions={props.fieldPermissions}
           readOnlyDoc={props.readOnlyDoc}
+          fallbackDoc={props.fallbackDoc}
+          hasLocalization={props.hasLocalization}
         />
 
         <DocumentSidebar
@@ -905,6 +960,213 @@ function CollectionEditorSplitLayout(props: CollectionEditorSplitLayoutProps) {
   )
 }
 
+function confirmAction(message: string): boolean {
+  if (typeof window === 'undefined' || typeof window.confirm !== 'function') {
+    return true
+  }
+  return window.confirm(message)
+}
+
+interface UseLocaleNavigationOptions {
+  activeLocale?: string
+  isDirty: boolean
+  isNavigatingAllowedRef?: React.RefObject<boolean>
+}
+
+function useLocaleNavigation({
+  activeLocale,
+  isDirty,
+  isNavigatingAllowedRef,
+}: UseLocaleNavigationOptions) {
+  const navigate = useNavigate()
+  const isSwitchingLocaleRef = useRef(false)
+
+  useBlocker({
+    shouldBlockFn: () => {
+      if (!isDirty) return false
+      if (isNavigatingAllowedRef?.current) return false
+      if (isSwitchingLocaleRef.current) return false
+      const confirmed = confirmAction('You have unsaved changes. Are you sure you want to leave?')
+      return !confirmed
+    },
+  })
+
+  const navigateToLocale = useCallback(
+    (newLocale: string) => {
+      isSwitchingLocaleRef.current = true
+      void Promise.resolve(
+        navigate({
+          search: ((prev: Record<string, unknown>) => ({ ...prev, locale: newLocale })) as never,
+        }),
+      ).finally(() => {
+        isSwitchingLocaleRef.current = false
+      })
+    },
+    [navigate],
+  )
+
+  const handleLocaleChange = useCallback(
+    (newLocale: string) => {
+      if (newLocale === activeLocale) return
+      if (isDirty) {
+        setTimeout(() => {
+          const confirmed = confirmAction(
+            'You have unsaved changes. Are you sure you want to switch locales?',
+          )
+          if (confirmed) {
+            navigateToLocale(newLocale)
+          }
+        }, 0)
+        return
+      }
+      navigateToLocale(newLocale)
+    },
+    [activeLocale, isDirty, navigateToLocale],
+  )
+
+  return { handleLocaleChange }
+}
+
+interface UseCollectionQueriesOptions {
+  mode: 'create' | 'edit'
+  apiBase: string
+  slug: string
+  id?: string
+  hasDrafts: boolean
+  hasLocalization: boolean
+  activeLocale?: string
+  fallbackLocale?: string
+}
+
+function useCollectionQueries({
+  mode,
+  apiBase,
+  slug,
+  id,
+  hasDrafts,
+  hasLocalization,
+  activeLocale,
+  fallbackLocale,
+}: UseCollectionQueriesOptions) {
+  const currentLocale = hasLocalization ? activeLocale : undefined
+  const docQuery = useDocumentQuery(
+    mode,
+    apiBase,
+    slug,
+    id,
+    hasDrafts,
+    currentLocale,
+    hasLocalization ? 'none' : undefined,
+  )
+  const fallbackQuery = useFallbackDocumentQuery(
+    apiBase,
+    slug,
+    id,
+    hasDrafts,
+    hasLocalization,
+    activeLocale,
+    fallbackLocale,
+  )
+  const fallbackDoc =
+    hasLocalization && activeLocale !== fallbackLocale ? fallbackQuery.data : undefined
+
+  return { docQuery, fallbackDoc, currentLocale }
+}
+
+function useCollectionForm(
+  collection: ClientCollection,
+  mode: 'create' | 'edit',
+  fieldPermissions?: Record<string, FieldPermission>,
+  readOnlyDoc?: boolean,
+) {
+  const schema = useMemo(
+    () =>
+      clientFieldsToZod(
+        buildFormValidationFields(collection.fields, fieldPermissions, mode, readOnlyDoc),
+      ),
+    [collection.fields, fieldPermissions, mode, readOnlyDoc],
+  )
+  const defaultValues = useMemo(() => computeDefaultValues(collection.fields), [collection])
+
+  const form = useForm<Record<string, unknown>>({
+    resolver: zodResolver(schema),
+    defaultValues,
+  })
+
+  const formValues = form.watch()
+  return { ...form, formValues, schema }
+}
+
+interface UseVersionRestoreOptions {
+  apiBase: string
+  collectionSlug: string
+  id?: string
+  hasDrafts: boolean
+  locale?: string
+  fields: ClientField[]
+  reset: (values?: Record<string, unknown>) => void
+  onDocApplied: (doc: Record<string, unknown>) => void
+  setSuccessMsg: (msg: string | null) => void
+}
+
+function useVersionRestore({
+  apiBase,
+  collectionSlug,
+  id,
+  hasDrafts,
+  locale,
+  fields,
+  reset,
+  onDocApplied,
+  setSuccessMsg,
+}: UseVersionRestoreOptions) {
+  const queryClient = useQueryClient()
+
+  return useCallback(
+    (restoredDoc: Record<string, unknown>) => {
+      onDocApplied(restoredDoc)
+      if (id) {
+        queryClient.setQueryData(
+          queryKeys.document(collectionSlug, id, Boolean(hasDrafts), locale),
+          restoredDoc,
+        )
+        void queryClient.invalidateQueries({
+          queryKey: queryKeys.documentPrefix(collectionSlug, id),
+        })
+        void queryClient.invalidateQueries({
+          queryKey: queryKeys.documentPermissionsPrefix(apiBase, collectionSlug, id),
+        })
+      }
+      reset(formatDocForForm(fields, restoredDoc))
+      setSuccessMsg('Version restored successfully!')
+    },
+    [
+      apiBase,
+      collectionSlug,
+      fields,
+      hasDrafts,
+      id,
+      locale,
+      onDocApplied,
+      queryClient,
+      reset,
+      setSuccessMsg,
+    ],
+  )
+}
+
+function renderLocaleSwitcher(
+  hasLocalization: boolean,
+  locales: ClientLocale[],
+  activeLocale: string | undefined,
+  onLocaleChange: (locale: string) => void,
+) {
+  if (!hasLocalization || !activeLocale) return undefined
+  return (
+    <LocaleSwitcher locales={locales} activeLocale={activeLocale} onLocaleChange={onLocaleChange} />
+  )
+}
+
 export interface CollectionEditorProps {
   collection: ClientCollection
   mode: 'create' | 'edit'
@@ -913,14 +1175,15 @@ export interface CollectionEditorProps {
 
 function CollectionEditor({ collection, mode, id }: CollectionEditorProps) {
   const { apiBase } = useAdmin()
-  const queryClient = useQueryClient()
   const [apiError, setApiError] = useState<string | null>(null)
   const [successMsg, setSuccessMsg] = useState<string | null>(null)
   const [selectedFile, setSelectedFile] = useState<File | null>(null)
   const [fileError, setFileError] = useState<string | null>(null)
   const [confirmOpen, setConfirmOpen] = useState(false)
   const [historyOpen, setHistoryOpen] = useState(false)
+  const isNavigatingAfterSaveRef = useRef(false)
 
+  const { hasLocalization, activeLocale, fallbackLocale, locales } = useLocale()
   const hasDrafts = Boolean(collection.versions?.drafts)
   const hasVersions = Boolean(collection.versions)
   const previewUrlTemplate = collection.admin?.preview?.url
@@ -928,7 +1191,17 @@ function CollectionEditor({ collection, mode, id }: CollectionEditorProps) {
   const preview = usePreviewState(collection.slug, hasPreview)
   const editorView = useEditorView(preview)
 
-  const docQuery = useDocumentQuery(mode, apiBase, collection.slug, id, hasDrafts)
+  const { docQuery, fallbackDoc, currentLocale } = useCollectionQueries({
+    mode,
+    apiBase,
+    slug: collection.slug,
+    id,
+    hasDrafts,
+    hasLocalization,
+    activeLocale,
+    fallbackLocale,
+  })
+
   const { data: docPermissions, isLoading: isDocPermsLoading } = useDocumentPermissions(
     apiBase,
     collection.slug,
@@ -940,15 +1213,6 @@ function CollectionEditor({ collection, mode, id }: CollectionEditorProps) {
   const { readOnlyDoc, canDeleteDoc, canReadVersions, fieldPermissions, isUnreadable } =
     useCollectionEditorPermissions(collection.slug, mode, docPermissions)
 
-  const schema = useMemo(
-    () =>
-      clientFieldsToZod(
-        buildFormValidationFields(collection.fields, fieldPermissions, mode, readOnlyDoc),
-      ),
-    [collection.fields, fieldPermissions, mode, readOnlyDoc],
-  )
-  const defaultValues = useMemo(() => computeDefaultValues(collection.fields), [collection])
-
   const {
     control,
     register,
@@ -958,13 +1222,16 @@ function CollectionEditor({ collection, mode, id }: CollectionEditorProps) {
     watch,
     getValues,
     setError,
+    formValues,
+    schema,
     formState: { errors, isSubmitting, isDirty },
-  } = useForm<Record<string, unknown>>({
-    resolver: zodResolver(schema),
-    defaultValues,
-  })
+  } = useCollectionForm(collection, mode, fieldPermissions, readOnlyDoc)
 
-  const formValues = watch()
+  const { handleLocaleChange } = useLocaleNavigation({
+    activeLocale,
+    isDirty,
+    isNavigatingAllowedRef: isNavigatingAfterSaveRef,
+  })
 
   const lastAppliedDocRef = useRef<Record<string, unknown> | null>(null)
   const onDocApplied = useCallback((doc: Record<string, unknown>) => {
@@ -986,12 +1253,14 @@ function CollectionEditor({ collection, mode, id }: CollectionEditorProps) {
     onDocApplied,
     permissions: fieldPermissions,
     readOnlyDoc,
+    locale: currentLocale,
   })
 
   useResetFormOnDocLoaded({
     doc: docQuery.data,
     id,
     collectionSlug: collection.slug,
+    locale: currentLocale,
     fields: collection.fields,
     isDirty,
     reset,
@@ -1013,7 +1282,9 @@ function CollectionEditor({ collection, mode, id }: CollectionEditorProps) {
     setApiError,
     setSuccessMsg,
     onDocApplied,
+    locale: currentLocale,
     onSaveSuccess: () => {
+      isNavigatingAfterSaveRef.current = true
       void autosave.cancelAutosave()
       setSelectedFile(null)
       setFileError(null)
@@ -1030,6 +1301,18 @@ function CollectionEditor({ collection, mode, id }: CollectionEditorProps) {
     handleSubmit,
     onBeforeSubmit: autosave.cancelAutosave,
     permissions: fieldPermissions,
+  })
+
+  const onRestoreSuccess = useVersionRestore({
+    apiBase,
+    collectionSlug: collection.slug,
+    id,
+    hasDrafts,
+    locale: currentLocale,
+    fields: collection.fields,
+    reset,
+    onDocApplied,
+    setSuccessMsg,
   })
 
   if (shouldShowQueryState(mode, docQuery.isLoading || isPermsLoading, docQuery.error)) {
@@ -1070,6 +1353,7 @@ function CollectionEditor({ collection, mode, id }: CollectionEditorProps) {
             currentTitle={breadcrumbTitle}
           />
         }
+        actions={renderLocaleSwitcher(hasLocalization, locales, activeLocale, handleLocaleChange)}
       />
 
       <ConfirmDeleteDialog
@@ -1093,6 +1377,8 @@ function CollectionEditor({ collection, mode, id }: CollectionEditorProps) {
         fieldPermissions={fieldPermissions}
         formValues={formValues}
         doc={docQuery.data}
+        fallbackDoc={fallbackDoc}
+        hasLocalization={hasLocalization}
         onPublish={onPublish}
         control={control}
         register={register}
@@ -1137,20 +1423,7 @@ function CollectionEditor({ collection, mode, id }: CollectionEditorProps) {
         apiBase={apiBase}
         collection={collection}
         currentDoc={docQuery.data}
-        onRestoreSuccess={(restoredDoc) => {
-          onDocApplied(restoredDoc)
-          if (id) {
-            queryClient.setQueryData(
-              queryKeys.document(collection.slug, id, Boolean(hasDrafts)),
-              restoredDoc,
-            )
-            void queryClient.invalidateQueries({
-              queryKey: queryKeys.documentPermissionsPrefix(apiBase, collection.slug, id),
-            })
-          }
-          reset(formatDocForForm(collection.fields, restoredDoc))
-          setSuccessMsg('Version restored successfully!')
-        }}
+        onRestoreSuccess={onRestoreSuccess}
         canRestore={!readOnlyDoc}
       />
     </div>
