@@ -377,32 +377,36 @@ See [ADR 0028](docs/adr/0028-localization.md) for full architectural details.
 
 ### Live preview
 
-Collections and globals can configure live preview in the admin edit form using a URL template with `{placeholder}` tokens:
+Collections and globals can configure live preview in the admin edit form using a URL template with `{placeholder}` tokens (including `{locale}` for localized collections):
 
 ```ts
 const Posts = collection({
   slug: 'posts',
   admin: {
     preview: {
-      url: 'https://mysite.com/posts/{slug}?preview=1',
+      url: 'https://mysite.com/{locale}/posts/{slug}?preview=1',
     },
   },
   fields: {
-    title: f.text({ required: true }),
+    title: f.text({ required: true, localized: true }),
     slug: f.slug({ from: 'title' }),
     content: f.richText(),
   },
 })
 ```
 
-The admin renders the target page in a split-screen iframe and transmits unsaved form state in real time over `postMessage`. In your frontend application, use `@lontar/preview` to render instant updates:
+The admin renders the target page in a split-screen iframe and transmits unsaved form state in real time over `postMessage`. In your frontend application, use `@lontar/preview` to render instant updates and access the active locale:
 
 ```tsx
 'use client'
 import { useLivePreview } from '@lontar/preview/react'
 
 export function PostView({ post: initialPost }: { post: Post }) {
-  const { data: post } = useLivePreview({
+  const {
+    data: post,
+    isLive,
+    locale,
+  } = useLivePreview({
     initialData: initialPost,
     serverURL: 'http://localhost:3000',
   })
@@ -460,6 +464,7 @@ Webhook requests are sent as HTTP `POST` requests with JSON payloads containing 
   "event": "publish",
   "collection": "posts",
   "id": 123,
+  "locale": "id",
   "status": "published",
   "previousStatus": "draft",
   "timestamp": "2026-11-10T12:00:00.000Z"
@@ -467,7 +472,8 @@ Webhook requests are sent as HTTP `POST` requests with JSON payloads containing 
 ```
 
 - **Payload minimalism**: By default, only structured metadata is sent. Set `includeDoc: true` on the webhook config if your receiver requires the full document snapshot.
-- **Draft isolation**: Draft saves do not trigger `publish` webhooks. They trigger `update` or `change` webhooks with `status: "draft"`.
+- **Locale awareness**: In localized applications, payloads include `"locale"` (e.g. `"id"` or `"all"`). When `includeDoc: true`, the document snapshot is projected to that locale, allowing selective on-demand revalidation per path: `revalidatePath('/' + payload.locale + '/posts/' + payload.doc.slug)` without invalidating unaffected locales.
+- **Draft isolation**: Draft saves do not trigger `publish` webhooks. They trigger `update` or `change` webhooks with `status: "draft"`. Autosave never triggers webhooks.
 - **Post-commit delivery**: Webhooks fire asynchronously in the background strictly after database transactions commit.
 - **Failure isolation**: Dead endpoints or network errors retry up to 3 times with exponential backoff and never fail an editor's save.
 - **Cryptographic signing**: Requests include `x-lontar-timestamp` (epoch in seconds) and `x-lontar-signature-256` (`sha256=<hex_digest>` computed over `${timestamp}.${body}` to prevent replay attacks).

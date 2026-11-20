@@ -284,6 +284,7 @@ async function transitionDocumentStatus<T = DocumentData>(
       config: args.config,
       deferWebhooks: true,
       locale: updateLocale,
+      webhookLocale: locale,
     })
 
     if (!result.success) {
@@ -540,6 +541,7 @@ async function transitionGlobalStatus<T = DocumentData>(
       config: args.config,
       deferWebhooks: true,
       locale: updateLocale,
+      webhookLocale: locale,
     })
 
     assertGlobalTransitionSuccess(result, action)

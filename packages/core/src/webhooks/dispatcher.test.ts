@@ -175,6 +175,25 @@ describe('buildWebhookPayload', () => {
     expect(payload.doc).toEqual(doc)
   })
 
+  it('includes locale when passed', () => {
+    const payload = buildWebhookPayload({
+      event: 'update',
+      collection,
+      doc,
+      locale: 'id',
+    })
+    expect(payload.locale).toBe('id')
+  })
+
+  it('omits locale when undefined', () => {
+    const payload = buildWebhookPayload({
+      event: 'update',
+      collection,
+      doc,
+    })
+    expect(payload.locale).toBeUndefined()
+  })
+
   it('builds global payload without id', () => {
     const global: GlobalConfig = { slug: 'site-settings', fields: {} }
     const payload = buildWebhookPayload({
@@ -275,5 +294,56 @@ describe('dispatchWebhooks', () => {
     expect(results).toEqual([])
     expect(mockLogger).toHaveBeenCalledTimes(1)
     expect(mockLogger).toHaveBeenCalledWith('[Webhooks] Delivery batch failed:', expect.any(Error))
+  })
+
+  it('dispatches webhook with locale and projects localized doc when includeDoc is true', async () => {
+    let capturedBody: string | undefined
+    const mockFetch = vi.fn<typeof fetch>((_url: string | URL | Request, init?: RequestInit) => {
+      capturedBody = (init?.body as string) ?? ''
+      return Promise.resolve(new Response('OK', { status: 200 }))
+    })
+
+    const collection: CollectionConfig = {
+      slug: 'posts',
+      fields: {
+        title: { type: 'text', localized: true },
+      },
+      webhooks: [{ url: 'https://example.com/webhook', events: ['update'], includeDoc: true }],
+    }
+
+    const config: Config = {
+      secret: 'test-secret',
+      db: {} as unknown as Config['db'],
+      localization: {
+        locales: ['en', 'id'],
+        defaultLocale: 'en',
+      },
+      collections: [collection],
+    }
+
+    const promise = dispatchWebhooks({
+      config,
+      collection,
+      event: 'update',
+      doc: {
+        id: 1,
+        title: { en: 'Hello World', id: 'Halo Dunia' },
+      },
+      locale: 'id',
+      options: { fetchFn: mockFetch },
+    })
+
+    await drainPendingWebhooks()
+    const results = await promise
+
+    expect(results).toHaveLength(1)
+    expect(results[0]?.success).toBe(true)
+    const parsed = JSON.parse(capturedBody ?? '') as Record<string, unknown>
+    expect(parsed.locale).toBe('id')
+    expect(parsed.event).toBe('update')
+    expect(parsed.doc).toEqual({
+      id: 1,
+      title: 'Halo Dunia',
+    })
   })
 })

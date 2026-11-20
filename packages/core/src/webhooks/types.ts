@@ -20,6 +20,7 @@ export interface WebhookPayload {
   previousStatus?: DocStatus
   timestamp: string
   doc?: DocumentData
+  locale?: string
 }
 
 export interface WebhookDeliveryResult {
