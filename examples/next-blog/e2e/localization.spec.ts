@@ -189,19 +189,15 @@ test.describe('Admin Localization & Edit Forms (#428)', () => {
     // 3. Test unsaved changes guard when switching locales
     await titleInput.fill('Judul Bahasa Indonesia')
 
-    // Prepare to handle the confirm dialog
-    let dialogHandled = false
-    page.once('dialog', async (dialog) => {
-      expect(dialog.message()).toContain('You have unsaved changes')
-      await dialog.dismiss() // Cancel switching
-      dialogHandled = true
-    })
-
-    // Attempt to switch back to English while dirty
+    // Attempt to switch back to English while dirty triggers confirmation dialog
     await switcher.click()
     const enOption = page.getByTestId('locale-option-en')
-    await enOption.click()
-    expect(dialogHandled).toBe(true)
+    const [dialog] = await Promise.all([
+      page.waitForEvent('dialog'),
+      enOption.click({ noWaitAfter: true }),
+    ])
+    expect(dialog.message()).toContain('You have unsaved changes')
+    await dialog.dismiss() // Cancel switching
 
     // Should still be in id
     await expect(page).toHaveURL(/locale=id/)
