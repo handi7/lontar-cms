@@ -5,7 +5,7 @@ import {
   useQueryClient,
   type UseMutationResult,
 } from '@tanstack/react-query'
-import { useParams } from '@tanstack/react-router'
+import { useNavigate, useParams, useBlocker } from '@tanstack/react-router'
 import {
   useForm,
   type Control,
@@ -24,6 +24,7 @@ import {
   clientFieldsToZod,
   type ClientField,
   type ClientGlobal,
+  type ClientLocale,
   type FieldPermission,
   type GlobalPermission,
 } from '@lontar/core/client'
@@ -49,6 +50,8 @@ import { VersionHistorySheet } from './VersionHistorySheet'
 import { PreviewPane } from './preview/PreviewPane'
 import { EditorSplitLayout, useEditorView } from './preview/EditorSplitLayout'
 import { useAutosave } from '../hooks/useAutosave'
+import { useLocale } from '../hooks/useLocale'
+import { LocaleSwitcher } from './LocaleSwitcher'
 import { cn } from '../lib/utils'
 
 export interface GlobalFormFieldsProps {
@@ -60,6 +63,8 @@ export interface GlobalFormFieldsProps {
   errors: FieldErrors<Record<string, unknown>>
   permissions?: Record<string, FieldPermission>
   readOnlyDoc?: boolean
+  fallbackDoc?: Record<string, unknown> | null
+  hasLocalization?: boolean
 }
 
 function GlobalFormFields({
@@ -71,6 +76,8 @@ function GlobalFormFields({
   errors,
   permissions,
   readOnlyDoc,
+  fallbackDoc,
+  hasLocalization,
 }: GlobalFormFieldsProps) {
   return (
     <div
@@ -82,6 +89,7 @@ function GlobalFormFields({
           {fields.map((field) => {
             const fieldPerm = permissions?.[field.name]
             if (fieldPerm?.read === false) return null
+            const fallbackValue = fallbackDoc ? fallbackDoc[field.name] : undefined
             return (
               <FieldRenderer
                 key={field.name}
@@ -94,6 +102,8 @@ function GlobalFormFields({
                 error={errors[field.name]}
                 permissions={fieldPerm}
                 readOnlyDoc={readOnlyDoc}
+                fallbackValue={fallbackValue}
+                hasLocalization={hasLocalization}
               />
             )
           })}
@@ -149,6 +159,7 @@ export interface UseGlobalMutationsOptions {
   onSaveSuccess?: () => void
   onDocApplied?: (doc: Record<string, unknown>) => void
   permissions?: Record<string, FieldPermission>
+  locale?: string
 }
 
 function handleValidationError(
@@ -179,6 +190,7 @@ function useGlobalMutations({
   onSaveSuccess,
   onDocApplied,
   permissions,
+  locale,
 }: UseGlobalMutationsOptions) {
   const queryClient = useQueryClient()
 
@@ -190,7 +202,7 @@ function useGlobalMutations({
         apiBase,
         slug,
         formatDocForSubmit(fields, values, true, permissions, 'edit'),
-        { draft },
+        { draft, locale },
       )
     },
     onSuccess: (saved, vars) => {
@@ -201,8 +213,7 @@ function useGlobalMutations({
       } else {
         setSuccessMsg('Changes saved successfully.')
       }
-      queryClient.setQueryData(queryKeys.global(slug), saved)
-      void queryClient.invalidateQueries({ queryKey: queryKeys.global(slug) })
+      queryClient.setQueryData(queryKeys.global(slug, locale), saved)
       void queryClient.invalidateQueries({ queryKey: queryKeys.globalVersions(apiBase, slug) })
       void queryClient.invalidateQueries({
         queryKey: queryKeys.globalPermissionsPrefix(apiBase, slug),
@@ -216,14 +227,13 @@ function useGlobalMutations({
     mutationFn: async () => {
       setApiError(null)
       setSuccessMsg(null)
-      return unpublishGlobal(apiBase, slug)
+      return unpublishGlobal(apiBase, slug, { locale })
     },
     onSuccess: (unpublished) => {
       onDocApplied?.(unpublished)
       reset(formatDocForForm(fields, unpublished))
       setSuccessMsg('Unpublished successfully.')
-      queryClient.setQueryData(queryKeys.global(slug), unpublished)
-      void queryClient.invalidateQueries({ queryKey: queryKeys.global(slug) })
+      queryClient.setQueryData(queryKeys.global(slug, locale), unpublished)
       void queryClient.invalidateQueries({ queryKey: queryKeys.globalVersions(apiBase, slug) })
       void queryClient.invalidateQueries({
         queryKey: queryKeys.globalPermissionsPrefix(apiBase, slug),
@@ -283,6 +293,7 @@ export interface UseGlobalEditorAutosaveProps {
   onDocApplied?: (doc: Record<string, unknown>) => void
   permissions?: Record<string, FieldPermission>
   readOnlyDoc?: boolean
+  locale?: string
 }
 
 function useGlobalEditorAutosave({
@@ -298,6 +309,7 @@ function useGlobalEditorAutosave({
   onDocApplied,
   permissions,
   readOnlyDoc,
+  locale,
 }: UseGlobalEditorAutosaveProps) {
   const queryClient = useQueryClient()
   const hasDrafts = Boolean(global.versions?.drafts)
@@ -314,14 +326,14 @@ function useGlobalEditorAutosave({
   const onAutosave = useCallback(async () => {
     const values = getValues()
     const payload = formatDocForSubmit(global.fields, values, true, permissions, 'edit')
-    return saveGlobal(apiBase, slug, payload, { draft: true, autosave: true })
-  }, [apiBase, global.fields, slug, getValues, permissions])
+    return saveGlobal(apiBase, slug, payload, { draft: true, autosave: true, locale })
+  }, [apiBase, global.fields, slug, getValues, permissions, locale])
 
   const onAutosaveSuccess = useCallback(
     (savedDoc: Record<string, unknown>) => {
       onDocApplied?.(savedDoc)
       reset(formatDocForForm(global.fields, savedDoc), { keepValues: true })
-      queryClient.setQueryData(queryKeys.global(slug), savedDoc)
+      queryClient.setQueryData(queryKeys.global(slug, locale), savedDoc)
       void queryClient.invalidateQueries({
         queryKey: queryKeys.globalVersions(apiBase, slug),
       })
@@ -329,7 +341,7 @@ function useGlobalEditorAutosave({
         queryKey: queryKeys.globalPermissionsPrefix(apiBase, slug),
       })
     },
-    [apiBase, global.fields, onDocApplied, queryClient, reset, slug],
+    [apiBase, global.fields, locale, onDocApplied, queryClient, reset, slug],
   )
 
   const autosave = useAutosave({
@@ -437,6 +449,7 @@ export interface UseResetGlobalFormOnDocLoadedOptions {
   doc: Record<string, unknown> | null | undefined
   fields: ClientField[]
   slug: string
+  locale?: string
   isDirty: boolean
   reset: (values?: Record<string, unknown>) => void
   lastAppliedDocRef: React.MutableRefObject<Record<string, unknown> | null>
@@ -446,16 +459,18 @@ function useResetFormOnDocLoaded({
   doc,
   fields,
   slug,
+  locale,
   isDirty,
   reset,
   lastAppliedDocRef,
 }: UseResetGlobalFormOnDocLoadedOptions) {
   const lastLoadedSlugRef = useRef<string | null>(null)
+  const currentKey = `${slug}:${locale ?? ''}`
 
   useEffect(() => {
     if (!doc) return
-    if (slug !== lastLoadedSlugRef.current) {
-      lastLoadedSlugRef.current = slug
+    if (currentKey !== lastLoadedSlugRef.current) {
+      lastLoadedSlugRef.current = currentKey
       lastAppliedDocRef.current = null
     }
 
@@ -464,7 +479,97 @@ function useResetFormOnDocLoaded({
 
     lastAppliedDocRef.current = doc
     reset(formatDocForForm(fields, doc))
-  }, [doc, fields, isDirty, lastAppliedDocRef, reset, slug])
+  }, [currentKey, doc, fields, isDirty, lastAppliedDocRef, reset])
+}
+
+function useFallbackGlobalQuery(
+  apiBase: string,
+  slug?: string,
+  hasDrafts?: boolean,
+  hasLocalization?: boolean,
+  activeLocale?: string,
+  fallbackLocale?: string,
+) {
+  const isEnabled =
+    Boolean(slug) &&
+    Boolean(hasLocalization) &&
+    Boolean(fallbackLocale) &&
+    activeLocale !== fallbackLocale
+
+  return useQuery({
+    queryKey: slug ? queryKeys.global(slug, fallbackLocale) : ['fallbackGlobal'],
+    queryFn: () =>
+      slug && fallbackLocale
+        ? fetchGlobal(apiBase, slug, {
+            draft: hasDrafts,
+            locale: fallbackLocale,
+            fallbackLocale: 'none',
+          })
+        : null,
+    enabled: isEnabled,
+    refetchOnWindowFocus: false,
+  })
+}
+
+function confirmAction(message: string): boolean {
+  if (typeof window === 'undefined' || typeof window.confirm !== 'function') {
+    return true
+  }
+  return window.confirm(message)
+}
+
+interface UseGlobalLocaleNavigationOptions {
+  activeLocale?: string
+  isDirty: boolean
+}
+
+function useGlobalLocaleNavigation({ activeLocale, isDirty }: UseGlobalLocaleNavigationOptions) {
+  const navigate = useNavigate()
+  const isSwitchingLocaleRef = useRef(false)
+
+  useBlocker({
+    shouldBlockFn: () => {
+      if (!isDirty) return false
+      if (isSwitchingLocaleRef.current) return false
+      const confirmed = confirmAction('You have unsaved changes. Are you sure you want to leave?')
+      return !confirmed
+    },
+  })
+
+  const navigateToLocale = useCallback(
+    (newLocale: string) => {
+      isSwitchingLocaleRef.current = true
+      void Promise.resolve(
+        navigate({
+          search: ((prev: Record<string, unknown>) => ({ ...prev, locale: newLocale })) as never,
+        }),
+      ).finally(() => {
+        isSwitchingLocaleRef.current = false
+      })
+    },
+    [navigate],
+  )
+
+  const handleLocaleChange = useCallback(
+    (newLocale: string) => {
+      if (newLocale === activeLocale) return
+      if (isDirty) {
+        setTimeout(() => {
+          const confirmed = confirmAction(
+            'You have unsaved changes. Are you sure you want to switch locales?',
+          )
+          if (confirmed) {
+            navigateToLocale(newLocale)
+          }
+        }, 0)
+        return
+      }
+      navigateToLocale(newLocale)
+    },
+    [activeLocale, isDirty, navigateToLocale],
+  )
+
+  return { handleLocaleChange }
 }
 
 export interface GlobalPreviewSectionProps {
@@ -553,6 +658,119 @@ function getGlobalSubmitLabel(isSaving: boolean): string {
   return isSaving ? 'Saving...' : 'Save Changes'
 }
 
+interface UseGlobalQueriesOptions {
+  apiBase: string
+  slug: string
+  hasDrafts: boolean
+  hasLocalization: boolean
+  activeLocale?: string
+  fallbackLocale?: string
+}
+
+function useGlobalQueries({
+  apiBase,
+  slug,
+  hasDrafts,
+  hasLocalization,
+  activeLocale,
+  fallbackLocale,
+}: UseGlobalQueriesOptions) {
+  const currentLocale = hasLocalization ? activeLocale : undefined
+  const globalQuery = useQuery({
+    queryKey: queryKeys.global(slug, currentLocale),
+    queryFn: () =>
+      fetchGlobal(apiBase, slug, {
+        draft: hasDrafts,
+        locale: currentLocale,
+        fallbackLocale: hasLocalization ? 'none' : undefined,
+      }),
+    refetchOnWindowFocus: false,
+  })
+
+  const fallbackQuery = useFallbackGlobalQuery(
+    apiBase,
+    slug,
+    hasDrafts,
+    hasLocalization,
+    activeLocale,
+    fallbackLocale,
+  )
+  const fallbackDoc =
+    hasLocalization && activeLocale !== fallbackLocale ? fallbackQuery.data : undefined
+
+  return { globalQuery, fallbackDoc, currentLocale }
+}
+
+function useGlobalForm(
+  global: ClientGlobal,
+  fieldPermissions?: Record<string, FieldPermission>,
+  readOnlyDoc?: boolean,
+) {
+  const schema = useMemo(
+    () =>
+      clientFieldsToZod(
+        buildFormValidationFields(global.fields, fieldPermissions, 'edit', readOnlyDoc),
+      ),
+    [global.fields, fieldPermissions, readOnlyDoc],
+  )
+  const defaultValues = useMemo(() => computeDefaultValues(global.fields), [global])
+
+  const form = useForm<Record<string, unknown>>({
+    resolver: zodResolver(schema),
+    defaultValues,
+  })
+
+  const formValues = form.watch()
+  return { ...form, formValues, schema }
+}
+
+interface UseGlobalVersionRestoreOptions {
+  apiBase: string
+  slug: string
+  locale?: string
+  fields: ClientField[]
+  reset: (values?: Record<string, unknown>) => void
+  onDocApplied: (doc: Record<string, unknown>) => void
+  setSuccessMsg: (msg: string | null) => void
+}
+
+function useGlobalVersionRestore({
+  apiBase,
+  slug,
+  locale,
+  fields,
+  reset,
+  onDocApplied,
+  setSuccessMsg,
+}: UseGlobalVersionRestoreOptions) {
+  const queryClient = useQueryClient()
+
+  return useCallback(
+    (restored: Record<string, unknown>) => {
+      onDocApplied(restored)
+      queryClient.setQueryData(queryKeys.global(slug, locale), restored)
+      void queryClient.invalidateQueries({
+        queryKey: queryKeys.globalPermissionsPrefix(apiBase, slug),
+      })
+      reset(formatDocForForm(fields, restored))
+      setSuccessMsg('Version restored successfully.')
+    },
+    [apiBase, fields, locale, onDocApplied, queryClient, reset, setSuccessMsg, slug],
+  )
+}
+
+function renderGlobalLocaleSwitcher(
+  hasLocalization: boolean,
+  locales: ClientLocale[],
+  activeLocale: string | undefined,
+  onLocaleChange: (locale: string) => void,
+) {
+  if (!hasLocalization || !activeLocale) return undefined
+  return (
+    <LocaleSwitcher locales={locales} activeLocale={activeLocale} onLocaleChange={onLocaleChange} />
+  )
+}
+
 export interface GlobalEditorProps {
   global: ClientGlobal
   slug: string
@@ -560,11 +778,11 @@ export interface GlobalEditorProps {
 }
 
 function GlobalEditor({ global, slug, apiBase }: GlobalEditorProps) {
-  const queryClient = useQueryClient()
   const [apiError, setApiError] = useState<string | null>(null)
   const [successMsg, setSuccessMsg] = useState<string | null>(null)
   const [isHistoryOpen, setIsHistoryOpen] = useState(false)
 
+  const { hasLocalization, activeLocale, fallbackLocale, locales } = useLocale()
   const hasDrafts = Boolean(global.versions?.drafts)
   const hasVersions = Boolean(global.versions)
   const previewUrlTemplate = global.admin?.preview?.url
@@ -572,10 +790,13 @@ function GlobalEditor({ global, slug, apiBase }: GlobalEditorProps) {
   const preview = usePreviewState(slug, hasPreview)
   const editorView = useEditorView(preview)
 
-  const globalQuery = useQuery({
-    queryKey: queryKeys.global(slug),
-    queryFn: () => fetchGlobal(apiBase, slug, { draft: hasDrafts }),
-    refetchOnWindowFocus: false,
+  const { globalQuery, fallbackDoc, currentLocale } = useGlobalQueries({
+    apiBase,
+    slug,
+    hasDrafts,
+    hasLocalization,
+    activeLocale,
+    fallbackLocale,
   })
 
   const { data: globalPermissions, isLoading: isGlobalPermsLoading } = useGlobalPermissions(
@@ -586,15 +807,6 @@ function GlobalEditor({ global, slug, apiBase }: GlobalEditorProps) {
   const { readOnlyDoc, canReadVersions, fieldPermissions, isUnreadable } =
     useGlobalPermissionsState(globalPermissions)
 
-  const schema = useMemo(
-    () =>
-      clientFieldsToZod(
-        buildFormValidationFields(global.fields, fieldPermissions, 'edit', readOnlyDoc),
-      ),
-    [global.fields, fieldPermissions, readOnlyDoc],
-  )
-  const defaultValues = useMemo(() => computeDefaultValues(global.fields), [global])
-
   const {
     control,
     register,
@@ -604,13 +816,15 @@ function GlobalEditor({ global, slug, apiBase }: GlobalEditorProps) {
     watch,
     getValues,
     setError,
+    formValues,
+    schema,
     formState: { errors, isSubmitting, isDirty },
-  } = useForm<Record<string, unknown>>({
-    resolver: zodResolver(schema),
-    defaultValues,
-  })
+  } = useGlobalForm(global, fieldPermissions, readOnlyDoc)
 
-  const formValues = watch()
+  const { handleLocaleChange } = useGlobalLocaleNavigation({
+    activeLocale,
+    isDirty,
+  })
 
   const lastAppliedDocRef = useRef<Record<string, unknown> | null>(null)
   const onDocApplied = useCallback((doc: Record<string, unknown>) => {
@@ -621,6 +835,7 @@ function GlobalEditor({ global, slug, apiBase }: GlobalEditorProps) {
     doc: globalQuery.data,
     fields: global.fields,
     slug,
+    locale: currentLocale,
     isDirty,
     reset,
     lastAppliedDocRef,
@@ -639,6 +854,7 @@ function GlobalEditor({ global, slug, apiBase }: GlobalEditorProps) {
     onDocApplied,
     permissions: fieldPermissions,
     readOnlyDoc,
+    locale: currentLocale,
   })
 
   const { saveMutation, unpublishMutation } = useGlobalMutations({
@@ -652,6 +868,7 @@ function GlobalEditor({ global, slug, apiBase }: GlobalEditorProps) {
     setSuccessMsg,
     onDocApplied,
     permissions: fieldPermissions,
+    locale: currentLocale,
     onSaveSuccess: () => {
       void autosave.cancelAutosave()
     },
@@ -665,6 +882,16 @@ function GlobalEditor({ global, slug, apiBase }: GlobalEditorProps) {
       saveMutation,
       unpublishMutation,
     })
+
+  const onRestore = useGlobalVersionRestore({
+    apiBase,
+    slug,
+    locale: currentLocale,
+    fields: global.fields,
+    reset,
+    onDocApplied,
+    setSuccessMsg,
+  })
 
   if (shouldShowGlobalQueryState(globalQuery.isLoading, isGlobalPermsLoading, globalQuery.error)) {
     return (
@@ -684,7 +911,16 @@ function GlobalEditor({ global, slug, apiBase }: GlobalEditorProps) {
 
   return (
     <div>
-      <ViewHeader title={global.label} breadcrumbs={<GlobalBreadcrumbs label={global.label} />} />
+      <ViewHeader
+        title={global.label}
+        breadcrumbs={<GlobalBreadcrumbs label={global.label} />}
+        actions={renderGlobalLocaleSwitcher(
+          hasLocalization,
+          locales,
+          activeLocale,
+          handleLocaleChange,
+        )}
+      />
 
       <GlobalStatusAlerts apiError={apiError} successMsg={successMsg} />
 
@@ -722,6 +958,8 @@ function GlobalEditor({ global, slug, apiBase }: GlobalEditorProps) {
             errors={errors}
             permissions={fieldPermissions}
             readOnlyDoc={readOnlyDoc}
+            fallbackDoc={fallbackDoc}
+            hasLocalization={hasLocalization}
           />
 
           <GlobalEditorSidebar
@@ -757,15 +995,7 @@ function GlobalEditor({ global, slug, apiBase }: GlobalEditorProps) {
         apiBase={apiBase}
         global={global}
         currentDoc={globalQuery.data}
-        onRestore={(restored) => {
-          onDocApplied(restored)
-          queryClient.setQueryData(queryKeys.global(slug), restored)
-          void queryClient.invalidateQueries({
-            queryKey: queryKeys.globalPermissionsPrefix(apiBase, slug),
-          })
-          reset(formatDocForForm(global.fields, restored))
-          setSuccessMsg('Version restored successfully.')
-        }}
+        onRestore={onRestore}
         canRestore={!readOnlyDoc}
       />
     </div>

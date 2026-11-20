@@ -18,6 +18,16 @@ import { ResetPasswordView } from '../views/ResetPasswordView'
 import { UsersView } from '../views/UsersView'
 import { VerifyEmailView } from '../views/VerifyEmailView'
 
+export interface LocaleSearchParams {
+  locale?: string
+}
+
+function parseLocaleSearch(search: Record<string, unknown>): LocaleSearchParams {
+  return {
+    locale: typeof search.locale === 'string' ? search.locale : undefined,
+  }
+}
+
 function CreateForm() {
   return <CollectionFormView mode="create" />
 }
@@ -84,6 +94,7 @@ export function createAdminRouter(options: { basePath?: string; history?: Router
     getParentRoute: () => authenticatedRoute,
     path: 'globals/$slug',
     component: GlobalFormView,
+    validateSearch: parseLocaleSearch,
     remountDeps: ({ params }) => params,
   })
 
@@ -98,6 +109,7 @@ export function createAdminRouter(options: { basePath?: string; history?: Router
     getParentRoute: () => collectionRoute,
     path: '/',
     component: CollectionListView,
+    validateSearch: parseLocaleSearch,
     remountDeps: ({ params }) => params,
   })
 
@@ -105,6 +117,7 @@ export function createAdminRouter(options: { basePath?: string; history?: Router
     getParentRoute: () => collectionRoute,
     path: 'create',
     component: CreateForm,
+    validateSearch: parseLocaleSearch,
     remountDeps: ({ params }) => params,
   })
 
@@ -112,6 +125,7 @@ export function createAdminRouter(options: { basePath?: string; history?: Router
     getParentRoute: () => collectionRoute,
     path: '$id',
     component: EditForm,
+    validateSearch: parseLocaleSearch,
     remountDeps: ({ params }) => params,
   })
 

@@ -246,14 +246,68 @@ export async function fetchCollectionDocs(
   return handleResponse<PaginatedDocs>(res)
 }
 
+export interface FetchDocOptions {
+  draft?: boolean
+  locale?: string
+  fallbackLocale?: string | false
+}
+
+export interface CreateDocOptions {
+  draft?: boolean
+  locale?: string
+}
+
+export interface UpdateDocOptions {
+  draft?: boolean
+  autosave?: boolean
+  locale?: string
+}
+
+export interface PublishDocOptions {
+  locale?: string
+}
+
+export interface FetchGlobalOptions {
+  draft?: boolean
+  locale?: string
+  fallbackLocale?: string | false
+}
+
+export interface SaveGlobalOptions {
+  draft?: boolean
+  autosave?: boolean
+  locale?: string
+}
+
+export interface PublishGlobalOptions {
+  locale?: string
+}
+
+function buildDocQuery(options?: {
+  draft?: boolean
+  autosave?: boolean
+  locale?: string
+  fallbackLocale?: string | false
+}): string {
+  if (!options) return ''
+  const params = new URLSearchParams()
+  if (options.draft || options.autosave) params.set('draft', 'true')
+  if (options.autosave) params.set('autosave', 'true')
+  if (options.locale) params.set('locale', options.locale)
+  if (options.fallbackLocale !== undefined)
+    params.set('fallbackLocale', String(options.fallbackLocale))
+  const query = params.toString()
+  return query ? `?${query}` : ''
+}
+
 export async function fetchDoc(
   apiBase: string,
   slug: string,
   id: number | string,
-  options?: { draft?: boolean },
+  options?: FetchDocOptions,
 ): Promise<Record<string, unknown>> {
   const base = apiBase.replace(/\/+$/, '')
-  const query = options?.draft ? '?draft=true' : ''
+  const query = buildDocQuery(options)
   const res = await fetch(`${base}/${slug}/${id}${query}`, { credentials: 'include' })
   return handleResponse<Record<string, unknown>>(res)
 }
@@ -262,11 +316,11 @@ export async function createDoc(
   apiBase: string,
   slug: string,
   data: Record<string, unknown> | FormData,
-  options?: { draft?: boolean },
+  options?: CreateDocOptions,
 ): Promise<Record<string, unknown>> {
   const base = apiBase.replace(/\/+$/, '')
   const isFormData = typeof FormData !== 'undefined' && data instanceof FormData
-  const query = options?.draft ? '?draft=true' : ''
+  const query = buildDocQuery(options)
   const res = await fetch(`${base}/${slug}${query}`, {
     method: 'POST',
     headers: isFormData ? undefined : { 'Content-Type': 'application/json' },
@@ -276,24 +330,16 @@ export async function createDoc(
   return handleResponse<Record<string, unknown>>(res)
 }
 
-function buildUpdateQuery(options?: { draft?: boolean; autosave?: boolean }): string {
-  const params = new URLSearchParams()
-  if (options?.draft || options?.autosave) params.set('draft', 'true')
-  if (options?.autosave) params.set('autosave', 'true')
-  const query = params.toString()
-  return query ? `?${query}` : ''
-}
-
 export async function updateDoc(
   apiBase: string,
   slug: string,
   id: number | string,
   data: Record<string, unknown> | FormData,
-  options?: { draft?: boolean; autosave?: boolean },
+  options?: UpdateDocOptions,
 ): Promise<Record<string, unknown>> {
   const base = apiBase.replace(/\/+$/, '')
   const isFormData = typeof FormData !== 'undefined' && data instanceof FormData
-  const query = buildUpdateQuery(options)
+  const query = buildDocQuery(options)
   const res = await fetch(`${base}/${slug}/${id}${query}`, {
     method: 'PATCH',
     headers: isFormData ? undefined : { 'Content-Type': 'application/json' },
@@ -307,9 +353,11 @@ export async function publishDoc(
   apiBase: string,
   slug: string,
   id: number | string,
+  options?: PublishDocOptions,
 ): Promise<Record<string, unknown>> {
   const base = apiBase.replace(/\/+$/, '')
-  const res = await fetch(`${base}/${slug}/${id}/publish`, {
+  const query = buildDocQuery(options)
+  const res = await fetch(`${base}/${slug}/${id}/publish${query}`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     credentials: 'include',
@@ -321,9 +369,11 @@ export async function unpublishDoc(
   apiBase: string,
   slug: string,
   id: number | string,
+  options?: PublishDocOptions,
 ): Promise<Record<string, unknown>> {
   const base = apiBase.replace(/\/+$/, '')
-  const res = await fetch(`${base}/${slug}/${id}/unpublish`, {
+  const query = buildDocQuery(options)
+  const res = await fetch(`${base}/${slug}/${id}/unpublish${query}`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     credentials: 'include',
@@ -395,10 +445,10 @@ export async function restoreDocVersion(
 export async function fetchGlobal(
   apiBase: string,
   slug: string,
-  options?: { draft?: boolean },
+  options?: FetchGlobalOptions,
 ): Promise<Record<string, unknown>> {
   const base = apiBase.replace(/\/+$/, '')
-  const query = options?.draft ? '?draft=true' : ''
+  const query = buildDocQuery(options)
   const res = await fetch(`${base}/globals/${slug}${query}`, { credentials: 'include' })
   return handleResponse<Record<string, unknown>>(res)
 }
@@ -407,13 +457,10 @@ export async function saveGlobal(
   apiBase: string,
   slug: string,
   data: Record<string, unknown>,
-  options?: { draft?: boolean; autosave?: boolean },
+  options?: SaveGlobalOptions,
 ): Promise<Record<string, unknown>> {
   const base = apiBase.replace(/\/+$/, '')
-  const params = new URLSearchParams()
-  if (options?.draft) params.set('draft', 'true')
-  if (options?.autosave) params.set('autosave', 'true')
-  const query = params.toString() ? `?${params.toString()}` : ''
+  const query = buildDocQuery(options)
   const res = await fetch(`${base}/globals/${slug}${query}`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -426,10 +473,13 @@ export async function saveGlobal(
 export async function publishGlobal(
   apiBase: string,
   slug: string,
+  options?: PublishGlobalOptions,
 ): Promise<Record<string, unknown>> {
   const base = apiBase.replace(/\/+$/, '')
-  const res = await fetch(`${base}/globals/${slug}/publish`, {
+  const query = buildDocQuery(options)
+  const res = await fetch(`${base}/globals/${slug}/publish${query}`, {
     method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
     credentials: 'include',
   })
   return handleResponse<Record<string, unknown>>(res)
@@ -438,10 +488,13 @@ export async function publishGlobal(
 export async function unpublishGlobal(
   apiBase: string,
   slug: string,
+  options?: PublishGlobalOptions,
 ): Promise<Record<string, unknown>> {
   const base = apiBase.replace(/\/+$/, '')
-  const res = await fetch(`${base}/globals/${slug}/unpublish`, {
+  const query = buildDocQuery(options)
+  const res = await fetch(`${base}/globals/${slug}/unpublish${query}`, {
     method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
     credentials: 'include',
   })
   return handleResponse<Record<string, unknown>>(res)
