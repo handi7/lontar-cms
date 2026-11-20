@@ -73,18 +73,26 @@ test.describe('Two-Locale Next.js Blog End-to-End (#431)', () => {
     // Publish the post in English
     const publishBtn = page.getByRole('button', { name: 'Publish', exact: true })
     await publishBtn.click()
-    await expect(page.getByText('Published successfully!')).toBeVisible()
+    await expect(page.getByRole('heading', { name: 'Posts', exact: true })).toBeVisible()
 
     // -------------------------------------------------------------
     // 3. Switch Locale to Indonesian (id), Translate and Publish
     // -------------------------------------------------------------
-    await switcher.click()
+    await page.getByRole('link', { name: enTitle }).click()
+    const editHeading = page.getByRole('heading', { name: /Edit Post/ })
+    await expect(editHeading).toBeVisible({ timeout: 15000 })
+
+    const editSwitcher = page.getByTestId('locale-switcher')
+    await expect(editSwitcher).toBeVisible()
+    await expect(editSwitcher).toContainText('English (en)')
+
+    await editSwitcher.click()
     const idOption = page.getByTestId('locale-option-id')
     await expect(idOption).toBeVisible()
     await idOption.click()
 
     await expect(page).toHaveURL(/locale=id/)
-    await expect(switcher).toContainText('Indonesian (id)')
+    await expect(editSwitcher).toContainText('Indonesian (id)')
 
     // Verify fallback placeholder shows English title
     const titleInput = page.locator('input[name="title"]')
@@ -99,7 +107,7 @@ test.describe('Two-Locale Next.js Blog End-to-End (#431)', () => {
     await richTextEditor.fill('Konten artikel bahasa Indonesia tentang arsitektur komputasi awan.')
 
     // Publish Indonesian translation
-    await publishBtn.click()
+    await page.getByRole('button', { name: 'Publish', exact: true }).click()
     await expect(page.getByText('Published successfully!')).toBeVisible()
 
     // -------------------------------------------------------------
@@ -146,7 +154,7 @@ test.describe('Two-Locale Next.js Blog End-to-End (#431)', () => {
     await page.locator('.ProseMirror').click()
     await page.locator('.ProseMirror').fill('This post is exclusively written in English.')
     await page.getByRole('button', { name: 'Publish', exact: true }).click()
-    await expect(page.getByText('Published successfully!')).toBeVisible()
+    await expect(page.getByRole('heading', { name: 'Posts' })).toBeVisible()
 
     // On Indonesian Homepage (/id), verify the untranslated post is visible with English fallback title
     await publicPage.goto('/id')

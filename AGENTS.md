@@ -251,4 +251,5 @@ Update this section when a milestone or issue is done.
 
 - Before starting a milestone or any change touching more than one package, propose a plan and wait for approval.
 - Run typecheck and tests before declaring a task done.
+- When merging PRs into `main`, always use regular merge commits (`gh pr merge --merge`), never squash merge.
 - If something in this file, `README.md`, or `docs/` is unclear or contradicts itself, ask instead of guessing.
