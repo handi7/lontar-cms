@@ -198,7 +198,8 @@ test.describe('Two-Locale Next.js Blog End-to-End (#431)', () => {
     await saveDraftBtn.click()
 
     // Wait for the update to complete
-    await expect(page.locator('aside').getByText('Draft', { exact: true })).toBeVisible({
+    await expect(page.getByText('Draft saved!')).toBeVisible({ timeout: 10000 })
+    await expect(page.locator('aside').getByText('Changed', { exact: true })).toBeVisible({
       timeout: 10000,
     })
 

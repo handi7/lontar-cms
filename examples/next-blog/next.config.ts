@@ -18,7 +18,7 @@ const nextConfig: NextConfig = {
           destination: '/en/categories/:path*',
         },
         {
-          source: '/:slug((?!admin|api|_next|en|id)[^/]+)',
+          source: '/:slug((?!admin$|api$|_next$|en$|id$)[^/]+)',
           destination: '/en/:slug',
         },
       ],
