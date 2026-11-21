@@ -688,6 +688,20 @@ describe('generateSchemaFile', () => {
       ],
     }
 
+    it('quotes column keys for locale codes that are not valid identifiers', () => {
+      const output = generateSchemaFile({
+        secret: 'test-secret',
+        db: fakeAdapter,
+        localization: { locales: ['en-US', 'id'], defaultLocale: 'en-US' },
+        collections: [{ slug: 'pages', fields: { title: { type: 'text', localized: true } } }],
+      })
+
+      expect(output).toContain('"title_en-US": ')
+      expect(output).toContain("'title_en-US'")
+      expect(output).toContain('title_id: ')
+      expect(output).not.toMatch(/^\s+title_en-US:/m)
+    })
+
     it('generates per-locale columns and localized junction tables in output schema', () => {
       const output = generateSchemaFile(localizedBlogConfig)
 

@@ -344,6 +344,37 @@ export async function resolveOriginalDoc(
   return baseDoc
 }
 
+/**
+ * The original doc as the requested locale sees it, for hooks, conditions, field access and
+ * webhooks. `resolveOriginalDoc` returns either the live row in the default locale or a draft
+ * snapshot with `{ en, id }` dictionaries; neither is what a `?locale=id` edit should compare
+ * against. The canonical original stays untouched for the draft merge and the revert data.
+ */
+export async function resolveLocaleOriginalDoc(
+  db: DatabaseAdapter,
+  collection: CollectionConfig,
+  id: number,
+  originalDoc: DocumentData,
+  config: Config,
+  locale?: string,
+): Promise<DocumentData> {
+  if (!config.localization || !locale || locale === 'all') return originalDoc
+  // A draft snapshot is already canonical and is marked with `_isPublished`.
+  let canonical = originalDoc
+  if (!('_isPublished' in originalDoc) && db.findByID) {
+    canonical = (await db.findByID({ collection, id, locale: 'all' })) ?? originalDoc
+  }
+  const projected = projectCanonicalDoc(canonical, collection.fields, {
+    locale,
+    fallbackLocale: false,
+  })
+  return {
+    ...projected,
+    ...('_status' in originalDoc ? { _status: originalDoc._status } : {}),
+    ...('_isPublished' in originalDoc ? { _isPublished: originalDoc._isPublished } : {}),
+  }
+}
+
 export function resolveUpdateStatus(args: {
   collection: CollectionConfig
   data?: DocumentData
@@ -411,6 +442,7 @@ async function handleDraftRevisionUpdate(args: {
   collection: CollectionConfig
   id: number
   originalDoc: DocumentData
+  localeOriginalDoc?: DocumentData
   finalData: DocumentData
   previousStatus?: DocStatus
   statusTransition?: DocStatusTransition
@@ -451,7 +483,7 @@ async function handleDraftRevisionUpdate(args: {
     collection: args.collection,
     doc: draftDoc,
     operation: 'update',
-    previousDoc: args.originalDoc,
+    previousDoc: args.localeOriginalDoc ?? args.originalDoc,
     status: 'draft',
     previousStatus: args.previousStatus,
     statusTransition: args.statusTransition,
@@ -474,6 +506,7 @@ async function prepareUpdatePayload(
   args: {
     data: DocumentData
     originalDoc: DocumentData
+    localeOriginalDoc?: DocumentData
     req?: Request
     draft?: boolean
     status?: DocStatus
@@ -487,7 +520,8 @@ async function prepareUpdatePayload(
   statusTransition: DocStatusTransition | undefined
   rawHookData: DocumentData
 }> {
-  const initialData = sanitizeConditionalFields(clientCol.fields, args.data, args.originalDoc)
+  const hookOriginalDoc = args.localeOriginalDoc ?? args.originalDoc
+  const initialData = sanitizeConditionalFields(clientCol.fields, args.data, hookOriginalDoc)
   const { status, previousStatus, statusTransition } = resolveUpdateStatus({
     collection,
     ...args,
@@ -499,14 +533,14 @@ async function prepareUpdatePayload(
     collection,
     data: initialData,
     operation: 'update',
-    originalDoc: args.originalDoc,
+    originalDoc: hookOriginalDoc,
     status,
     previousStatus,
     statusTransition,
     req: args.req,
     locale: args.locale,
   })
-  const finalData = sanitizeConditionalFields(clientCol.fields, data, args.originalDoc)
+  const finalData = sanitizeConditionalFields(clientCol.fields, data, hookOriginalDoc)
   if (collection.versions?.drafts) {
     finalData._status = status
   }
@@ -645,6 +679,7 @@ async function handleParentRowUpdate(args: {
   id: number
   finalData: DocumentData
   originalDoc: DocumentData
+  localeOriginalDoc?: DocumentData
   rawHookData: DocumentData
   status?: DocStatus
   previousStatus?: DocStatus
@@ -701,7 +736,7 @@ async function handleParentRowUpdate(args: {
       collection: args.collection,
       doc: docToHook,
       operation: 'update',
-      previousDoc: args.originalDoc,
+      previousDoc: args.localeOriginalDoc ?? args.originalDoc,
       status: (docToHook._status as DocStatus | undefined) ?? args.status,
       previousStatus: args.previousStatus,
       statusTransition: args.statusTransition,
@@ -739,6 +774,7 @@ function dispatchPostUpdateWebhooks(args: {
   collection: CollectionConfig
   result: Extract<MutationExecutionResult, { success: true }>
   originalDoc: DocumentData
+  localeOriginalDoc?: DocumentData
   fallbackTransition?: DocStatusTransition
   locale?: string
 }): void {
@@ -752,7 +788,7 @@ function dispatchPostUpdateWebhooks(args: {
     collection: args.collection,
     event,
     doc: args.result.doc,
-    previousDoc: args.originalDoc,
+    previousDoc: args.localeOriginalDoc ?? args.originalDoc,
     status: docStatus,
     previousStatus,
     locale: args.locale,
@@ -764,6 +800,7 @@ function handlePostUpdateWebhooks(args: {
   collection: CollectionConfig
   result: Extract<MutationExecutionResult, { success: true }>
   originalDoc: DocumentData
+  localeOriginalDoc?: DocumentData
   fallbackTransition?: DocStatusTransition
   deferWebhooks?: boolean
   autosave?: boolean
@@ -778,6 +815,7 @@ function handlePostUpdateWebhooks(args: {
       collection: args.collection,
       result: args.result,
       originalDoc: args.originalDoc,
+      localeOriginalDoc: args.localeOriginalDoc,
       fallbackTransition: args.fallbackTransition,
       locale: args.locale,
     })
@@ -794,6 +832,8 @@ export async function executeUpdate(args: {
   db: DatabaseAdapter
   id: number
   originalDoc: DocumentData
+  /** `originalDoc` projected to the request locale; hooks and webhooks see this one. */
+  localeOriginalDoc?: DocumentData
   data: DocumentData
   req?: Request
   draft?: boolean
@@ -822,6 +862,7 @@ export async function executeUpdate(args: {
           collection: args.collection,
           id: args.id,
           originalDoc: args.originalDoc,
+          localeOriginalDoc: args.localeOriginalDoc,
           finalData,
           previousStatus,
           statusTransition,
@@ -838,6 +879,7 @@ export async function executeUpdate(args: {
           id: args.id,
           finalData,
           originalDoc: args.originalDoc,
+          localeOriginalDoc: args.localeOriginalDoc,
           rawHookData,
           status,
           previousStatus,
@@ -880,6 +922,7 @@ export async function executeUpdate(args: {
       collection: args.collection,
       result,
       originalDoc: args.originalDoc,
+      localeOriginalDoc: args.localeOriginalDoc,
       fallbackTransition: args.statusTransition,
       deferWebhooks: args.deferWebhooks,
       autosave: args.autosave,

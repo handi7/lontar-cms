@@ -12,6 +12,7 @@ import { extractLocaleCodes, resolveOperationLocale } from './locale'
 import {
   executeUpdate,
   resolveDraftFlag,
+  resolveLocaleOriginalDoc,
   resolveOriginalDoc,
   resolveUpdateStatus,
 } from './mutation'
@@ -186,9 +187,18 @@ export async function updateOperation<T = DocumentData>(args: UpdateOperationArg
     throw new NotFoundError(`Document with ID ${args.id} not found`)
   }
 
+  const localeOriginalDoc = await resolveLocaleOriginalDoc(
+    args.config.db,
+    args.collection,
+    args.id,
+    originalDoc,
+    args.config,
+    locale,
+  )
+
   const { validatedData, status, statusTransition } = await prepareUpdatePayload(
     args,
-    originalDoc,
+    localeOriginalDoc,
     draft,
     cache,
     locale,
@@ -200,6 +210,7 @@ export async function updateOperation<T = DocumentData>(args: UpdateOperationArg
     id: args.id,
     data: validatedData,
     originalDoc,
+    localeOriginalDoc,
     db: args.config.db,
     req: args.req,
     draft,

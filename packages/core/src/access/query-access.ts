@@ -136,12 +136,24 @@ async function checkBlocksFieldAccess(
   }
 
   for (const block of blocks) {
-    if (first in block.fields) {
+    if (first in block.fields || findLocaleSuffixedField(block.fields, first)) {
       const allowed = await checkFieldPathAccess(block.fields, segments, user, cache, req)
       if (!allowed) return false
     }
   }
   return true
+}
+
+/**
+ * A localized field is queried as `<name>_<locale>` (for example `secretNote_en`), which is not a
+ * key in `fields`. Resolve it to the base field so its access rule still applies.
+ */
+function findLocaleSuffixedField(fields: Record<string, Field>, name: string): Field | undefined {
+  for (let i = name.indexOf('_', 1); i !== -1; i = name.indexOf('_', i + 1)) {
+    const base = fields[name.slice(0, i)]
+    if (base) return base
+  }
+  return undefined
 }
 
 async function checkFieldPathAccess(
@@ -153,15 +165,23 @@ async function checkFieldPathAccess(
 ): Promise<boolean> {
   const name = segments[0]
   if (!name || name === 'id' || name === 'blockType') return true
-  const rest = segments.slice(1)
 
-  const field = fields[name]
+  const field = fields[name] ?? findLocaleSuffixedField(fields, name)
   if (!field) return true
 
   const allowed = await checkFieldRead(field, user, cache, req)
   if (!allowed) return false
-  if (rest.length === 0) return true
+  return checkNestedFieldAccess(field, segments.slice(1), user, cache, req)
+}
 
+async function checkNestedFieldAccess(
+  field: Field,
+  rest: string[],
+  user: AuthUser | null,
+  cache?: FieldAccessCache,
+  req?: Request,
+): Promise<boolean> {
+  if (rest.length === 0) return true
   if (field.type === 'group' || field.type === 'array') {
     return checkFieldPathAccess(field.fields, rest, user, cache, req)
   }

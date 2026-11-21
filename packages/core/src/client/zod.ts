@@ -240,7 +240,9 @@ export function clientFieldToZod(
     opts?: ClientFieldsToZodOptions,
   ) => z.ZodType
 
-  if (field.localized && opts?.locale === 'all') {
+  // A localized group is a plain container: its subfields inherit `localized` and carry the
+  // per-locale record themselves, so wrapping the group too would expect `{ seo: { en: { ... } } }`.
+  if (field.localized && field.type !== 'group' && opts?.locale === 'all') {
     return toLocalizedAllSchema(field, toZod, opts)
   }
 

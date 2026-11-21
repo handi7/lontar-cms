@@ -1145,3 +1145,31 @@ describe('clientFieldsToZod', () => {
     })
   })
 })
+
+describe('clientFieldsToZod with a localized group and locale=all', () => {
+  const groupFields: ClientField[] = [
+    {
+      name: 'seo',
+      type: 'group',
+      label: 'Seo',
+      required: false,
+      localized: true,
+      fields: [
+        { name: 'title', type: 'text', label: 'Title', required: true, localized: true },
+        { name: 'note', type: 'text', label: 'Note', required: false, localized: true },
+      ],
+    },
+  ]
+
+  it('expects the per-locale record on the subfields, not around the group', () => {
+    const schema = clientFieldsToZod(groupFields, { locale: 'all' })
+    const canonical = { seo: { title: { en: 'x', id: 'y' }, note: { en: 'n' } } }
+    expect(schema.safeParse(canonical).success).toBe(true)
+    expect(schema.safeParse({ seo: { en: { title: { en: 'x' } } } }).success).toBe(false)
+  })
+
+  it('still requires a value for a required localized subfield', () => {
+    const schema = clientFieldsToZod(groupFields, { locale: 'all' })
+    expect(schema.safeParse({ seo: { title: {} } }).success).toBe(false)
+  })
+})

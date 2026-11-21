@@ -233,6 +233,67 @@ describe('migrate-localization (#426)', () => {
     })
   })
 
+  describe('detectLocalizationTransitions with prefix-sharing column names (#448)', () => {
+    const col = (name: string) => ({
+      name,
+      type: 'varchar(255)',
+      primaryKey: false,
+      notNull: false,
+    })
+    const snapshot: DrizzleSnapshot = {
+      version: '5',
+      dialect: 'mysql',
+      id: 'snap-1',
+      prevId: '00000000-0000-0000-0000-000000000000',
+      tables: {
+        posts: {
+          name: 'posts',
+          columns: {
+            id: { name: 'id', type: 'serial', primaryKey: true, notNull: true },
+            title: col('title'),
+            title_tag: col('title_tag'),
+            og_image: col('og_image'),
+            og_image_alt: col('og_image_alt'),
+          },
+        },
+      },
+    }
+    const fields = {
+      title: { type: 'text' },
+      title_tag: { type: 'text' },
+      og_image: { type: 'text' },
+      og_image_alt: { type: 'text' },
+    } as const
+
+    it('does not treat title_tag or og_image_alt as locale variants when localization is off', () => {
+      const config: Config = {
+        secret: 'test-secret',
+        db: {} as unknown as Config['db'],
+        collections: [{ slug: 'posts', fields }],
+      }
+      expect(detectLocalizationTransitions(snapshot, config).columnTransitions).toEqual([])
+    })
+
+    it('ignores a column whose suffix is not a configured locale', () => {
+      const withoutBase: DrizzleSnapshot = {
+        ...snapshot,
+        tables: {
+          posts: {
+            name: 'posts',
+            columns: { id: snapshot.tables.posts!.columns.id!, summary_tag: col('summary_tag') },
+          },
+        },
+      }
+      const config: Config = {
+        secret: 'test-secret',
+        db: {} as unknown as Config['db'],
+        localization: { defaultLocale: 'en', locales: ['en', 'id'] },
+        collections: [{ slug: 'posts', fields: { summary: { type: 'text' } } }],
+      }
+      expect(detectLocalizationTransitions(withoutBase, config).columnTransitions).toEqual([])
+    })
+  })
+
   describe('patchSnapshotForTransitions', () => {
     it('renames columns and updates index references in snapshot', () => {
       const snapshot: DrizzleSnapshot = {

@@ -12,6 +12,7 @@ import type {
   UploadField,
 } from '../fields/types'
 import { runAfterReadHooks } from '../hooks/runner'
+import { projectCanonicalDoc, type ProjectLocaleContext } from '../operations/locale'
 
 export function parseDepth(val: string | undefined): number {
   if (!val) return 0
@@ -314,6 +315,7 @@ async function hydrateTargetDraftDocs(
   docs: DocumentData[],
   db: DatabaseAdapter,
   draft?: boolean,
+  localeCtx?: ProjectLocaleContext,
 ): Promise<DocumentData[]> {
   if (!targetCol.versions?.drafts || !draft || !db.findLatestDraftVersion) {
     return docs
@@ -326,7 +328,11 @@ async function hydrateTargetDraftDocs(
         parentId: Number(doc.id),
       })
       if (latestDraft) {
-        return { ...latestDraft.snapshot, _isPublished: isPublished }
+        // Snapshots keep localized fields as `{ en, id }` dictionaries.
+        const snapshot = localeCtx
+          ? projectCanonicalDoc(latestDraft.snapshot, targetCol.fields, localeCtx)
+          : latestDraft.snapshot
+        return { ...snapshot, _isPublished: isPublished }
       }
       return { ...doc, _isPublished: isPublished }
     }),
@@ -362,7 +368,13 @@ async function fetchTargetDocs(
     })
     docs.push(...result.docs)
   }
-  const hydrated = await hydrateTargetDraftDocs(targetCol, docs, db, draft)
+  const hydrated = await hydrateTargetDraftDocs(
+    targetCol,
+    docs,
+    db,
+    draft,
+    locale ? { locale, fallbackLocale } : undefined,
+  )
   const transformed = await Promise.all(
     hydrated.map((doc) => runAfterReadHooks({ collection: targetCol, doc, req, locale })),
   )
