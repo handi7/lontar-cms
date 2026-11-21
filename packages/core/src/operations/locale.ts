@@ -35,7 +35,12 @@ export function resolveOperationLocale(
 
   const validCodes = extractLocaleCodes(config)
   const resolvedLocale = resolveRequestedLocale(locale, validCodes, localization.defaultLocale)
-  const resolvedFallback = resolveRequestedFallback(fallbackLocale, validCodes)
+  const requestedFallback = resolveRequestedFallback(fallbackLocale, validCodes)
+  // `localization.fallback: false` turns fallback off for every read, as it does in the adapters.
+  // Otherwise resolve to the default locale now, so callers that only receive the resolved
+  // `fallbackLocale` (populate, projection) behave like the adapters, which do the same.
+  const resolvedFallback =
+    localization.fallback === false ? false : (requestedFallback ?? localization.defaultLocale)
 
   return { locale: resolvedLocale, fallbackLocale: resolvedFallback }
 }
@@ -133,10 +138,12 @@ function projectLocalizedScalar(
   reqLocale: string,
   fbLocale?: string,
 ): unknown {
-  if (!val || typeof val !== 'object' || Array.isArray(val)) {
+  // A richText document is a plain object too. One that is already projected (a create or update
+  // result, an unpublish response) is not a locale dictionary and must pass through unchanged.
+  if (!isPlainObject(val) || isLegacyRichText(val)) {
     return val ?? null
   }
-  const dict = val as Record<string, unknown>
+  const dict = val
   let resolved = dict[reqLocale]
   if (shouldFallback(resolved, field, fbLocale, reqLocale) && fbLocale) {
     const fallbackVal = dict[fbLocale]
@@ -276,9 +283,7 @@ function mergeLocalizedScalar(
   defaultLocale?: string,
 ): Record<string, unknown> {
   const existingDict: Record<string, unknown> =
-    origVal && typeof origVal === 'object' && !Array.isArray(origVal)
-      ? { ...(origVal as Record<string, unknown>) }
-      : {}
+    isPlainObject(origVal) && !isLegacyRichText(origVal) ? { ...origVal } : {}
   if (
     Object.keys(existingDict).length === 0 &&
     origVal !== undefined &&
@@ -405,6 +410,80 @@ function mergeDraftSingleField(
   return mergeDraftNonLocalizedField(origVal, incomingVal, field, locale, defaultLocale)
 }
 
+function isPlainObject(value: unknown): value is Record<string, unknown> {
+  return Boolean(value) && typeof value === 'object' && !Array.isArray(value)
+}
+
+// A richText document stored before its field became localized is a plain object that is not a
+// locale dictionary; merging a locale key into it would corrupt it.
+function isLegacyRichText(value: Record<string, unknown>): boolean {
+  return value.type === 'doc'
+}
+
+function mergeAllLocalesLocalizedValue(origVal: unknown, incomingVal: unknown): unknown {
+  if (!isPlainObject(incomingVal)) return incomingVal
+  const base = isPlainObject(origVal) && !isLegacyRichText(origVal) ? origVal : {}
+  return { ...base, ...incomingVal }
+}
+
+function mergeAllLocalesRows(
+  origVal: unknown,
+  incomingVal: unknown,
+  field: CommonFieldInfo,
+): unknown {
+  if (!Array.isArray(incomingVal)) return incomingVal
+  const origRows = Array.isArray(origVal) ? (origVal as Array<Record<string, unknown>>) : []
+  return incomingVal.map((row: unknown): unknown => {
+    if (!isPlainObject(row)) return row
+    const rowId = typeof row.id === 'string' || typeof row.id === 'number' ? String(row.id) : null
+    const origRow = rowId === null ? undefined : origRows.find((x) => String(x.id) === rowId)
+    const rowFields =
+      field.type === 'blocks'
+        ? findBlockDef(field.blocks, String(row.blockType))?.fields
+        : (field.fields as Fields | undefined)
+    return origRow && rowFields ? mergeDraftAllLocalesData(rowFields, origRow, row) : row
+  })
+}
+
+function mergeAllLocalesField(
+  origVal: unknown,
+  incomingVal: unknown,
+  field: CommonFieldInfo,
+): unknown {
+  if (field.localized) return mergeAllLocalesLocalizedValue(origVal, incomingVal)
+  if (field.type === 'group' && field.fields && isPlainObject(incomingVal)) {
+    return mergeDraftAllLocalesData(
+      field.fields as Fields,
+      isPlainObject(origVal) ? origVal : {},
+      incomingVal,
+    )
+  }
+  if (field.type === 'array' || field.type === 'blocks') {
+    return mergeAllLocalesRows(origVal, incomingVal, field)
+  }
+  return incomingVal
+}
+
+/**
+ * Merge a canonical (`locale: 'all'`) write into the stored draft. A localized value in the body
+ * only replaces the locales it names; every other stored locale is kept (ADR 0028 section 6.B).
+ */
+function mergeDraftAllLocalesData(
+  fields: Fields | readonly unknown[],
+  originalDoc: DocumentData,
+  incomingData: DocumentData,
+): DocumentData {
+  const fieldMap = new Map<string, CommonFieldInfo>()
+  for (const field of normalizeFieldList(fields)) fieldMap.set(field.name, field)
+
+  const merged: DocumentData = { ...originalDoc }
+  for (const [key, incomingVal] of Object.entries(incomingData)) {
+    const field = fieldMap.get(key)
+    merged[key] = field ? mergeAllLocalesField(originalDoc[key], incomingVal, field) : incomingVal
+  }
+  return merged
+}
+
 export function mergeDraftLocaleData(
   fields: Fields | readonly unknown[],
   originalDoc: DocumentData,
@@ -412,8 +491,11 @@ export function mergeDraftLocaleData(
   locale: string | undefined,
   defaultLocale?: string,
 ): DocumentData {
-  if (!locale || locale === 'all') {
+  if (!locale) {
     return { ...originalDoc, ...incomingData }
+  }
+  if (locale === 'all') {
+    return mergeDraftAllLocalesData(fields, originalDoc, incomingData)
   }
 
   const fieldList = normalizeFieldList(fields)

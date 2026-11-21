@@ -977,6 +977,19 @@ interface UseLocaleNavigationOptions {
   isNavigatingAllowedRef?: React.RefObject<boolean>
 }
 
+/**
+ * A save lets the navigation that follows it (create redirects to edit) skip the unsaved-changes
+ * prompt. The editor stays mounted on edit pages, so the exemption must end once the form turns
+ * dirty again; otherwise later edits could be discarded without a prompt.
+ */
+export function useRearmGuardOnEdit(isDirty: boolean, exemptionRef: React.RefObject<boolean>) {
+  const wasDirtyRef = useRef(isDirty)
+  useEffect(() => {
+    if (isDirty && !wasDirtyRef.current) exemptionRef.current = false
+    wasDirtyRef.current = isDirty
+  }, [isDirty, exemptionRef])
+}
+
 function useLocaleNavigation({
   activeLocale,
   isDirty,
@@ -1230,6 +1243,8 @@ function CollectionEditor({ collection, mode, id }: CollectionEditorProps) {
     schema,
     formState: { errors, isSubmitting, isDirty },
   } = useCollectionForm(collection, mode, fieldPermissions, readOnlyDoc)
+
+  useRearmGuardOnEdit(isDirty, isNavigatingAfterSaveRef)
 
   const { handleLocaleChange } = useLocaleNavigation({
     activeLocale,

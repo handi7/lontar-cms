@@ -454,6 +454,42 @@ describe('Localization in REST and Local API (#424)', () => {
     expect(mockFindGlobal).toHaveBeenCalledWith(expect.objectContaining({ locale: 'id' }))
   })
 
+  it('Update: hooks see the original doc in the requested locale, not the default one', async () => {
+    const mockFindByID = vi.fn().mockImplementation(({ locale }: { locale?: string }) =>
+      Promise.resolve({
+        id: 1,
+        title: locale === 'all' ? { en: 'News', id: 'Berita' } : 'News',
+        createdAt: '2026-10-31T00:00:00.000Z',
+        updatedAt: '2026-10-31T00:00:00.000Z',
+      }),
+    )
+    const { adapter } = createMockAdapter({ findByID: mockFindByID })
+    const seen: unknown[] = []
+    const posts = collection({
+      slug: 'posts',
+      hooks: {
+        beforeChange: [
+          ({ data, originalDoc }) => {
+            seen.push(originalDoc?.title)
+            return data
+          },
+        ],
+      },
+      fields: { title: f.text({ required: true, localized: true }) },
+    })
+    const config = defineConfig({
+      secret: 'test-secret-value-1234567890',
+      db: adapter,
+      collections: [posts],
+      localization: { locales: ['en', 'id'], defaultLocale: 'en' },
+    })
+
+    const client = await getLontar(config)
+    await client.update('posts', 1, { data: { title: 'Baru' }, locale: 'id' })
+
+    expect(seen).toEqual(['Berita'])
+  })
+
   it('Hooks: beforeValidate, beforeChange, afterChange, afterRead receive locale', async () => {
     const receivedLocales: Record<string, string | undefined> = {}
 

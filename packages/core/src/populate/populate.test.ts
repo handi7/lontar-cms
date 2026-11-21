@@ -861,6 +861,42 @@ describe('populateDocs', () => {
       },
     }
 
+    it('projects a hydrated draft snapshot of the target to the requested locale', async () => {
+      const localizedAuthors: CollectionConfig = {
+        ...authorsCol,
+        fields: { name: { type: 'text', required: true, localized: true } },
+      }
+      const now = new Date().toISOString()
+      const db = createMockAdapter({
+        authors: [{ id: 1, name: 'Live', _status: 'published', createdAt: now, updatedAt: now }],
+      })
+      db.findLatestDraftVersion = vi.fn().mockResolvedValue({
+        id: 99,
+        parentId: 1,
+        versionNumber: 2,
+        snapshot: { id: 1, name: { en: 'News', id: 'Berita' }, _status: 'draft' },
+        _status: 'draft',
+        autosave: false,
+        createdAt: now,
+        createdBy: null,
+      })
+      const adminUser = { id: 'admin', email: 'admin@example.com' } as unknown as AuthUser
+
+      const result = await populateDocs({
+        docs: [{ id: 10, title: 'Post 1', author: 1 }],
+        collection: postsCol,
+        depth: 1,
+        collections: [postsCol, localizedAuthors],
+        db,
+        user: adminUser,
+        draft: true,
+        locale: 'id',
+        fallbackLocale: 'en',
+      })
+
+      expect(result[0]!.author).toMatchObject({ id: 1, name: 'Berita' })
+    })
+
     it('populates published target and hides draft-only target when user lacks update access on target', async () => {
       const now = new Date().toISOString()
       const mockAuthors: StoredDoc[] = [

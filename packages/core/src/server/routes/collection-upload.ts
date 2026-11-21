@@ -13,6 +13,7 @@ import {
   type MutationExecutionResult,
   resolveCreateStatus,
   resolveDraftFlag,
+  resolveLocaleOriginalDoc,
   resolveOriginalDoc,
   resolveUpdateStatus,
 } from '../../operations/mutation'
@@ -724,6 +725,7 @@ interface UploadUpdateContext {
     db: DatabaseAdapter
     id: number
     originalDoc: DocumentData
+    localeOriginalDoc?: DocumentData
     data: DocumentData
     req?: Request
     draft?: boolean
@@ -756,6 +758,7 @@ async function processOptionalUploadFile(
 async function applyValidatedUpdate(args: {
   ctx: UploadUpdateContext
   originalDoc: DocumentData
+  localeOriginalDoc: DocumentData
   validation: { success: true; data: DocumentData }
   newUploadDoc?: UploadedMediaDoc
   draft?: boolean
@@ -778,6 +781,7 @@ async function applyValidatedUpdate(args: {
       db: config.db,
       id,
       originalDoc: args.originalDoc,
+      localeOriginalDoc: args.localeOriginalDoc,
       req: c.req.raw,
       draft: args.draft,
       autosave: args.autosave,
@@ -864,16 +868,24 @@ export async function handleUploadUpdate(ctx: UploadUpdateContext): Promise<Resp
     return c.json({ error: uploadResult.error }, uploadResult.status)
   }
 
+  const localeOriginalDoc = await resolveLocaleOriginalDoc(
+    config.db,
+    collection,
+    id,
+    originalDoc,
+    config,
+    locale,
+  )
   const locales = extractLocaleCodes(config)
   const schema = clientFieldsToZod(toClientCollection(collection).fields, {
     partial: true,
-    originalDoc,
+    originalDoc: localeOriginalDoc,
     locale,
     locales,
   })
   const validation = await parseAndValidateFields(rawBody, collection, schema, {
     operation: 'update',
-    originalDoc,
+    originalDoc: localeOriginalDoc,
     req: c.req.raw,
     draft: Boolean(draft),
     user,
@@ -887,6 +899,7 @@ export async function handleUploadUpdate(ctx: UploadUpdateContext): Promise<Resp
   return applyValidatedUpdate({
     ctx,
     originalDoc,
+    localeOriginalDoc,
     validation,
     newUploadDoc: uploadResult.doc,
     draft,

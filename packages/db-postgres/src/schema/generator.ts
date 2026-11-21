@@ -283,6 +283,12 @@ function collectImports(
   return Array.from(imports).sort()
 }
 
+// Locale codes such as `en-US` make a column name like `title_en-US`, which is not a valid
+// bare object key in the generated schema file.
+function toObjectKey(name: string): string {
+  return /^[A-Za-z_$][\w$]*$/.test(name) ? name : JSON.stringify(name)
+}
+
 function renderTableFieldLines(
   fields: Record<string, Field>,
   localeCodes: readonly string[],
@@ -297,7 +303,7 @@ function renderTableFieldLines(
       const colField = { ...field, required: false }
       for (const locale of localeCodes) {
         const colName = `${name}_${locale}`
-        lines.push(`  ${colName}: ${renderField(colName, colField)},`)
+        lines.push(`  ${toObjectKey(colName)}: ${renderField(colName, colField)},`)
       }
     } else {
       lines.push(`  ${name}: ${renderField(name, field)},`)

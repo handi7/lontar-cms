@@ -221,6 +221,7 @@ function projectDocForLocale(
   }
   return projectCanonicalDoc(doc, fields ?? {}, {
     locale,
+    fallbackLocale: config.localization.fallback === false ? false : undefined,
     defaultLocale: config.localization.defaultLocale,
   })
 }

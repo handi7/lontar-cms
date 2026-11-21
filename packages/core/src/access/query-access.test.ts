@@ -212,3 +212,73 @@ describe('validateQueryAccess with document-dependent read access', () => {
     ).toEqual([])
   })
 })
+
+describe('validateQueryAccess with locale-suffixed paths', () => {
+  const localized = collection({
+    slug: 'notes',
+    fields: {
+      title: f.text({ localized: true }),
+      secretNote: f.text({
+        localized: true,
+        access: { read: ({ user }) => user?.role === 'admin' },
+      }),
+      seo: f.group({
+        fields: {
+          hidden: f.text({
+            localized: true,
+            access: { read: ({ user }) => user?.role === 'admin' },
+          }),
+        },
+      }),
+      layout: f.blocks({
+        localized: true,
+        access: { read: ({ user }) => user?.role === 'admin' },
+        blocks: [{ slug: 'hero', fields: { heading: f.text() } }],
+      }),
+    },
+  })
+
+  it('denies where on a locale-suffixed field the user cannot read', async () => {
+    const issues = await validateQueryAccess(
+      { secretNote_en: { contains: 'x' } },
+      undefined,
+      localized,
+      makeUser(),
+    )
+    expect(issues.map((i) => i.path)).toEqual(['secretNote_en'])
+  })
+
+  it('denies sort and nested group paths with a locale suffix', async () => {
+    const issues = await validateQueryAccess(
+      { seo__hidden_en: { equals: 'x' } },
+      '-secretNote_id',
+      localized,
+      makeUser(),
+    )
+    expect(issues.map((i) => i.path).sort()).toEqual(['secretNote_id', 'seo__hidden_en'])
+  })
+
+  it('denies a locale-suffixed blocks path', async () => {
+    const issues = await validateQueryAccess(
+      { 'layout_en.blockType': { equals: 'hero' } },
+      undefined,
+      localized,
+      makeUser(),
+    )
+    expect(issues).toHaveLength(1)
+  })
+
+  it('allows readable suffixed fields and permitted users', async () => {
+    expect(
+      await validateQueryAccess({ title_en: { equals: 'x' } }, undefined, localized, makeUser()),
+    ).toEqual([])
+    expect(
+      await validateQueryAccess(
+        { secretNote_en: { equals: 'x' } },
+        undefined,
+        localized,
+        makeUser('admin'),
+      ),
+    ).toEqual([])
+  })
+})

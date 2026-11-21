@@ -205,30 +205,61 @@ function detectJunctionTransition(
   return null
 }
 
-function detectColumnTransition(
+const LOCALE_SUFFIX_REGEX = /^[a-zA-Z]{2,3}(-[a-zA-Z0-9]{2,4})?$/
+
+/**
+ * Columns of `table` that are per-locale variants of `colName` (`title_en` for `title`).
+ * The part after `${colName}_` must be a locale code, so `title_tag` is not a variant of `title`.
+ * With localization configured, the code must be a configured one; when it was removed
+ * entirely there is nothing to compare with, so any well-formed locale code is accepted.
+ */
+function findLocaleVariantColumns(
+  table: DrizzleSnapshotTable,
+  colName: string,
+  configuredLocales: readonly string[],
+): string[] {
+  const prefix = `${colName}_`
+  return Object.keys(table.columns).filter((c) => {
+    if (!c.startsWith(prefix)) return false
+    const suffix = c.slice(prefix.length)
+    return configuredLocales.length > 0
+      ? configuredLocales.includes(suffix)
+      : LOCALE_SUFFIX_REGEX.test(suffix)
+  })
+}
+
+function detectToLocalizedColumn(
   entitySlug: string,
   colName: string,
-  field: FlattenedFieldInfo['field'],
   table: DrizzleSnapshotTable,
-  defaultLocale?: string,
+  defaultLocale: string,
 ): ColumnTransition | null {
-  if (field.localized && defaultLocale) {
-    const unlocalizedCol = table.columns[colName]
-    if (unlocalizedCol) {
-      return {
-        table: entitySlug,
-        fromColumn: colName,
-        toColumn: `${colName}_${defaultLocale}`,
-        type: 'to-localized',
-        columnType: unlocalizedCol.type,
-        wasNotNull: unlocalizedCol.notNull,
-      }
-    }
-    return null
+  const unlocalizedCol = table.columns[colName]
+  if (!unlocalizedCol) return null
+  return {
+    table: entitySlug,
+    fromColumn: colName,
+    toColumn: `${colName}_${defaultLocale}`,
+    type: 'to-localized',
+    columnType: unlocalizedCol.type,
+    wasNotNull: unlocalizedCol.notNull,
   }
+}
 
-  const prefix = `${colName}_`
-  const matchingCols = Object.keys(table.columns).filter((c) => c.startsWith(prefix))
+function detectFromLocalizedColumn(
+  entitySlug: string,
+  colName: string,
+  table: DrizzleSnapshotTable,
+  defaultLocale: string | undefined,
+  configuredLocales: readonly string[],
+  otherFieldNames: ReadonlySet<string>,
+): ColumnTransition | null {
+  // The column already exists unlocalized, so there is nothing to convert back.
+  if (table.columns[colName]) return null
+
+  const matchingCols = findLocaleVariantColumns(table, colName, configuredLocales).filter(
+    (c) => !otherFieldNames.has(c),
+  )
   if (matchingCols.length === 0) return null
 
   const defaultCol = defaultLocale ? `${colName}_${defaultLocale}` : ''
@@ -242,6 +273,28 @@ function detectColumnTransition(
     columnType: table.columns[fromCol]?.type,
     wasNotNull: false,
   }
+}
+
+function detectColumnTransition(
+  entitySlug: string,
+  colName: string,
+  field: FlattenedFieldInfo['field'],
+  table: DrizzleSnapshotTable,
+  defaultLocale?: string,
+  configuredLocales: readonly string[] = [],
+  otherFieldNames: ReadonlySet<string> = new Set(),
+): ColumnTransition | null {
+  if (field.localized && defaultLocale) {
+    return detectToLocalizedColumn(entitySlug, colName, table, defaultLocale)
+  }
+  return detectFromLocalizedColumn(
+    entitySlug,
+    colName,
+    table,
+    defaultLocale,
+    configuredLocales,
+    otherFieldNames,
+  )
 }
 
 function detectRemovedLocalesForTable(
@@ -271,9 +324,11 @@ function detectEntityTransitions(
   flat: FlattenedFieldInfo[],
   snapshot: DrizzleSnapshot,
   defaultLocale?: string,
+  configuredLocales: readonly string[] = [],
 ): { column: ColumnTransition[]; junction: JunctionTransition[] } {
   const column: ColumnTransition[] = []
   const junction: JunctionTransition[] = []
+  const fieldNames = new Set(flat.map((f) => f.name))
 
   for (const { name: colName, field } of flat) {
     const junc = detectJunctionTransition(entitySlug, colName, field, snapshot, defaultLocale)
@@ -283,7 +338,15 @@ function detectEntityTransitions(
     }
     if (field.type === 'relationship' && field.hasMany) continue
 
-    const col = detectColumnTransition(entitySlug, colName, field, table, defaultLocale)
+    const col = detectColumnTransition(
+      entitySlug,
+      colName,
+      field,
+      table,
+      defaultLocale,
+      configuredLocales,
+      fieldNames,
+    )
     if (col) {
       column.push(col)
     }
@@ -320,6 +383,7 @@ export function detectLocalizationTransitions(
       flat,
       snapshot,
       defaultLocale,
+      configuredLocales,
     )
     columnTransitions.push(...entityTrans.column)
     junctionTransitions.push(...entityTrans.junction)
