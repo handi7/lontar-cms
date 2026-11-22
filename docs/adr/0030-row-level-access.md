@@ -1,7 +1,8 @@
 # 0030: Row-level access — constraints returned from collection access functions
 
-- **Status:** Proposed
+- **Status:** Accepted
 - **Date:** 2026-11-22
+- **Accepted:** 2026-11-22 ([#470](https://github.com/handi7/lontar-cms/issues/470))
 
 ## Context
 
@@ -241,4 +242,3 @@ Each step is its own PR and carries its tests.
    relationship paths); access tests for population, versions, the file route, webhooks and bulk actions; the `404`
    equivalence.
 6. **README:** the access function's return type, with the `read: ({ user }) => ({ author: { equals: user.id } })` example.
-7. **Accepting the ADR** when the plan has been reviewed (status `Accepted`, date).
