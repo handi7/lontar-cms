@@ -484,6 +484,10 @@ async function handleDelete(c: Context<LontarEnv>, collection: CollectionConfig,
     if (err instanceof ValidationError) {
       return formatValidationError(c, err)
     }
+    // A document outside the caller's row-level constraint is "not found" (ADR 0030 §6).
+    if (err instanceof NotFoundError) {
+      return c.json({ error: err.message }, 404)
+    }
     if (err instanceof ForeignKeyConstraintError) {
       const message = err.table
         ? `Cannot delete document referenced by "${err.table}"`

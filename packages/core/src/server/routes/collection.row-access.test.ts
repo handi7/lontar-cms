@@ -21,20 +21,29 @@ function createApp(rows: Array<{ id: number; author: string }>) {
     .mockImplementation(({ id }: { id: number }) =>
       Promise.resolve(rows.find((r) => r.id === id) ?? null),
     )
+  const del = vi
+    .fn()
+    .mockImplementation(({ id }: { id: number }) =>
+      Promise.resolve(rows.find((r) => r.id === id) ?? null),
+    )
   const posts = collection({
     slug: 'posts',
-    access: { read: () => ({ author: { equals: 'ann' } }) },
+    access: {
+      read: () => ({ author: { equals: 'ann' } }),
+      update: () => ({ author: { equals: 'ann' } }),
+      delete: () => ({ author: { equals: 'ann' } }),
+    },
     fields: { title: f.text(), author: f.text() },
   })
   const app = createLontar(
     defineConfig({
       secret: 'test-secret-value-1234567890',
-      db: { name: 'mock', find, findByID } as unknown as DatabaseAdapter,
+      db: { name: 'mock', find, findByID, delete: del } as unknown as DatabaseAdapter,
       collections: [posts],
     }),
     { baseURL: 'http://localhost:3000' },
   )
-  return { app, find }
+  return { app, find, del }
 }
 
 describe('row-level read constraint over REST (#470)', () => {
@@ -66,5 +75,28 @@ describe('row-level read constraint over REST (#470)', () => {
     expect(missing.status).toBe(404)
     expect(await outside.json()).toEqual({ error: 'Document with ID 2 not found' })
     expect(await missing.json()).toEqual({ error: 'Document with ID 99 not found' })
+  })
+})
+
+describe('row-level write constraints over REST (#470)', () => {
+  it('answers DELETE and PATCH on a row outside the constraint like a missing one', async () => {
+    const { app, del } = createApp([
+      { id: 1, author: 'ann' },
+      { id: 2, author: 'bob' },
+    ])
+    const json = { 'Content-Type': 'application/json' }
+
+    const deleted = await app.request('/api/posts/2', { method: 'DELETE' })
+    const patched = await app.request('/api/posts/2', {
+      method: 'PATCH',
+      headers: json,
+      body: JSON.stringify({ title: 'x' }),
+    })
+
+    expect(deleted.status).toBe(404)
+    expect(patched.status).toBe(404)
+    expect(await deleted.json()).toEqual({ error: 'Document with ID 2 not found' })
+    expect(await patched.json()).toEqual({ error: 'Document with ID 2 not found' })
+    expect(del).not.toHaveBeenCalled()
   })
 })
