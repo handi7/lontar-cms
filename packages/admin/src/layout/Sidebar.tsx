@@ -1,17 +1,17 @@
-import { useState, useMemo, type ReactNode } from 'react'
+import { useState, type ReactNode } from 'react'
 import { Link } from '@tanstack/react-router'
-import { LogOut, Menu, PanelLeftClose, PanelLeftOpen } from 'lucide-react'
+import { LogOut, Menu, PanelLeftClose, PanelLeftOpen, Search } from 'lucide-react'
 import type { ClientCollection, ClientGlobal } from '@lontar/core/client'
 import type { AdminUser } from '../api/client'
 import { Button } from '../components/ui/button'
 import { Sheet, SheetContent, SheetTitle } from '../components/ui/sheet'
 import { Tooltip, TooltipContent, TooltipTrigger } from '../components/ui/tooltip'
-import { useAdmin } from '../context/AdminContext'
 import { useAuth } from '../context/AuthContext'
-import { usePermissions } from '../context/PermissionsContext'
 import { cn } from '../lib/utils'
 import { BrandMark } from './BrandMark'
 import { ThemeToggle } from './ThemeToggle'
+import { useCommandPalette } from './CommandPaletteContext'
+import { useNavModel } from './useNavModel'
 import { useSidebarCollapsed } from './useSidebarCollapsed'
 
 // The active state keys on the `data-status="active"` attribute TanStack Router
@@ -182,6 +182,46 @@ function SidebarUserProfile(props: SidebarUserProfileProps) {
   )
 }
 
+const isApple = () => typeof navigator !== 'undefined' && /Mac|iPhone|iPad/.test(navigator.platform)
+
+interface PaletteButtonProps {
+  collapsed: boolean
+  onOpen: () => void
+}
+
+function PaletteButton({ collapsed, onOpen }: PaletteButtonProps) {
+  const shortcut = isApple() ? '⌘K' : 'Ctrl K'
+  const button = (
+    <Button
+      type="button"
+      variant="outline"
+      size="sm"
+      aria-label="Open command palette"
+      aria-keyshortcuts="Control+K Meta+K"
+      onClick={onOpen}
+      className={cn(
+        'lt:w-full lt:text-muted-foreground lt:shadow-none',
+        !collapsed && 'lt:justify-between',
+      )}
+    >
+      <Search aria-hidden="true" />
+      {!collapsed && (
+        <>
+          <span className="lt:mr-auto">Search</span>
+          <kbd className="lt:text-xs lt:text-muted-foreground">{shortcut}</kbd>
+        </>
+      )}
+    </Button>
+  )
+  if (!collapsed) return button
+  return (
+    <Tooltip>
+      <TooltipTrigger asChild>{button}</TooltipTrigger>
+      <TooltipContent side="right">Search ({shortcut})</TooltipContent>
+    </Tooltip>
+  )
+}
+
 interface SidebarBodyProps {
   collapsed: boolean
   collections: ClientCollection[]
@@ -190,6 +230,7 @@ interface SidebarBodyProps {
   user: AdminUser | null
   onSignOut: () => void
   isSigningOut: boolean
+  onOpenPalette: () => void
   /** A link in the nav was followed; the drawer closes on it. */
   onNavigate?: () => void
   /** The brand row's trailing control (the collapse toggle). */
@@ -220,6 +261,16 @@ function SidebarBody(props: SidebarBodyProps) {
           )}
         </Link>
         {headerAction}
+      </div>
+
+      <div className={cn('lt:shrink-0 lt:pt-4', collapsed ? 'lt:px-2' : 'lt:px-3')}>
+        <PaletteButton
+          collapsed={collapsed}
+          onOpen={() => {
+            onNavigate?.()
+            props.onOpenPalette()
+          }}
+        />
       </div>
 
       {/* Following any link inside the nav, from a drawer, should put the drawer away. */}
@@ -293,24 +344,12 @@ function SidebarBody(props: SidebarBodyProps) {
 }
 
 export function Sidebar() {
-  const { config } = useAdmin()
-  const { canReadCollection, canReadGlobal } = usePermissions()
   const { user, signOut } = useAuth()
+  const { collections, globals, isAdmin } = useNavModel()
+  const { setOpen: setPaletteOpen } = useCommandPalette()
   const [isSigningOut, setIsSigningOut] = useState(false)
   const [drawerOpen, setDrawerOpen] = useState(false)
   const { collapsed, toggle } = useSidebarCollapsed()
-  const adminRole = config.auth?.adminRole ?? 'admin'
-  const isAdmin = user?.role === adminRole
-
-  const visibleCollections = useMemo(
-    () => config.collections.filter((col) => canReadCollection(col.slug)),
-    [config.collections, canReadCollection],
-  )
-
-  const visibleGlobals = useMemo(
-    () => config.globals?.filter((g) => canReadGlobal(g.slug)),
-    [config.globals, canReadGlobal],
-  )
 
   const handleSignOut = async () => {
     setIsSigningOut(true)
@@ -324,10 +363,11 @@ export function Sidebar() {
   }
 
   const shared = {
-    collections: visibleCollections,
-    globals: visibleGlobals,
+    collections,
+    globals,
     isAdmin,
     user,
+    onOpenPalette: () => setPaletteOpen(true),
     isSigningOut,
     onSignOut: () => {
       void handleSignOut()

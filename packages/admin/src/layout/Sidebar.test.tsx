@@ -9,6 +9,7 @@ import { PortalContainerProvider } from '../context/PortalContainer'
 import { ThemeContext } from '../context/ThemeContext'
 import * as client from '../api/client'
 import type * as ClientModule from '../api/client'
+import { CommandPaletteProvider } from './CommandPaletteContext'
 import { Sidebar } from './Sidebar'
 import { SIDEBAR_STORAGE_KEY } from './useSidebarCollapsed'
 
@@ -86,7 +87,9 @@ describe('Sidebar (#213)', () => {
               >
                 <ThemeContext.Provider value={{ theme: 'system', setTheme: vi.fn() }}>
                   <PermissionsProvider apiBase="/api" user={{ id: 'u1' }}>
-                    <Sidebar />
+                    <CommandPaletteProvider>
+                      <Sidebar />
+                    </CommandPaletteProvider>
                   </PermissionsProvider>
                 </ThemeContext.Provider>
               </AuthContext.Provider>
