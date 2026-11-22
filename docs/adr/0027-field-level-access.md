@@ -216,7 +216,7 @@ export interface PermissionsResponse {
 
 ### 8. Scope Boundary: Row-Level Constraints
 
-- **Deferred to M12:** Returning dynamic database `where` expressions from access functions (e.g. `read: ({ user }) => ({ author: { equals: user.id } })`) is deferred to Milestone 12.
+- **Deferred to M12:** Returning dynamic database `where` expressions from access functions (e.g. `read: ({ user }) => ({ author: { equals: user.id } })`) is deferred to Milestone 12. It is designed in [ADR 0030](0030-row-level-access.md).
 - In M10, access functions return boolean outcomes (`boolean | Promise<boolean>`). Row-level restrictions in M10 continue to be enforced through query parameters and `beforeChange` lifecycle hooks.
 
 ### 9. Local API and Internal Overrides
