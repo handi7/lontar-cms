@@ -18,6 +18,7 @@ import {
   type ClientTextareaField,
   type ClientTextField,
   type ClientUploadField,
+  type ClientAdminConfig,
   type ClientArrayField,
   type ClientBlocksField,
   type ClientVersionsAutosaveConfig,
@@ -44,6 +45,7 @@ import type {
 } from '../fields/types'
 import { humanize } from '../utils/humanize'
 import type {
+  AdminConfig,
   CollectionConfig,
   Config,
   GlobalConfig,
@@ -227,6 +229,20 @@ function toClientLocalization(
   }
 }
 
+/** Component keys and layout only. Anything that is a function stays on the server. */
+function toClientAdmin(admin: AdminConfig | undefined): ClientAdminConfig | undefined {
+  const widgets = admin?.dashboard?.widgets
+  if (!widgets || widgets.length === 0) return undefined
+  return {
+    dashboard: {
+      widgets: widgets.map((widget) => ({
+        component: widget.component,
+        width: widget.width ?? 'full',
+      })),
+    },
+  }
+}
+
 /**
  * Serializes the config for the admin. The result is plain JSON: no functions,
  * no adapter, no secret. See docs/adr/0003-client-config-format.md.
@@ -237,10 +253,12 @@ export function toClientConfig(config: Config): ClientConfig {
   const adminRole = config.auth?.adminRole ?? 'admin'
   const emailEnabled = Boolean(config.email)
   const localization = toClientLocalization(config.localization)
+  const admin = toClientAdmin(config.admin)
 
   return {
     version: CLIENT_CONFIG_VERSION,
     ...(localization ? { localization } : {}),
+    ...(admin ? { admin } : {}),
     auth: {
       roles,
       defaultRole,

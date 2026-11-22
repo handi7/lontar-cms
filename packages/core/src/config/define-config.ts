@@ -13,6 +13,7 @@ import type {
 } from '../fields/types'
 import type { DatabaseAdapter } from '../database/adapter'
 import type { CollectionConfig, Config, GlobalConfig, PaginationConfig } from './types'
+import { validateAdminConfig } from './validate-admin'
 import { validateEndpoints } from './validate-endpoints'
 
 const SLUG = /^[a-z][a-z0-9-]*$/
@@ -99,6 +100,7 @@ function validateConfig(config: Config): string[] {
   issues.push(...validateStorage(config))
   issues.push(...validateRootWebhooks(config.webhooks, collectionMap, config.globals))
   issues.push(...validateEndpoints(config))
+  issues.push(...validateAdminConfig(config))
   return issues
 }
 

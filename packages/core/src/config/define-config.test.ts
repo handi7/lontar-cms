@@ -1711,3 +1711,67 @@ describe('admin.component validation (#465)', () => {
     expect(issues.join('\n')).toMatch(/blocks field "body" cannot set admin.component/)
   })
 })
+
+describe('admin.dashboard validation (#466)', () => {
+  function issuesOfAdmin(admin: unknown): readonly string[] {
+    try {
+      defineConfig({
+        secret: SECRET,
+        db: fakeAdapter,
+        collections: [notes()],
+        admin: admin as never,
+      })
+    } catch (error) {
+      if (error instanceof LontarConfigError) return error.issues
+      throw error
+    }
+    return []
+  }
+
+  it('accepts widgets with and without a width', () => {
+    expect(
+      issuesOfAdmin({
+        dashboard: { widgets: [{ component: 'a' }, { component: 'b', width: 'half' }] },
+      }),
+    ).toEqual([])
+  })
+
+  it('accepts an empty admin block and empty widgets', () => {
+    expect(issuesOfAdmin({})).toEqual([])
+    expect(issuesOfAdmin({ dashboard: {} })).toEqual([])
+    expect(issuesOfAdmin({ dashboard: { widgets: [] } })).toEqual([])
+  })
+
+  it.each([
+    ['admin is not an object', 'nope', 'admin must be an object'],
+    ['dashboard is not an object', { dashboard: 3 }, 'admin.dashboard must be an object'],
+    ['widgets is not an array', { dashboard: { widgets: {} } }, 'widgets must be an array'],
+    [
+      'a widget is not an object',
+      { dashboard: { widgets: ['x'] } },
+      'widgets[0]: must be an object',
+    ],
+    ['component is missing', { dashboard: { widgets: [{}] } }, 'component must be a non-empty'],
+    [
+      'component is blank',
+      { dashboard: { widgets: [{ component: '  ' }] } },
+      'component must be a non-empty',
+    ],
+    [
+      'width is unknown',
+      { dashboard: { widgets: [{ component: 'a', width: 'third' }] } },
+      'width must be "full" or "half"',
+    ],
+  ])('rejects when %s', (_name, admin, message) => {
+    const issues = issuesOfAdmin(admin)
+    expect(issues).toHaveLength(1)
+    expect(issues[0]).toContain(message)
+  })
+
+  it('names the widget by position', () => {
+    const issues = issuesOfAdmin({
+      dashboard: { widgets: [{ component: 'ok' }, { component: '' }] },
+    })
+    expect(issues[0]).toContain('widgets[1]')
+  })
+})

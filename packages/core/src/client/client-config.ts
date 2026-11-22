@@ -26,10 +26,22 @@ export interface ClientLocalizationConfig {
  * `GET /api/_lontar/config`. Plain data only: it must survive
  * `JSON.parse(JSON.stringify(x))` unchanged. See docs/adr/0003-client-config-format.md.
  */
+export interface ClientDashboardWidget {
+  /** Key of the host component registered on `<Admin components>`. */
+  component: string
+  width: 'full' | 'half'
+}
+
+export interface ClientAdminConfig {
+  dashboard?: { widgets: ClientDashboardWidget[] }
+}
+
 export interface ClientConfig {
   version: typeof CLIENT_CONFIG_VERSION
   localization?: ClientLocalizationConfig
   auth?: ClientAuthConfig
+  /** Present only when the config sets `admin`. */
+  admin?: ClientAdminConfig
   collections: ClientCollection[]
   globals: ClientGlobal[]
 }
