@@ -8,6 +8,7 @@ import {
   UniqueConstraintError,
   type Config,
   type DatabaseAdapter,
+  type Where,
 } from '@lontar/core'
 import { findDrizzleKitBin } from './drizzle-kit'
 import {
@@ -2855,6 +2856,58 @@ export function registerAdapterConformanceSuite(
           })
           expect(resEn.docs).toHaveLength(1)
           expect(resEn.docs[0]!.id).toBe(doc2.id)
+        },
+      )
+
+      testCase(
+        'where on a locale-suffixed localized blocks path filters by that locale',
+        async () => {
+          const withHeroInEn = await adapter.create({
+            collection: localizedPostsCollection,
+            data: {
+              title: { en: 'Has hero', id: 'Punya hero' },
+              slug: { en: 'has-hero', id: 'punya-hero' },
+              sections: {
+                en: [{ blockType: 'hero', heading: 'Welcome' }],
+                id: [{ blockType: 'quote', text: 'Halo' }],
+              },
+            },
+            locale: 'all',
+          })
+          const quoteOnly = await adapter.create({
+            collection: localizedPostsCollection,
+            data: {
+              title: { en: 'Quote only', id: 'Hanya kutipan' },
+              slug: { en: 'quote-only', id: 'hanya-kutipan' },
+              sections: {
+                en: [{ blockType: 'quote', text: 'Hi' }],
+                id: [{ blockType: 'hero', heading: 'Selamat datang' }],
+              },
+            },
+            locale: 'all',
+          })
+
+          const find = async (where: Where) =>
+            (
+              await adapter.find({
+                collection: localizedPostsCollection,
+                where,
+                limit: 10,
+                page: 1,
+                locale: 'en',
+              })
+            ).docs.map((d) => d.id)
+
+          // The filter must not be dropped, which would return every row.
+          expect(await find({ 'sections_en.blockType': { equals: 'hero' } })).toEqual([
+            withHeroInEn.id,
+          ])
+          expect(await find({ 'sections_id.blockType': { equals: 'hero' } })).toEqual([
+            quoteOnly.id,
+          ])
+          expect(await find({ 'sections_en.hero.heading': { equals: 'Welcome' } })).toEqual([
+            withHeroInEn.id,
+          ])
         },
       )
 
