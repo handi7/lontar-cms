@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
+import { useSyncExternalStore } from 'react'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import {
   CLIENT_CONFIG_VERSION,
@@ -20,6 +21,8 @@ vi.mock('../api/client', async () => {
     ...actual,
     fetchCollectionDocs: vi.fn(),
     deleteDoc: vi.fn(),
+    publishDoc: vi.fn(),
+    unpublishDoc: vi.fn(),
     fetchPermissions: vi.fn(),
   }
 })
@@ -35,10 +38,21 @@ const mockNavigate = vi.fn(
 )
 
 let mockRouteSearch: Record<string, unknown> = {}
+const routeSearchListeners = new Set<() => void>()
+
+function setRouteSearch(next: Record<string, unknown>) {
+  mockRouteSearch = next
+  act(() => routeSearchListeners.forEach((listener) => listener()))
+}
+
+function subscribeRouteSearch(listener: () => void) {
+  routeSearchListeners.add(listener)
+  return () => routeSearchListeners.delete(listener)
+}
 
 vi.mock('@tanstack/react-router', () => ({
   useParams: () => ({ collection: 'articles' }),
-  useSearch: () => mockRouteSearch,
+  useSearch: () => useSyncExternalStore(subscribeRouteSearch, () => mockRouteSearch),
   useNavigate: () => mockNavigate,
   Link: ({
     children,
@@ -358,5 +372,155 @@ describe('CollectionListView permissions (#341)', () => {
 
     expect(mockNavigate.mock.calls[0]?.[0]).not.toMatchObject({ replace: true })
     expect(capturedNavigateSearch?.({ page: 2 })).toEqual({ page: undefined, filters: undefined })
+  })
+
+  describe('row selection and bulk actions (#460)', () => {
+    const draftsArticles: ClientCollection = {
+      ...mockArticlesCollection,
+      versions: { drafts: true },
+    }
+
+    function allowAll(overrides: Partial<CollectionPermission> = {}) {
+      vi.mocked(client.fetchPermissions).mockResolvedValue({
+        collections: { articles: mockCollectionPerm(overrides) },
+        globals: {},
+      })
+    }
+
+    const bar = () => within(screen.getByRole('toolbar', { name: 'Bulk actions' }))
+
+    async function selectBothRows() {
+      fireEvent.click(await screen.findByLabelText('Select Article 1'))
+      fireEvent.click(screen.getByLabelText('Select Article 2'))
+    }
+
+    it('selects rows, selects the whole page and clears the selection', async () => {
+      allowAll()
+      renderWithProviders()
+
+      fireEvent.click(await screen.findByLabelText('Select Article 1'))
+      expect(screen.getByTestId('bulk-count').textContent).toBe('1 selected')
+
+      fireEvent.click(screen.getByLabelText('Select all on this page'))
+      expect(screen.getByTestId('bulk-count').textContent).toBe('2 selected')
+
+      fireEvent.click(screen.getByRole('button', { name: 'Clear selection' }))
+      expect(screen.queryByTestId('bulk-count')).toBeNull()
+    })
+
+    it('clears the selection when the page changes', async () => {
+      allowAll()
+      renderWithProviders()
+      fireEvent.click(await screen.findByLabelText('Select Article 1'))
+      expect(screen.getByTestId('bulk-count')).toBeTruthy()
+
+      setRouteSearch({ page: 2 })
+
+      await waitFor(() => expect(screen.queryByTestId('bulk-count')).toBeNull())
+    })
+
+    it('hides selection entirely when the user can neither delete nor publish', async () => {
+      allowAll({ delete: false })
+      renderWithProviders()
+
+      expect(await screen.findByText('Article 1')).toBeTruthy()
+      expect(screen.queryByLabelText('Select all on this page')).toBeNull()
+    })
+
+    it('hides Publish and Unpublish when the collection has no drafts', async () => {
+      allowAll()
+      renderWithProviders()
+      fireEvent.click(await screen.findByLabelText('Select Article 1'))
+
+      expect(bar().getByRole('button', { name: 'Delete' })).toBeTruthy()
+      expect(bar().queryByRole('button', { name: 'Publish' })).toBeNull()
+      expect(bar().queryByRole('button', { name: 'Unpublish' })).toBeNull()
+    })
+
+    it('hides Delete without delete access but keeps Publish and Unpublish', async () => {
+      allowAll({ delete: false })
+      renderWithProviders({ collections: [draftsArticles] })
+      fireEvent.click(await screen.findByLabelText('Select Article 1'))
+
+      expect(bar().getByRole('button', { name: 'Publish' })).toBeTruthy()
+      expect(bar().getByRole('button', { name: 'Unpublish' })).toBeTruthy()
+      expect(bar().queryByRole('button', { name: 'Delete' })).toBeNull()
+    })
+
+    it('hides Publish and Unpublish without update access', async () => {
+      allowAll({ update: false })
+      renderWithProviders({ collections: [draftsArticles] })
+      fireEvent.click(await screen.findByLabelText('Select Article 1'))
+
+      expect(bar().queryByRole('button', { name: 'Publish' })).toBeNull()
+      expect(bar().getByRole('button', { name: 'Delete' })).toBeTruthy()
+    })
+
+    it('deletes the selected documents after confirming and refreshes once', async () => {
+      allowAll()
+      vi.mocked(client.deleteDoc).mockResolvedValue({ success: true })
+      renderWithProviders()
+      const invalidate = vi.spyOn(queryClient, 'invalidateQueries')
+      await selectBothRows()
+
+      fireEvent.click(bar().getByRole('button', { name: 'Delete' }))
+      const dialog = await screen.findByRole('alertdialog')
+      expect(dialog.textContent).toContain('Delete 2 documents')
+      expect(client.deleteDoc).not.toHaveBeenCalled()
+      fireEvent.click(within(dialog).getByRole('button', { name: 'Delete 2' }))
+
+      await waitFor(() => expect(client.deleteDoc).toHaveBeenCalledTimes(2))
+      expect(client.deleteDoc).toHaveBeenCalledWith('/api', 'articles', 1)
+      expect(client.deleteDoc).toHaveBeenCalledWith('/api', 'articles', 2)
+      expect((await screen.findByTestId('bulk-summary')).textContent).toContain(
+        'Deleted 2 documents.',
+      )
+      expect(invalidate).toHaveBeenCalledTimes(1)
+    })
+
+    it('publishes the selected documents in the active locale', async () => {
+      allowAll()
+      vi.mocked(client.publishDoc).mockResolvedValue({})
+      renderWithProviders({
+        collections: [draftsArticles],
+        localization: {
+          locales: [
+            { code: 'en', label: 'English' },
+            { code: 'id', label: 'Indonesian' },
+          ],
+          defaultLocale: 'en',
+          fallback: true,
+        },
+      })
+      await selectBothRows()
+
+      fireEvent.click(bar().getByRole('button', { name: 'Publish' }))
+
+      await waitFor(() => expect(client.publishDoc).toHaveBeenCalledTimes(2))
+      expect(client.publishDoc).toHaveBeenCalledWith('/api', 'articles', 1, { locale: 'en' })
+    })
+
+    it('reports a partial failure and keeps the failed document selected', async () => {
+      allowAll()
+      vi.mocked(client.deleteDoc).mockImplementation((_base, _slug, id) =>
+        id === 2
+          ? Promise.reject(new client.ApiClientError('Not allowed', 403))
+          : Promise.resolve({ success: true }),
+      )
+      renderWithProviders()
+      await selectBothRows()
+
+      fireEvent.click(bar().getByRole('button', { name: 'Delete' }))
+      const dialog = await screen.findByRole('alertdialog')
+      fireEvent.click(within(dialog).getByRole('button', { name: 'Delete 2' }))
+
+      const summary = await screen.findByTestId('bulk-summary')
+      expect(summary.textContent).toContain('Deleted 1 document, 1 failed')
+      expect(summary.textContent).toContain('Article 2')
+      expect(summary.textContent).toContain('Not allowed')
+      expect(screen.getByTestId('bulk-count').textContent).toBe('1 selected')
+      expect(screen.getByLabelText('Select Article 2').getAttribute('data-state')).toBe('checked')
+      expect(screen.getByLabelText('Select Article 1').getAttribute('data-state')).toBe('unchecked')
+    })
   })
 })
