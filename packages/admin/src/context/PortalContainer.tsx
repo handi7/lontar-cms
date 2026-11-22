@@ -24,7 +24,11 @@ export function usePortalContainer(): HTMLElement | null {
   return ctx.container
 }
 
-export function PortalContainerProvider({ children }: { children: ReactNode }) {
+export interface PortalContainerProviderProps {
+  children: ReactNode
+}
+
+export function PortalContainerProvider({ children }: PortalContainerProviderProps) {
   // A callback ref into state, not useRef: the context value has to change once
   // the node exists, and mutating a ref does not re-render the consumers.
   const [container, setContainer] = useState<HTMLElement | null>(null)

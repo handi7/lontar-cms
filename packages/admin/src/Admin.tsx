@@ -21,15 +21,13 @@ export interface AdminProps {
   history?: RouterHistory
 }
 
-function AdminInner({
-  apiBase,
-  basePath,
-  history,
-}: {
+interface AdminInnerProps {
   apiBase: string
   basePath: string
   history?: RouterHistory
-}) {
+}
+
+function AdminInner({ apiBase, basePath, history }: AdminInnerProps) {
   const [mounted, setMounted] = useState(false)
 
   useEffect(() => {

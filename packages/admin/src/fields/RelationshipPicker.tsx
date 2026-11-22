@@ -1,6 +1,6 @@
 import { useState, useEffect, useMemo, useContext, type ReactNode } from 'react'
+import type { FormRegister, FormSetValue, FormWatch } from './form-types'
 import { useQuery } from '@tanstack/react-query'
-import type { UseFormRegister, UseFormSetValue, UseFormWatch } from 'react-hook-form'
 import type { ClientRelationshipField } from '@lontar/core/client'
 import { AdminContext } from '../context/AdminContext'
 import { useLocale } from '../hooks/useLocale'
@@ -23,9 +23,9 @@ import {
 
 export interface RelationshipPickerProps {
   field: ClientRelationshipField
-  register: UseFormRegister<Record<string, unknown>>
-  setValue?: UseFormSetValue<Record<string, unknown>>
-  watch?: UseFormWatch<Record<string, unknown>>
+  register: FormRegister
+  setValue?: FormSetValue
+  watch?: FormWatch
   disabled?: boolean
 }
 
