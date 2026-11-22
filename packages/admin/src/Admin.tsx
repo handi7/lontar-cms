@@ -4,6 +4,7 @@ import type { RouterHistory } from '@tanstack/history'
 import { RouterProvider } from '@tanstack/react-router'
 import { AdminContext } from './context/AdminContext'
 import { AuthProvider } from './context/AuthContext'
+import { ComponentRegistryProvider, type AdminComponents } from './context/ComponentRegistry'
 import { PermissionsProvider } from './context/PermissionsContext'
 import { FullPageError, FullPageLoading } from './layout/FullPageState'
 import { PortalContainerProvider } from './context/PortalContainer'
@@ -19,15 +20,21 @@ export interface AdminProps {
   basePath?: string
   /** Optional history override, e.g. createMemoryHistory() for tests. */
   history?: RouterHistory
+  /**
+   * Components the config refers to by key, e.g. `admin.component: 'rating-stars'` on a field.
+   * Server code and client code meet only through these string keys (ADR 0029).
+   */
+  components?: AdminComponents
 }
 
 interface AdminInnerProps {
   apiBase: string
   basePath: string
   history?: RouterHistory
+  components?: AdminComponents
 }
 
-function AdminInner({ apiBase, basePath, history }: AdminInnerProps) {
+function AdminInner({ apiBase, basePath, history, components }: AdminInnerProps) {
   const [mounted, setMounted] = useState(false)
 
   useEffect(() => {
@@ -75,9 +82,11 @@ function AdminInner({ apiBase, basePath, history }: AdminInnerProps) {
         <AuthProvider apiBase={apiBase}>
           <PermissionsProvider apiBase={apiBase}>
             <div className="lontar-admin" data-theme={dataTheme}>
-              <PortalContainerProvider>
-                <RouterProvider router={router} />
-              </PortalContainerProvider>
+              <ComponentRegistryProvider components={components}>
+                <PortalContainerProvider>
+                  <RouterProvider router={router} />
+                </PortalContainerProvider>
+              </ComponentRegistryProvider>
             </div>
           </PermissionsProvider>
         </AuthProvider>
@@ -86,7 +95,7 @@ function AdminInner({ apiBase, basePath, history }: AdminInnerProps) {
   )
 }
 
-export function Admin({ apiBase = '/api', basePath = '/admin', history }: AdminProps) {
+export function Admin({ apiBase = '/api', basePath = '/admin', history, components }: AdminProps) {
   const queryClient = useMemo(
     () =>
       new QueryClient({
@@ -102,7 +111,7 @@ export function Admin({ apiBase = '/api', basePath = '/admin', history }: AdminP
 
   return (
     <QueryClientProvider client={queryClient}>
-      <AdminInner apiBase={apiBase} basePath={basePath} history={history} />
+      <AdminInner apiBase={apiBase} basePath={basePath} history={history} components={components} />
     </QueryClientProvider>
   )
 }

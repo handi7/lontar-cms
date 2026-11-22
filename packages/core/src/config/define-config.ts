@@ -869,6 +869,22 @@ function validateFieldType(
   }
 }
 
+const CONTAINER_FIELD_TYPES = new Set(['group', 'array', 'blocks'])
+
+function validateFieldComponent(where: string, name: string, field: Field): string[] {
+  const component: unknown = field.admin?.component
+  if (component === undefined) return []
+  if (typeof component !== 'string' || component.trim() === '') {
+    return [`${where}: field "${name}" admin.component must be a non-empty string.`]
+  }
+  if (CONTAINER_FIELD_TYPES.has(field.type)) {
+    return [
+      `${where}: ${field.type} field "${name}" cannot set admin.component. It renders its nested fields; set the component on one of them instead.`,
+    ]
+  }
+  return []
+}
+
 function validateField(
   where: string,
   name: string,
@@ -881,6 +897,7 @@ function validateField(
 ): string[] {
   return [
     ...validateFieldAccess(where, name, field.access),
+    ...validateFieldComponent(where, name, field),
     ...validateFieldType(
       where,
       name,

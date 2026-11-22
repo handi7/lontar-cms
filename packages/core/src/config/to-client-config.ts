@@ -383,7 +383,7 @@ function baseField<F extends Field>(
   name: string,
   field: F,
   parentLocalized = false,
-): Pick<ClientField, 'name' | 'label' | 'required' | 'localized' | 'condition'> & {
+): Pick<ClientField, 'name' | 'label' | 'required' | 'localized' | 'condition' | 'component'> & {
   type: F['type']
 } {
   const isLocalized = Boolean(field.localized || parentLocalized)
@@ -395,6 +395,7 @@ function baseField<F extends Field>(
     ...defined({
       localized: isLocalized ? true : undefined,
       condition: field.admin?.condition,
+      component: field.admin?.component,
     }),
   }
 }

@@ -1101,3 +1101,55 @@ describe('toClientConfig endpoints (#464)', () => {
     expect(json).not.toContain('ping')
   })
 })
+
+describe('toClientConfig admin.component (#465)', () => {
+  it('serializes the key as a string, omits it when unset, and survives a JSON round trip', () => {
+    const config = defineConfig({
+      secret: SECRET,
+      db: fakeAdapter,
+      collections: [
+        {
+          slug: 'notes',
+          fields: {
+            plain: f.text(),
+            rating: f.number({ admin: { component: 'rating-stars' } }),
+            seo: f.group({
+              fields: { score: f.number({ admin: { component: 'score-dial' } }) },
+            }),
+            rows: f.array({
+              fields: { note: f.text({ admin: { component: 'note-input' } }) },
+            }),
+            body: f.blocks({
+              blocks: [
+                block({
+                  slug: 'hero',
+                  fields: { title: f.text({ admin: { component: 'title-input' } }) },
+                }),
+              ],
+            }),
+          },
+        },
+      ],
+    })
+
+    const client = toClientConfig(config)
+    const json = JSON.parse(JSON.stringify(client)) as typeof client
+    expect(json).toEqual(client)
+
+    const fieldsOf = (name: string) => json.collections[0]?.fields.find((x) => x.name === name)
+    expect(fieldsOf('plain')).not.toHaveProperty('component')
+    expect(fieldsOf('rating')).toHaveProperty('component', 'rating-stars')
+    const nested = (name: string, sub: string) =>
+      (fieldsOf(name) as unknown as { fields: { name: string; component?: string }[] }).fields.find(
+        (x) => x.name === sub,
+      )
+    expect(nested('seo', 'score')?.component).toBe('score-dial')
+    expect(nested('rows', 'note')?.component).toBe('note-input')
+    const hero = (
+      fieldsOf('body') as unknown as {
+        blocks: { fields: { name: string; component?: string }[] }[]
+      }
+    ).blocks[0]?.fields.find((x) => x.name === 'title')
+    expect(hero?.component).toBe('title-input')
+  })
+})

@@ -25,6 +25,7 @@ import {
   type FieldPermission,
   type GlobalPermission,
 } from '@lontar/core/client'
+import { DocumentFormProvider } from '../context/DocumentFormContext'
 import { useAdmin, useGlobal } from '../context/AdminContext'
 import { usePermissions, useGlobalPermissions } from '../context/PermissionsContext'
 import { fetchGlobal, saveGlobal, unpublishGlobal, ApiClientError, queryKeys } from '../api/client'
@@ -942,50 +943,52 @@ function GlobalEditor({ global, slug, apiBase }: GlobalEditorProps) {
           />
         }
       >
-        <form
-          onSubmit={(e) => {
-            e.preventDefault()
-            onPublish()
-          }}
-          className="lt:flex lt:flex-col lt:@3xl:flex-row lt:gap-8 lt:items-start"
-        >
-          <GlobalFormFields
-            fields={global.fields}
-            control={control}
-            register={register}
-            setValue={setValue}
-            watch={watch}
-            errors={errors}
-            permissions={fieldPermissions}
-            readOnlyDoc={readOnlyDoc}
-            fallbackDoc={fallbackDoc}
-            hasLocalization={hasLocalization}
-          />
-
-          <GlobalEditorSidebar
-            submitLabel={submitLabel}
-            isSaving={isSaving}
-            doc={globalQuery.data}
-            hasDrafts={hasDrafts}
-            hasVersions={hasVersions && canReadVersions}
-            hasPreview={hasPreview}
-            preview={{
-              isOpen: preview.isOpen,
-              toggle: editorView.toggle,
-              close: editorView.close,
+        <DocumentFormProvider values={formValues}>
+          <form
+            onSubmit={(e) => {
+              e.preventDefault()
+              onPublish()
             }}
-            onOpenHistory={() => setIsHistoryOpen(true)}
-            autosaveEnabled={autosaveEnabled}
-            autosave={autosave}
-            onPublish={onPublish}
-            onSaveDraft={onSaveDraft}
-            onUnpublish={onUnpublish}
-            isPublishing={isPublishing}
-            isSavingDraft={isSavingDraft}
-            isUnpublishing={unpublishMutation.isPending}
-            readOnly={readOnlyDoc}
-          />
-        </form>
+            className="lt:flex lt:flex-col lt:@3xl:flex-row lt:gap-8 lt:items-start"
+          >
+            <GlobalFormFields
+              fields={global.fields}
+              control={control}
+              register={register}
+              setValue={setValue}
+              watch={watch}
+              errors={errors}
+              permissions={fieldPermissions}
+              readOnlyDoc={readOnlyDoc}
+              fallbackDoc={fallbackDoc}
+              hasLocalization={hasLocalization}
+            />
+
+            <GlobalEditorSidebar
+              submitLabel={submitLabel}
+              isSaving={isSaving}
+              doc={globalQuery.data}
+              hasDrafts={hasDrafts}
+              hasVersions={hasVersions && canReadVersions}
+              hasPreview={hasPreview}
+              preview={{
+                isOpen: preview.isOpen,
+                toggle: editorView.toggle,
+                close: editorView.close,
+              }}
+              onOpenHistory={() => setIsHistoryOpen(true)}
+              autosaveEnabled={autosaveEnabled}
+              autosave={autosave}
+              onPublish={onPublish}
+              onSaveDraft={onSaveDraft}
+              onUnpublish={onUnpublish}
+              isPublishing={isPublishing}
+              isSavingDraft={isSavingDraft}
+              isUnpublishing={unpublishMutation.isPending}
+              readOnly={readOnlyDoc}
+            />
+          </form>
+        </DocumentFormProvider>
       </EditorSplitLayout>
 
       <GlobalVersionHistory

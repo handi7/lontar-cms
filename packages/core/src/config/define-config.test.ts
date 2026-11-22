@@ -1665,3 +1665,49 @@ describe('defineConfig', () => {
     })
   })
 })
+
+describe('admin.component validation (#465)', () => {
+  it('accepts a component key on leaf fields, including inside containers', () => {
+    expect(
+      issuesOf([
+        notes({
+          fields: {
+            rating: f.number({ admin: { component: 'rating-stars' } }),
+            seo: f.group({ fields: { score: f.number({ admin: { component: 'rating-stars' } }) } }),
+            rows: f.array({ fields: { note: f.text({ admin: { component: 'note-input' } }) } }),
+          },
+        }),
+      ]),
+    ).toEqual([])
+  })
+
+  it.each([
+    ['', 'non-empty string'],
+    ['   ', 'non-empty string'],
+    [42 as unknown as string, 'non-empty string'],
+  ])('rejects the component value %j', (component, message) => {
+    const issues = issuesOf([notes({ fields: { rating: f.number({ admin: { component } }) } })])
+    expect(issues).toHaveLength(1)
+    expect(issues[0]).toContain('field "rating"')
+    expect(issues[0]).toContain(message)
+  })
+
+  it('rejects a component on group, array and blocks, naming the field', () => {
+    const issues = issuesOf([
+      notes({
+        fields: {
+          seo: f.group({ admin: { component: 'x' }, fields: { a: f.text() } } as never),
+          rows: f.array({ admin: { component: 'x' }, fields: { a: f.text() } }),
+          body: f.blocks({
+            admin: { component: 'x' },
+            blocks: [block({ slug: 'hero', fields: { a: f.text() } })],
+          }),
+        },
+      }),
+    ])
+    expect(issues).toHaveLength(3)
+    expect(issues.join('\n')).toMatch(/group field "seo" cannot set admin.component/)
+    expect(issues.join('\n')).toMatch(/array field "rows" cannot set admin.component/)
+    expect(issues.join('\n')).toMatch(/blocks field "body" cannot set admin.component/)
+  })
+})

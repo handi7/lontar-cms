@@ -271,6 +271,8 @@ export type {
 } from './client/system-fields'
 export type {
   ArrayField,
+  AdminComponentKey,
+  AdminComponentKeys,
   ArrayFieldAdminOptions,
   ArrayFieldOptions,
   Block,
