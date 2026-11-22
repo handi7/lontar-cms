@@ -1,3 +1,4 @@
+import type { Where } from '../query/types'
 import type { AuthUser } from '../auth/types'
 import type { SystemFieldName, UploadSystemFieldName } from '../client/system-fields'
 import type { DatabaseAdapter } from '../database/adapter'
@@ -38,11 +39,25 @@ export type AccessFunction<TData = unknown> = (
   args: AccessArgs<TData>,
 ) => boolean | Promise<boolean>
 
+/**
+ * What a row-level access function returns: `true` for every document, `false` for none, or a
+ * `Where` constraint that limits the operation to the documents it matches (ADR 0030).
+ */
+export type AccessResult = boolean | Where
+
+export type ConstraintAccessFunction<TData = unknown> = (
+  args: AccessArgs<TData>,
+) => AccessResult | Promise<AccessResult>
+
 export interface CollectionAccess {
-  read?: AccessFunction
+  /** May return a constraint. */
+  read?: ConstraintAccessFunction
+  /** Boolean only: there is no existing row for a constraint to select. */
   create?: AccessFunction
-  update?: AccessFunction
-  delete?: AccessFunction
+  /** May return a constraint. */
+  update?: ConstraintAccessFunction
+  /** May return a constraint. */
+  delete?: ConstraintAccessFunction
 }
 
 export interface GlobalAccess {

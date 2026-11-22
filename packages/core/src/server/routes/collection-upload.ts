@@ -5,7 +5,13 @@ import { accessDenied, checkAccess, sanitizeDocRead, sanitizeDocWrite } from '..
 import type { AuthUser, LontarVariables } from '../../auth/types'
 import { clientFieldsToZod } from '../../client'
 import { toClientCollection } from '../../config/to-client-config'
-import type { AccessArgs, AccessFunction, CollectionConfig, Config } from '../../config/types'
+import type {
+  AccessArgs,
+  AccessFunction,
+  CollectionConfig,
+  Config,
+  ConstraintAccessFunction,
+} from '../../config/types'
 import type { DatabaseAdapter, DocumentData } from '../../database/adapter'
 import type { Field } from '../../fields/types'
 import { runBeforeValidateHooks } from '../../hooks'
@@ -553,7 +559,10 @@ interface UploadCreateContext {
   config: Config
   schema: z.ZodType
   user: AuthUser | null
-  checkAccess: (fn: AccessFunction | undefined, args: AccessArgs) => Promise<boolean>
+  checkAccess: (
+    fn: AccessFunction | ConstraintAccessFunction | undefined,
+    args: AccessArgs,
+  ) => Promise<boolean>
   accessDenied: (c: Context<LontarEnv>, user: AuthUser | null) => Response
   executeCreate: (args: {
     collection: CollectionConfig
@@ -718,7 +727,10 @@ interface UploadUpdateContext {
   collection: CollectionConfig
   config: Config
   user: AuthUser | null
-  checkAccess: (fn: AccessFunction | undefined, args: AccessArgs) => Promise<boolean>
+  checkAccess: (
+    fn: AccessFunction | ConstraintAccessFunction | undefined,
+    args: AccessArgs,
+  ) => Promise<boolean>
   accessDenied: (c: Context<LontarEnv>, user: AuthUser | null) => Response
   executeUpdate: (args: {
     collection: CollectionConfig
