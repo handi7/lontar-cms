@@ -30,6 +30,7 @@ import {
 import { Alert } from '../components/ui/alert'
 import { Badge } from '../components/ui/badge'
 import { Button } from '../components/ui/button'
+import { Checkbox } from '../components/ui/checkbox'
 import {
   Table as UITable,
   TableBody,
@@ -45,6 +46,8 @@ import { EmptyCard } from './EmptyCard'
 import { LocaleSwitcher } from './LocaleSwitcher'
 import { NotFoundView } from './NotFoundView'
 import { ViewHeader } from './ViewHeader'
+import type { RowId, RowSelection } from './bulk'
+import { useListBulk } from './useListBulk'
 import {
   formatSortParam,
   parseListSearch,
@@ -392,15 +395,50 @@ interface CollectionTableProps {
   table: Table<Record<string, unknown>>
   data?: PaginatedDocs
   onPageChange: (newPage: number) => void
+  selection?: RowSelection
 }
 
-function CollectionTable({ table, data, onPageChange }: CollectionTableProps) {
+interface SelectAllHeadProps {
+  selection: RowSelection
+}
+
+function SelectAllHead({ selection }: SelectAllHeadProps) {
+  return (
+    <TableHead className={cn(headClass, 'lt:w-10')}>
+      <Checkbox
+        aria-label="Select all on this page"
+        checked={selection.pageState}
+        onCheckedChange={(checked) => selection.togglePage(checked === true)}
+      />
+    </TableHead>
+  )
+}
+
+interface SelectRowCellProps {
+  id: RowId
+  selection: RowSelection
+}
+
+function SelectRowCell({ id, selection }: SelectRowCellProps) {
+  return (
+    <TableCell className="lt:w-10 lt:px-4 lt:py-3.5">
+      <Checkbox
+        aria-label={`Select ${selection.labelFor(id)}`}
+        checked={selection.isSelected(id)}
+        onCheckedChange={(checked) => selection.toggle(id, checked === true)}
+      />
+    </TableCell>
+  )
+}
+
+function CollectionTable({ table, data, onPageChange, selection }: CollectionTableProps) {
   return (
     <div className="lt:overflow-hidden lt:rounded-md lt:border lt:bg-card">
       <UITable>
         <TableHeader>
           {table.getHeaderGroups().map((headerGroup) => (
             <TableRow key={headerGroup.id} className="lt:bg-background lt:hover:bg-background">
+              {selection && <SelectAllHead selection={selection} />}
               {headerGroup.headers.map((header) => {
                 const canSort = header.column.getCanSort()
                 const isSorted = header.column.getIsSorted()
@@ -436,6 +474,7 @@ function CollectionTable({ table, data, onPageChange }: CollectionTableProps) {
         <TableBody>
           {table.getRowModel().rows.map((row) => (
             <TableRow key={row.id}>
+              {selection && <SelectRowCell id={row.original.id as RowId} selection={selection} />}
               {row.getVisibleCells().map((cell) => (
                 <TableCell key={cell.id} className="lt:px-4 lt:py-3.5">
                   {flexRender(cell.column.columnDef.cell, cell.getContext())}
@@ -514,6 +553,7 @@ interface ListContentProps {
   table: Table<Record<string, unknown>>
   data?: PaginatedDocs
   onPageChange: (newPage: number) => void
+  selection?: RowSelection
 }
 
 function ListContent({
@@ -528,6 +568,7 @@ function ListContent({
   table,
   data,
   onPageChange,
+  selection,
 }: ListContentProps) {
   if (isLoading) {
     return <EmptyCard>Loading documents...</EmptyCard>
@@ -548,7 +589,9 @@ function ListContent({
     }
     return <EmptyState collection={collection} canCreate={canCreate} activeLocale={activeLocale} />
   }
-  return <CollectionTable table={table} data={data} onPageChange={onPageChange} />
+  return (
+    <CollectionTable table={table} data={data} onPageChange={onPageChange} selection={selection} />
+  )
 }
 
 const SEARCH_DEBOUNCE_MS = 250
@@ -870,6 +913,7 @@ function CollectionListTable({ collection }: CollectionListTableProps) {
     [searchTerm, searchField, activeFilters, statusFilter],
   )
 
+  const listLocale = hasLocalization ? activeLocale : undefined
   const sortParam = useMemo(() => formatSortParam(sorting), [sorting])
   const { data, isLoading, error } = useCollectionDocsQuery(
     apiBase,
@@ -878,7 +922,7 @@ function CollectionListTable({ collection }: CollectionListTableProps) {
     sortParam,
     where,
     hasDrafts,
-    hasLocalization ? activeLocale : undefined,
+    listLocale,
     fallbackLocale,
   )
 
@@ -910,6 +954,23 @@ function CollectionListTable({ collection }: CollectionListTableProps) {
     hasDrafts,
     statusFilter,
   )
+
+  const { selection, controls: bulkControls } = useListBulk({
+    apiBase,
+    collection,
+    docs,
+    resetKey: JSON.stringify([
+      page,
+      searchTerm,
+      statusFilter,
+      sorting,
+      activeFilters,
+      activeLocale,
+    ]),
+    locale: listLocale,
+    permission: collectionPerm,
+    canDelete,
+  })
 
   return (
     <div>
@@ -945,6 +1006,8 @@ function CollectionListTable({ collection }: CollectionListTableProps) {
 
       <ListAlerts queryError={error} deleteError={deleteError} />
 
+      {bulkControls}
+
       <ConfirmDeleteDialog
         open={confirmOpen}
         onOpenChange={(open) => {
@@ -965,6 +1028,7 @@ function CollectionListTable({ collection }: CollectionListTableProps) {
         table={table}
         data={data ?? undefined}
         onPageChange={setPage}
+        selection={selection}
       />
     </div>
   )

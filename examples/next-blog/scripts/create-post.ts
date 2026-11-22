@@ -75,6 +75,7 @@ async function main() {
   console.log(`Status: ${idDoc?._status}`)
 
   console.log('\n✓ Post updated and published successfully!')
+  process.exit(0)
 }
 
 main().catch((err) => {
