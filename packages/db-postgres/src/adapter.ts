@@ -904,6 +904,39 @@ function resolveSubFieldJsonPathInfo(
   return pathInfo
 }
 
+interface JsonContainer {
+  field: Field
+  /** The field's own name, without a locale suffix. */
+  baseKey: string
+  /** Set when the path names a locale itself, as in `layout_en.blockType`. */
+  explicitLocale?: string
+}
+
+function isJsonContainerField(field: Field | undefined): field is Field {
+  return field?.type === 'array' || field?.type === 'blocks'
+}
+
+// A localized array or blocks field is queried as `<name>_<locale>`, which is a column but not a
+// key in `collection.fields`. Without this the path matches nothing and the filter is dropped.
+function resolveJsonContainer(
+  collection: CollectionConfig,
+  topKey: string,
+  localeCtx?: ResolvedLocaleContext,
+): JsonContainer | null {
+  const direct = collection.fields[topKey]
+  if (isJsonContainerField(direct)) return { field: direct, baseKey: topKey }
+  for (const loc of localeCtx?.allLocales ?? []) {
+    const suffix = `_${loc}`
+    if (!topKey.endsWith(suffix)) continue
+    const baseKey = topKey.slice(0, -suffix.length)
+    const field = collection.fields[baseKey]
+    if (isJsonContainerField(field) && field.localized) {
+      return { field, baseKey, explicitLocale: loc }
+    }
+  }
+  return null
+}
+
 function parseJsonFieldConditions(
   collection: CollectionConfig,
   table: DynamicTable,
@@ -913,15 +946,18 @@ function parseJsonFieldConditions(
 ): SQL[] | null {
   const topKey = getTopKey(fieldName)
   if (topKey === fieldName) return null
-  const topField = collection.fields[topKey]
-  if (topField?.type !== 'array' && topField?.type !== 'blocks') return null
+  const container = resolveJsonContainer(collection, topKey, localeCtx)
+  if (!container) return null
 
-  const loc = resolveTargetLocale(localeCtx)
-  const column = resolveJsonArrayColumn(table, topKey, topField, loc)
+  const loc = container.explicitLocale ?? resolveTargetLocale(localeCtx)
+  const column = resolveJsonArrayColumn(table, container.baseKey, container.field, loc)
   if (!column) return []
 
-  const basePathInfo = resolveJsonPathInfo(topField, fieldName, topKey)
-  const pathInfo = resolveSubFieldJsonPathInfo(collection, fieldName, basePathInfo, loc)
+  const basePathInfo = resolveJsonPathInfo(container.field, fieldName, topKey)
+  // A path with an explicit locale is already complete; its rows have no localized subfields.
+  const pathInfo = container.explicitLocale
+    ? basePathInfo
+    : resolveSubFieldJsonPathInfo(collection, fieldName, basePathInfo, loc)
   return parseJsonArrayConditions(column, pathInfo, filter)
 }
 

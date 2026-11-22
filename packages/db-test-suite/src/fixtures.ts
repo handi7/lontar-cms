@@ -272,6 +272,15 @@ export const localizedPostsCollection: CollectionConfig = {
         },
       ],
     },
+    // A whole localized container: each locale has its own list of blocks.
+    sections: {
+      type: 'blocks',
+      localized: true,
+      blocks: [
+        { slug: 'hero', fields: { heading: { type: 'text' } } },
+        { slug: 'quote', fields: { text: { type: 'text' } } },
+      ],
+    },
   },
 }
 
