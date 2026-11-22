@@ -232,6 +232,33 @@ describe('dispatchWebhooks', () => {
     expect(mockFetch).not.toHaveBeenCalled()
   })
 
+  it('ignores a row-level read constraint: webhooks are system events (#470, ADR 0030 §7)', async () => {
+    const mockFetch = vi.fn<typeof fetch>(() =>
+      Promise.resolve(new Response('OK', { status: 200 })),
+    )
+    const read = vi.fn(() => ({ owner: { equals: 'someone-else' } }))
+    const collection: CollectionConfig = {
+      slug: 'posts',
+      fields: {},
+      access: { read },
+      webhooks: [{ url: 'https://example.com/webhook', events: ['update'] }],
+    }
+
+    const promise = dispatchWebhooks({
+      collection,
+      event: 'update',
+      doc: { id: 1, title: 'Post 1', owner: 'u1' },
+      status: 'published',
+      options: { fetchFn: mockFetch },
+    })
+    await drainPendingWebhooks()
+    const results = await promise
+
+    expect(results).toHaveLength(1)
+    expect(mockFetch).toHaveBeenCalledTimes(1)
+    expect(read).not.toHaveBeenCalled()
+  })
+
   it('dispatches deliveries and drains pending properly', async () => {
     let capturedBody: string | undefined
     const mockFetch = vi.fn<typeof fetch>((_url: string | URL | Request, init?: RequestInit) => {
