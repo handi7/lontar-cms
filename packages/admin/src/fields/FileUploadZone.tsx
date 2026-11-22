@@ -25,7 +25,12 @@ export function formatFilesize(bytes?: number | null): string {
   return `${(bytes / (1024 * 1024)).toFixed(1)} MB`
 }
 
-function SelectedFilePreview({ file, onClear }: { file: File; onClear: () => void }) {
+interface SelectedFilePreviewProps {
+  file: File
+  onClear: () => void
+}
+
+function SelectedFilePreview({ file, onClear }: SelectedFilePreviewProps) {
   const [previewUrl, setPreviewUrl] = useState<string | null>(null)
 
   useEffect(() => {
@@ -76,10 +81,7 @@ function formatFileMeta(file: {
   return parts.join(' • ')
 }
 
-function CurrentFilePreview({
-  file,
-  onReplace,
-}: {
+interface CurrentFilePreviewProps {
   file: {
     filename?: string
     url?: string
@@ -89,7 +91,9 @@ function CurrentFilePreview({
     height?: number | null
   }
   onReplace: () => void
-}) {
+}
+
+function CurrentFilePreview({ file, onReplace }: CurrentFilePreviewProps) {
   const isImage = isImageFile(file.mimeType, file.url)
   const meta = formatFileMeta(file)
 
@@ -121,6 +125,17 @@ function validateFileSize(file: File, maxFileSize?: number): string | null {
   return null
 }
 
+interface DropzoneAreaProps {
+  isDragging: boolean
+  displayError: string | null
+  accept?: string
+  maxFileSize?: number
+  onDragOver: (e: React.DragEvent) => void
+  onDragLeave: (e: React.DragEvent) => void
+  onDrop: (e: React.DragEvent) => void
+  onClick: () => void
+}
+
 function DropzoneArea({
   isDragging,
   displayError,
@@ -130,16 +145,7 @@ function DropzoneArea({
   onDragLeave,
   onDrop,
   onClick,
-}: {
-  isDragging: boolean
-  displayError: string | null
-  accept?: string
-  maxFileSize?: number
-  onDragOver: (e: React.DragEvent) => void
-  onDragLeave: (e: React.DragEvent) => void
-  onDrop: (e: React.DragEvent) => void
-  onClick: () => void
-}) {
+}: DropzoneAreaProps) {
   const handleKeyDown = (e: React.KeyboardEvent) => {
     if (e.key === 'Enter' || e.key === ' ') {
       onClick()

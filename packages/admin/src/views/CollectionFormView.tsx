@@ -1,12 +1,9 @@
 import { useState, useEffect, useMemo, useCallback, useRef } from 'react'
+import type { FormControl, FormRegister, FormSetValue, FormWatch } from '../fields/form-types'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { useNavigate, useParams, useBlocker } from '@tanstack/react-router'
 import {
   useForm,
-  type Control,
-  type UseFormRegister,
-  type UseFormSetValue,
-  type UseFormWatch,
   type UseFormGetValues,
   type UseFormReset,
   type UseFormSetError,
@@ -104,10 +101,10 @@ function validateUpload(
 export interface FormFieldsProps {
   collection: ClientCollection
   mode: 'create' | 'edit'
-  control: Control<Record<string, unknown>>
-  register: UseFormRegister<Record<string, unknown>>
-  setValue: UseFormSetValue<Record<string, unknown>>
-  watch: UseFormWatch<Record<string, unknown>>
+  control: FormControl
+  register: FormRegister
+  setValue: FormSetValue
+  watch: FormWatch
   errors: FieldErrors<Record<string, unknown>>
   selectedFile: File | null
   onFileChange: (file: File | null) => void
@@ -854,10 +851,10 @@ interface CollectionEditorSplitLayoutProps {
   formValues: Record<string, unknown>
   doc?: Record<string, unknown> | null
   onPublish: () => void
-  control: Control<Record<string, unknown>>
-  register: UseFormRegister<Record<string, unknown>>
-  setValue: UseFormSetValue<Record<string, unknown>>
-  watch: UseFormWatch<Record<string, unknown>>
+  control: FormControl
+  register: FormRegister
+  setValue: FormSetValue
+  watch: FormWatch
   errors: FieldErrors<Record<string, unknown>>
   selectedFile: File | null
   onFileChange: (file: File | null) => void

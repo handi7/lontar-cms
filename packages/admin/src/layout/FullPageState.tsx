@@ -18,7 +18,11 @@ function Spinner() {
   )
 }
 
-export function FullPageLoading({ children }: { children: ReactNode }) {
+export interface FullPageLoadingProps {
+  children: ReactNode
+}
+
+export function FullPageLoading({ children }: FullPageLoadingProps) {
   return (
     <div className={screen}>
       <Spinner />
@@ -27,7 +31,12 @@ export function FullPageLoading({ children }: { children: ReactNode }) {
   )
 }
 
-export function FullPageError({ title, children }: { title: string; children: ReactNode }) {
+export interface FullPageErrorProps {
+  title: string
+  children: ReactNode
+}
+
+export function FullPageError({ title, children }: FullPageErrorProps) {
   return (
     <div className={screen}>
       <h2 className="lt:mt-0 lt:mb-2 lt:text-error-text">{title}</h2>

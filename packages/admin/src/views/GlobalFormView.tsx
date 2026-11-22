@@ -1,4 +1,5 @@
 import { useState, useEffect, useMemo, useCallback, useRef } from 'react'
+import type { FormControl, FormRegister, FormSetValue, FormWatch } from '../fields/form-types'
 import {
   useQuery,
   useMutation,
@@ -8,10 +9,6 @@ import {
 import { useNavigate, useParams, useBlocker } from '@tanstack/react-router'
 import {
   useForm,
-  type Control,
-  type UseFormRegister,
-  type UseFormSetValue,
-  type UseFormWatch,
   type UseFormGetValues,
   type UseFormReset,
   type UseFormSetError,
@@ -56,10 +53,10 @@ import { cn } from '../lib/utils'
 
 export interface GlobalFormFieldsProps {
   fields: ClientField[]
-  control: Control<Record<string, unknown>>
-  register: UseFormRegister<Record<string, unknown>>
-  setValue: UseFormSetValue<Record<string, unknown>>
-  watch: UseFormWatch<Record<string, unknown>>
+  control: FormControl
+  register: FormRegister
+  setValue: FormSetValue
+  watch: FormWatch
   errors: FieldErrors<Record<string, unknown>>
   permissions?: Record<string, FieldPermission>
   readOnlyDoc?: boolean

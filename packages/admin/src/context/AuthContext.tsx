@@ -28,7 +28,12 @@ function clearUserData(queryClient: ReturnType<typeof useQueryClient>) {
   })
 }
 
-export function AuthProvider({ apiBase, children }: { apiBase: string; children: ReactNode }) {
+export interface AuthProviderProps {
+  apiBase: string
+  children: ReactNode
+}
+
+export function AuthProvider({ apiBase, children }: AuthProviderProps) {
   const queryClient = useQueryClient()
 
   const { data, isLoading } = useQuery({

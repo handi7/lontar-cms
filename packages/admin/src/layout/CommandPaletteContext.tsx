@@ -30,7 +30,11 @@ export function isPaletteShortcut(event: KeyboardEvent): boolean {
   )
 }
 
-export function CommandPaletteProvider({ children }: { children: ReactNode }) {
+export interface CommandPaletteProviderProps {
+  children: ReactNode
+}
+
+export function CommandPaletteProvider({ children }: CommandPaletteProviderProps) {
   const [open, setOpenState] = useState(false)
   const setOpen = useCallback((next: boolean) => setOpenState(next), [])
 

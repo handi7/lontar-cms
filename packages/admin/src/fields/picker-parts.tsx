@@ -30,8 +30,13 @@ export function PickerButton({
   )
 }
 
+export interface PickerViewLinkProps {
+  href: string
+  testId: string
+}
+
 /** Opens a document in a new tab; rendered as a button for consistency. */
-export function PickerViewLink({ href, testId }: { href: string; testId: string }) {
+export function PickerViewLink({ href, testId }: PickerViewLinkProps) {
   return (
     <Button asChild variant="outline" size="sm" className="lt:h-7 lt:px-2 lt:shadow-none">
       <a href={href} target="_blank" rel="noopener noreferrer" data-testid={testId}>
@@ -100,7 +105,12 @@ export function PickerOption({ className, ...props }: ComponentProps<typeof Butt
   )
 }
 
-export function PickerStatus({ children, error }: { children: ReactNode; error?: boolean }) {
+export interface PickerStatusProps {
+  children: ReactNode
+  error?: boolean
+}
+
+export function PickerStatus({ children, error }: PickerStatusProps) {
   return (
     <div
       className={cn(
@@ -126,6 +136,13 @@ export function PickerCard({ className, ...props }: ComponentProps<'div'>) {
   )
 }
 
+export interface PickerPopoverProps {
+  open: boolean
+  onOpenChange: (open: boolean) => void
+  trigger: ReactNode
+  children: ReactNode
+}
+
 /**
  * Floats a picker's search over the form instead of pushing the fields below
  * it down (#136). `open` is the picker's own `isSearching` state, so when the
@@ -133,17 +150,7 @@ export function PickerCard({ className, ...props }: ComponentProps<'div'>) {
  * too. Radix moves focus to the first focusable element inside, the search
  * input, when it opens.
  */
-export function PickerPopover({
-  open,
-  onOpenChange,
-  trigger,
-  children,
-}: {
-  open: boolean
-  onOpenChange: (open: boolean) => void
-  trigger: ReactNode
-  children: ReactNode
-}) {
+export function PickerPopover({ open, onOpenChange, trigger, children }: PickerPopoverProps) {
   return (
     <Popover open={open} onOpenChange={onOpenChange}>
       <PopoverTrigger asChild>{trigger}</PopoverTrigger>

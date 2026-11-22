@@ -149,7 +149,11 @@ function handleLink(editor: Editor) {
   editor.chain().focus().extendMarkRange('link').setLink({ href: trimmed }).run()
 }
 
-function EditorToolbar({ editor }: { editor: Editor }) {
+interface EditorToolbarProps {
+  editor: Editor
+}
+
+function EditorToolbar({ editor }: EditorToolbarProps) {
   return (
     <div className="lontar-richtext-toolbar" role="toolbar" aria-label="Rich text formatting">
       <div className="lontar-richtext-toolbar-group">

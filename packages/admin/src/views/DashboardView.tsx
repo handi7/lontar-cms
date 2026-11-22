@@ -8,15 +8,13 @@ import { ViewHeader, ViewSubtitle } from './ViewHeader'
 
 const gridClass = 'lt:grid lt:grid-cols-[repeat(auto-fill,minmax(280px,1fr))] lt:gap-5'
 
-function EntityCard({
-  title,
-  slug,
-  children,
-}: {
+interface EntityCardProps {
   title: string
   slug: string
   children: ReactNode
-}) {
+}
+
+function EntityCard({ title, slug, children }: EntityCardProps) {
   return (
     <Card>
       <CardHeader>

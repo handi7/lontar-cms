@@ -1,6 +1,13 @@
 import { useState, useEffect, useMemo } from 'react'
+import type {
+  ControlledFieldProps,
+  FieldA11y,
+  FormControl,
+  FormRegister,
+  FormSetValue,
+  FormWatch,
+} from './form-types'
 import { Controller, useFieldArray, useWatch } from 'react-hook-form'
-import type { Control, UseFormRegister, UseFormSetValue, UseFormWatch } from 'react-hook-form'
 import {
   extractConditionPaths,
   generateRowId,
@@ -57,11 +64,11 @@ import { UploadPicker } from './UploadPicker'
 
 export interface FieldRendererProps {
   field: ClientField
-  control: Control<Record<string, unknown>>
-  register: UseFormRegister<Record<string, unknown>>
+  control: FormControl
+  register: FormRegister
   error?: { message?: string } | Record<string, unknown>
-  setValue?: UseFormSetValue<Record<string, unknown>>
-  watch?: UseFormWatch<Record<string, unknown>>
+  setValue?: FormSetValue
+  watch?: FormWatch
   mode?: 'create' | 'edit'
   pathPrefix?: string
   permissions?: FieldPermission
@@ -116,16 +123,6 @@ function resolveFallbackPlaceholder(fallbackValue: unknown): string | undefined 
   return undefined
 }
 
-/**
- * The attributes that tie a control to its label and error text. Passed down
- * rather than derived per input so every field type is wired the same way.
- */
-interface FieldA11y {
-  describedBy?: string
-  invalid: boolean
-  required: boolean
-}
-
 function a11yProps({ describedBy, invalid, required }: FieldA11y) {
   return {
     'aria-describedby': describedBy,
@@ -164,20 +161,13 @@ function asInputValue(value: unknown): string | number {
   return ''
 }
 
-interface ControlledProps<T extends ClientField> {
-  field: T
-  control: Control<Record<string, unknown>>
-  a11y: FieldA11y
-  disabled?: boolean
-}
-
 function TextFieldInput({
   field,
   control,
   a11y,
   disabled,
   placeholder,
-}: ControlledProps<ClientTextField> & { placeholder?: string }) {
+}: ControlledFieldProps<ClientTextField> & { placeholder?: string }) {
   return (
     <Controller
       control={control}
@@ -205,7 +195,7 @@ function NumberFieldInput({
   a11y,
   disabled,
   placeholder,
-}: ControlledProps<ClientNumberField> & { placeholder?: string }) {
+}: ControlledFieldProps<ClientNumberField> & { placeholder?: string }) {
   return (
     <Controller
       control={control}
@@ -238,7 +228,7 @@ function TextareaFieldInput({
   a11y,
   disabled,
   placeholder,
-}: ControlledProps<ClientTextareaField> & { placeholder?: string }) {
+}: ControlledFieldProps<ClientTextareaField> & { placeholder?: string }) {
   return (
     <Controller
       control={control}
@@ -266,7 +256,7 @@ function EmailFieldInput({
   a11y,
   disabled,
   placeholder,
-}: ControlledProps<ClientEmailField> & { placeholder?: string }) {
+}: ControlledFieldProps<ClientEmailField> & { placeholder?: string }) {
   return (
     <Controller
       control={control}
@@ -287,6 +277,13 @@ function EmailFieldInput({
   )
 }
 
+interface CheckboxFieldInputProps extends ControlledFieldProps<ClientCheckboxField> {
+  isLocked?: boolean
+  hasLocalization?: boolean
+  isLocalized?: boolean
+  fullName?: string
+}
+
 function CheckboxFieldInput({
   field,
   control,
@@ -296,16 +293,7 @@ function CheckboxFieldInput({
   hasLocalization,
   isLocalized,
   fullName,
-}: {
-  field: ClientCheckboxField
-  control: Control<Record<string, unknown>>
-  a11y: FieldA11y
-  disabled?: boolean
-  isLocked?: boolean
-  hasLocalization?: boolean
-  isLocalized?: boolean
-  fullName?: string
-}) {
+}: CheckboxFieldInputProps) {
   // `defaultValue={false}` matches what react-hook-form read from the native
   // checkbox this replaced when the form had no default. A stored null is left
   // as null until the box is clicked, as the native one did, and renders
@@ -363,12 +351,7 @@ function SelectFieldInput({
   control,
   a11y,
   disabled,
-}: {
-  field: ClientSelectField
-  control: Control<Record<string, unknown>>
-  a11y: FieldA11y
-  disabled?: boolean
-}) {
+}: ControlledFieldProps<ClientSelectField>) {
   // The native <select> this replaced was bound with `register`, so
   // react-hook-form read its DOM value as the initial one: the first option for
   // a required select, '' for an optional one (whose first option is the empty
@@ -414,17 +397,7 @@ function SelectFieldInput({
   )
 }
 
-function DateFieldInput({
-  field,
-  control,
-  a11y,
-  disabled,
-}: {
-  field: ClientDateField
-  control: Control<Record<string, unknown>>
-  a11y: FieldA11y
-  disabled?: boolean
-}) {
+function DateFieldInput({ field, control, a11y, disabled }: ControlledFieldProps<ClientDateField>) {
   // The form holds the same local datetime string the native
   // <input type="datetime-local"> did (formatDateForInput in, formatDateForSubmit
   // out; ADR 0010). `defaultValue=''` matches what react-hook-form read from
@@ -459,9 +432,9 @@ function SlugFieldInput({
   a11y,
   disabled,
   placeholder,
-}: ControlledProps<ClientSlugField> & {
-  setValue?: UseFormSetValue<Record<string, unknown>>
-  watch?: UseFormWatch<Record<string, unknown>>
+}: ControlledFieldProps<ClientSlugField> & {
+  setValue?: FormSetValue
+  watch?: FormWatch
   mode?: 'create' | 'edit'
   placeholder?: string
 }) {
@@ -524,19 +497,21 @@ function SlugFieldInput({
   )
 }
 
+interface RichTextFieldInputProps {
+  field: ClientRichTextField
+  register: FormRegister
+  setValue?: FormSetValue
+  watch?: FormWatch
+  disabled?: boolean
+}
+
 function RichTextFieldInput({
   field,
   register,
   setValue,
   watch,
   disabled,
-}: {
-  field: ClientRichTextField
-  register: UseFormRegister<Record<string, unknown>>
-  setValue?: UseFormSetValue<Record<string, unknown>>
-  watch?: UseFormWatch<Record<string, unknown>>
-  disabled?: boolean
-}) {
+}: RichTextFieldInputProps) {
   useEffect(() => {
     register(field.name)
   }, [register, field.name])
@@ -558,19 +533,9 @@ function RichTextFieldInput({
 // Every standard field type is bound through Controller now; `register` is
 // only still used by the fields that enroll a value without spreading it onto
 // an element (richText, relationship, upload).
-function StandardFieldInput({
-  field,
-  control,
-  a11y,
-  disabled,
-  isLocked,
-  placeholder,
-  hasLocalization,
-  isLocalized,
-  fullName,
-}: {
+interface StandardFieldInputProps {
   field: ClientField
-  control: Control<Record<string, unknown>>
+  control: FormControl
   a11y: FieldA11y
   disabled?: boolean
   isLocked?: boolean
@@ -578,90 +543,36 @@ function StandardFieldInput({
   hasLocalization?: boolean
   isLocalized?: boolean
   fullName?: string
-}) {
+}
+
+function StandardFieldInput(props: StandardFieldInputProps) {
+  const { field } = props
   switch (field.type) {
     case 'text':
-      return (
-        <TextFieldInput
-          field={field}
-          control={control}
-          a11y={a11y}
-          disabled={disabled}
-          placeholder={placeholder}
-        />
-      )
+      return <TextFieldInput {...props} field={field} />
     case 'number':
-      return (
-        <NumberFieldInput
-          field={field}
-          control={control}
-          a11y={a11y}
-          disabled={disabled}
-          placeholder={placeholder}
-        />
-      )
+      return <NumberFieldInput {...props} field={field} />
     case 'textarea':
-      return (
-        <TextareaFieldInput
-          field={field}
-          control={control}
-          a11y={a11y}
-          disabled={disabled}
-          placeholder={placeholder}
-        />
-      )
+      return <TextareaFieldInput {...props} field={field} />
     case 'email':
-      return (
-        <EmailFieldInput
-          field={field}
-          control={control}
-          a11y={a11y}
-          disabled={disabled}
-          placeholder={placeholder}
-        />
-      )
+      return <EmailFieldInput {...props} field={field} />
     case 'checkbox':
-      return (
-        <CheckboxFieldInput
-          field={field}
-          control={control}
-          a11y={a11y}
-          disabled={disabled}
-          isLocked={isLocked}
-          hasLocalization={hasLocalization}
-          isLocalized={isLocalized}
-          fullName={fullName}
-        />
-      )
+      return <CheckboxFieldInput {...props} field={field} />
     case 'select':
-      return <SelectFieldInput field={field} control={control} a11y={a11y} disabled={disabled} />
+      return <SelectFieldInput {...props} field={field} />
     case 'date':
-      return <DateFieldInput field={field} control={control} a11y={a11y} disabled={disabled} />
+      return <DateFieldInput {...props} field={field} />
     default:
       return null
   }
 }
 
-function FieldInput({
-  field,
-  control,
-  register,
-  setValue,
-  watch,
-  mode,
-  a11y,
-  disabled,
-  isLocked,
-  placeholder,
-  hasLocalization,
-  isLocalized,
-  fullName,
-}: {
+interface FieldInputProps {
   field: ClientField
-  control: Control<Record<string, unknown>>
-  register: UseFormRegister<Record<string, unknown>>
-  setValue?: UseFormSetValue<Record<string, unknown>>
-  watch?: UseFormWatch<Record<string, unknown>>
+  control: FormControl
+  register: FormRegister
+  setValue?: FormSetValue
+  watch?: FormWatch
   mode?: 'create' | 'edit'
   a11y: FieldA11y
   disabled?: boolean
@@ -670,77 +581,32 @@ function FieldInput({
   hasLocalization?: boolean
   isLocalized?: boolean
   fullName?: string
-}) {
-  if (field.type === 'slug') {
-    return (
-      <SlugFieldInput
-        field={field}
-        control={control}
-        setValue={setValue}
-        watch={watch}
-        mode={mode}
-        a11y={a11y}
-        disabled={disabled}
-        placeholder={placeholder}
-      />
-    )
+}
+
+function FieldInput(props: FieldInputProps) {
+  const { field } = props
+  switch (field.type) {
+    case 'slug':
+      return <SlugFieldInput {...props} field={field} />
+    case 'richText':
+      return <RichTextFieldInput {...props} field={field} />
+    case 'relationship':
+      return <RelationshipPicker {...props} field={field} />
+    case 'upload':
+      return <UploadPicker {...props} field={field} />
+    default:
+      return <StandardFieldInput {...props} field={field} />
   }
-  if (field.type === 'richText') {
-    return (
-      <RichTextFieldInput
-        field={field}
-        register={register}
-        setValue={setValue}
-        watch={watch}
-        disabled={disabled}
-      />
-    )
-  }
-  if (field.type === 'relationship') {
-    return (
-      <RelationshipPicker
-        field={field}
-        register={register}
-        setValue={setValue}
-        watch={watch}
-        disabled={disabled}
-      />
-    )
-  }
-  if (field.type === 'upload') {
-    return (
-      <UploadPicker
-        field={field}
-        register={register}
-        setValue={setValue}
-        watch={watch}
-        disabled={disabled}
-      />
-    )
-  }
-  return (
-    <StandardFieldInput
-      field={field}
-      control={control}
-      a11y={a11y}
-      disabled={disabled}
-      isLocked={isLocked}
-      placeholder={placeholder}
-      hasLocalization={hasLocalization}
-      isLocalized={isLocalized}
-      fullName={fullName}
-    />
-  )
 }
 
 interface GroupFieldRendererProps {
   field: ClientGroupField
   fullName: string
-  control: Control<Record<string, unknown>>
-  register: UseFormRegister<Record<string, unknown>>
+  control: FormControl
+  register: FormRegister
   error?: { message?: string } | Record<string, unknown>
-  setValue?: UseFormSetValue<Record<string, unknown>>
-  watch?: UseFormWatch<Record<string, unknown>>
+  setValue?: FormSetValue
+  watch?: FormWatch
   mode?: 'create' | 'edit'
   permissions?: FieldPermission
   disabled?: boolean
@@ -847,11 +713,11 @@ function getErrorMessage(
 interface ArrayFieldRendererProps {
   field: ClientArrayField
   fullName: string
-  control: Control<Record<string, unknown>>
-  register: UseFormRegister<Record<string, unknown>>
+  control: FormControl
+  register: FormRegister
   error?: { message?: string } | Record<string, unknown>
-  setValue?: UseFormSetValue<Record<string, unknown>>
-  watch?: UseFormWatch<Record<string, unknown>>
+  setValue?: FormSetValue
+  watch?: FormWatch
   mode?: 'create' | 'edit'
   permissions?: FieldPermission
   disabled?: boolean
@@ -867,11 +733,11 @@ interface ArrayRowRendererProps {
   minRows: number
   maxRows: number
   rowPath: string
-  control: Control<Record<string, unknown>>
-  register: UseFormRegister<Record<string, unknown>>
+  control: FormControl
+  register: FormRegister
   rowError?: Record<string, unknown>
-  setValue?: UseFormSetValue<Record<string, unknown>>
-  watch?: UseFormWatch<Record<string, unknown>>
+  setValue?: FormSetValue
+  watch?: FormWatch
   mode?: 'create' | 'edit'
   permissions?: FieldPermission
   disabled?: boolean
@@ -887,7 +753,7 @@ interface ArrayRowRendererProps {
 function getRowLabelFromSubfields(
   field: ClientArrayField,
   rowPath: string,
-  watch?: UseFormWatch<Record<string, unknown>>,
+  watch?: FormWatch,
 ): string | undefined {
   if (!watch) return undefined
 
@@ -915,7 +781,7 @@ function getRowLabel(
   field: ClientArrayField,
   index: number,
   rowPath: string,
-  watch?: UseFormWatch<Record<string, unknown>>,
+  watch?: FormWatch,
 ): string {
   const custom = getRowLabelFromSubfields(field, rowPath, watch)
   if (custom) return custom
@@ -1070,6 +936,19 @@ function ArrayRowRenderer({
   )
 }
 
+interface ArrayHeaderProps {
+  label: string
+  required: boolean
+  description?: string
+  rowCount: number
+  maxRows: number
+  hasBounds: boolean
+  isLocked?: boolean
+  fullName?: string
+  hasLocalization?: boolean
+  isLocalized?: boolean
+}
+
 function ArrayHeader({
   label,
   required,
@@ -1081,18 +960,7 @@ function ArrayHeader({
   fullName,
   hasLocalization,
   isLocalized,
-}: {
-  label: string
-  required: boolean
-  description?: string
-  rowCount: number
-  maxRows: number
-  hasBounds: boolean
-  isLocked?: boolean
-  fullName?: string
-  hasLocalization?: boolean
-  isLocalized?: boolean
-}) {
+}: ArrayHeaderProps) {
   return (
     <div className="lt:flex lt:items-center lt:justify-between lt:gap-2">
       <div>
@@ -1270,11 +1138,11 @@ interface BlockRowRendererProps {
   minRows: number
   maxRows: number
   rowPath: string
-  control: Control<Record<string, unknown>>
-  register: UseFormRegister<Record<string, unknown>>
+  control: FormControl
+  register: FormRegister
   rowError?: Record<string, unknown>
-  setValue?: UseFormSetValue<Record<string, unknown>>
-  watch?: UseFormWatch<Record<string, unknown>>
+  setValue?: FormSetValue
+  watch?: FormWatch
   mode?: 'create' | 'edit'
   permissions?: FieldPermission
   disabled?: boolean
@@ -1291,7 +1159,7 @@ function getBlockRowLabel(
   block: ClientBlock,
   index: number,
   rowPath: string,
-  watch?: UseFormWatch<Record<string, unknown>>,
+  watch?: FormWatch,
 ): string {
   const blockTitle = block.labels?.singular || block.slug
   if (watch) {
@@ -1462,15 +1330,13 @@ function BlockRowRenderer({
   )
 }
 
-function AddBlockPicker({
-  blocks,
-  disabled,
-  onSelectBlock,
-}: {
+interface AddBlockPickerProps {
   blocks: readonly ClientBlock[]
   disabled: boolean
   onSelectBlock: (block: ClientBlock) => void
-}) {
+}
+
+function AddBlockPicker({ blocks, disabled, onSelectBlock }: AddBlockPickerProps) {
   const [open, setOpen] = useState(false)
 
   return (
@@ -1510,11 +1376,11 @@ function AddBlockPicker({
 interface BlocksFieldRendererProps {
   field: ClientBlocksField
   fullName: string
-  control: Control<Record<string, unknown>>
-  register: UseFormRegister<Record<string, unknown>>
+  control: FormControl
+  register: FormRegister
   error?: { message?: string } | Record<string, unknown>
-  setValue?: UseFormSetValue<Record<string, unknown>>
-  watch?: UseFormWatch<Record<string, unknown>>
+  setValue?: FormSetValue
+  watch?: FormWatch
   mode?: 'create' | 'edit'
   permissions?: FieldPermission
   disabled?: boolean
@@ -1641,11 +1507,11 @@ function BlocksFieldRenderer({
 interface StandardFieldRendererProps {
   field: ClientField
   fullName: string
-  control: Control<Record<string, unknown>>
-  register: UseFormRegister<Record<string, unknown>>
+  control: FormControl
+  register: FormRegister
   errorMessage?: string
-  setValue?: UseFormSetValue<Record<string, unknown>>
-  watch?: UseFormWatch<Record<string, unknown>>
+  setValue?: FormSetValue
+  watch?: FormWatch
   mode?: 'create' | 'edit'
   disabled?: boolean
   isLocked?: boolean
