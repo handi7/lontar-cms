@@ -1,6 +1,6 @@
-import { useState, useMemo, useEffect } from 'react'
+import { useState, useMemo, useEffect, useCallback, useRef } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { Link, useNavigate, useParams } from '@tanstack/react-router'
+import { Link, useNavigate, useParams, useSearch } from '@tanstack/react-router'
 import {
   useReactTable,
   getCoreRowModel,
@@ -8,6 +8,7 @@ import {
   type ColumnDef,
   type Table,
   type SortingState,
+  type Updater,
 } from '@tanstack/react-table'
 import type {
   ClientCollection,
@@ -44,6 +45,14 @@ import { EmptyCard } from './EmptyCard'
 import { LocaleSwitcher } from './LocaleSwitcher'
 import { NotFoundView } from './NotFoundView'
 import { ViewHeader } from './ViewHeader'
+import {
+  formatSortParam,
+  parseListSearch,
+  resolveListState,
+  toFilterParams,
+  type ListSearchParams,
+  type ListStatus,
+} from './listSearch'
 
 const mediaCellClass = 'lt:flex lt:items-center lt:gap-2.5'
 const thumbnailClass = 'lt:size-9 lt:shrink-0 lt:rounded-sm lt:border lt:object-cover'
@@ -542,51 +551,98 @@ function ListContent({
   return <CollectionTable table={table} data={data} onPageChange={onPageChange} />
 }
 
-function formatSortParam(sorting: SortingState): string | undefined {
-  if (sorting.length === 0) return undefined
-  return sorting.map((s) => (s.desc ? `-${s.id}` : s.id)).join(',')
+const SEARCH_DEBOUNCE_MS = 250
+
+function useListSearchNavigate() {
+  const navigate = useNavigate()
+  return useCallback(
+    (patch: ListSearchParams, replace = false) => {
+      void navigate({
+        search: ((prev: Record<string, unknown>) => ({ ...prev, ...patch })) as never,
+        replace,
+      })
+    },
+    [navigate],
+  )
 }
 
-function useListFilters() {
-  const [page, setPage] = useState(1)
-  const [searchTerm, setSearchTerm] = useState('')
-  const [statusFilter, setStatusFilter] = useState<'all' | 'published' | 'draft'>('all')
-  const [activeFilters, setActiveFilters] = useState<ActiveFilter[]>([])
+// The typed text lives here so typing never waits on the router; the URL gets it after a pause.
+function useDebouncedSearchInput(urlTerm: string, commit: (term: string) => void) {
+  const [input, setInput] = useState(urlTerm)
+  const timer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined)
 
-  const handleSearchChange = (term: string) => {
-    setSearchTerm(term)
-    setPage(1)
+  useEffect(() => {
+    if (timer.current === undefined) setInput(urlTerm)
+  }, [urlTerm])
+  useEffect(() => () => clearTimeout(timer.current), [])
+
+  const change = (term: string) => {
+    setInput(term)
+    clearTimeout(timer.current)
+    timer.current = setTimeout(() => {
+      timer.current = undefined
+      commit(term)
+    }, SEARCH_DEBOUNCE_MS)
+  }
+  const reset = () => {
+    clearTimeout(timer.current)
+    timer.current = undefined
+    setInput('')
+  }
+  return { input, change, reset }
+}
+
+function useListFilters(
+  collection: ClientCollection,
+  fieldPermissions?: Record<string, FieldPermission>,
+) {
+  const rawSearch: unknown = useSearch({ strict: false })
+  const params = useMemo(
+    () => parseListSearch(rawSearch && typeof rawSearch === 'object' ? { ...rawSearch } : {}),
+    [rawSearch],
+  )
+  const state = useMemo(
+    () => resolveListState(params, collection, fieldPermissions),
+    [params, collection, fieldPermissions],
+  )
+  const go = useListSearchNavigate()
+
+  const search = useDebouncedSearchInput(state.searchTerm, (term) =>
+    // Typing replaces the history entry, so Back skips the keystrokes.
+    go({ q: term.trim() ? term : undefined, page: undefined }, true),
+  )
+
+  const setPage = (page: number) => go({ page: page > 1 ? page : undefined })
+
+  const setSorting = (updater: Updater<SortingState>) => {
+    const next = typeof updater === 'function' ? updater(state.sorting) : updater
+    go({ sort: formatSortParam(next), page: undefined })
   }
 
-  const handleStatusFilterChange = (val: 'all' | 'published' | 'draft') => {
-    setStatusFilter(val)
-    setPage(1)
-  }
+  const handleStatusFilterChange = (val: 'all' | ListStatus) =>
+    go({ status: val === 'all' ? undefined : val, page: undefined })
 
-  const handleAddFilter = (filter: ActiveFilter) => {
-    setActiveFilters((prev) => [...prev, filter])
-    setPage(1)
-  }
+  const handleAddFilter = (filter: ActiveFilter) =>
+    go({ filters: toFilterParams([...state.filters, filter]), page: undefined })
 
-  const handleRemoveFilter = (id: string) => {
-    setActiveFilters((prev) => prev.filter((f) => f.id !== id))
-    setPage(1)
-  }
+  const handleRemoveFilter = (id: string) =>
+    go({ filters: toFilterParams(state.filters.filter((f) => f.id !== id)), page: undefined })
 
   const handleClearAll = () => {
-    setSearchTerm('')
-    setStatusFilter('all')
-    setActiveFilters([])
-    setPage(1)
+    search.reset()
+    go({ q: undefined, status: undefined, filters: undefined, page: undefined })
   }
 
   return {
-    page,
+    page: state.page,
     setPage,
-    searchTerm,
-    statusFilter,
-    activeFilters,
-    handleSearchChange,
+    sorting: state.sorting,
+    setSorting,
+    searchTerm: state.searchTerm,
+    searchInput: search.input,
+    statusFilter: state.statusFilter,
+    activeFilters: state.filters,
+    handleSearchChange: search.change,
     handleStatusFilterChange,
     handleAddFilter,
     handleRemoveFilter,
@@ -741,6 +797,22 @@ function renderListHeaderActions(
   )
 }
 
+function useListColumns(
+  collection: ClientCollection,
+  handleDelete: (id: number | string) => void,
+  isDeleting: boolean,
+  canDelete: boolean,
+  collectionPerm: { fields?: Record<string, FieldPermission> } | undefined,
+  activeLocale: string | undefined,
+) {
+  const fieldPermissions = collectionPerm?.fields
+  return useMemo(
+    () =>
+      buildColumns(collection, handleDelete, isDeleting, canDelete, fieldPermissions, activeLocale),
+    [collection, handleDelete, isDeleting, canDelete, fieldPermissions, activeLocale],
+  )
+}
+
 interface CollectionListTableProps {
   collection: ClientCollection
 }
@@ -749,12 +821,15 @@ function CollectionListTable({ collection }: CollectionListTableProps) {
   const { apiBase } = useAdmin()
   const navigate = useNavigate()
   const { hasLocalization, activeLocale, fallbackLocale, locales } = useLocale()
-  const [sorting, setSorting] = useState<SortingState>([])
+  const { collectionPerm, canCreate, canDelete } = useCollectionPermissionsState(collection.slug)
 
   const {
     page,
     setPage,
+    sorting,
+    setSorting,
     searchTerm,
+    searchInput,
     statusFilter,
     activeFilters,
     handleSearchChange,
@@ -762,7 +837,7 @@ function CollectionListTable({ collection }: CollectionListTableProps) {
     handleAddFilter,
     handleRemoveFilter,
     handleClearAll,
-  } = useListFilters()
+  } = useListFilters(collection, collectionPerm?.fields)
 
   const handleLocaleChange = (newLocale: string) => {
     void navigate({
@@ -784,7 +859,6 @@ function CollectionListTable({ collection }: CollectionListTableProps) {
     setDeleteError(null)
   }, [collection.slug, page, setDeleteError])
 
-  const { collectionPerm, canCreate, canDelete } = useCollectionPermissionsState(collection.slug)
   const searchField = useMemo(
     () => resolveSearchField(collection, collectionPerm?.fields),
     [collection, collectionPerm?.fields],
@@ -808,16 +882,14 @@ function CollectionListTable({ collection }: CollectionListTableProps) {
     fallbackLocale,
   )
 
-  const columns = useMemo(() => {
-    return buildColumns(
-      collection,
-      handleDelete,
-      isDeleting,
-      canDelete,
-      collectionPerm?.fields,
-      activeLocale,
-    )
-  }, [collection, handleDelete, isDeleting, canDelete, collectionPerm?.fields, activeLocale])
+  const columns = useListColumns(
+    collection,
+    handleDelete,
+    isDeleting,
+    canDelete,
+    collectionPerm,
+    activeLocale,
+  )
 
   const docs = useMemo(() => data?.docs ?? [], [data?.docs])
 
@@ -827,10 +899,7 @@ function CollectionListTable({ collection }: CollectionListTableProps) {
     state: {
       sorting,
     },
-    onSortingChange: (updater) => {
-      setSorting(updater)
-      setPage(1)
-    },
+    onSortingChange: setSorting,
     manualSorting: true,
     getCoreRowModel: getCoreRowModel(),
   })
@@ -862,7 +931,7 @@ function CollectionListTable({ collection }: CollectionListTableProps) {
 
       <CollectionFilterBar
         collection={collection}
-        searchTerm={searchTerm}
+        searchTerm={searchInput}
         onSearchChange={handleSearchChange}
         activeFilters={activeFilters}
         onAddFilter={handleAddFilter}

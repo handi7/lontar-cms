@@ -17,6 +17,7 @@ import { NotFoundView } from '../views/NotFoundView'
 import { ResetPasswordView } from '../views/ResetPasswordView'
 import { UsersView } from '../views/UsersView'
 import { VerifyEmailView } from '../views/VerifyEmailView'
+import { parseListSearch } from '../views/listSearch'
 
 export interface LocaleSearchParams {
   locale?: string
@@ -109,7 +110,7 @@ export function createAdminRouter(options: { basePath?: string; history?: Router
     getParentRoute: () => collectionRoute,
     path: '/',
     component: CollectionListView,
-    validateSearch: parseLocaleSearch,
+    validateSearch: parseListSearch,
     remountDeps: ({ params }) => params,
   })
 

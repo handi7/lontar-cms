@@ -244,7 +244,7 @@ function StatusFilterSelect({ statusFilter, onChange }: StatusFilterSelectProps)
   )
 }
 
-function buildFilterFields(
+export function buildFilterFields(
   collection: ClientCollection,
   fieldPermissions?: Record<string, FieldPermission>,
 ): FilterFieldOption[] {

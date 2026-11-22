@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { cleanup, render, screen, waitFor } from '@testing-library/react'
+import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import {
   CLIENT_CONFIG_VERSION,
@@ -34,8 +34,11 @@ const mockNavigate = vi.fn(
   },
 )
 
+let mockRouteSearch: Record<string, unknown> = {}
+
 vi.mock('@tanstack/react-router', () => ({
   useParams: () => ({ collection: 'articles' }),
+  useSearch: () => mockRouteSearch,
   useNavigate: () => mockNavigate,
   Link: ({
     children,
@@ -90,6 +93,7 @@ describe('CollectionListView permissions (#341)', () => {
 
   beforeEach(() => {
     vi.clearAllMocks()
+    mockRouteSearch = {}
     queryClient = new QueryClient({
       defaultOptions: {
         queries: { retry: false },
@@ -287,5 +291,72 @@ describe('CollectionListView permissions (#341)', () => {
       page: 2,
       locale: 'id',
     })
+  })
+
+  it('reads page, search, sort and filters from the URL (#214)', async () => {
+    vi.mocked(client.fetchPermissions).mockResolvedValue({
+      collections: { articles: mockCollectionPerm() },
+      globals: {},
+    })
+    mockRouteSearch = {
+      page: 3,
+      q: 'hello',
+      sort: '-title',
+      filters: [
+        { field: 'title', operator: 'equals', value: 'x' },
+        { field: 'bogus', operator: 'equals', value: 'dropped' },
+      ],
+    }
+
+    renderWithProviders()
+
+    expect(await screen.findByText('Article 1')).toBeTruthy()
+    expect(client.fetchCollectionDocs).toHaveBeenLastCalledWith(
+      '/api',
+      'articles',
+      expect.objectContaining({
+        page: 3,
+        sort: '-title',
+        where: { title: { contains: 'hello', equals: 'x' } },
+      }),
+    )
+    expect(screen.getByLabelText('Search Articles')).toHaveProperty('value', 'hello')
+    expect(screen.queryByText(/bogus/)).toBeNull()
+  })
+
+  it('writes the search to the URL, replacing the history entry (#214)', async () => {
+    vi.mocked(client.fetchPermissions).mockResolvedValue({
+      collections: { articles: mockCollectionPerm() },
+      globals: {},
+    })
+    renderWithProviders()
+    expect(await screen.findByText('Article 1')).toBeTruthy()
+
+    fireEvent.change(screen.getByLabelText('Search Articles'), { target: { value: 'foo' } })
+
+    await waitFor(() => expect(mockNavigate).toHaveBeenCalledTimes(1))
+    expect(mockNavigate.mock.calls[0]?.[0]).toMatchObject({ replace: true })
+    expect(capturedNavigateSearch?.({ page: 4, locale: 'id' })).toEqual({
+      page: undefined,
+      q: 'foo',
+      locale: 'id',
+    })
+  })
+
+  it('resets to page 1 when a filter is removed (#214)', async () => {
+    vi.mocked(client.fetchPermissions).mockResolvedValue({
+      collections: { articles: mockCollectionPerm() },
+      globals: {},
+    })
+    mockRouteSearch = {
+      page: 2,
+      filters: [{ field: 'title', operator: 'equals', value: 'x' }],
+    }
+    renderWithProviders()
+
+    fireEvent.click(await screen.findByLabelText('Remove title filter'))
+
+    expect(mockNavigate.mock.calls[0]?.[0]).not.toMatchObject({ replace: true })
+    expect(capturedNavigateSearch?.({ page: 2 })).toEqual({ page: undefined, filters: undefined })
   })
 })
