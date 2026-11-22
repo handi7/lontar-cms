@@ -130,7 +130,7 @@ describe('CollectionListView permissions (#341)', () => {
 
   afterEach(cleanup)
 
-  function renderWithProviders(configOverride?: Partial<ClientConfig>) {
+  function renderWithProviders(configOverride?: Partial<ClientConfig>, userId = 'u1') {
     const adminConfig: ClientConfig = {
       version: CLIENT_CONFIG_VERSION,
       collections: [mockArticlesCollection],
@@ -149,7 +149,7 @@ describe('CollectionListView permissions (#341)', () => {
                 basePath: '/admin',
               }}
             >
-              <PermissionsProvider apiBase="/api" user={{ id: 'u1' }}>
+              <PermissionsProvider apiBase="/api" user={{ id: userId }}>
                 <CollectionListView />
               </PermissionsProvider>
             </AdminContext.Provider>
@@ -521,6 +521,132 @@ describe('CollectionListView permissions (#341)', () => {
       expect(screen.getByTestId('bulk-count').textContent).toBe('1 selected')
       expect(screen.getByLabelText('Select Article 2').getAttribute('data-state')).toBe('checked')
       expect(screen.getByLabelText('Select Article 1').getAttribute('data-state')).toBe('unchecked')
+    })
+  })
+
+  describe('column picker (#461)', () => {
+    const viewsCollection: ClientCollection = {
+      ...mockArticlesCollection,
+      fields: [
+        ...mockArticlesCollection.fields,
+        { name: 'views', label: 'Views', type: 'number', required: false },
+      ],
+    }
+    const key = (user: string) => `lontar-admin-columns:${user}:articles`
+
+    beforeEach(() => {
+      window.localStorage.clear()
+      vi.mocked(client.fetchPermissions).mockResolvedValue({
+        collections: { articles: mockCollectionPerm() },
+        globals: {},
+      })
+    })
+
+    afterEach(() => {
+      window.localStorage.clear()
+      vi.restoreAllMocks()
+    })
+
+    const header = (name: string | RegExp) => screen.queryByRole('columnheader', { name })
+
+    async function openPicker() {
+      fireEvent.click(await screen.findByRole('button', { name: 'Columns' }))
+      return screen.findByRole('checkbox', { name: /Title/ })
+    }
+
+    it('toggles a column on and off and remembers the choice', async () => {
+      renderWithProviders({ collections: [viewsCollection] })
+      await openPicker()
+      expect(header(/Views/)).toBeNull()
+
+      fireEvent.click(screen.getByRole('checkbox', { name: 'Views' }))
+      await waitFor(() => expect(header(/Views/)).toBeTruthy())
+      expect(JSON.parse(window.localStorage.getItem(key('u1')) ?? 'null')).toEqual([
+        'title',
+        'secretNotes',
+        'views',
+      ])
+
+      fireEvent.click(screen.getByRole('checkbox', { name: 'Secret Notes' }))
+      await waitFor(() => expect(header(/Secret Notes/)).toBeNull())
+    })
+
+    it('starts from the stored choice on the next visit', async () => {
+      window.localStorage.setItem(key('u1'), JSON.stringify(['title', 'views']))
+      renderWithProviders({ collections: [viewsCollection] })
+
+      expect(await screen.findByText('Article 1')).toBeTruthy()
+      expect(header(/Views/)).toBeTruthy()
+      expect(header(/Secret Notes/)).toBeNull()
+    })
+
+    it('ignores a stored column that is no longer in the config', async () => {
+      window.localStorage.setItem(key('u1'), JSON.stringify(['title', 'removedField']))
+      renderWithProviders()
+
+      expect(await screen.findByText('Article 1')).toBeTruthy()
+      expect(header(/Title/)).toBeTruthy()
+      expect(header(/removedField/)).toBeNull()
+    })
+
+    it('does not show one user their colleague’s choice', async () => {
+      window.localStorage.setItem(key('u1'), JSON.stringify(['title', 'views']))
+      renderWithProviders({ collections: [viewsCollection] }, 'u2')
+
+      expect(await screen.findByText('Article 1')).toBeTruthy()
+      expect(header(/Views/)).toBeNull()
+      expect(header(/Secret Notes/)).toBeTruthy()
+    })
+
+    it('does not offer a field the user cannot read', async () => {
+      vi.mocked(client.fetchPermissions).mockResolvedValue({
+        collections: {
+          articles: mockCollectionPerm({ fields: { secretNotes: { read: false } as never } }),
+        },
+        globals: {},
+      })
+      renderWithProviders()
+      await openPicker()
+
+      await waitFor(() =>
+        expect(screen.queryByRole('checkbox', { name: 'Secret Notes' })).toBeNull(),
+      )
+    })
+
+    it('keeps the title column on', async () => {
+      renderWithProviders()
+      const title = await openPicker()
+
+      expect(title.hasAttribute('disabled')).toBe(true)
+      expect(title.getAttribute('data-state')).toBe('checked')
+    })
+
+    it('resets to the default columns', async () => {
+      window.localStorage.setItem(key('u1'), JSON.stringify(['title']))
+      renderWithProviders()
+      await openPicker()
+      expect(header(/Secret Notes/)).toBeNull()
+
+      fireEvent.click(screen.getByRole('button', { name: 'Reset to default' }))
+
+      await waitFor(() => expect(header(/Secret Notes/)).toBeTruthy())
+      expect(window.localStorage.getItem(key('u1'))).toBeNull()
+    })
+
+    it('still lists and toggles columns when localStorage throws', async () => {
+      vi.spyOn(Storage.prototype, 'getItem').mockImplementation(() => {
+        throw new Error('blocked')
+      })
+      vi.spyOn(Storage.prototype, 'setItem').mockImplementation(() => {
+        throw new Error('quota')
+      })
+      renderWithProviders({ collections: [viewsCollection] })
+      await openPicker()
+      expect(header(/Secret Notes/)).toBeTruthy()
+
+      fireEvent.click(screen.getByRole('checkbox', { name: 'Views' }))
+
+      await waitFor(() => expect(header(/Views/)).toBeTruthy())
     })
   })
 })
