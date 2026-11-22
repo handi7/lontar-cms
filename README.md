@@ -110,7 +110,7 @@ Lontar supports MySQL and PostgreSQL via dedicated adapters:
 
 `fields` is deliberately an object rather than an array, which makes TypeScript type inference simpler.
 
-By default, operations on collections and globals require an authenticated user (`({ user }) => Boolean(user)`). To allow public or anonymous access, define the access rule explicitly (for example, `read: () => true`).
+By default, operations on collections and globals require an authenticated user (`({ user }) => Boolean(user)`). To allow public or anonymous access, define the access rule explicitly (for example, `read: () => true`). A collection's `read`, `update` and `delete` can also return a `where` constraint, see [Row-level access control](#row-level-access-control).
 
 ### Users and roles
 
@@ -187,6 +187,43 @@ When an email adapter is configured:
 - **User invitations**: In the Users administration view, admins can invite team members with a specific role without setting an initial password (`invite: true`). Invited users receive an activation link (`/accept-invite?token=...`) to set their own password.
 - **Resend invitations**: Administrators can resend invitation links at any time directly from the user actions menu (`POST /api/_lontar/users/:id/resend-invite`).
 - **Without an adapter**: When `email` is not configured, reset and invite features are gracefully hidden in the admin UI, and invite endpoints return clear `400` errors.
+
+### Row-level access control
+
+A collection's `read`, `update` and `delete` access functions may return a `where` expression instead of a boolean, to limit the operation to the documents it matches:
+
+```ts
+const posts = collection({
+  slug: 'posts',
+  access: {
+    read: ({ user }) => (user?.role === 'editor' ? true : { author: { equals: user?.id } }),
+    update: ({ user }) => (user?.role === 'editor' ? true : { author: { equals: user?.id } }),
+    delete: ({ user }) => user?.role === 'admin',
+  },
+  fields: { title: f.text(), author: f.text() },
+})
+```
+
+| Returns          | Meaning                                             |
+| ---------------- | --------------------------------------------------- |
+| `true`           | Every document.                                     |
+| `false`          | No document (`401` without a user, `403` with one). |
+| a `where` object | Only the documents that match it.                   |
+| a throw          | Denied.                                             |
+
+- The constraint uses the same query language as `where` (operators, `and` / `or`, nested paths such as `seo.title`, relationship ids). It is checked like a request's `where`: a field that does not exist denies the operation. It may name a field the caller cannot read.
+- An empty constraint (`{}`, `{ and: [] }`) is denied. Return `true` to allow every document.
+- It is combined with the request's own filter as `and`, so a request cannot widen it. Lists, counts and paging only include matching documents.
+- A document outside the constraint behaves like one that does not exist: `404` with the same message, for reads, updates, deletes, publish, unpublish, version history, restore and file downloads. `403` is only for a function that returns `false`.
+- A related document outside the target collection's constraint is not populated (`null`, or left out of a `hasMany`).
+- The constraint is checked against the stored document, not the incoming data or a draft. An update that changes the field it reads can move the document out of the caller's reach once saved; use a `beforeChange` hook or field-level `access.update` to forbid that.
+- A constraint on a localized field is evaluated in the request's locale.
+- `create`, globals and field-level `access` are boolean only. An object returned from them (or any non-boolean) is denied.
+- Webhooks ignore the constraint, as they ignore collection `read` access. The Local API with `overrideAccess: true` (the default) never calls the access function.
+- `GET /api/_lontar/permissions` reports a constrained operation as `true` ("at least some documents") with `constrained: { read?, update?, delete? }`. The per-document endpoint answers exactly for that document.
+- The constraint check and the write are separate steps, so a concurrent change to the constrained field between them can let a write through.
+
+See [ADR 0030](docs/adr/0030-row-level-access.md) for the full design.
 
 ### Field-level access control
 
