@@ -94,6 +94,8 @@ export interface ClientFieldBase {
   required: boolean
   localized?: boolean
   condition?: FieldCondition
+  /** Key of the host component that replaces this field's input (`admin.component`). */
+  component?: string
 }
 
 export interface ClientTextField extends ClientFieldBase {

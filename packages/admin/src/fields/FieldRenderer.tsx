@@ -61,6 +61,7 @@ import { DateTimePicker } from './DateTimePicker'
 import { RichTextEditor } from './RichTextEditor'
 import { RelationshipPicker } from './RelationshipPicker'
 import { UploadPicker } from './UploadPicker'
+import { CustomFieldInput } from './CustomFieldInput'
 
 export interface FieldRendererProps {
   field: ClientField
@@ -581,10 +582,24 @@ interface FieldInputProps {
   hasLocalization?: boolean
   isLocalized?: boolean
   fullName?: string
+  errorMessage?: string
 }
 
 function FieldInput(props: FieldInputProps) {
   const { field } = props
+  if (field.component) {
+    return (
+      <CustomFieldInput
+        field={field}
+        component={field.component}
+        fullName={props.fullName ?? field.name}
+        control={props.control}
+        disabled={props.disabled}
+        isLocked={props.isLocked}
+        errorMessage={props.errorMessage}
+      />
+    )
+  }
   switch (field.type) {
     case 'slug':
       return <SlugFieldInput {...props} field={field} />
@@ -1547,7 +1562,7 @@ function StandardFieldRenderer({
 
   return (
     <Field className="lontar-field-group" data-invalid={hasError || undefined}>
-      {field.type !== 'checkbox' && (
+      {(field.type !== 'checkbox' || field.component) && (
         <FieldLabel htmlFor={fullName} className="lontar-label">
           <span>{field.label}</span>
           {field.required && <span className="lontar-required">*</span>}
@@ -1581,6 +1596,7 @@ function StandardFieldRenderer({
         hasLocalization={hasLocalization}
         isLocalized={isLocalized}
         fullName={fullName}
+        errorMessage={errorMessage}
       />
       <FieldError
         id={errorId}

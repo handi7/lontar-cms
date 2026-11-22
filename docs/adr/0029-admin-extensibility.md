@@ -234,6 +234,11 @@ Accepting this ADR fixes the following, which the implementation issues rely on:
 - **Session-only by default.** An endpoint rejects API keys with `403` unless it sets `apiKey: true`.
 - **Default access.** Omitting `access` means any authenticated user. A public endpoint writes
   `access: () => true`.
+- **Custom components on container fields.** `admin.component` is rejected on `group`, `array` and
+  `blocks` (#465): they render their nested fields, so there is no single input to replace. A
+  nested field may set one.
+- **`useDocumentForm()` is read-only.** It exposes the document's values, not a setter, so a field
+  component cannot write its siblings around their access locks and validation (#465).
 
 ### Rollout
 

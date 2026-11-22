@@ -763,6 +763,13 @@ admin: {
 
 Components read data through exported hooks: `useAdminConfig()`, `useAuth()`, `useLontarFetch()` (fetch bound to `apiBase` with credentials) and `useDocumentForm()` (sibling values, for field components). Anything not exported is private and may change in a minor release.
 
+Notes on custom field inputs:
+
+- `admin.component` is rejected at startup on `group`, `array` and `blocks`, which render their nested fields. Set it on a field inside them instead; `path` is then the full dotted path (`seo.score`, `rows.0.note`).
+- An unknown key renders a placeholder naming it and logs one warning per key. A component that throws is replaced by an inline error and the rest of the form keeps working.
+- `useDocumentForm()` is read-only (`{ values, getValue(path) }`). A component writes only its own value, through `onChange`, so access locks and validation stay in force.
+- To type the keys, merge them into `AdminComponentKeys` from `@lontar/core`: `declare module '@lontar/core' { interface AdminComponentKeys { 'rating-stars': true } }`. Without it any string is accepted.
+
 A key with no registered component renders a placeholder naming the key and logs a warning; the rest of the admin keeps working. To type the keys, augment the empty `AdminComponentKeys` interface from `@lontar/core` by declaration merging. Host components bring their own styles; match the theme with the `--lontar-*` tokens below.
 
 #### Declarative actions

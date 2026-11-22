@@ -20,6 +20,7 @@ import {
   type CollectionPermission,
   type FieldPermission,
 } from '@lontar/core/client'
+import { DocumentFormProvider } from '../context/DocumentFormContext'
 import { useAdmin, useCollection } from '../context/AdminContext'
 import { usePermissions, useDocumentPermissions } from '../context/PermissionsContext'
 import {
@@ -907,56 +908,58 @@ function CollectionEditorSplitLayout(props: CollectionEditorSplitLayoutProps) {
         />
       }
     >
-      <form
-        onSubmit={(e) => {
-          e.preventDefault()
-          props.onPublish()
-        }}
-        className="lt:flex lt:flex-col lt:@3xl:flex-row lt:gap-8 lt:items-start"
-      >
-        <FormFields
-          collection={props.collection}
-          mode={props.mode}
-          control={props.control}
-          register={props.register}
-          setValue={props.setValue}
-          watch={props.watch}
-          errors={props.errors}
-          selectedFile={props.selectedFile}
-          onFileChange={props.onFileChange}
-          fileError={props.fileError}
-          doc={props.doc}
-          permissions={props.fieldPermissions}
-          readOnlyDoc={props.readOnlyDoc}
-          fallbackDoc={props.fallbackDoc}
-          hasLocalization={props.hasLocalization}
-        />
+      <DocumentFormProvider values={props.formValues}>
+        <form
+          onSubmit={(e) => {
+            e.preventDefault()
+            props.onPublish()
+          }}
+          className="lt:flex lt:flex-col lt:@3xl:flex-row lt:gap-8 lt:items-start"
+        >
+          <FormFields
+            collection={props.collection}
+            mode={props.mode}
+            control={props.control}
+            register={props.register}
+            setValue={props.setValue}
+            watch={props.watch}
+            errors={props.errors}
+            selectedFile={props.selectedFile}
+            onFileChange={props.onFileChange}
+            fileError={props.fileError}
+            doc={props.doc}
+            permissions={props.fieldPermissions}
+            readOnlyDoc={props.readOnlyDoc}
+            fallbackDoc={props.fallbackDoc}
+            hasLocalization={props.hasLocalization}
+          />
 
-        <DocumentSidebar
-          mode={props.mode}
-          submitLabel={props.submitLabel}
-          isPending={props.isSubmitting || props.savePending || props.unpublishPending}
-          isDeleting={props.deletePending}
-          onDelete={props.onDeleteClick}
-          showDelete={props.canDeleteDoc}
-          canDelete={props.canDeleteDoc}
-          doc={props.doc}
-          hasDrafts={props.hasDrafts}
-          hasVersions={props.hasVersions && props.canReadVersions}
-          hasPreview={props.hasPreview}
-          isPreviewOpen={props.preview.isOpen}
-          onTogglePreview={props.editorView.toggle}
-          onOpenHistory={props.onOpenHistory}
-          autosave={props.autosaveSidebar}
-          onPublish={props.onPublish}
-          onSaveDraft={props.onSaveDraft}
-          onUnpublish={props.onUnpublish}
-          isPublishing={props.isPublishing}
-          isSavingDraft={props.isSavingDraft}
-          isUnpublishing={props.unpublishPending}
-          readOnly={props.readOnlyDoc}
-        />
-      </form>
+          <DocumentSidebar
+            mode={props.mode}
+            submitLabel={props.submitLabel}
+            isPending={props.isSubmitting || props.savePending || props.unpublishPending}
+            isDeleting={props.deletePending}
+            onDelete={props.onDeleteClick}
+            showDelete={props.canDeleteDoc}
+            canDelete={props.canDeleteDoc}
+            doc={props.doc}
+            hasDrafts={props.hasDrafts}
+            hasVersions={props.hasVersions && props.canReadVersions}
+            hasPreview={props.hasPreview}
+            isPreviewOpen={props.preview.isOpen}
+            onTogglePreview={props.editorView.toggle}
+            onOpenHistory={props.onOpenHistory}
+            autosave={props.autosaveSidebar}
+            onPublish={props.onPublish}
+            onSaveDraft={props.onSaveDraft}
+            onUnpublish={props.onUnpublish}
+            isPublishing={props.isPublishing}
+            isSavingDraft={props.isSavingDraft}
+            isUnpublishing={props.unpublishPending}
+            readOnly={props.readOnlyDoc}
+          />
+        </form>
+      </DocumentFormProvider>
     </EditorSplitLayout>
   )
 }

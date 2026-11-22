@@ -25,9 +25,26 @@ export interface FieldAccess {
   update?: FieldAccessFunction
 }
 
+/**
+ * Keys of the components a host registers on `<Admin components>`. Empty so that projects can
+ * declare theirs by merging (like `UserRoleExtension`), which makes a typo in
+ * `admin.component` a compile error. Without a declaration any string is accepted.
+ */
+// eslint-disable-next-line @typescript-eslint/no-empty-object-type -- meant to be augmented by consumers via declaration merging
+export interface AdminComponentKeys {}
+export type AdminComponentKey = [keyof AdminComponentKeys] extends [never]
+  ? string
+  : Extract<keyof AdminComponentKeys, string>
+
 export interface FieldAdminOptions {
   description?: string
   condition?: FieldCondition
+  /**
+   * Key of a component registered on `<Admin components>` that replaces this field's input. The
+   * label, description, conditional display, access locks and validation stay Lontar's.
+   * Not allowed on `group`, `array` and `blocks`, which render their nested fields.
+   */
+  component?: AdminComponentKey
 }
 
 export interface BaseField {
