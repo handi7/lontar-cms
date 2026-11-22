@@ -6,6 +6,7 @@ import type { Fields } from '../fields/types'
 import { AccessDeniedError, NotFoundError, ValidationError } from './errors'
 import { updateGlobalOperation } from './global'
 import { projectCanonicalDoc, resolveOperationLocale } from './locale'
+import { assertRowAccess } from './row-access'
 import type { OperationContext } from './types'
 import { updateOperation } from './update'
 
@@ -50,52 +51,25 @@ export interface RestoreGlobalVersionOperationArgs extends OperationContext {
   depth?: number
 }
 
-async function assertReadAccess(
-  collection: CollectionConfig,
-  id: number,
-  user?: AuthUser | null,
-  locale?: string,
-  req?: Request,
-): Promise<void> {
-  const allowed = await checkAccess(collection.access?.read, {
-    user: user ?? null,
-    id,
-    locale,
-    req,
-  })
-  if (!allowed) {
-    throw new AccessDeniedError('Access denied', { user })
-  }
-}
-
-async function assertUpdateAccess(
-  collection: CollectionConfig,
-  id: number,
-  user?: AuthUser | null,
-  locale?: string,
-  req?: Request,
-): Promise<void> {
-  const allowed = await checkAccess(collection.access?.update, {
-    user: user ?? null,
-    id,
-    locale,
-    req,
-  })
-  if (!allowed) {
-    throw new AccessDeniedError('Access denied', { user })
-  }
-}
-
 // Version snapshots hold draft content, which ADR 0023 §5 gates behind update access.
 async function assertVersionHistoryAccess(
+  config: Config,
   collection: CollectionConfig,
   id: number,
   user?: AuthUser | null,
   locale?: string,
   req?: Request,
 ): Promise<void> {
-  await assertReadAccess(collection, id, user, locale, req)
-  await assertUpdateAccess(collection, id, user, locale, req)
+  // Both constraints must match the parent document, never the snapshot (ADR 0030 §7).
+  await assertRowAccess({
+    config,
+    collection,
+    id,
+    user,
+    operations: ['read', 'update'],
+    locale,
+    req,
+  })
 }
 
 function assertVersionsEnabled(collection: CollectionConfig): void {
@@ -131,7 +105,14 @@ export async function findVersionsOperation(
   )
   assertVersionsEnabled(args.collection)
   if (!args.overrideAccess) {
-    await assertVersionHistoryAccess(args.collection, args.id, args.user, locale, args.req)
+    await assertVersionHistoryAccess(
+      args.config,
+      args.collection,
+      args.id,
+      args.user,
+      locale,
+      args.req,
+    )
   }
 
   if (!args.config.db.findVersions) {
@@ -188,7 +169,14 @@ export async function findVersionByIDOperation(
   )
   assertVersionsEnabled(args.collection)
   if (!args.overrideAccess) {
-    await assertVersionHistoryAccess(args.collection, args.id, args.user, locale, args.req)
+    await assertVersionHistoryAccess(
+      args.config,
+      args.collection,
+      args.id,
+      args.user,
+      locale,
+      args.req,
+    )
   }
 
   if (!args.config.db.findVersionByID) {
@@ -237,7 +225,14 @@ export async function restoreVersionOperation<T = DocumentData>(
   )
   assertVersionsEnabled(args.collection)
   if (!args.overrideAccess) {
-    await assertVersionHistoryAccess(args.collection, args.id, args.user, locale, args.req)
+    await assertVersionHistoryAccess(
+      args.config,
+      args.collection,
+      args.id,
+      args.user,
+      locale,
+      args.req,
+    )
   }
 
   const isLocalized = Boolean(args.config.localization)

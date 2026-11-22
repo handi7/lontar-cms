@@ -139,9 +139,11 @@ the row exists, since a missing id is `404`. A rule that must hide existence sho
 - **`find` and counts.** The constraint is part of the query, so `docs` and `totalDocs`, `totalPages` and the paging links
   all describe only the rows the caller may read. There is no separate count to leak.
 - **Relationship population.** The target collection's `read` constraint is added to the fetch by ids:
-  `{ and: [{ id: { in: ids } }, constraint] }`. A related document outside the constraint is not populated and the
-  field keeps its bare id, which is what an unreadable collection does today. The id was already in the parent document.
-  The function is evaluated once per target collection per population pass.
+  `{ and: [{ id: { in: ids } }, constraint] }`. A related document outside the constraint is treated as a missing one,
+  exactly as an unpublished target already is: a single relation becomes `null` and a `hasMany` drops the entry. Keeping the
+  bare id would tell the caller that the document exists, which is the leak §6 closes. A target collection whose `read`
+  returns `false` is not populated at all, as today. The function is evaluated once per target collection per population
+  pass.
 - **Version history.** Listing, reading and restoring versions need `read` and `update` on the parent document (ADR 0023
   §5). Both constraints are checked against the parent row with §5's helper, and a miss is `404`. A version snapshot is
   never matched on its own content.

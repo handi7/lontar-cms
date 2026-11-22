@@ -9,6 +9,9 @@ import type { Where } from '../query/types'
 import { validateWhere } from '../query/validator'
 import { defaultAccess } from './index'
 
+/** All that validating a constraint needs from the config. */
+export type LocalizationContext = Partial<Config>
+
 export type ConstrainedOperation = 'read' | 'update' | 'delete'
 
 /** The outcome of a row-level access check: nothing, or everything the constraint allows. */
@@ -48,7 +51,7 @@ function checkConstraint(
   constraint: Where,
   collection: CollectionConfig,
   operation: ConstrainedOperation,
-  config: Config,
+  config: LocalizationContext,
 ): AccessDecision {
   if (isEmptyConstraint(constraint)) {
     return deny(
@@ -75,7 +78,7 @@ export async function resolveAccess(
   collection: CollectionConfig,
   operation: ConstrainedOperation,
   args: AccessArgs,
-  config: Config,
+  config: LocalizationContext,
 ): Promise<AccessDecision> {
   const handler: ConstraintAccessFunction = collection.access?.[operation] ?? defaultAccess
   let result: unknown

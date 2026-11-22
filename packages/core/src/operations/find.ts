@@ -218,6 +218,7 @@ export async function findOperation<T = DocumentData>(
     collection: args.collection,
     depth: args.depth ?? 0,
     collections: args.config.collections,
+    localization: args.config.localization,
     db: args.config.db,
     user: args.user ?? null,
     req: args.req,

@@ -1,9 +1,11 @@
 import type { Context } from 'hono'
 import { fileTypeFromBuffer } from 'file-type'
 import type { z } from 'zod'
-import { accessDenied, checkAccess, sanitizeDocRead, sanitizeDocWrite } from '../../access'
+import { accessDenied, resolveAccess, sanitizeDocRead, sanitizeDocWrite } from '../../access'
 import type { AuthUser, LontarVariables } from '../../auth/types'
 import { clientFieldsToZod } from '../../client'
+import { AccessDeniedError, NotFoundError } from '../../operations/errors'
+import { assertRowAccess } from '../../operations/row-access'
 import { toClientCollection } from '../../config/to-client-config'
 import type {
   AccessArgs,
@@ -12,6 +14,7 @@ import type {
   Config,
   ConstraintAccessFunction,
 } from '../../config/types'
+import type { Where } from '../../query/types'
 import type { DatabaseAdapter, DocumentData } from '../../database/adapter'
 import type { Field } from '../../fields/types'
 import { runBeforeValidateHooks } from '../../hooks'
@@ -537,6 +540,7 @@ async function respondPopulatedDoc(
     collection,
     depth,
     collections: config.collections,
+    localization: config.localization,
     db: config.db,
     user,
     req: c.req.raw,
@@ -827,8 +831,37 @@ async function applyValidatedUpdate(args: {
   )
 }
 
+// The update access function again, now with the body, and the row constraint it may return. A
+// document outside the constraint is "not found" (ADR 0030 §6).
+async function checkUpdateRowAccess(
+  ctx: UploadUpdateContext,
+  data: Record<string, unknown>,
+  locale: string | undefined,
+  fallbackLocale: string | false | undefined,
+): Promise<Response | null> {
+  const { c, id, collection, config, user, accessDenied } = ctx
+  try {
+    await assertRowAccess({
+      config,
+      collection,
+      id,
+      user,
+      operations: ['update'],
+      data,
+      locale,
+      fallbackLocale,
+      req: c.req.raw,
+    })
+    return null
+  } catch (err) {
+    if (err instanceof AccessDeniedError) return accessDenied(c, user)
+    if (err instanceof NotFoundError) return c.json({ error: err.message }, 404)
+    throw err
+  }
+}
+
 export async function handleUploadUpdate(ctx: UploadUpdateContext): Promise<Response> {
-  const { c, id, collection, config, user, checkAccess, accessDenied } = ctx
+  const { c, id, collection, config, user, accessDenied } = ctx
 
   const localeResult = resolveUploadLocale(config, c)
   if (localeResult.errorResponse) {
@@ -836,26 +869,21 @@ export async function handleUploadUpdate(ctx: UploadUpdateContext): Promise<Resp
   }
   const { locale, fallbackLocale } = localeResult
 
-  const preliminaryAllowed = await checkAccess(collection.access?.update, {
-    user,
-    id,
-    locale,
-    req: c.req.raw,
-  })
-  if (!preliminaryAllowed) {
+  // Refuse early on a plain denial, before the body is read.
+  const preliminary = await resolveAccess(
+    collection,
+    'update',
+    { user, id, locale, req: c.req.raw },
+    config,
+  )
+  if (!preliminary.allowed) {
     return accessDenied(c, user)
   }
 
   const rawBody = (await c.req.parseBody()) as Record<string, unknown>
-  const allowed = await checkAccess(collection.access?.update, {
-    user,
-    id,
-    data: rawBody,
-    locale,
-    req: c.req.raw,
-  })
-  if (!allowed) {
-    return accessDenied(c, user)
+  const rowDenied = await checkUpdateRowAccess(ctx, rawBody, locale, fallbackLocale)
+  if (rowDenied) {
+    return rowDenied
   }
 
   const draftQuery = c.req.query('draft') === 'true'
@@ -941,16 +969,54 @@ function isInvalidFilename(filename: string | undefined): boolean {
   return filename.includes('\0') || filename.includes('..')
 }
 
+interface ReadAccessResult {
+  denied?: Response
+  /** Set when read access returned a constraint (ADR 0030). */
+  constraint?: Where
+}
+
 async function checkCollectionReadAccess(
   c: Context<LontarEnv>,
   collection: CollectionConfig,
-): Promise<Response | null> {
+  config: Config,
+): Promise<ReadAccessResult> {
   const user = c.get('user') ?? null
-  const allowed = await checkAccess(collection.access?.read, { user })
-  if (!allowed) {
-    return accessDenied(c, user)
-  }
-  return null
+  const decision = await resolveAccess(collection, 'read', { user }, config)
+  if (!decision.allowed) return { denied: accessDenied(c, user) }
+  return { constraint: decision.constraint }
+}
+
+const VARIANT_CANDIDATE_LIMIT = 25
+
+// Resized files are named `<original base>-<size>.<ext>`, so a request for one can name a document
+// whose `filename` is different. Look for documents that could own the file, under the constraint,
+// and confirm the owner by comparing the stored names exactly.
+async function ownsServedFile(
+  config: Config,
+  collection: CollectionConfig,
+  filename: string,
+  constraint: Where,
+): Promise<boolean> {
+  const lastDot = filename.lastIndexOf('.')
+  const stem = lastDot > 0 ? filename.slice(0, lastDot) : filename
+  const lastDash = stem.lastIndexOf('-')
+  const names: Where[] = [{ filename: { equals: filename } }]
+  if (lastDash > 0) names.push({ filename: { contains: stem.slice(0, lastDash) } })
+
+  const result = await config.db.find({
+    collection,
+    where: { and: [{ or: names }, constraint] },
+    page: 1,
+    limit: VARIANT_CANDIDATE_LIMIT,
+  })
+  return result.docs.some((doc) => {
+    if (doc.filename === filename) return true
+    const sizes = doc.sizes
+    if (!sizes || typeof sizes !== 'object') return false
+    return Object.values(sizes as Record<string, unknown>).some(
+      (size) => (size as { filename?: unknown } | null)?.filename === filename,
+    )
+  })
 }
 
 async function resolveMimeAndDisposition(
@@ -965,6 +1031,25 @@ async function resolveMimeAndDisposition(
   return { mimeType, contentDisposition }
 }
 
+interface FileHeadersArgs {
+  mimeType: string
+  contentDisposition: string
+  length: number
+  constrained: boolean
+}
+
+function fileHeaders(args: FileHeadersArgs): Record<string, string> {
+  return {
+    'Content-Type': args.mimeType,
+    'Content-Disposition': args.contentDisposition,
+    'Content-Length': String(args.length),
+    // A shared cache must not hand a constrained file to someone outside the constraint.
+    'Cache-Control': args.constrained
+      ? 'private, max-age=0, must-revalidate'
+      : 'public, max-age=31536000, immutable',
+  }
+}
+
 export async function handleServeFile(
   c: Context<LontarEnv>,
   collection: CollectionConfig,
@@ -974,7 +1059,7 @@ export async function handleServeFile(
     return c.json({ error: 'Collection does not support uploads' }, 404)
   }
 
-  const denied = await checkCollectionReadAccess(c, collection)
+  const { denied, constraint } = await checkCollectionReadAccess(c, collection, config)
   if (denied) {
     return denied
   }
@@ -989,6 +1074,12 @@ export async function handleServeFile(
     return c.json({ error: 'Invalid filename' }, 400)
   }
 
+  // A file outside the constraint is "not found", like one that does not exist (ADR 0030 §6).
+  const constrained = constraint !== undefined
+  if (constraint && !(await ownsServedFile(config, collection, rawFilename, constraint))) {
+    return c.json({ error: 'File not found' }, 404)
+  }
+
   const buffer = await storage.read(rawFilename)
   if (!buffer) {
     return c.json({ error: 'File not found' }, 404)
@@ -998,11 +1089,6 @@ export async function handleServeFile(
 
   return new Response(buffer as never, {
     status: 200,
-    headers: {
-      'Content-Type': mimeType,
-      'Content-Disposition': contentDisposition,
-      'Content-Length': String(buffer.length),
-      'Cache-Control': 'public, max-age=31536000, immutable',
-    },
+    headers: fileHeaders({ mimeType, contentDisposition, length: buffer.length, constrained }),
   })
 }
