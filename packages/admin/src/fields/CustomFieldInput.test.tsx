@@ -20,7 +20,7 @@ import { DocumentFormProvider, useDocumentForm } from '../context/DocumentFormCo
 import { PortalContainerProvider } from '../context/PortalContainer'
 import { useAdminConfig, useLontarFetch } from '../hooks/useHostApi'
 import { FieldRenderer } from './FieldRenderer'
-import type { CustomFieldProps } from './CustomFieldInput'
+import type { CustomFieldProps } from './custom-field-props'
 
 afterEach(() => {
   cleanup()
