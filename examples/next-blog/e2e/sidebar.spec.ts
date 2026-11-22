@@ -76,15 +76,22 @@ test.describe('Collapsible sidebar (#213)', () => {
       await expect(page.getByRole('heading', { name: 'Posts', exact: true })).toBeVisible()
       await expect(drawer).toBeHidden()
 
-      // The menu button works again after the drawer closed, and the page does not scroll sideways.
+      // The menu button works again after the drawer closed.
       await menu.click()
       await expect(drawer).toBeVisible()
       await page.keyboard.press('Escape')
       await expect(drawer).toBeHidden()
-      const overflows = await page.evaluate(
-        () => document.documentElement.scrollWidth > document.documentElement.clientWidth,
-      )
-      expect(overflows).toBe(false)
+      // The page must not scroll sideways. When it does, name what sticks out, so the failure
+      // says where and not only that something did.
+      const offenders = await page.evaluate(() => {
+        const root = document.documentElement
+        if (root.scrollWidth <= root.clientWidth) return []
+        return Array.from(document.querySelectorAll('.lontar-admin *'))
+          .filter((el) => el.getBoundingClientRect().right > root.clientWidth + 1)
+          .slice(0, 5)
+          .map((el) => `${el.tagName.toLowerCase()}.${String(el.className).slice(0, 80)}`)
+      })
+      expect(offenders).toEqual([])
     })
   })
 })

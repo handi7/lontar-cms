@@ -299,10 +299,10 @@ export function CollectionFilterBar(props: CollectionFilterBarProps) {
 
   return (
     <div className="lt:mb-5 lt:flex lt:flex-col lt:gap-3">
-      <div className="lt:flex lt:items-center lt:gap-3">
+      <div className="lt:flex lt:flex-wrap lt:items-center lt:gap-3">
         <Input
           type="search"
-          className="lt:max-w-[400px] lt:flex-1 lt:bg-card"
+          className="lt:max-w-[400px] lt:min-w-48 lt:flex-1 lt:bg-card"
           placeholder={
             searchField
               ? `Search ${collection.labels.plural.toLowerCase()}...`
