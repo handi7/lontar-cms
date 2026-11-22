@@ -23,6 +23,7 @@ import { registerCollectionRoutes } from './routes/collection'
 import { registerFirstUserRoutes } from './routes/first-user'
 import { registerGlobalRoutes } from './routes/global'
 import { registerPermissionsRoutes } from './routes/permissions'
+import { registerSearchRoutes } from './routes/search'
 import { registerUserRoutes } from './routes/users'
 
 export interface CreateLontarOptions {
@@ -430,6 +431,8 @@ export function createLontar(config: Config, options: CreateLontarOptions = {}):
 
   // Permissions endpoint
   registerPermissionsRoutes(router, config)
+
+  registerSearchRoutes(router, config)
 
   // First-user onboarding routes
   registerFirstUserRoutes(router, auth, config, rateLimiter)

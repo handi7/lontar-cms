@@ -19,7 +19,7 @@ import { Sidebar } from './Sidebar'
 
 vi.mock('../api/client', async () => {
   const actual = await vi.importActual<typeof ClientModule>('../api/client')
-  return { ...actual, fetchPermissions: vi.fn() }
+  return { ...actual, fetchPermissions: vi.fn(), searchDocs: vi.fn() }
 })
 
 const mockNavigate = vi.fn()
@@ -88,6 +88,7 @@ describe('Command palette (#215)', () => {
     vi.clearAllMocks()
     // cmdk scrolls the highlighted row into view, which happy-dom does not implement.
     Element.prototype.scrollIntoView = vi.fn()
+    vi.mocked(client.searchDocs).mockResolvedValue([])
     vi.mocked(client.fetchPermissions).mockResolvedValue({
       collections: { secrets: perm({ read: false }), pages: perm({ create: false }) },
       globals: {},
@@ -96,14 +97,16 @@ describe('Command palette (#215)', () => {
 
   afterEach(cleanup)
 
-  function renderAdmin(withHostInput = false) {
+  function renderAdmin(withHostInput = false, adminConfig: ClientConfig = config) {
     return render(
       <>
         {withHostInput && <input aria-label="Host search" />}
         <div className="lontar-admin">
           <PortalContainerProvider>
             <QueryClientProvider client={new QueryClient()}>
-              <AdminContext.Provider value={{ config, apiBase: '/api', basePath: '/admin' }}>
+              <AdminContext.Provider
+                value={{ config: adminConfig, apiBase: '/api', basePath: '/admin' }}
+              >
                 <AuthContext.Provider
                   value={{
                     user,
@@ -304,6 +307,131 @@ describe('Command palette (#215)', () => {
       const handled = make({ key: 'k', ctrlKey: true, cancelable: true })
       handled.preventDefault()
       expect(isPaletteShortcut(handled)).toBe(false)
+    })
+  })
+  describe('document search (#463)', () => {
+    async function typeInto(text: string) {
+      const dialog = await openWithShortcut()
+      const input = within(dialog).getByRole('combobox')
+      fireEvent.change(input, { target: { value: text } })
+      return { dialog, input }
+    }
+
+    it('lists matches grouped by collection and opens the chosen document', async () => {
+      vi.mocked(client.searchDocs).mockResolvedValue([
+        { id: 7, title: 'Zebra crossing', collection: 'posts', status: 'draft' },
+        { id: 2, title: 'Zebra facts', collection: 'pages' },
+      ])
+      renderAdmin()
+      const { dialog } = await typeInto('zebra')
+
+      const postsGroup = await within(dialog).findByRole('group', { name: 'Posts' })
+      expect(within(postsGroup).getByText('Zebra crossing')).toBeTruthy()
+      expect(within(postsGroup).getByText('Draft')).toBeTruthy()
+      const pagesGroup = within(dialog).getByRole('group', { name: 'Pages' })
+      expect(within(pagesGroup).getByText('Zebra facts')).toBeTruthy()
+
+      fireEvent.click(within(postsGroup).getByText('Zebra crossing'))
+
+      expect(mockNavigate).toHaveBeenCalledWith({
+        to: '/$collection/$id',
+        params: { collection: 'posts', id: '7' },
+        search: {},
+      })
+      await waitFor(() => expect(palette()).toBeNull())
+    })
+
+    it('asks once for the final text after typing stops', async () => {
+      renderAdmin()
+      const dialog = await openWithShortcut()
+      const input = within(dialog).getByRole('combobox')
+
+      fireEvent.change(input, { target: { value: 'z' } })
+      fireEvent.change(input, { target: { value: 'ze' } })
+      fireEvent.change(input, { target: { value: 'zeb' } })
+
+      await waitFor(() => expect(client.searchDocs).toHaveBeenCalledTimes(1))
+      expect(client.searchDocs).toHaveBeenCalledWith('/api', 'zeb', expect.anything())
+    })
+
+    it('does not search for an empty or blank box', async () => {
+      renderAdmin()
+      const { input } = await typeInto('   ')
+      fireEvent.change(input, { target: { value: '' } })
+      await new Promise((resolve) => setTimeout(resolve, 400))
+
+      expect(client.searchDocs).not.toHaveBeenCalled()
+    })
+
+    it('says it is searching until the answer arrives', async () => {
+      let finish: (value: never[]) => void = () => undefined
+      vi.mocked(client.searchDocs).mockReturnValue(
+        new Promise((resolve) => {
+          finish = resolve
+        }),
+      )
+      renderAdmin()
+      const { dialog } = await typeInto('qqqq')
+
+      expect(await within(dialog).findByText('Searching…')).toBeTruthy()
+      act(() => finish([]))
+      expect(await within(dialog).findByText('No results found.')).toBeTruthy()
+    })
+
+    it('leaves out hits from a collection the user cannot see in the admin', async () => {
+      vi.mocked(client.searchDocs).mockResolvedValue([
+        { id: 1, title: 'Hidden launch plan', collection: 'secrets' },
+        { id: 3, title: 'Launch notes', collection: 'posts' },
+      ])
+      renderAdmin()
+      const { dialog } = await typeInto('launch')
+
+      expect(await within(dialog).findByText('Launch notes')).toBeTruthy()
+      expect(within(dialog).queryByText('Hidden launch plan')).toBeNull()
+    })
+
+    it('searches and opens in the active locale of a localized admin', async () => {
+      vi.mocked(client.searchDocs).mockResolvedValue([
+        { id: 5, title: 'Halo dunia', collection: 'posts' },
+      ])
+      const localized = {
+        ...config,
+        localization: {
+          locales: [
+            { code: 'en', label: 'English' },
+            { code: 'id', label: 'Indonesia' },
+          ],
+          defaultLocale: 'en',
+          fallback: true,
+        },
+      } as unknown as ClientConfig
+      renderAdmin(false, localized)
+      const { dialog } = await typeInto('halo')
+
+      fireEvent.click(await within(dialog).findByText('Halo dunia'))
+
+      expect(client.searchDocs).toHaveBeenCalledWith('/api', 'halo', {
+        locale: 'en',
+        signal: expect.any(AbortSignal) as AbortSignal,
+      })
+      expect(mockNavigate).toHaveBeenCalledWith(
+        expect.objectContaining({
+          params: { collection: 'posts', id: '5' },
+          search: { locale: 'en' },
+        }),
+      )
+    })
+
+    it('clears the text when the palette closes', async () => {
+      renderAdmin()
+      const { input } = await typeInto('zebra')
+      expect((input as HTMLInputElement).value).toBe('zebra')
+
+      fireEvent.keyDown(input, { key: 'Escape' })
+      await waitFor(() => expect(palette()).toBeNull())
+      const again = await openWithShortcut()
+
+      expect(within(again).getByRole<HTMLInputElement>('combobox').value).toBe('')
     })
   })
 })

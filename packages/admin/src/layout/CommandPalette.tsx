@@ -1,3 +1,4 @@
+import { useState } from 'react'
 import { useNavigate } from '@tanstack/react-router'
 import {
   Command,
@@ -8,7 +9,10 @@ import {
   CommandList,
 } from '../components/ui/command'
 import { Dialog, DialogContent, DialogDescription, DialogTitle } from '../components/ui/dialog'
+import { useLocale } from '../hooks/useLocale'
 import { useCommandPalette } from './CommandPaletteContext'
+import { PaletteSearchResults } from './PaletteSearchResults'
+import { useGlobalSearch } from './useGlobalSearch'
 import { useNavModel } from './useNavModel'
 
 // Entries come from the same model as the sidebar, so a collection the user cannot read is neither
@@ -17,26 +21,34 @@ export function CommandPalette() {
   const { open, setOpen } = useCommandPalette()
   const { collections, globals, isAdmin, canCreate } = useNavModel()
   const navigate = useNavigate()
+  const { hasLocalization, activeLocale } = useLocale()
+  const locale = hasLocalization ? activeLocale : undefined
+  const [query, setQuery] = useState('')
+  const search = useGlobalSearch(query, locale, open)
 
+  const changeOpen = (next: boolean) => {
+    setOpen(next)
+    if (!next) setQuery('')
+  }
   const run = (go: () => void) => () => {
-    setOpen(false)
+    changeOpen(false)
     go()
   }
 
   return (
-    <Dialog open={open} onOpenChange={setOpen}>
+    <Dialog open={open} onOpenChange={changeOpen}>
       <DialogContent
         aria-describedby="lontar-palette-description"
         className="lt:top-[20%] lt:translate-y-0 lt:gap-0 lt:overflow-hidden lt:p-0"
       >
         <DialogTitle className="lt:sr-only">Command palette</DialogTitle>
         <DialogDescription id="lontar-palette-description" className="lt:sr-only">
-          Type to find a collection or global to open, or a document to create.
+          Type to find a collection, global or document to open, or a document to create.
         </DialogDescription>
         <Command label="Command palette">
-          <CommandInput placeholder="Go to or create…" />
+          <CommandInput placeholder="Search or go to…" value={query} onValueChange={setQuery} />
           <CommandList>
-            <CommandEmpty>No results found.</CommandEmpty>
+            <CommandEmpty>{search.isSearching ? 'Searching…' : 'No results found.'}</CommandEmpty>
 
             <CommandGroup heading="Go to">
               <CommandItem value="Go to Dashboard" onSelect={run(() => void navigate({ to: '/' }))}>
@@ -96,6 +108,14 @@ export function CommandPalette() {
                   </CommandItem>
                 ))}
             </CommandGroup>
+
+            <PaletteSearchResults
+              query={query}
+              results={search.results}
+              collections={collections}
+              locale={locale}
+              onSelect={run}
+            />
           </CommandList>
         </Command>
       </DialogContent>

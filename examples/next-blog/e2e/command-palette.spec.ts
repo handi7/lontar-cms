@@ -44,6 +44,35 @@ test.describe('Command palette (#215)', () => {
     await expect(palette).toBeHidden()
   })
 
+  test('finds a published document by title and opens it', async ({ page }) => {
+    await signIn(page)
+    const title = `Palette lookup ${Date.now()}`
+    await page.goto('/admin/posts/create')
+    await page.locator('input[name="title"]').fill(title)
+    await page.getByRole('button', { name: 'Publish', exact: true }).click()
+    await expect(page.getByRole('link', { name: title })).toBeVisible()
+
+    await page.keyboard.press('Control+K')
+    const palette = page.getByRole('dialog', { name: 'Command palette' })
+    await palette.getByRole('combobox').fill(title)
+
+    const hit = palette.getByRole('group', { name: 'Posts' }).getByText(title)
+    await expect(hit).toBeVisible()
+    await hit.click()
+
+    await expect(page).toHaveURL(/\/admin\/posts\/\d+/)
+    await expect(page.locator('input[name="title"]')).toHaveValue(title)
+  })
+
+  test('says so when nothing matches a search', async ({ page }) => {
+    await signIn(page)
+    await page.keyboard.press('Control+K')
+    const palette = page.getByRole('dialog', { name: 'Command palette' })
+    await palette.getByRole('combobox').fill(`no-such-document-${Date.now()}`)
+
+    await expect(palette.getByText('No results found.')).toBeVisible()
+  })
+
   test('opens from the sidebar button, closes with Escape, and reaches a collection', async ({
     page,
   }) => {

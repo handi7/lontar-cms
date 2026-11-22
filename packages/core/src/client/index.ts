@@ -2,6 +2,7 @@
 // Nothing here may import the database adapter, Hono, or defineConfig.
 // See docs/adr/0003-client-config-format.md.
 export { CLIENT_CONFIG_VERSION } from './client-config'
+export type { SearchResult } from './search'
 export type {
   ClientArrayField,
   ClientArrayFieldAdmin,

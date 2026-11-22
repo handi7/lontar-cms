@@ -110,7 +110,7 @@ function extractFirstIssueMessage(issues: unknown[] | undefined, fallback: strin
   return fallback
 }
 
-function formatValidationError(c: Context, err: ValidationError): Response {
+export function formatValidationError(c: Context, err: ValidationError): Response {
   if (err.issues && err.issues.length > 0) {
     return c.json(
       {
