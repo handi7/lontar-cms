@@ -2,6 +2,7 @@ export { createOperation } from './create'
 export { deleteOperation } from './delete'
 export { AccessDeniedError, NotFoundError, ValidationError } from './errors'
 export { findOperation } from './find'
+export { searchOperation, resolveSearchTitleField } from './search'
 export { findByIDOperation } from './find-by-id'
 export { findGlobalOperation, resolveOriginalGlobalDoc, updateGlobalOperation } from './global'
 export {

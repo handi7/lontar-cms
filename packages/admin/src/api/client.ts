@@ -5,6 +5,7 @@ import type {
   CollectionPermission,
   GlobalPermission,
   PermissionsResponse,
+  SearchResult,
   Where,
 } from '@lontar/core/client'
 
@@ -535,6 +536,22 @@ export async function restoreGlobalVersion(
     credentials: 'include',
   })
   return handleResponse<Record<string, unknown>>(res)
+}
+
+export async function searchDocs(
+  apiBase: string,
+  q: string,
+  options: { locale?: string; signal?: AbortSignal } = {},
+): Promise<SearchResult[]> {
+  const base = apiBase.replace(/\/+$/, '')
+  const params = new URLSearchParams({ q })
+  if (options.locale) params.set('locale', options.locale)
+  const res = await fetch(`${base}/_lontar/search?${params.toString()}`, {
+    credentials: 'include',
+    signal: options.signal,
+  })
+  const body = await handleResponse<{ results: SearchResult[] }>(res)
+  return body.results
 }
 
 export async function fetchPermissions(apiBase: string): Promise<PermissionsResponse> {
