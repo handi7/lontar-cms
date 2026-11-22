@@ -655,6 +655,9 @@ describe('Versions with Localization (#425)', () => {
     // Parent row _status is draft
     expect(getDocs()[0]?._status).toBe('draft')
 
+    // Unpublishing must not write the all-locales dictionary into a single locale (#480)
+    expect(getDocs()[0]?.title).toEqual({ en: 'Unpub Post', id: null })
+
     // Reading with draft=true returns the draft in requested locale
     const resDraft = await app.request('/api/posts/1?draft=true&locale=id')
     expect(resDraft.status).toBe(200)

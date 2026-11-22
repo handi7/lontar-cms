@@ -63,7 +63,9 @@ async function resolvePublishPayload(
       return latestDraft.snapshot
     }
   }
-  return originalDoc
+  // Unpublishing only flips `_status`. Re-sending the loaded document would write the
+  // `locale: 'all'` dictionaries back as the value of a single locale (#480).
+  return statusTransition === 'unpublish' ? {} : originalDoc
 }
 
 async function maybeCleanupPublishedMedia(
