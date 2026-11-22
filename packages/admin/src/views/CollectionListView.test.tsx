@@ -649,4 +649,172 @@ describe('CollectionListView permissions (#341)', () => {
       await waitFor(() => expect(header(/Views/)).toBeTruthy())
     })
   })
+  describe('media library (#462)', () => {
+    const mediaCollection: ClientCollection = {
+      slug: 'articles',
+      labels: { singular: 'File', plural: 'Files' },
+      admin: { useAsTitle: 'filename', defaultColumns: ['filename'] },
+      fields: [],
+      upload: true,
+    }
+    const key = 'lontar-admin-list-view:u1:articles'
+
+    beforeEach(() => {
+      window.localStorage.clear()
+      vi.mocked(client.fetchPermissions).mockResolvedValue({
+        collections: { articles: mockCollectionPerm() },
+        globals: {},
+      })
+      vi.mocked(client.fetchCollectionDocs).mockResolvedValue({
+        docs: [
+          {
+            id: 1,
+            filename: 'cat.png',
+            mimeType: 'image/png',
+            url: '/media/cat.png',
+            filesize: 2048,
+            width: 800,
+            height: 600,
+            sizes: { thumb: { url: '/media/cat-thumb.png' } },
+          },
+          {
+            id: 2,
+            filename: 'dog.png',
+            mimeType: 'image/png',
+            url: '/media/dog.png',
+            filesize: 10,
+          },
+          { id: 3, filename: 'plan.pdf', mimeType: 'application/pdf', filesize: 4096 },
+        ],
+        totalDocs: 3,
+        limit: 10,
+        page: 1,
+        totalPages: 1,
+        hasNextPage: false,
+        hasPrevPage: false,
+      })
+    })
+
+    afterEach(() => {
+      window.localStorage.clear()
+    })
+
+    const grid = () => screen.findByRole('list', { name: 'Media' })
+    const switchToGrid = async () => {
+      fireEvent.click(await screen.findByRole('button', { name: /Grid/ }))
+      return grid()
+    }
+
+    it('shows a table by default, with the grid switch only for an upload collection', async () => {
+      renderWithProviders()
+      expect(await screen.findByRole('link', { name: /Create Article/ })).toBeTruthy()
+      expect(screen.queryByRole('button', { name: /Grid/ })).toBeNull()
+
+      cleanup()
+      renderWithProviders({ collections: [mediaCollection] })
+      expect(await screen.findByRole('button', { name: /Grid/ })).toBeTruthy()
+      expect(await screen.findByRole('table')).toBeTruthy()
+      expect(screen.queryByRole('list', { name: 'Media' })).toBeNull()
+    })
+
+    it('renders a grid with thumbnails, falls back to the url, and shows an icon for a pdf', async () => {
+      renderWithProviders({ collections: [mediaCollection] })
+      const list = await switchToGrid()
+
+      const tiles = within(list).getAllByRole('listitem')
+      expect(tiles).toHaveLength(3)
+      expect(tiles[0]?.querySelector('img')?.getAttribute('src')).toBe('/media/cat-thumb.png')
+      expect(tiles[1]?.querySelector('img')?.getAttribute('src')).toBe('/media/dog.png')
+      expect(tiles[2]?.querySelector('img')).toBeNull()
+      expect(tiles[2]?.querySelector('svg')).toBeTruthy()
+      expect(within(tiles[0] as HTMLElement).getByText('2 KB')).toBeTruthy()
+    })
+
+    it('remembers the view per user and collection', async () => {
+      renderWithProviders({ collections: [mediaCollection] })
+      await switchToGrid()
+      expect(window.localStorage.getItem(key)).toBe('grid')
+
+      cleanup()
+      renderWithProviders({ collections: [mediaCollection] })
+      expect(await grid()).toBeTruthy()
+
+      cleanup()
+      renderWithProviders({ collections: [mediaCollection] }, 'u2')
+      expect(await screen.findByRole('button', { name: /Grid/ })).toBeTruthy()
+      expect(screen.queryByRole('list', { name: 'Media' })).toBeNull()
+    })
+
+    it('puts the chosen type group in the URL and in the query', async () => {
+      renderWithProviders({ collections: [mediaCollection] })
+      fireEvent.click(await screen.findByRole('button', { name: 'Images' }))
+      expect(capturedNavigateSearch?.({})).toMatchObject({ mime: 'images', page: undefined })
+
+      setRouteSearch({ mime: 'images' })
+      await waitFor(() =>
+        expect(client.fetchCollectionDocs).toHaveBeenLastCalledWith(
+          '/api',
+          'articles',
+          expect.objectContaining({ where: { and: [{ mimeType: { contains: 'image/' } }] } }),
+        ),
+      )
+      expect(screen.getByRole('button', { name: 'Images' }).getAttribute('aria-pressed')).toBe(
+        'true',
+      )
+    })
+
+    it('combines the type group with the search term', async () => {
+      setRouteSearch({ mime: 'documents', q: 'plan' })
+      renderWithProviders({ collections: [mediaCollection] })
+
+      await waitFor(() => {
+        const last = vi.mocked(client.fetchCollectionDocs).mock.calls.at(-1)?.[2]
+        expect(last?.where).toMatchObject({
+          filename: { contains: 'plan' },
+          and: [{ or: expect.any(Array) as unknown[] }],
+        })
+      })
+    })
+
+    it('opens a detail panel with the preview, details and actions', async () => {
+      renderWithProviders({ collections: [mediaCollection] })
+      fireEvent.click(within(await switchToGrid()).getByRole('button', { name: 'Open cat.png' }))
+
+      const dialog = await screen.findByRole('dialog', { name: 'cat.png' })
+      expect(within(dialog).getByText('800 × 600')).toBeTruthy()
+      expect(within(dialog).getByText('2 KB')).toBeTruthy()
+      expect(within(dialog).getByRole('link', { name: '/media/cat.png' })).toBeTruthy()
+      expect(within(dialog).getByRole('img', { name: 'cat.png' }).getAttribute('src')).toBe(
+        '/media/cat.png',
+      )
+      expect(within(dialog).getByRole('link', { name: 'Edit' }).getAttribute('href')).toBe(
+        '/$collection/$id',
+      )
+    })
+
+    it('deletes from the detail panel through the confirmation', async () => {
+      vi.mocked(client.deleteDoc).mockResolvedValue(undefined as never)
+      renderWithProviders({ collections: [mediaCollection] })
+      fireEvent.click(within(await switchToGrid()).getByRole('button', { name: 'Open plan.pdf' }))
+
+      const dialog = await screen.findByRole('dialog', { name: 'plan.pdf' })
+      expect(within(dialog).queryByRole('img')).toBeNull()
+      fireEvent.click(within(dialog).getByRole('button', { name: 'Delete' }))
+
+      fireEvent.click(await screen.findByRole('button', { name: /^(Delete|Confirm)/ }))
+      await waitFor(() => expect(client.deleteDoc).toHaveBeenCalledWith('/api', 'articles', 3))
+    })
+
+    it('hides Delete in the panel without delete permission', async () => {
+      vi.mocked(client.fetchPermissions).mockResolvedValue({
+        collections: { articles: mockCollectionPerm({ delete: false }) },
+        globals: {},
+      })
+      renderWithProviders({ collections: [mediaCollection] })
+      fireEvent.click(within(await switchToGrid()).getByRole('button', { name: 'Open cat.png' }))
+
+      const dialog = await screen.findByRole('dialog', { name: 'cat.png' })
+      expect(within(dialog).queryByRole('button', { name: 'Delete' })).toBeNull()
+    })
+  })
 })

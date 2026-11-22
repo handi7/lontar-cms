@@ -1,5 +1,6 @@
 import type { SortingState } from '@tanstack/react-table'
 import type { ClientCollection, FieldPermission } from '@lontar/core/client'
+import { isMimeGroup, type MimeGroup } from './media'
 import { OPERATOR_OPTIONS, buildFilterFields, type ActiveFilter } from './CollectionFilterBar'
 
 export type ListStatus = 'published' | 'draft'
@@ -16,6 +17,7 @@ export interface ListSearchParams {
   page?: number
   q?: string
   status?: ListStatus
+  mime?: MimeGroup
   sort?: string
   filters?: ListFilterParam[]
 }
@@ -25,6 +27,8 @@ export interface ListState {
   page: number
   searchTerm: string
   statusFilter: 'all' | ListStatus
+  /** Only ever set for an upload collection. */
+  mimeGroup: MimeGroup | undefined
   sorting: SortingState
   filters: ActiveFilter[]
 }
@@ -71,6 +75,7 @@ export function parseListSearch(search: Record<string, unknown>): ListSearchPara
     page: parsePage(search.page),
     q: q?.trim() ? q : undefined,
     status: search.status === 'published' || search.status === 'draft' ? search.status : undefined,
+    mime: isMimeGroup(search.mime) ? search.mime : undefined,
     sort: sort?.trim() ? sort : undefined,
     filters: parseFilters(search.filters),
   }
@@ -107,6 +112,7 @@ export function resolveListState(
     page: params.page ?? 1,
     searchTerm: params.q ?? '',
     statusFilter: hasDrafts && params.status ? params.status : 'all',
+    mimeGroup: collection.upload ? params.mime : undefined,
     sorting: sanitizeSorting(params.sort, sortable),
     filters: sanitizeFilters(params.filters, filterable),
   }
