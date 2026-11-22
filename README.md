@@ -717,6 +717,7 @@ export default defineConfig({
 - **`access`** takes the same function as collection access. No user returns `401`, a failing check for a signed-in user returns `403`. Omitting it means any authenticated user; write `access: () => true` for a public endpoint.
 - **API keys.** Endpoints are session-only. Set `apiKey: true` to accept an API key; otherwise a key request gets `403`.
 - **`rateLimit: { window, max }`** is optional, keyed by client IP and endpoint name. There is no default limit.
+- **Path rules.** A path starts with `/`, has no trailing slash, and uses static segments or `:param` names (no wildcards or regular expressions). On a collection, `:id` is the only parameter allowed first and must be followed by a static segment. `name` is unique where the endpoint is declared, and so is each method and path pair.
 
 #### Registering components
 

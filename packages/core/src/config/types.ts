@@ -1,9 +1,12 @@
+import type { Context } from 'hono'
 import type { Where } from '../query/types'
-import type { AuthUser } from '../auth/types'
+import type { ApiKeyItem } from '../auth/api-key'
+import type { AuthUser, LontarVariables } from '../auth/types'
 import type { SystemFieldName, UploadSystemFieldName } from '../client/system-fields'
 import type { DatabaseAdapter } from '../database/adapter'
 import type { EmailAdapter, EmailConfig } from '../email/types'
 import type { Fields } from '../fields/types'
+import type { LontarClient } from '../local'
 import type {
   AfterChangeHook,
   AfterDeleteHook,
@@ -63,6 +66,53 @@ export interface CollectionAccess {
 export interface GlobalAccess {
   read?: AccessFunction
   update?: AccessFunction
+}
+
+export type EndpointMethod = 'get' | 'post' | 'put' | 'patch' | 'delete'
+
+/** The second argument of an endpoint handler (ADR 0029). */
+export interface EndpointContext {
+  user: AuthUser | null
+  /** Set when the request authenticated with an API key. */
+  apiKey: ApiKeyItem | null
+  /** Parsed from `:id`. Requests with an invalid id are answered with 400 before the handler runs. */
+  id?: number
+  /** From `?locale`, as REST does. */
+  locale?: string
+  config: Config
+  /**
+   * The Local API bound to the caller: `overrideAccess: false` and `user` are preset. Pass
+   * `overrideAccess: true` explicitly when the handler needs elevated access.
+   */
+  lontar: LontarClient
+}
+
+export interface EndpointRateLimit {
+  /** Time window in seconds. */
+  window: number
+  /** Maximum requests per client IP within the window. */
+  max: number
+}
+
+export type EndpointHandler = (
+  c: Context<{ Variables: LontarVariables }>,
+  ctx: EndpointContext,
+) => Response | Promise<Response>
+
+/** A server route beyond CRUD, with Lontar's session, access control and rate limiting. */
+export interface Endpoint {
+  /** Unique within where it is declared. Actions refer to an endpoint by name. */
+  name: string
+  method: EndpointMethod
+  /** Starts with `/`. Collection endpoints may use `:id`; see ADR 0029 for the reserved paths. */
+  path: string
+  /** Omitted means any authenticated user. Write `access: () => true` for a public endpoint. */
+  access?: AccessFunction
+  /** Accept API key requests. Defaults to false: a key request gets 403. */
+  apiKey?: boolean
+  /** Keyed by client IP and endpoint. No default limit. */
+  rateLimit?: EndpointRateLimit
+  handler: EndpointHandler
 }
 
 export interface GlobalHooks {
@@ -151,6 +201,8 @@ export interface GlobalConfig<F extends Fields = Fields> {
   versions?: VersionsConfig
   /** Outgoing webhooks triggered by global events. */
   webhooks?: readonly GlobalWebhookConfig[]
+  /** Custom endpoints mounted at `<basePath>/globals/<slug><path>`. */
+  endpoints?: readonly Endpoint[]
   fields: F
 }
 
@@ -199,6 +251,8 @@ export interface CollectionConfig<F extends Fields = Fields> {
   versions?: VersionsConfig
   /** Outgoing webhooks triggered by collection events. */
   webhooks?: readonly CollectionWebhookConfig[]
+  /** Custom endpoints mounted at `<basePath>/<slug><path>`. */
+  endpoints?: readonly Endpoint[]
   /** Authored as an object for type inference; order is preserved in ClientConfig. */
   fields: F
 }
@@ -236,6 +290,8 @@ export interface Config {
   localization?: LocalizationConfig
   /** Outgoing webhooks triggered by collection and global events. */
   webhooks?: readonly WebhookConfig[]
+  /** Custom endpoints mounted at `<basePath><path>`. */
+  endpoints?: readonly Endpoint[]
   collections: readonly CollectionConfig[]
   globals?: readonly GlobalConfig[]
 }

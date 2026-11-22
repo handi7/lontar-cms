@@ -498,7 +498,24 @@ function resolveDeletePayload(
   return { id, options: maybeOptions ?? {} }
 }
 
+/** Defaults a client applies when a call does not pass its own `overrideAccess` or `user`. */
+export interface LontarClientDefaults {
+  overrideAccess?: boolean
+  user?: AuthUser | null
+}
+
 export function getLontar(config: Config): Promise<LontarClient> {
+  return Promise.resolve(createLontarClient(config))
+}
+
+/**
+ * The Local API with per-client defaults. `getLontar()` serves trusted server code and defaults to
+ * `overrideAccess: true`; endpoint handlers get a client bound to the caller (ADR 0029).
+ */
+export function createLontarClient(
+  config: Config,
+  defaults: LontarClientDefaults = {},
+): LontarClient {
   const client: LontarClient = {
     config,
     async find<T = DocumentData>(
@@ -515,8 +532,8 @@ export function getLontar(config: Config): Promise<LontarClient> {
         limit: options.limit,
         depth: options.depth,
         draft: options.draft,
-        overrideAccess: options.overrideAccess ?? true,
-        user: options.user,
+        overrideAccess: options.overrideAccess ?? defaults.overrideAccess ?? true,
+        user: options.user === undefined ? defaults.user : options.user,
         locale: options.locale,
         fallbackLocale: options.fallbackLocale,
       })
@@ -541,8 +558,8 @@ export function getLontar(config: Config): Promise<LontarClient> {
         id,
         depth: options.depth,
         draft: options.draft,
-        overrideAccess: options.overrideAccess ?? true,
-        user: options.user,
+        overrideAccess: options.overrideAccess ?? defaults.overrideAccess ?? true,
+        user: options.user === undefined ? defaults.user : options.user,
         locale: options.locale,
         fallbackLocale: options.fallbackLocale,
       })
@@ -561,8 +578,8 @@ export function getLontar(config: Config): Promise<LontarClient> {
         depth: options.depth,
         draft: options.draft,
         autosave: options.autosave,
-        overrideAccess: options.overrideAccess ?? true,
-        user: options.user,
+        overrideAccess: options.overrideAccess ?? defaults.overrideAccess ?? true,
+        user: options.user === undefined ? defaults.user : options.user,
         locale: options.locale,
         fallbackLocale: options.fallbackLocale,
       })
@@ -583,8 +600,8 @@ export function getLontar(config: Config): Promise<LontarClient> {
         depth: options.depth,
         draft: options.draft,
         autosave: options.autosave,
-        overrideAccess: options.overrideAccess ?? true,
-        user: options.user,
+        overrideAccess: options.overrideAccess ?? defaults.overrideAccess ?? true,
+        user: options.user === undefined ? defaults.user : options.user,
         locale: options.locale,
         fallbackLocale: options.fallbackLocale,
       })
@@ -601,8 +618,8 @@ export function getLontar(config: Config): Promise<LontarClient> {
         config,
         collection,
         id,
-        overrideAccess: options.overrideAccess ?? true,
-        user: options.user,
+        overrideAccess: options.overrideAccess ?? defaults.overrideAccess ?? true,
+        user: options.user === undefined ? defaults.user : options.user,
         locale: options.locale,
         fallbackLocale: options.fallbackLocale,
       })
@@ -626,8 +643,8 @@ export function getLontar(config: Config): Promise<LontarClient> {
         collection,
         id,
         depth: options.depth,
-        overrideAccess: options.overrideAccess ?? true,
-        user: options.user,
+        overrideAccess: options.overrideAccess ?? defaults.overrideAccess ?? true,
+        user: options.user === undefined ? defaults.user : options.user,
         locale: options.locale,
         fallbackLocale: options.fallbackLocale,
       })
@@ -651,8 +668,8 @@ export function getLontar(config: Config): Promise<LontarClient> {
         collection,
         id,
         depth: options.depth,
-        overrideAccess: options.overrideAccess ?? true,
-        user: options.user,
+        overrideAccess: options.overrideAccess ?? defaults.overrideAccess ?? true,
+        user: options.user === undefined ? defaults.user : options.user,
         locale: options.locale,
         fallbackLocale: options.fallbackLocale,
       })
@@ -674,8 +691,8 @@ export function getLontar(config: Config): Promise<LontarClient> {
         page: options.page,
         limit: options.limit,
         sort: options.sort,
-        overrideAccess: options.overrideAccess ?? true,
-        user: options.user,
+        overrideAccess: options.overrideAccess ?? defaults.overrideAccess ?? true,
+        user: options.user === undefined ? defaults.user : options.user,
         locale: options.locale,
         fallbackLocale: options.fallbackLocale,
       })
@@ -698,8 +715,8 @@ export function getLontar(config: Config): Promise<LontarClient> {
         collection,
         id,
         versionId,
-        overrideAccess: options.overrideAccess ?? true,
-        user: options.user,
+        overrideAccess: options.overrideAccess ?? defaults.overrideAccess ?? true,
+        user: options.user === undefined ? defaults.user : options.user,
         locale: options.locale,
         fallbackLocale: options.fallbackLocale,
       })
@@ -724,8 +741,8 @@ export function getLontar(config: Config): Promise<LontarClient> {
         versionId,
         draft: options.draft,
         depth: options.depth,
-        overrideAccess: options.overrideAccess ?? true,
-        user: options.user,
+        overrideAccess: options.overrideAccess ?? defaults.overrideAccess ?? true,
+        user: options.user === undefined ? defaults.user : options.user,
         locale: options.locale,
         fallbackLocale: options.fallbackLocale,
       })
@@ -741,8 +758,8 @@ export function getLontar(config: Config): Promise<LontarClient> {
         global,
         depth: options.depth,
         draft: options.draft,
-        overrideAccess: options.overrideAccess ?? true,
-        user: options.user,
+        overrideAccess: options.overrideAccess ?? defaults.overrideAccess ?? true,
+        user: options.user === undefined ? defaults.user : options.user,
         locale: options.locale,
         fallbackLocale: options.fallbackLocale,
       })
@@ -767,8 +784,8 @@ export function getLontar(config: Config): Promise<LontarClient> {
         depth: options.depth,
         draft: options.draft,
         autosave: options.autosave,
-        overrideAccess: options.overrideAccess ?? true,
-        user: options.user,
+        overrideAccess: options.overrideAccess ?? defaults.overrideAccess ?? true,
+        user: options.user === undefined ? defaults.user : options.user,
         locale: options.locale,
         fallbackLocale: options.fallbackLocale,
       })
@@ -783,8 +800,8 @@ export function getLontar(config: Config): Promise<LontarClient> {
         config,
         global,
         depth: options.depth,
-        overrideAccess: options.overrideAccess ?? true,
-        user: options.user,
+        overrideAccess: options.overrideAccess ?? defaults.overrideAccess ?? true,
+        user: options.user === undefined ? defaults.user : options.user,
         locale: options.locale,
         fallbackLocale: options.fallbackLocale,
       })
@@ -799,8 +816,8 @@ export function getLontar(config: Config): Promise<LontarClient> {
         config,
         global,
         depth: options.depth,
-        overrideAccess: options.overrideAccess ?? true,
-        user: options.user,
+        overrideAccess: options.overrideAccess ?? defaults.overrideAccess ?? true,
+        user: options.user === undefined ? defaults.user : options.user,
         locale: options.locale,
         fallbackLocale: options.fallbackLocale,
       })
@@ -817,8 +834,8 @@ export function getLontar(config: Config): Promise<LontarClient> {
         page: options.page,
         limit: options.limit,
         sort: options.sort,
-        overrideAccess: options.overrideAccess ?? true,
-        user: options.user,
+        overrideAccess: options.overrideAccess ?? defaults.overrideAccess ?? true,
+        user: options.user === undefined ? defaults.user : options.user,
         locale: options.locale,
         fallbackLocale: options.fallbackLocale,
       })
@@ -837,8 +854,8 @@ export function getLontar(config: Config): Promise<LontarClient> {
         config,
         global,
         versionId,
-        overrideAccess: options.overrideAccess ?? true,
-        user: options.user,
+        overrideAccess: options.overrideAccess ?? defaults.overrideAccess ?? true,
+        user: options.user === undefined ? defaults.user : options.user,
         locale: options.locale,
         fallbackLocale: options.fallbackLocale,
       })
@@ -859,12 +876,12 @@ export function getLontar(config: Config): Promise<LontarClient> {
         versionId,
         draft: options.draft,
         depth: options.depth,
-        overrideAccess: options.overrideAccess ?? true,
-        user: options.user,
+        overrideAccess: options.overrideAccess ?? defaults.overrideAccess ?? true,
+        user: options.user === undefined ? defaults.user : options.user,
         locale: options.locale,
         fallbackLocale: options.fallbackLocale,
       })
     },
   }
-  return Promise.resolve(client)
+  return client
 }
