@@ -51,6 +51,12 @@ import { ColumnPicker } from './ColumnPicker'
 import { getColumnLabel, titleColumnKey } from './columns'
 import { useColumnPreference, type ColumnPreference } from './useColumnPreference'
 import { useListBulk } from './useListBulk'
+import { MediaControls } from './MediaControls'
+import { MediaDetailDialog } from './MediaDetailDialog'
+import { MediaGrid } from './MediaGrid'
+import { ListPagination } from './ListPagination'
+import { mimeGroupWhere, type ListViewMode, type MimeGroup } from './media'
+import { useViewMode } from './useViewMode'
 import {
   formatSortParam,
   parseListSearch,
@@ -175,6 +181,7 @@ function buildWhereQuery(
   searchField: string | undefined,
   activeFilters: ActiveFilter[],
   statusFilter?: 'all' | 'published' | 'draft',
+  mimeGroup?: MimeGroup,
 ): Where | undefined {
   const where: Where = {}
   if (searchTerm.trim() && searchField) {
@@ -183,6 +190,10 @@ function buildWhereQuery(
 
   if (statusFilter && statusFilter !== 'all') {
     where._status = { equals: statusFilter }
+  }
+
+  if (mimeGroup) {
+    where.and = [mimeGroupWhere(mimeGroup)]
   }
 
   applyActiveFilters(where, activeFilters)
@@ -435,31 +446,7 @@ function CollectionTable({ table, data, onPageChange, selection }: CollectionTab
         </TableBody>
       </UITable>
 
-      <div className="lt:flex lt:items-center lt:justify-between lt:border-t lt:bg-background lt:px-5 lt:py-3.5">
-        <Button
-          type="button"
-          variant="outline"
-          onClick={() => {
-            onPageChange(Math.max(1, (data?.page ?? 1) - 1))
-          }}
-          disabled={!data?.hasPrevPage}
-        >
-          Previous
-        </Button>
-        <span className="lt:text-[0.8125rem] lt:text-muted-foreground">
-          Page {data?.page ?? 1} of {data?.totalPages ?? 1}
-        </span>
-        <Button
-          type="button"
-          variant="outline"
-          onClick={() => {
-            onPageChange((data?.page ?? 1) + 1)
-          }}
-          disabled={!data?.hasNextPage}
-        >
-          Next
-        </Button>
-      </div>
+      <ListPagination data={data} onPageChange={onPageChange} />
     </div>
   )
 }
@@ -504,6 +491,8 @@ interface ListContentProps {
   data?: PaginatedDocs
   onPageChange: (newPage: number) => void
   selection?: RowSelection
+  /** Set when the upload collection is shown as a grid. */
+  grid?: { docs: Array<Record<string, unknown>>; onOpen: (doc: Record<string, unknown>) => void }
 }
 
 function ListContent({
@@ -519,6 +508,7 @@ function ListContent({
   data,
   onPageChange,
   selection,
+  grid,
 }: ListContentProps) {
   if (isLoading) {
     return <EmptyCard>Loading documents...</EmptyCard>
@@ -538,6 +528,11 @@ function ListContent({
       )
     }
     return <EmptyState collection={collection} canCreate={canCreate} activeLocale={activeLocale} />
+  }
+  if (grid) {
+    return (
+      <MediaGrid docs={grid.docs} data={data} onOpen={grid.onOpen} onPageChange={onPageChange} />
+    )
   }
   return (
     <CollectionTable table={table} data={data} onPageChange={onPageChange} selection={selection} />
@@ -615,6 +610,9 @@ function useListFilters(
   const handleStatusFilterChange = (val: 'all' | ListStatus) =>
     go({ status: val === 'all' ? undefined : val, page: undefined })
 
+  const handleMimeGroupChange = (group: MimeGroup | undefined) =>
+    go({ mime: group, page: undefined })
+
   const handleAddFilter = (filter: ActiveFilter) =>
     go({ filters: toFilterParams([...state.filters, filter]), page: undefined })
 
@@ -623,7 +621,7 @@ function useListFilters(
 
   const handleClearAll = () => {
     search.reset()
-    go({ q: undefined, status: undefined, filters: undefined, page: undefined })
+    go({ q: undefined, status: undefined, mime: undefined, filters: undefined, page: undefined })
   }
 
   return {
@@ -634,6 +632,8 @@ function useListFilters(
     searchTerm: state.searchTerm,
     searchInput: search.input,
     statusFilter: state.statusFilter,
+    mimeGroup: state.mimeGroup,
+    handleMimeGroupChange,
     activeFilters: state.filters,
     handleSearchChange: search.change,
     handleStatusFilterChange,
@@ -740,9 +740,10 @@ function computeHasActiveFilters(
   filterCount: number,
   hasDrafts: boolean,
   statusFilter: string,
+  mimeGroup?: MimeGroup,
 ): boolean {
   if (searchTerm.trim().length > 0) return true
-  if (filterCount > 0) return true
+  if (filterCount > 0 || mimeGroup) return true
   return hasDrafts && statusFilter !== 'all'
 }
 
@@ -805,6 +806,53 @@ function useListColumns(
   )
 }
 
+interface ListWhereState {
+  searchTerm: string
+  activeFilters: ActiveFilter[]
+  statusFilter: 'all' | ListStatus
+  mimeGroup: MimeGroup | undefined
+}
+
+function useListWhere(
+  collection: ClientCollection,
+  fieldPermissions: Record<string, FieldPermission> | undefined,
+  state: ListWhereState,
+) {
+  const { searchTerm, activeFilters, statusFilter, mimeGroup } = state
+  const searchField = useMemo(
+    () => resolveSearchField(collection, fieldPermissions),
+    [collection, fieldPermissions],
+  )
+  return useMemo(
+    () => buildWhereQuery(searchTerm, searchField, activeFilters, statusFilter, mimeGroup),
+    [searchTerm, searchField, activeFilters, statusFilter, mimeGroup],
+  )
+}
+
+function useMediaLibrary(
+  collection: ClientCollection,
+  docs: Array<Record<string, unknown>>,
+  onDelete: (id: number | string) => void,
+  canDelete: boolean,
+  activeLocale: string | undefined,
+) {
+  const enabled = Boolean(collection.upload)
+  const { mode, setMode } = useViewMode(collection.slug, enabled)
+  const [opened, setOpened] = useState<Record<string, unknown> | null>(null)
+  const grid = mode === 'grid' ? { docs, onOpen: setOpened } : undefined
+  const dialog = grid ? (
+    <MediaDetailDialog
+      doc={opened}
+      collectionSlug={collection.slug}
+      activeLocale={activeLocale}
+      canDelete={canDelete}
+      onDelete={onDelete}
+      onClose={() => setOpened(null)}
+    />
+  ) : null
+  return { enabled, mode: mode satisfies ListViewMode, setMode, grid, dialog }
+}
+
 interface CollectionListTableProps {
   collection: ClientCollection
 }
@@ -815,6 +863,8 @@ function CollectionListTable({ collection }: CollectionListTableProps) {
   const { hasLocalization, activeLocale, fallbackLocale, locales } = useLocale()
   const { collectionPerm, canCreate, canDelete } = useCollectionPermissionsState(collection.slug)
 
+  const fieldPermissions = collectionPerm?.fields
+
   const {
     page,
     setPage,
@@ -823,13 +873,15 @@ function CollectionListTable({ collection }: CollectionListTableProps) {
     searchTerm,
     searchInput,
     statusFilter,
+    mimeGroup,
+    handleMimeGroupChange,
     activeFilters,
     handleSearchChange,
     handleStatusFilterChange,
     handleAddFilter,
     handleRemoveFilter,
     handleClearAll,
-  } = useListFilters(collection, collectionPerm?.fields)
+  } = useListFilters(collection, fieldPermissions)
 
   const handleLocaleChange = (newLocale: string) => {
     void navigate({
@@ -851,16 +903,14 @@ function CollectionListTable({ collection }: CollectionListTableProps) {
     setDeleteError(null)
   }, [collection.slug, page, setDeleteError])
 
-  const searchField = useMemo(
-    () => resolveSearchField(collection, collectionPerm?.fields),
-    [collection, collectionPerm?.fields],
-  )
   const hasDrafts = Boolean(collection.versions?.drafts)
 
-  const where = useMemo(
-    () => buildWhereQuery(searchTerm, searchField, activeFilters, statusFilter),
-    [searchTerm, searchField, activeFilters, statusFilter],
-  )
+  const where = useListWhere(collection, fieldPermissions, {
+    searchTerm,
+    activeFilters,
+    statusFilter,
+    mimeGroup,
+  })
 
   const listLocale = hasLocalization ? activeLocale : undefined
   const sortParam = useMemo(() => formatSortParam(sorting), [sorting])
@@ -903,7 +953,10 @@ function CollectionListTable({ collection }: CollectionListTableProps) {
     activeFilters.length,
     hasDrafts,
     statusFilter,
+    mimeGroup,
   )
+
+  const media = useMediaLibrary(collection, docs, handleDelete, canDelete, activeLocale)
 
   const { selection, controls: bulkControls } = useListBulk({
     apiBase,
@@ -913,6 +966,7 @@ function CollectionListTable({ collection }: CollectionListTableProps) {
       page,
       searchTerm,
       statusFilter,
+      mimeGroup,
       sorting,
       activeFilters,
       activeLocale,
@@ -952,8 +1006,17 @@ function CollectionListTable({ collection }: CollectionListTableProps) {
         hasDrafts={hasDrafts}
         statusFilter={statusFilter}
         onStatusFilterChange={handleStatusFilterChange}
-        fieldPermissions={collectionPerm?.fields}
+        fieldPermissions={fieldPermissions}
       />
+
+      {media.enabled && (
+        <MediaControls
+          mimeGroup={mimeGroup}
+          onMimeGroupChange={handleMimeGroupChange}
+          viewMode={media.mode}
+          onViewModeChange={media.setMode}
+        />
+      )}
 
       <ListAlerts queryError={error} deleteError={deleteError} />
 
@@ -980,7 +1043,9 @@ function CollectionListTable({ collection }: CollectionListTableProps) {
         data={data ?? undefined}
         onPageChange={setPage}
         selection={selection}
+        grid={media.grid}
       />
+      {media.dialog}
     </div>
   )
 }

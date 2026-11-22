@@ -169,3 +169,17 @@ describe('serialize round-trip (#214)', () => {
     expect(toFilterParams([])).toBeUndefined()
   })
 })
+
+describe('mime group in the URL (#462)', () => {
+  const media = { ...posts, upload: true } as ClientCollection
+
+  it('keeps a known group and drops anything else', () => {
+    expect(parseListSearch({ mime: 'images' }).mime).toBe('images')
+    expect(parseListSearch({ mime: 'pictures' }).mime).toBeUndefined()
+  })
+
+  it('applies only to an upload collection', () => {
+    expect(resolveListState({ mime: 'video' }, media).mimeGroup).toBe('video')
+    expect(resolveListState({ mime: 'video' }, posts).mimeGroup).toBeUndefined()
+  })
+})
