@@ -1,13 +1,12 @@
-import { checkAccess, sanitizeDocRead, sanitizeDocWrite } from '../access'
+import { sanitizeDocRead, sanitizeDocWrite } from '../access'
 import type { FieldAccessCache } from '../access/field-access'
-import type { AuthUser } from '../auth/types'
 import type { DocStatus } from '../client/system-fields'
 import { clientFieldsToZod } from '../client/zod'
 import { toClientCollection } from '../config/to-client-config'
-import type { AccessArgs, CollectionConfig } from '../config/types'
+import type { CollectionConfig } from '../config/types'
 import type { DocumentData } from '../database/adapter'
 import { populateDoc } from '../populate'
-import { AccessDeniedError, NotFoundError, ValidationError } from './errors'
+import { NotFoundError, ValidationError } from './errors'
 import { extractLocaleCodes, resolveOperationLocale } from './locale'
 import {
   executeUpdate,
@@ -19,24 +18,8 @@ import {
 import { cleanupReplacedMedia } from '../server/routes/collection-upload'
 import { runBeforeValidateHooks } from '../hooks'
 import type { DocStatusTransition } from '../hooks/types'
+import { assertRowAccess } from './row-access'
 import { resolveOperationContextCache, type UpdateOperationArgs } from './types'
-
-async function assertUpdateAccess(
-  collection: CollectionConfig,
-  id: number,
-  data: DocumentData,
-  user?: AuthUser | null,
-  locale?: string,
-): Promise<void> {
-  const accessArgs: AccessArgs = { user: user ?? null, id, data }
-  if (locale !== undefined) {
-    accessArgs.locale = locale
-  }
-  const allowed = await checkAccess(collection.access?.update, accessArgs)
-  if (!allowed) {
-    throw new AccessDeniedError('Access denied', { user })
-  }
-}
 
 function validateUpdateData(
   collection: CollectionConfig,
@@ -143,6 +126,7 @@ async function finalizeUpdateDoc<T>(
     collection: args.collection,
     depth: args.depth ?? 0,
     collections: args.config.collections,
+    localization: args.config.localization,
     db: args.config.db,
     user: args.user ?? null,
     req: args.req,
@@ -178,7 +162,16 @@ export async function updateOperation<T = DocumentData>(args: UpdateOperationArg
   const locales = extractLocaleCodes(args.config)
 
   if (!args.overrideAccess) {
-    await assertUpdateAccess(args.collection, args.id, args.data, args.user, locale)
+    await assertRowAccess({
+      config: args.config,
+      collection: args.collection,
+      id: args.id,
+      user: args.user,
+      operations: ['update'],
+      data: args.data,
+      locale,
+      fallbackLocale,
+    })
   }
 
   const draft = resolveDraftFlag(args.collection, args.draft, args.autosave)

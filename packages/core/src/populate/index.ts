@@ -1,7 +1,8 @@
-import { checkAccess, sanitizeDocRead } from '../access'
+import { combineWhere, constraintOf, resolveAccess, sanitizeDocRead } from '../access'
 import type { FieldAccessCache } from '../access/field-access'
 import type { AuthUser } from '../auth/types'
-import type { CollectionConfig } from '../config/types'
+import type { CollectionConfig, Config } from '../config/types'
+import type { Where } from '../query/types'
 import type { DatabaseAdapter, DocumentData } from '../database/adapter'
 import type {
   ArrayField,
@@ -35,6 +36,8 @@ export interface PopulateOptions {
   cache?: FieldAccessCache
   locale?: string
   fallbackLocale?: string | false
+  /** Needed to validate a row-level constraint on a localized path (ADR 0030). */
+  localization?: Config['localization']
 }
 
 interface SingleRefSlot {
@@ -347,16 +350,19 @@ async function fetchTargetDocs(
   draft?: boolean,
   locale?: string,
   fallbackLocale?: string | false,
+  constraint?: Where,
 ): Promise<Map<number, DocumentData>> {
   if (targetIds.length === 0) return new Map()
   const docs: DocumentData[] = []
   for (let i = 0; i < targetIds.length; i += MAX_POPULATE_BATCH_SIZE) {
     const chunk = targetIds.slice(i, i + MAX_POPULATE_BATCH_SIZE)
     const baseWhere = { id: { in: chunk } }
-    const where =
+    const where = combineWhere(
       targetCol.versions?.drafts && !draft
         ? { and: [baseWhere, { _status: { equals: 'published' } }] }
-        : baseWhere
+        : baseWhere,
+      constraint,
+    )
     const result = await db.find({
       collection: targetCol,
       limit: chunk.length,
@@ -419,6 +425,7 @@ async function populateChildren(
   draft?: boolean,
   locale?: string,
   fallbackLocale?: string | false,
+  localization?: Config['localization'],
 ): Promise<void> {
   const nextSeen = new Set(seen)
   for (const d of parentDocs) {
@@ -440,6 +447,7 @@ async function populateChildren(
     draft,
     locale,
     fallbackLocale,
+    localization,
   })
   for (const child of populatedChildren) {
     if (typeof child.id === 'number') {
@@ -464,6 +472,8 @@ interface PopulateTargetArgs {
   cache?: FieldAccessCache
   locale?: string
   fallbackLocale?: string | false
+  /** Needed to validate a row-level constraint on a localized path (ADR 0030). */
+  localization?: Config['localization']
 }
 
 async function sanitizeTargetDocs(
@@ -486,6 +496,35 @@ async function sanitizeTargetDocs(
   }
 }
 
+interface TargetAccessArgs {
+  targetCol: CollectionConfig
+  user: AuthUser | null
+  locale?: string
+  localization?: Config['localization']
+  overrideAccess?: boolean
+  draft?: boolean
+}
+
+interface TargetAccess {
+  canDraftTarget: boolean
+  /** The target collection's row-level constraint, when its access returned one (ADR 0030 §7). */
+  constraint?: Where
+}
+
+// `undefined` means the target cannot be read at all, so nothing is populated from it. A related
+// document outside a constraint is simply not fetched, and its field keeps the bare id.
+async function resolveTargetAccess(args: TargetAccessArgs): Promise<TargetAccess | undefined> {
+  const { targetCol, user, locale, localization, overrideAccess, draft } = args
+  if (overrideAccess) return { canDraftTarget: Boolean(draft) }
+  const config = { localization }
+  const read = await resolveAccess(targetCol, 'read', { user, locale }, config)
+  if (!read.allowed) return undefined
+  if (!draft) return { canDraftTarget: false, constraint: constraintOf(read) }
+  const update = await resolveAccess(targetCol, 'update', { user, locale }, config)
+  if (!update.allowed) return { canDraftTarget: false, constraint: constraintOf(read) }
+  return { canDraftTarget: true, constraint: constraintOf(read, update) }
+}
+
 async function populateTargetCollection(args: PopulateTargetArgs): Promise<void> {
   const {
     targetCol,
@@ -502,16 +541,19 @@ async function populateTargetCollection(args: PopulateTargetArgs): Promise<void>
     draft,
     locale,
     fallbackLocale,
+    localization,
   } = args
 
-  const canRead = overrideAccess
-    ? true
-    : await checkAccess(targetCol.access?.read, { user, locale })
-  if (!canRead) return
-
-  const canDraftTarget = overrideAccess
-    ? Boolean(draft)
-    : Boolean(draft && (await checkAccess(targetCol.access?.update, { user, locale })))
+  const access = await resolveTargetAccess({
+    targetCol,
+    user,
+    locale,
+    localization,
+    overrideAccess,
+    draft,
+  })
+  if (!access) return
+  const { canDraftTarget, constraint } = access
 
   const targetIds = extractTargetIds(targetSlots, targetCol.slug, seen)
   const docsById = await fetchTargetDocs(
@@ -522,6 +564,7 @@ async function populateTargetCollection(args: PopulateTargetArgs): Promise<void>
     canDraftTarget,
     locale,
     fallbackLocale,
+    constraint,
   )
 
   if (depth > 1 && docsById.size > 0) {
@@ -540,6 +583,7 @@ async function populateTargetCollection(args: PopulateTargetArgs): Promise<void>
       canDraftTarget,
       locale,
       fallbackLocale,
+      localization,
     )
   }
 
@@ -590,6 +634,8 @@ interface PopulateAllTargetsArgs {
   cache?: FieldAccessCache
   locale?: string
   fallbackLocale?: string | false
+  /** Needed to validate a row-level constraint on a localized path (ADR 0030). */
+  localization?: Config['localization']
 }
 
 async function populateAllTargets(args: PopulateAllTargetsArgs): Promise<void> {
@@ -608,6 +654,7 @@ async function populateAllTargets(args: PopulateAllTargetsArgs): Promise<void> {
     cache,
     locale,
     fallbackLocale,
+    localization,
   } = args
 
   const slotsByTarget = groupSlotsByTarget(slots)
@@ -631,6 +678,7 @@ async function populateAllTargets(args: PopulateAllTargetsArgs): Promise<void> {
       cache,
       locale,
       fallbackLocale,
+      localization,
     })
   }
 }
@@ -648,6 +696,7 @@ export async function populateDocs(options: PopulateOptions): Promise<DocumentDa
     cache,
     locale,
     fallbackLocale,
+    localization,
   } = options
   const user = options.user ?? null
   const seen = options.seen ?? new Set<string>()
@@ -679,6 +728,7 @@ export async function populateDocs(options: PopulateOptions): Promise<DocumentDa
     cache,
     locale,
     fallbackLocale,
+    localization,
   })
 
   return docs

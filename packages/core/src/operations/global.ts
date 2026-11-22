@@ -245,6 +245,7 @@ async function populateGlobalDoc<T>(args: {
       db: args.config.db,
       user: args.user ?? null,
       collections: args.config.collections,
+      localization: args.config.localization,
       req: args.req,
       overrideAccess: args.overrideAccess,
       draft: args.draft,

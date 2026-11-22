@@ -1,6 +1,6 @@
 import type { Context, Hono, Next } from 'hono'
 import { bodyLimit } from 'hono/body-limit'
-import { accessDenied, checkAccess, validateQueryAccess } from '../../access'
+import { accessDenied, checkAccess, resolveAccess, validateQueryAccess } from '../../access'
 import type { AuthUser, LontarVariables } from '../../auth/types'
 import { clientFieldsToZod } from '../../client/zod'
 import { toClientCollection } from '../../config/to-client-config'
@@ -638,14 +638,16 @@ function createPostUploadLimitMiddleware(
 
 function createPatchUploadLimitMiddleware(
   findCol: (c: Context<LontarEnv>) => CollectionConfig | null,
+  config: Config,
 ) {
   return async (c: Context<LontarEnv>, next: Next) => {
     const col = findCol(c)
     if (!col) return c.json({ error: `Collection "${c.req.param('collection')}" not found` }, 404)
     const id = parseId(c.req.param('id'))
     const user = c.get('user') ?? null
-    const allowed = await checkAccess(col.access?.update, { user, id: id ?? undefined })
-    if (!allowed) return accessDenied(c, user)
+    // A plain denial stops here; a constraint is applied to the document by the handler.
+    const decision = await resolveAccess(col, 'update', { user, id: id ?? undefined }, config)
+    if (!decision.allowed) return accessDenied(c, user)
     return checkUploadBodyLimit(c, next, col.upload)
   }
 }
@@ -660,7 +662,7 @@ export function registerCollectionRoutes(router: Hono<LontarEnv>, config: Config
   }
 
   const postLimit = createPostUploadLimitMiddleware(findCol)
-  const patchLimit = createPatchUploadLimitMiddleware(findCol)
+  const patchLimit = createPatchUploadLimitMiddleware(findCol, config)
 
   router.get('/:collection', (c) => {
     const col = findCol(c)

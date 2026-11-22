@@ -1,30 +1,12 @@
-import { checkAccess, sanitizeDocRead } from '../access'
-import type { AuthUser } from '../auth/types'
+import { sanitizeDocRead } from '../access'
 import type { DocStatus } from '../client/system-fields'
-import type { AccessArgs, CollectionConfig } from '../config/types'
 import type { DatabaseAdapter, DocumentData } from '../database/adapter'
 import { runAfterDeleteHooks, runBeforeDeleteHooks } from '../hooks'
 import { handleUploadDelete } from '../server/routes/collection-upload'
 import { dispatchWebhooks } from '../webhooks'
-import { AccessDeniedError } from './errors'
 import { resolveOperationLocale } from './locale'
+import { assertRowAccess } from './row-access'
 import { resolveOperationContextCache, type DeleteOperationArgs } from './types'
-
-async function assertDeleteAccess(
-  collection: CollectionConfig,
-  id: number,
-  user?: AuthUser | null,
-  locale?: string,
-): Promise<void> {
-  const accessArgs: AccessArgs = { user: user ?? null, id }
-  if (locale !== undefined) {
-    accessArgs.locale = locale
-  }
-  const allowed = await checkAccess(collection.access?.delete, accessArgs)
-  if (!allowed) {
-    throw new AccessDeniedError('Access denied', { user })
-  }
-}
 
 async function finalizeDeleteDoc<T>(
   args: DeleteOperationArgs,
@@ -57,7 +39,15 @@ export async function deleteOperation<T = DocumentData>(
   )
 
   if (!args.overrideAccess) {
-    await assertDeleteAccess(args.collection, args.id, args.user, locale)
+    await assertRowAccess({
+      config: args.config,
+      collection: args.collection,
+      id: args.id,
+      user: args.user,
+      operations: ['delete'],
+      locale,
+      fallbackLocale,
+    })
   }
 
   const run = async (txDb: DatabaseAdapter): Promise<DocumentData | null> => {

@@ -13,6 +13,7 @@ import { cleanupReplacedMedia } from '../server/routes/collection-upload'
 import { AccessDeniedError, NotFoundError, ValidationError } from './errors'
 import { extractLocaleCodes, projectCanonicalDoc, resolveOperationLocale } from './locale'
 import { executeGlobalUpdate, executeUpdate, type MutationExecutionResult } from './mutation'
+import { assertRowAccess } from './row-access'
 
 export interface PublishOperationArgs {
   config: Config
@@ -35,24 +36,6 @@ export interface PublishGlobalOperationArgs {
   req?: Request
   locale?: string
   fallbackLocale?: string | false
-}
-
-async function assertPublishAccess(
-  collection: CollectionConfig,
-  id: number,
-  user?: AuthUser | null,
-  locale?: string,
-  req?: Request,
-): Promise<void> {
-  const allowed = await checkAccess(collection.access?.update, {
-    user: user ?? null,
-    id,
-    locale,
-    req,
-  })
-  if (!allowed) {
-    throw new AccessDeniedError('Access denied', { user })
-  }
 }
 
 type MutationFailure = Extract<MutationExecutionResult, { success: false }>
@@ -196,6 +179,7 @@ async function finalizeTransitionDoc<T>(
     collection: args.collection,
     depth: args.depth ?? 0,
     collections: args.config.collections,
+    localization: args.config.localization,
     db: args.config.db,
     user: args.user ?? null,
     req: args.req,
@@ -233,7 +217,16 @@ async function transitionDocumentStatus<T = DocumentData>(
   const updateLocale = isLocalized && statusTransition === 'publish' ? 'all' : locale
 
   if (!args.overrideAccess) {
-    await assertPublishAccess(args.collection, args.id, args.user, locale, args.req)
+    await assertRowAccess({
+      config: args.config,
+      collection: args.collection,
+      id: args.id,
+      user: args.user,
+      operations: ['update'],
+      locale,
+      fallbackLocale,
+      req: args.req,
+    })
   }
 
   const runTransition = async (
@@ -370,6 +363,7 @@ async function populateGlobalTransitionDoc<T>(args: {
       collection: { slug: args.global.slug, fields: args.global.fields },
       depth: args.depth,
       collections: args.config.collections,
+      localization: args.config.localization,
       db: args.config.db,
       user: args.user ?? null,
       req: args.req,
