@@ -622,6 +622,141 @@ Lontar serves internal endpoints under `/api/_lontar/` consumed by the admin pan
 - `GET /api/_lontar/permissions` (alias: `GET /api/_lontar/access`): Returns collection- and global-level permissions (`create`, `read`, `update`, `delete`, `readVersions`) and field-level permissions (`{ read, create, update }`) for the current caller (including anonymous visitors, restricted roles, and administrators).
 - `GET /api/_lontar/permissions/:collection/:id` (alias: `GET /api/_lontar/access/:collection/:id`): Returns document-specific permissions, including dynamic and row-conditional field permissions for `group`, `array`, and `blocks` fields.
 
+### Extending the admin
+
+> **Target API.** This section is the agreed spec from [ADR 0029](docs/adr/0029-admin-extensibility.md). Each feature lands in its own PR (M12, [#150](https://github.com/handi7/lontar-cms/issues/150)) and this section stays the source of truth until then.
+
+Server code and client code stay on their own sides. They meet through string keys and JSON descriptors in `ClientConfig`, so the admin remains a prebuilt SPA.
+
+#### Custom endpoints
+
+Declare `endpoints` at the root, on a collection, or on a global:
+
+```ts
+export default defineConfig({
+  endpoints: [
+    {
+      name: 'pendingStats',
+      method: 'get',
+      path: '/stats/pending',
+      access: ({ user }) => user?.role === 'admin',
+      handler: async (c, { lontar }) => {
+        const { totalDocs } = await lontar.find('posts', {
+          where: { approved: { equals: false } },
+          limit: 1,
+        })
+        return c.json({ pending: totalDocs })
+      },
+    },
+  ],
+  collections: [
+    collection({
+      slug: 'posts',
+      endpoints: [
+        {
+          name: 'approve',
+          method: 'post',
+          path: '/:id/approve',
+          handler: async (c, { lontar, id }) =>
+            c.json(await lontar.update('posts', id, { approved: true })),
+        },
+      ],
+      fields: {/* ... */},
+    }),
+  ],
+})
+```
+
+| Declared on | Mounted at                        |
+| ----------- | --------------------------------- |
+| Root        | `<basePath><path>`                |
+| Collection  | `<basePath>/<slug><path>`         |
+| Global      | `<basePath>/globals/<slug><path>` |
+
+- **Order and reserved paths.** Custom endpoints are registered before the built-in routes. Startup fails, naming the conflict, if a path could overlap a built-in route (a root path starting with a collection slug, `auth`, `globals` or `_lontar`; a collection path starting with `file` or a numeric segment; `/:id/versions`, `/:id/publish`, `/:id/unpublish`).
+- **Handler context.** The second argument is `{ user, apiKey, id, locale, config, lontar }`. `id` is parsed from `:id` (`400` if invalid) and `locale` from `?locale`.
+- **`lontar` is bound to the caller.** It runs with `overrideAccess: false` and the request's `user`. Pass `overrideAccess: true` explicitly when a handler needs more. This is the opposite of `getLontar()`, which serves trusted server code.
+- **`access`** takes the same function as collection access. No user returns `401`, a failing check for a signed-in user returns `403`. Omitting it means any authenticated user; write `access: () => true` for a public endpoint.
+- **API keys.** Endpoints are session-only. Set `apiKey: true` to accept an API key; otherwise a key request gets `403`.
+- **`rateLimit: { window, max }`** is optional, keyed by client IP and endpoint name. There is no default limit.
+
+#### Registering components
+
+Pass React components to `<Admin>` by key, and refer to the key from the config:
+
+```tsx
+// app/admin/[[...path]]/page.tsx
+'use client'
+import { Admin } from '@lontar/admin'
+
+export default function AdminPage() {
+  return (
+    <Admin
+      apiBase="/api"
+      basePath="/admin"
+      components={{
+        'rating-stars': RatingStars,
+        'pending-widget': PendingWidget,
+        'seo-audit': SeoAuditView,
+      }}
+    />
+  )
+}
+```
+
+```ts
+// lontar.config.ts: strings only, so ClientConfig stays JSON
+rating: f.number({ admin: { component: 'rating-stars' } }),
+
+admin: {
+  dashboard: { widgets: [{ component: 'pending-widget', width: 'half' }] },
+  views: [
+    { key: 'seo-audit', label: 'SEO audit', component: 'seo-audit', access: ({ user }) => !!user },
+  ],
+},
+```
+
+`@lontar/admin` exports a props interface for each slot:
+
+- **Field input** (`admin.component` on any field) receives `CustomFieldProps`: `value`, `onChange`, `onBlur`, `path`, `field`, `readOnly`, `locale`, `error`. It replaces the input only. The label, description, conditional display, field-level access and Zod validation stay Lontar's, so a component cannot change what is stored.
+- **Dashboard widget** (`admin.dashboard.widgets`) receives `DashboardWidgetProps`. Widgets render in config order.
+- **Custom view** (`admin.views`) receives `CustomViewProps`. It is served at `<basePath>/views/<key>` with a sidebar entry. Its `access` function is evaluated by the permissions endpoint and only the boolean reaches the admin. Hiding a view is cosmetic, so the endpoints it calls must enforce access. A collection slug `views` is rejected when `admin.views` is non-empty.
+
+Components read data through exported hooks: `useAdminConfig()`, `useAuth()`, `useLontarFetch()` (fetch bound to `apiBase` with credentials) and `useDocumentForm()` (sibling values, for field components). Anything not exported is private and may change in a minor release.
+
+A key with no registered component renders a placeholder naming the key and logs a warning; the rest of the admin keeps working. To type the keys, augment the empty `AdminComponentKeys` interface from `@lontar/core` by declaration merging. Host components bring their own styles; match the theme with the `--lontar-*` tokens below.
+
+#### Declarative actions
+
+An action binds a button to one of the collection's or global's endpoints, with no client code:
+
+```ts
+collection({
+  slug: 'posts',
+  endpoints: [/* approve, archiveMany */],
+  admin: {
+    actions: [
+      { key: 'approve', label: 'Approve', endpoint: 'approve', scope: ['row', 'document'] },
+      {
+        key: 'archive',
+        label: 'Archive',
+        endpoint: 'archiveMany',
+        scope: ['bulk'],
+        confirm: 'Archive {count} posts?',
+        variant: 'destructive',
+      },
+    ],
+  },
+  fields: {/* ... */},
+})
+```
+
+- `row` and `document` actions call the endpoint with `:id` filled in. A `bulk` action sends `POST` with `{ ids: number[] }` to an endpoint without `:id`, and needs list-view row selection.
+- On success the admin refreshes the collection and shows a toast. A non-2xx response shows the endpoint's `error` message.
+- An action is shown when its endpoint's `access` passes for the current user (called with `{ user }` only). The endpoint re-checks with `id` on every call.
+- Set `component` instead of `endpoint` to open a registered component in a dialog, for flows that need input first.
+- Startup fails if an action's `endpoint` does not name an endpoint on the same collection or global.
+
 ### Admin theming
 
 The CSS custom properties below are the supported theming surface. Override them on

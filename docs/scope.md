@@ -63,7 +63,7 @@ Complex fields — `group`, `array`, `blocks`, and conditional fields — were o
 **Open questions**
 
 - Should fields be defined as an object (`fields: { title: ... }`) or an array like Payload? An object is easier for type inference; an array makes ordering and admin layout easier.
-- How are custom admin components registered: through a client-side registry, or import paths resolved at build time? Proposed: a client-side registry on `<Admin components>`, alongside config-defined custom endpoints and declarative actions ([ADR 0029](adr/0029-admin-extensibility.md), M12 [#150](https://github.com/handi7/lontar-cms/issues/150)).
+- ~~How are custom admin components registered: through a client-side registry, or import paths resolved at build time?~~ Decided: a client-side registry on `<Admin components>`, alongside config-defined custom endpoints and declarative actions ([ADR 0029](adr/0029-admin-extensibility.md), M12 [#150](https://github.com/handi7/lontar-cms/issues/150)).
 - DB schema: one table per collection with a column per field, or store some fields as JSON (e.g. rich text and, later, blocks)?
 - Stored rich text format: Tiptap JSON, HTML, or both?
 - ~~License: MIT or Apache-2.0?~~ Decided: MIT ([ADR 0018](adr/0018-license-mit.md)).
