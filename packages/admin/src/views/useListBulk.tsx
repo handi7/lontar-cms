@@ -2,6 +2,7 @@ import { useMemo, useState, type ReactNode } from 'react'
 import type { ClientCollection, CollectionPermission } from '@lontar/core/client'
 import { BulkActionBar, BulkSummaryAlert } from './BulkActionBar'
 import { useBulkActions, useRowSelection, type RowId, type RowSelection } from './bulk'
+import { titleColumnKey } from './columns'
 import { ConfirmDeleteDialog } from './ConfirmDeleteDialog'
 
 export interface UseListBulkArgs {
@@ -34,7 +35,7 @@ export function useListBulk(args: UseListBulkArgs): {
     rows.replace(result.failed.map((f) => f.id)),
   )
 
-  const titleKey = collection.admin.useAsTitle || 'id'
+  const titleKey = titleColumnKey(collection)
   const labelFor = (id: RowId) =>
     docLabel(
       docs.find((d) => d.id === id),

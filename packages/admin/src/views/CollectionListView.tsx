@@ -47,6 +47,9 @@ import { LocaleSwitcher } from './LocaleSwitcher'
 import { NotFoundView } from './NotFoundView'
 import { ViewHeader } from './ViewHeader'
 import type { RowId, RowSelection } from './bulk'
+import { ColumnPicker } from './ColumnPicker'
+import { getColumnLabel, titleColumnKey } from './columns'
+import { useColumnPreference, type ColumnPreference } from './useColumnPreference'
 import { useListBulk } from './useListBulk'
 import {
   formatSortParam,
@@ -63,15 +66,6 @@ const emptyTextClass = 'lt:mt-0 lt:mb-5 lt:text-muted-foreground'
 const rowActionClass = 'lt:h-7 lt:px-2 lt:text-[0.8125rem] lt:text-muted-foreground'
 const headClass =
   'lt:h-auto lt:px-4 lt:py-3 lt:text-xs lt:font-semibold lt:tracking-wider lt:text-muted-foreground lt:uppercase'
-
-function getColumnLabel(key: string, collection: ClientCollection): string {
-  if (key === 'id') return 'ID'
-  if (key === '_status') return 'Status'
-  if (key === 'createdAt') return 'Created At'
-  if (key === 'updatedAt') return 'Updated At'
-  const field = collection.fields.find((f) => f.name === key)
-  return field?.label ?? key
-}
 
 function renderBooleanCell(val: unknown): React.ReactNode {
   return val ? <Badge variant="success">true</Badge> : <Badge variant="muted">false</Badge>
@@ -261,61 +255,17 @@ function DataCellRenderer({
   return <>{content}</>
 }
 
-function isSystemColumn(key: string): boolean {
-  return key === 'id' || key === '_status' || key === 'createdAt' || key === 'updatedAt'
-}
-
-function isNestedPathReadable(
-  parts: string[],
-  fieldPermissions: Record<string, FieldPermission>,
-): boolean {
-  let curr: FieldPermission | undefined = fieldPermissions[parts[0] ?? '']
-  for (let i = 0; i < parts.length; i++) {
-    if (i > 0) {
-      curr = curr?.fields?.[parts[i] ?? '']
-    }
-    if (curr?.read === false) return false
-  }
-  return true
-}
-
-function isColumnReadable(
-  key: string,
-  fieldPermissions?: Record<string, FieldPermission>,
-): boolean {
-  if (!fieldPermissions || isSystemColumn(key)) return true
-  if (key.includes('.')) {
-    return isNestedPathReadable(key.split('.'), fieldPermissions)
-  }
-  return fieldPermissions[key]?.read !== false
-}
-
 function buildColumns(
   collection: ClientCollection,
+  columnKeys: string[],
   onDelete: (id: number | string) => void,
   isDeleting: boolean,
   canDelete: boolean = true,
-  fieldPermissions?: Record<string, FieldPermission>,
   activeLocale?: string,
 ): ColumnDef<Record<string, unknown>>[] {
-  const columnKeys =
-    collection.admin.defaultColumns.length > 0
-      ? [...collection.admin.defaultColumns]
-      : ['id', ...collection.fields.map((f) => f.name), 'createdAt']
+  const titleKey = titleColumnKey(collection)
 
-  if (collection.versions?.drafts && !columnKeys.includes('_status')) {
-    const createdAtIndex = columnKeys.indexOf('createdAt')
-    if (createdAtIndex !== -1) {
-      columnKeys.splice(createdAtIndex, 0, '_status')
-    } else {
-      columnKeys.push('_status')
-    }
-  }
-
-  const visibleColumnKeys = columnKeys.filter((key) => isColumnReadable(key, fieldPermissions))
-  const titleKey = collection.admin.useAsTitle || 'id'
-
-  const dataColumns: ColumnDef<Record<string, unknown>>[] = visibleColumnKeys.map((key) => {
+  const dataColumns: ColumnDef<Record<string, unknown>>[] = columnKeys.map((key) => {
     const field = collection.fields.find((f) => f.name === key)
     return {
       id: key,
@@ -812,10 +762,11 @@ function renderListHeaderActions(
   onLocaleChange: (locale: string) => void,
   canCreate: boolean,
   collection: ClientCollection,
+  columnPreference: ColumnPreference,
 ) {
-  if (!hasLocalization && !canCreate) return undefined
   return (
     <div className="lt:flex lt:items-center lt:gap-3">
+      <ColumnPicker collection={collection} preference={columnPreference} />
       {hasLocalization && activeLocale && (
         <LocaleSwitcher
           locales={locales}
@@ -842,17 +793,15 @@ function renderListHeaderActions(
 
 function useListColumns(
   collection: ClientCollection,
+  columnKeys: string[],
   handleDelete: (id: number | string) => void,
   isDeleting: boolean,
   canDelete: boolean,
-  collectionPerm: { fields?: Record<string, FieldPermission> } | undefined,
   activeLocale: string | undefined,
 ) {
-  const fieldPermissions = collectionPerm?.fields
   return useMemo(
-    () =>
-      buildColumns(collection, handleDelete, isDeleting, canDelete, fieldPermissions, activeLocale),
-    [collection, handleDelete, isDeleting, canDelete, fieldPermissions, activeLocale],
+    () => buildColumns(collection, columnKeys, handleDelete, isDeleting, canDelete, activeLocale),
+    [collection, columnKeys, handleDelete, isDeleting, canDelete, activeLocale],
   )
 }
 
@@ -926,12 +875,13 @@ function CollectionListTable({ collection }: CollectionListTableProps) {
     fallbackLocale,
   )
 
+  const columnPreference = useColumnPreference(collection, collectionPerm)
   const columns = useListColumns(
     collection,
+    columnPreference.keys,
     handleDelete,
     isDeleting,
     canDelete,
-    collectionPerm,
     activeLocale,
   )
 
@@ -983,6 +933,7 @@ function CollectionListTable({ collection }: CollectionListTableProps) {
           handleLocaleChange,
           canCreate,
           collection,
+          columnPreference,
         )}
       >
         <Badge variant="secondary" className="lt:mt-1.5">
