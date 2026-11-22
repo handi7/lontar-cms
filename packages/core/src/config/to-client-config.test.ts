@@ -1153,3 +1153,49 @@ describe('toClientConfig admin.component (#465)', () => {
     expect(hero?.component).toBe('title-input')
   })
 })
+
+describe('toClientConfig admin.dashboard (#466)', () => {
+  const base = { secret: SECRET, db: fakeAdapter, collections: [] }
+
+  it('omits admin entirely when nothing is configured', () => {
+    expect(toClientConfig(defineConfig(base))).not.toHaveProperty('admin')
+    expect(toClientConfig(defineConfig({ ...base, admin: {} }))).not.toHaveProperty('admin')
+    expect(
+      toClientConfig(defineConfig({ ...base, admin: { dashboard: { widgets: [] } } })),
+    ).not.toHaveProperty('admin')
+  })
+
+  it('serializes widgets in order with their width, defaulting to full', () => {
+    const client = toClientConfig(
+      defineConfig({
+        ...base,
+        admin: {
+          dashboard: {
+            widgets: [
+              { component: 'pending-widget', width: 'half' },
+              { component: 'welcome' },
+              { component: 'pending-widget', width: 'full' },
+            ],
+          },
+        },
+      }),
+    )
+
+    expect(client.admin).toEqual({
+      dashboard: {
+        widgets: [
+          { component: 'pending-widget', width: 'half' },
+          { component: 'welcome', width: 'full' },
+          { component: 'pending-widget', width: 'full' },
+        ],
+      },
+    })
+  })
+
+  it('survives a JSON round trip', () => {
+    const client = toClientConfig(
+      defineConfig({ ...base, admin: { dashboard: { widgets: [{ component: 'a' }] } } }),
+    )
+    expect(JSON.parse(JSON.stringify(client))).toEqual(client)
+  })
+})

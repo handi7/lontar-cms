@@ -239,6 +239,9 @@ Accepting this ADR fixes the following, which the implementation issues rely on:
   nested field may set one.
 - **`useDocumentForm()` is read-only.** It exposes the document's values, not a setter, so a field
   component cannot write its siblings around their access locks and validation (#465).
+- **Dashboard widgets.** `width` defaults to `'full'`. `DashboardWidgetProps` is `{ width }` only; a
+  widget gets everything else from the exported hooks (#466). A widget has no `access` option: the
+  endpoint it calls enforces access, like a custom view's.
 
 ### Rollout
 

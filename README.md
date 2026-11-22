@@ -763,6 +763,14 @@ admin: {
 
 Components read data through exported hooks: `useAdminConfig()`, `useAuth()`, `useLontarFetch()` (fetch bound to `apiBase` with credentials) and `useDocumentForm()` (sibling values, for field components). Anything not exported is private and may change in a minor release.
 
+Notes on dashboard widgets:
+
+- `admin.dashboard.widgets` is a list of `{ component, width }` on the root config. `width` is `'full'` (default) or `'half'`; on a narrow admin everything stacks in one column.
+- Widgets render above the collection cards, in config order. The same component may appear more than once.
+- A widget receives `DashboardWidgetProps` (`{ width }`) and reads everything else through the exported hooks. A widget that needs server data calls a [custom endpoint](#custom-endpoints) with `useLontarFetch()`; the endpoint enforces access.
+- An unknown key renders the same placeholder as a field input, and a widget that throws is contained, so the rest of the dashboard keeps working.
+- Widgets have no `access` option: the dashboard is the same for everyone who can sign in. Put the access check in the endpoint the widget calls.
+
 Notes on custom field inputs:
 
 - `admin.component` is rejected at startup on `group`, `array` and `blocks`, which render their nested fields. Set it on a field inside them instead; `path` is then the full dotted path (`seo.score`, `rows.0.note`).

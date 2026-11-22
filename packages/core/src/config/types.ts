@@ -5,7 +5,7 @@ import type { AuthUser, LontarVariables } from '../auth/types'
 import type { SystemFieldName, UploadSystemFieldName } from '../client/system-fields'
 import type { DatabaseAdapter } from '../database/adapter'
 import type { EmailAdapter, EmailConfig } from '../email/types'
-import type { Fields } from '../fields/types'
+import type { AdminComponentKey, Fields } from '../fields/types'
 import type { LontarClient } from '../local'
 import type {
   AfterChangeHook,
@@ -273,6 +273,26 @@ export interface LocalizationConfig {
   fallback?: boolean
 }
 
+export type DashboardWidgetWidth = 'full' | 'half'
+
+/** A registered component rendered on the dashboard (ADR 0029). */
+export interface DashboardWidget {
+  /** Key of a component registered on `<Admin components>`. */
+  component: AdminComponentKey
+  /** `'full'` spans the dashboard's width, `'half'` takes half of it. Defaults to `'full'`. */
+  width?: DashboardWidgetWidth
+}
+
+export interface DashboardConfig {
+  /** Rendered above the collection cards, in this order. */
+  widgets?: readonly DashboardWidget[]
+}
+
+/** Admin-wide extensions that are not tied to one collection or global (ADR 0029). */
+export interface AdminConfig {
+  dashboard?: DashboardConfig
+}
+
 /** Server-only. Never sent to the admin; see toClientConfig(). */
 export interface Config {
   /** Signs sessions. */
@@ -292,6 +312,8 @@ export interface Config {
   webhooks?: readonly WebhookConfig[]
   /** Custom endpoints mounted at `<basePath><path>`. */
   endpoints?: readonly Endpoint[]
+  /** Dashboard widgets (and, later, custom views) that refer to registered admin components. */
+  admin?: AdminConfig
   collections: readonly CollectionConfig[]
   globals?: readonly GlobalConfig[]
 }

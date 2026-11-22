@@ -209,11 +209,15 @@ export {
 } from './access'
 export type {
   AccessArgs,
+  AdminConfig,
   AccessFunction,
   AuthConfig,
   CollectionAccess,
   CollectionAdmin,
   CollectionConfig,
+  DashboardConfig,
+  DashboardWidget,
+  DashboardWidgetWidth,
   Endpoint,
   EndpointContext,
   EndpointHandler,

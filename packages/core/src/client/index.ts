@@ -5,6 +5,7 @@ export { CLIENT_CONFIG_VERSION } from './client-config'
 export type { SearchResult } from './search'
 export type {
   ClientArrayField,
+  ClientAdminConfig,
   ClientArrayFieldAdmin,
   ClientAuthConfig,
   ClientBlock,
@@ -14,6 +15,7 @@ export type {
   ClientCollection,
   ClientCollectionAdmin,
   ClientConfig,
+  ClientDashboardWidget,
   ClientDateField,
   ClientEmailField,
   ClientField,
