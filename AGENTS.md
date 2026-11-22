@@ -243,6 +243,11 @@ approval on the `npm` environment. Don't run `pnpm publish` by hand; see `docs/r
   - [x] #429 `admin: active locale in list view, pickers, version compare and live preview`
   - [x] #430 `webhooks: locale in webhook payloads and preview URLs`
   - [x] #431 `examples/next-blog: two-locale blog with e2e`
+  - [x] Code review fixes from `main` @ d16fd22, in fix order
+    - [x] Data loss and leaks: #446 (done), #447 (done), #448 (done)
+    - [x] Schema and validation: #449 (done), #450 (done)
+    - [x] Locale resolution: #451 (done), #452 (done), #453 (done), #454 (done)
+    - [x] Admin: #455 (done)
 - [ ] **M12: Admin UX & extensibility** (tracking in #150)
 
 Update this section when a milestone or issue is done.
