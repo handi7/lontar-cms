@@ -1,40 +1,31 @@
-import { checkAccess, sanitizeDocRead } from '../access'
+import { constraintOf, findConstrained, resolveAccess, sanitizeDocRead } from '../access'
 import type { FieldAccessCache } from '../access/field-access'
 import type { AuthUser } from '../auth/types'
 import type { CollectionConfig, Config } from '../config/types'
 import type { DocumentData } from '../database/adapter'
+import type { Where } from '../query/types'
 import { runAfterReadHooks } from '../hooks'
 import { populateDoc } from '../populate'
 import { AccessDeniedError } from './errors'
 import { projectCanonicalDoc, resolveOperationLocale, type ProjectLocaleContext } from './locale'
 import { resolveOperationContextCache, type FindByIDOperationArgs } from './types'
 
-async function assertReadAccess(
-  collection: CollectionConfig,
-  id: number,
-  user?: AuthUser | null,
-  locale?: string,
-): Promise<void> {
-  const allowed = await checkAccess(collection.access?.read, { user: user ?? null, id, locale })
-  if (!allowed) {
-    throw new AccessDeniedError('Access denied', { user })
-  }
-}
-
+// Read access, plus update access for a draft read. A constraint from either limits which
+// document may be returned (ADR 0030 §5 to §7).
 async function assertFindByIDAccess(
   collection: CollectionConfig,
+  config: Config,
   id: number,
   user: AuthUser | null,
   draft?: boolean,
   locale?: string,
-): Promise<void> {
-  await assertReadAccess(collection, id, user, locale)
-  if (draft) {
-    const allowed = await checkAccess(collection.access?.update, { user, id, locale })
-    if (!allowed) {
-      throw new AccessDeniedError('Access denied', { user })
-    }
-  }
+): Promise<Where | undefined> {
+  const read = await resolveAccess(collection, 'read', { user, id, locale }, config)
+  if (!read.allowed) throw new AccessDeniedError('Access denied', { user })
+  if (!draft) return constraintOf(read)
+  const update = await resolveAccess(collection, 'update', { user, id, locale }, config)
+  if (!update.allowed) throw new AccessDeniedError('Access denied', { user })
+  return constraintOf(read, update)
 }
 
 function isDraftHidden(collection: CollectionConfig, doc: DocumentData, draft?: boolean): boolean {
@@ -96,13 +87,24 @@ export async function findByIDOperation<T = DocumentData>(
     args.fallbackLocale,
   )
 
+  let constraint: Where | undefined
   if (!args.overrideAccess) {
-    await assertFindByIDAccess(args.collection, args.id, args.user ?? null, args.draft, locale)
+    constraint = await assertFindByIDAccess(
+      args.collection,
+      args.config,
+      args.id,
+      args.user ?? null,
+      args.draft,
+      locale,
+    )
   }
 
-  const doc = await args.config.db.findByID({
+  // A document outside the constraint comes back as null, like one that does not exist.
+  const doc = await findConstrained({
+    config: args.config,
     collection: args.collection,
     id: args.id,
+    constraint,
     locale,
     fallbackLocale,
   })

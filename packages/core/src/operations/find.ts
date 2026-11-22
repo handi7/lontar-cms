@@ -1,4 +1,10 @@
-import { checkAccess, sanitizeDocRead, validateQueryAccess } from '../access'
+import {
+  combineWhere,
+  constraintOf,
+  resolveAccess,
+  sanitizeDocRead,
+  validateQueryAccess,
+} from '../access'
 import type { FieldAccessCache } from '../access/field-access'
 import type { AuthUser } from '../auth/types'
 import { DEFAULT_LIMIT, MAX_LIMIT, type CollectionConfig, type Config } from '../config/types'
@@ -10,17 +16,6 @@ import { validateSort, validateWhere } from '../query/validator'
 import { AccessDeniedError, ValidationError } from './errors'
 import { projectCanonicalDoc, resolveOperationLocale, type ProjectLocaleContext } from './locale'
 import { resolveOperationContextCache, type FindOperationArgs } from './types'
-
-async function assertReadAccess(
-  collection: CollectionConfig,
-  user?: AuthUser | null,
-  locale?: string,
-): Promise<void> {
-  const allowed = await checkAccess(collection.access?.read, { user: user ?? null, locale })
-  if (!allowed) {
-    throw new AccessDeniedError('Access denied', { user })
-  }
-}
 
 function resolveDefaultLimit(collection: CollectionConfig, config: Config): number {
   return collection.pagination?.defaultLimit ?? config.pagination?.defaultLimit ?? DEFAULT_LIMIT
@@ -91,19 +86,21 @@ async function assertValidQueryAccess(
   }
 }
 
+// Read access, plus update access for a draft read (ADR 0030 §7). A constraint from either is
+// returned so the query is limited to the rows both allow.
 async function assertFindAccess(
   collection: CollectionConfig,
+  config: Config,
   user: AuthUser | null,
   draft?: boolean,
   locale?: string,
-): Promise<void> {
-  await assertReadAccess(collection, user, locale)
-  if (draft) {
-    const allowed = await checkAccess(collection.access?.update, { user, locale })
-    if (!allowed) {
-      throw new AccessDeniedError('Access denied', { user })
-    }
-  }
+): Promise<Where | undefined> {
+  const read = await resolveAccess(collection, 'read', { user, locale }, config)
+  if (!read.allowed) throw new AccessDeniedError('Access denied', { user })
+  if (!draft) return constraintOf(read)
+  const update = await resolveAccess(collection, 'update', { user, locale }, config)
+  if (!update.allowed) throw new AccessDeniedError('Access denied', { user })
+  return constraintOf(read, update)
 }
 
 function resolveFindWhere(
@@ -159,8 +156,15 @@ export async function findOperation<T = DocumentData>(
     args.fallbackLocale,
   )
 
+  let constraint: Where | undefined
   if (!args.overrideAccess) {
-    await assertFindAccess(args.collection, args.user ?? null, args.draft, locale)
+    constraint = await assertFindAccess(
+      args.collection,
+      args.config,
+      args.user ?? null,
+      args.draft,
+      locale,
+    )
     await assertValidQueryAccess(
       args.where,
       args.sort,
@@ -175,7 +179,7 @@ export async function findOperation<T = DocumentData>(
   assertValidWhere(args.where, args.collection, args.config)
   assertValidSort(args.sort, args.collection, args.config)
 
-  const where = resolveFindWhere(args.collection, args.where, args.draft)
+  const where = combineWhere(resolveFindWhere(args.collection, args.where, args.draft), constraint)
 
   const result = await args.config.db.find({
     collection: args.collection,
