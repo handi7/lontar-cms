@@ -1,7 +1,8 @@
 # 0029: Admin extensibility — custom endpoints, a client component registry, and declarative actions
 
-- **Status:** Proposed
+- **Status:** Accepted
 - **Date:** 2026-11-19
+- **Accepted:** 2026-11-22 ([#459](https://github.com/handi7/lontar-cms/issues/459))
 
 ## Context
 
@@ -222,11 +223,29 @@ admin: {
 
 Bulk actions depend on list-view row selection, planned in #150.
 
+### Settled points
+
+Accepting this ADR fixes the following, which the implementation issues rely on:
+
+- **Reserved paths.** The lists in section 1 are the rule. The config validator fails at startup, and
+  the coverage test keeps the lists in step with the built-in routes.
+- **Local API.** `lontar` in an endpoint handler is bound to the caller with `overrideAccess: false`.
+  Elevated access is an explicit opt-in per call.
+- **Session-only by default.** An endpoint rejects API keys with `403` unless it sets `apiKey: true`.
+- **Default access.** Omitting `access` means any authenticated user. A public endpoint writes
+  `access: () => true`.
+
 ### Rollout
 
-1. Custom endpoints, and field components through the registry.
-2. Dashboard widgets and custom views.
-3. Actions, after bulk select lands.
+1. Custom endpoints ([#464](https://github.com/handi7/lontar-cms/issues/464)), and field components
+   through the registry ([#465](https://github.com/handi7/lontar-cms/issues/465)).
+2. Dashboard widgets ([#466](https://github.com/handi7/lontar-cms/issues/466)) and custom views
+   ([#467](https://github.com/handi7/lontar-cms/issues/467)), after #465.
+3. Row and document actions ([#468](https://github.com/handi7/lontar-cms/issues/468)), after #464, then
+   bulk actions ([#469](https://github.com/handi7/lontar-cms/issues/469)), after list-view row
+   selection ([#460](https://github.com/handi7/lontar-cms/issues/460)), #464 and #468.
+
+A widget that needs server data also needs #464. An action's `component` dialog needs #465.
 
 Each phase updates `README.md` (the public API spec) in the same PR, and adds `toClientConfig()`
 tests for every new admin option per the `AGENTS.md` checklist.
