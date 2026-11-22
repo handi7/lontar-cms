@@ -7,6 +7,45 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.7.0] - 2026-11-22
+
+Localization (M11, tracked in #149). Fields can now be `localized: true`, content is read and written per locale through the REST API, the Local API, hooks, access control, drafts and versions, and the admin gains a locale switcher. `@lontar/storage-local`, `@lontar/storage-s3` and `@lontar/next` have no changes of their own; they are published so their `@lontar/core` peer range moves with the rest.
+
+### Upgrading
+
+- Projects that do not configure `localization` need no change.
+- To turn localization on, add `localization` to `defineConfig` and run `lontar migrate:create` and then `lontar migrate`. Existing values move into the `defaultLocale` column (`title` becomes `title_en`) and the other locales are added as nullable columns. Review the generated SQL before you apply it ([ADR 0028](docs/adr/0028-localization.md)) (#426).
+- Turning `localized` off on a field moves the default locale's value back into the plain column. Removing a locale prints a warning during `migrate:create` before it generates `DROP COLUMN`, since that deletes the translations in it (#426).
+- A `where` or `sort` on a localized field uses the requested locale and never falls back, so `?locale=id&where[title][equals]=Apple` does not match a document whose Indonesian title is empty (#423).
+- Access rules on a localized field also apply to its locale-suffixed names, such as `secretNote_en` (#446).
+- If you wrote your own `DatabaseAdapter`: read and write methods now receive `locale` and `fallbackLocale`, and the adapter stores one column per locale for localized fields. `resolveOperationLocale` now returns the default locale as an explicit `fallbackLocale` when fallback is on, and `false` when `localization.fallback` is `false` (#423, #451).
+- Webhook payloads gain a `locale` field when localization is configured. With `includeDoc: true` the document is projected to that locale (#430).
+
+### Added
+
+- `localization: { locales, defaultLocale, fallback }` in `defineConfig`, validated at startup, and a `localized` option on fields. Locale codes can be plain strings or `{ code, label }`, and can include a region such as `en-US` ([ADR 0028](docs/adr/0028-localization.md)) (#420, #421).
+- Per-locale columns on both adapters: `title_en`, `title_id`, also for flattened `group` fields and globals. Unique localized fields, such as a slug, are unique per language. A whole `array` or `blocks` field can be localized with its own rows per locale, or kept shared with localized subfields. Single and `hasMany` relationships and uploads can be localized (#422, #423).
+- `locale` and `fallbackLocale` on the REST API (`?locale=id`, `?locale=all`, `?fallbackLocale=false`), on the Local API, and in hooks and access functions. `locale=all` reads and writes every locale as a `{ en, id }` dictionary (#424).
+- Locale-aware drafts, autosave, publish, unpublish and restore. A draft edit in one locale does not overwrite another locale's draft, and all locales share one `_status` (#425).
+- `lontar generate:types` emits a `Locale` union and localized value types (#427).
+- Admin locale switcher and localized edit forms, with the active locale carried into the list view, relationship and upload pickers, version compare and live preview (#428, #429).
+- `{locale}` in `admin.preview.url`, and the active locale from `@lontar/preview` (#430).
+- `examples/next-blog` as a two-locale blog with e2e tests (#431).
+
+### Fixed
+
+- A `where` or `sort` on a locale-suffixed path of a field the user cannot read was not checked against the field's `read` access (#446).
+- A draft write with `locale=all` replaced the other locales' values instead of merging them, and could corrupt a richText value stored before the field became localized (#447).
+- `lontar migrate:create` could rename a column such as `title_tag` to `title` when `title` was not localized, because it matched any column starting with `title_` (#448).
+- Locale codes with a region, such as `en-US`, generated an invalid schema file (#449).
+- The schema for `locale=all` expected a localized group to be wrapped in a per-locale record, so publishing it could fail or drop data (#450).
+- `localization.fallback: false` was ignored for drafts, webhooks and publish responses, which still fell back to the default locale (#451).
+- A localized richText field became `null` in update and unpublish webhook payloads and responses (#452).
+- Relationship and upload targets populated from a draft returned `{ en, id }` dictionaries instead of the requested locale (#453).
+- Hooks, conditional fields, field write access and the webhook `previousDoc` saw the original document in the default locale (or as a dictionary for drafts) instead of in the locale being edited (#454).
+- A filter on a locale-suffixed localized `blocks` path, such as `sections_en.blockType`, was dropped and returned every row (#446).
+- The admin edit form stopped asking for confirmation before leaving with unsaved changes after the first save (#455).
+
 ## [0.6.0] - 2026-11-19
 
 Users, roles and field-level access (M10, tracked in #148). Admin users now have roles, collections and fields can restrict who reads and writes them, and the admin gains a users screen, an account page, password reset and invites, API keys for machine access, and rate limiting on the auth routes. `@lontar/storage-local`, `@lontar/storage-s3`, `@lontar/preview` and `@lontar/db-test-suite` have no changes of their own; they are published so their `@lontar/core` peer range moves with the rest.
