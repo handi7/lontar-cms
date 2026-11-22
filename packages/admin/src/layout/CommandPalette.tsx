@@ -19,7 +19,7 @@ import { useNavModel } from './useNavModel'
 // in the sidebar nor here. Creating also needs create access.
 export function CommandPalette() {
   const { open, setOpen } = useCommandPalette()
-  const { collections, globals, isAdmin, canCreate } = useNavModel()
+  const { collections, globals, views, isAdmin, canCreate } = useNavModel()
   const navigate = useNavigate()
   const { hasLocalization, activeLocale } = useLocale()
   const locale = hasLocalization ? activeLocale : undefined
@@ -76,6 +76,18 @@ export function CommandPalette() {
                   )}
                 >
                   {g.label}
+                </CommandItem>
+              ))}
+              {views.map((view) => (
+                <CommandItem
+                  key={view.key}
+                  value={`Go to ${view.label}`}
+                  keywords={[view.key]}
+                  onSelect={run(
+                    () => void navigate({ to: '/views/$key', params: { key: view.key } }),
+                  )}
+                >
+                  {view.label}
                 </CommandItem>
               ))}
               {isAdmin && (

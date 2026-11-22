@@ -725,3 +725,80 @@ describe('Permissions endpoint (GET /api/_lontar/permissions and /api/_lontar/ac
     })
   })
 })
+
+describe('custom view permissions (#467)', () => {
+  const user = { id: 'u1', email: 'e@x.dev', role: 'editor' }
+
+  function viewsApp(views: NonNullable<Config['admin']>['views']) {
+    const config = {
+      secret: 'test-secret-value-1234567890',
+      db: buildTestDb({}),
+      collections: [collection({ slug: 'posts', fields: { title: f.text() } })],
+      admin: { views },
+    } as unknown as Config
+    return createLontar(config, { baseURL: 'http://localhost:3000' })
+  }
+
+  it('leaves views out when none are configured', async () => {
+    const config = {
+      secret: 'test-secret-value-1234567890',
+      db: buildTestDb({}),
+      collections: [collection({ slug: 'posts', fields: { title: f.text() } })],
+    } as unknown as Config
+    const res = await createLontar(config, { baseURL: 'http://localhost:3000' }).request(
+      '/api/_lontar/permissions',
+    )
+    expect(res.status).toBe(200)
+    expect(await res.json()).not.toHaveProperty('views')
+  })
+
+  it('reports the access result per view, and never the function', async () => {
+    const access = vi.fn(({ user: u }: { user: { role?: string } | null }) => u?.role === 'admin')
+    const app = viewsApp([
+      { key: 'seo', label: 'SEO', component: 'seo', access },
+      { key: 'open', label: 'Open', component: 'open', access: () => true },
+    ])
+
+    const res = await app.request('/api/_lontar/permissions')
+    const body = (await res.json()) as PermissionsResponse
+
+    expect(body.views).toEqual({ seo: false, open: true })
+    expect(access).toHaveBeenCalledWith(expect.objectContaining({ user: null }))
+    expect(JSON.stringify(body)).not.toContain('access')
+  })
+
+  it('without an access function, a view is for any authenticated user only', async () => {
+    const { getPermissions } = await import('../../access/permissions')
+    const config = {
+      secret: 'test-secret-value-1234567890',
+      db: buildTestDb({}),
+      collections: [],
+      admin: { views: [{ key: 'v', label: 'V', component: 'v' }] },
+    } as unknown as Config
+
+    expect((await getPermissions(config, user as never)).views).toEqual({ v: true })
+    expect((await getPermissions(config, null)).views).toEqual({ v: false })
+  })
+
+  it('treats a throwing access function as denied', async () => {
+    const { getPermissions } = await import('../../access/permissions')
+    const config = {
+      secret: 'test-secret-value-1234567890',
+      db: buildTestDb({}),
+      collections: [],
+      admin: {
+        views: [
+          {
+            key: 'v',
+            label: 'V',
+            component: 'v',
+            access: () => {
+              throw new Error('boom')
+            },
+          },
+        ],
+      },
+    } as unknown as Config
+    expect((await getPermissions(config, user as never)).views).toEqual({ v: false })
+  })
+})

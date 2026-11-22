@@ -1,5 +1,5 @@
 import { useMemo } from 'react'
-import type { ClientCollection, ClientGlobal } from '@lontar/core/client'
+import type { ClientCollection, ClientCustomView, ClientGlobal } from '@lontar/core/client'
 import { useAdmin } from '../context/AdminContext'
 import { useAuth } from '../context/AuthContext'
 import { usePermissions } from '../context/PermissionsContext'
@@ -7,6 +7,8 @@ import { usePermissions } from '../context/PermissionsContext'
 export interface NavModel {
   collections: ClientCollection[]
   globals: ClientGlobal[] | undefined
+  /** Custom views the user may see, in config order. */
+  views: ClientCustomView[]
   isAdmin: boolean
   canCreate: (slug: string) => boolean
 }
@@ -17,7 +19,8 @@ export interface NavModel {
  */
 export function useNavModel(): NavModel {
   const { config } = useAdmin()
-  const { canReadCollection, canReadGlobal, canCreateInCollection } = usePermissions()
+  const { canReadCollection, canReadGlobal, canCreateInCollection, canViewCustomView } =
+    usePermissions()
   const { user } = useAuth()
   const adminRole = config.auth?.adminRole ?? 'admin'
 
@@ -30,9 +33,15 @@ export function useNavModel(): NavModel {
     [config.globals, canReadGlobal],
   )
 
+  const views = useMemo(
+    () => (config.admin?.views ?? []).filter((view) => canViewCustomView(view.key)),
+    [config.admin?.views, canViewCustomView],
+  )
+
   return {
     collections,
     globals,
+    views,
     isAdmin: user?.role === adminRole,
     canCreate: canCreateInCollection,
   }

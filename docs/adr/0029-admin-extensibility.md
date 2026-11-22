@@ -242,6 +242,11 @@ Accepting this ADR fixes the following, which the implementation issues rely on:
 - **Dashboard widgets.** `width` defaults to `'full'`. `DashboardWidgetProps` is `{ width }` only; a
   widget gets everything else from the exported hooks (#466). A widget has no `access` option: the
   endpoint it calls enforces access, like a custom view's.
+- **Custom views.** `CustomViewProps` is `{ viewKey, label }` (`key` is reserved by React) and Lontar
+  renders the page title. Omitted `access` means any authenticated user. The permissions endpoint
+  returns `views: { [key]: boolean }` only when views are configured, and the admin keeps a view
+  hidden until that says `true`. A view the user cannot see, or that does not exist, renders the
+  generic not-found page, so a hidden view does not reveal itself (#467).
 
 ### Rollout
 

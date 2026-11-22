@@ -14,6 +14,7 @@ export type {
   ClientCheckboxField,
   ClientCollection,
   ClientCollectionAdmin,
+  ClientCustomView,
   ClientConfig,
   ClientDashboardWidget,
   ClientDateField,

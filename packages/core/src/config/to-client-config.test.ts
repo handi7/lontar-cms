@@ -1199,3 +1199,43 @@ describe('toClientConfig admin.dashboard (#466)', () => {
     expect(JSON.parse(JSON.stringify(client))).toEqual(client)
   })
 })
+
+describe('toClientConfig admin.views (#467)', () => {
+  const base = { secret: SECRET, db: fakeAdapter, collections: [] }
+
+  it('serializes key, label and component, and never the access function', () => {
+    const access = () => true
+    const client = toClientConfig(
+      defineConfig({
+        ...base,
+        admin: {
+          views: [{ key: 'seo-audit', label: 'SEO audit', component: 'seo-view', access }],
+        },
+      }),
+    )
+
+    expect(client.admin).toEqual({
+      views: [{ key: 'seo-audit', label: 'SEO audit', component: 'seo-view' }],
+    })
+    const json = JSON.stringify(client)
+    expect(json).not.toContain('access')
+    expect(JSON.parse(json)).toEqual(client)
+  })
+
+  it('carries widgets and views together, and omits empty views', () => {
+    const both = toClientConfig(
+      defineConfig({
+        ...base,
+        admin: {
+          dashboard: { widgets: [{ component: 'w' }] },
+          views: [{ key: 'v', label: 'V', component: 'v' }],
+        },
+      }),
+    )
+    expect(Object.keys(both.admin ?? {}).sort()).toEqual(['dashboard', 'views'])
+
+    expect(toClientConfig(defineConfig({ ...base, admin: { views: [] } }))).not.toHaveProperty(
+      'admin',
+    )
+  })
+})

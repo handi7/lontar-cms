@@ -26,6 +26,12 @@ export interface PermissionsContextValue {
   canDeleteInCollection: (slug: string) => boolean
   canReadGlobal: (slug: string) => boolean
   canUpdateGlobal: (slug: string) => boolean
+  /**
+   * Whether a custom view is shown to this user. False until the permissions say true, unlike
+   * the collection helpers: a view must stay hidden while they load. Cosmetic only; the endpoints
+   * a view calls enforce access.
+   */
+  canViewCustomView: (key: string) => boolean
 }
 
 export const PermissionsContext = createContext<PermissionsContextValue | null>(null)
@@ -87,6 +93,8 @@ export function PermissionsProvider({
       return p ? p.update !== false : true
     }
 
+    const canViewCustomView = (key: string): boolean => permissions?.views?.[key] === true
+
     return {
       permissions,
       isLoading,
@@ -100,6 +108,7 @@ export function PermissionsProvider({
       canDeleteInCollection,
       canReadGlobal,
       canUpdateGlobal,
+      canViewCustomView,
     }
   }, [data, isLoading, error, user])
 

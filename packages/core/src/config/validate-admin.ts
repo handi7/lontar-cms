@@ -31,10 +31,50 @@ function validateDashboard(dashboard: unknown): string[] {
   return (widgets as unknown[]).flatMap((widget, index) => validateWidget(widget, index))
 }
 
-/** The root `admin` block: dashboard widgets (ADR 0029). */
-export function validateAdminConfig(config: Pick<Config, 'admin'>): string[] {
+const VIEW_KEY = /^[a-z][a-z0-9-]*$/
+
+function validateView(view: unknown, index: number, seen: Set<string>): string[] {
+  const where = `Config admin.views[${index}]`
+  if (typeof view !== 'object' || view === null) return [`${where}: must be an object.`]
+  const { key, label, component, access } = view as Record<string, unknown>
+  const issues: string[] = []
+  if (typeof key !== 'string' || !VIEW_KEY.test(key)) {
+    issues.push(
+      `${where}: key must be kebab-case (lowercase letters, digits and hyphens, starting with a letter), since it becomes the last segment of the view's URL.`,
+    )
+  } else if (seen.has(key)) {
+    issues.push(`${where}: key "${key}" is used twice.`)
+  } else {
+    seen.add(key)
+  }
+  if (!isNonEmptyString(label)) issues.push(`${where}: label must be a non-empty string.`)
+  if (!isNonEmptyString(component)) issues.push(`${where}: component must be a non-empty string.`)
+  if (access !== undefined && typeof access !== 'function') {
+    issues.push(`${where}: access must be a function.`)
+  }
+  return issues
+}
+
+function validateViews(views: unknown, collections: Config['collections']): string[] {
+  if (views === undefined) return []
+  if (!Array.isArray(views)) return ['Config admin.views must be an array.']
+  if (views.length === 0) return []
+  const seen = new Set<string>()
+  const issues = (views as unknown[]).flatMap((view, index) => validateView(view, index, seen))
+  // `/views/$key` would shadow the edit route `/$collection/$id` of a collection named "views".
+  if ((collections ?? []).some((collection) => collection.slug === 'views')) {
+    issues.push(
+      'Collection slug "views" conflicts with admin.views: the admin serves custom views at "/views/<key>", which would shadow that collection\'s edit route. Rename the collection or remove admin.views.',
+    )
+  }
+  return issues
+}
+
+/** The root `admin` block: dashboard widgets and custom views (ADR 0029). */
+export function validateAdminConfig(config: Pick<Config, 'admin' | 'collections'>): string[] {
   const admin: unknown = config.admin
   if (admin === undefined) return []
   if (typeof admin !== 'object' || admin === null) return ['Config admin must be an object.']
-  return validateDashboard((admin as { dashboard?: unknown }).dashboard)
+  const { dashboard, views } = admin as { dashboard?: unknown; views?: unknown }
+  return [...validateDashboard(dashboard), ...validateViews(views, config.collections)]
 }

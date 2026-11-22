@@ -400,5 +400,21 @@ export async function getPermissions(
   }
 
   const globals = await collectGlobalsPermissions(config, user, cache, options?.req)
-  return { collections, globals }
+  const views = await collectViewPermissions(config, user, options?.req)
+  return { collections, globals, ...(views ? { views } : {}) }
+}
+
+/** Omitted `access` means any authenticated user, as for custom endpoints (ADR 0029). */
+async function collectViewPermissions(
+  config: Config,
+  user: AuthUser | null,
+  req?: Request,
+): Promise<Record<string, boolean> | undefined> {
+  const configured = config.admin?.views
+  if (!configured || configured.length === 0) return undefined
+  const views: Record<string, boolean> = {}
+  for (const view of configured) {
+    views[view.key] = view.access ? await checkAccess(view.access, { user, req }) : user !== null
+  }
+  return views
 }
