@@ -8,6 +8,7 @@ import type {
   GlobalPermission,
   PermissionsResponse,
 } from '../client/permissions'
+import { matchesConstraint, resolveAccess, type ConstrainedOperation } from './constraint'
 import { checkAccess } from './index'
 import {
   checkFieldAccess,
@@ -19,6 +20,8 @@ import {
 export type { CollectionPermission, FieldPermission, GlobalPermission, PermissionsResponse }
 
 interface EvalContext {
+  /** Needed to evaluate a row-level constraint (ADR 0030). */
+  config?: Config
   user: AuthUser | null
   id?: number
   doc?: DocumentData
@@ -261,30 +264,64 @@ export async function evalFieldsPermissions(
   return flatPerms
 }
 
+interface RowOutcome {
+  allowed: boolean
+  /** True when the answer is "some documents" because no document was named. */
+  constrained: boolean
+}
+
+// One operation for the collection (no `id`), or for one document. A boolean is the answer. A
+// constraint is "some documents" for the collection, and for a document it is whether that stored
+// row matches it (ADR 0030 §10).
+async function evalRowOutcome(
+  collection: CollectionConfig,
+  operation: ConstrainedOperation,
+  ctx: EvalContext,
+): Promise<RowOutcome> {
+  const decision = await resolveAccess(
+    collection,
+    operation,
+    { user: ctx.user, id: ctx.id, data: ctx.doc },
+    ctx.config ?? {},
+  )
+  if (!decision.allowed) return { allowed: false, constrained: false }
+  if (!decision.constraint) return { allowed: true, constrained: false }
+  if (ctx.id === undefined || !ctx.config) return { allowed: true, constrained: true }
+  const matches = await matchesConstraint({
+    config: ctx.config,
+    collection,
+    id: ctx.id,
+    constraint: decision.constraint,
+  })
+  return { allowed: matches, constrained: false }
+}
+
 export async function getDocumentPermissions(
   collection: CollectionConfig,
   ctx: EvalContext,
 ): Promise<CollectionPermission> {
-  const user = ctx.user
-  const id = ctx.id
-  const doc = ctx.doc
-
   const [create, read, update, del] = await Promise.all([
-    checkAccess(collection.access?.create, { user }),
-    checkAccess(collection.access?.read, { user, id, data: doc }),
-    checkAccess(collection.access?.update, { user, id, data: doc }),
-    checkAccess(collection.access?.delete, { user, id, data: doc }),
+    checkAccess(collection.access?.create, { user: ctx.user }),
+    evalRowOutcome(collection, 'read', ctx),
+    evalRowOutcome(collection, 'update', ctx),
+    evalRowOutcome(collection, 'delete', ctx),
   ])
 
-  const readVersions = Boolean(collection.versions) && read && update
+  const readVersions = Boolean(collection.versions) && read.allowed && update.allowed
   const fields = await evalFieldsPermissions(collection.fields, ctx)
+  const constrained = {
+    ...(read.constrained ? { read: true } : {}),
+    ...(update.constrained ? { update: true } : {}),
+    ...(del.constrained ? { delete: true } : {}),
+  }
 
   return {
     create,
-    read,
-    update,
-    delete: del,
+    read: read.allowed,
+    update: update.allowed,
+    delete: del.allowed,
     readVersions,
+    ...(Object.keys(constrained).length > 0 ? { constrained } : {}),
     fields,
   }
 }
@@ -355,6 +392,7 @@ export async function getPermissions(
 
   for (const col of config.collections ?? []) {
     collections[col.slug] = await getDocumentPermissions(col, {
+      config,
       user,
       req: options?.req,
       cache,
