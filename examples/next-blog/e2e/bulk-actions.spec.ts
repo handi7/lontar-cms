@@ -55,10 +55,11 @@ test.describe('List view bulk actions (#460)', () => {
     await page.getByLabel(`Select ${second}`).click()
     await expect(bar.getByTestId('bulk-count')).toHaveText('2 selected')
 
-    // Publish both: the summary reports it. Bulk unpublish is covered by component tests, because
-    // unpublishing a localized document currently writes "[object Object]" into its unique slug.
+    // Publish both, then unpublish both: the summary reports each.
     await bar.getByRole('button', { name: 'Publish', exact: true }).click()
     await expect(page.getByTestId('bulk-summary')).toContainText('Published 2 documents.')
+    await bar.getByRole('button', { name: 'Unpublish', exact: true }).click()
+    await expect(page.getByTestId('bulk-summary')).toContainText('Unpublished 2 documents.')
 
     // Changing the search clears the selection.
     await page.getByRole('searchbox', { name: /search posts/i }).fill(first)
