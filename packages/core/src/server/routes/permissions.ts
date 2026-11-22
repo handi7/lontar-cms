@@ -10,26 +10,36 @@ import type { AuthUser, LontarVariables } from '../../auth/types'
 import type { CollectionConfig, Config, GlobalConfig } from '../../config/types'
 import type { DocumentData } from '../../database/adapter'
 import { resolveOriginalGlobalDoc } from '../../operations/global'
+import { AccessDeniedError, NotFoundError } from '../../operations/errors'
 import { resolveOriginalDoc } from '../../operations/mutation'
+import { assertRowAccess } from '../../operations/row-access'
 
 type LontarEnv = { Variables: LontarVariables }
 
+// Read access to the document, plus update access for a draft, as `findByID` needs. A constraint is
+// checked against the stored row, and a miss is the same "not found" as a missing id (ADR 0030 §6).
 async function checkDocAccess(
+  config: Config,
   collection: CollectionConfig,
   id: number,
   user: AuthUser | null,
   isDraft: boolean,
   doc: DocumentData,
 ): Promise<boolean> {
-  const readAllowed = await checkAccess(collection.access?.read, { user, id, data: doc })
-  if (!readAllowed) return false
-
-  if (isDraft) {
-    const updateAllowed = await checkAccess(collection.access?.update, { user, id, data: doc })
-    if (!updateAllowed) return false
+  try {
+    await assertRowAccess({
+      config,
+      collection,
+      id,
+      user,
+      operations: isDraft ? ['read', 'update'] : ['read'],
+      data: doc,
+    })
+    return true
+  } catch (err) {
+    if (err instanceof AccessDeniedError || err instanceof NotFoundError) return false
+    throw err
   }
-
-  return true
 }
 
 function isDocDraftHidden(
@@ -90,11 +100,12 @@ async function handleDocumentPermissions(
     return c.json({ error: `Document with ID ${id} not found` }, 404)
   }
 
-  if (!(await checkDocAccess(collection, id, user, isDraft, doc))) {
+  if (!(await checkDocAccess(config, collection, id, user, isDraft, doc))) {
     return c.json({ error: `Document with ID ${id} not found` }, 404)
   }
 
   const permissions = await getDocumentPermissions(collection, {
+    config,
     user,
     id,
     doc,

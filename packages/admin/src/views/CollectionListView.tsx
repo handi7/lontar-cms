@@ -656,6 +656,8 @@ function useListDeleteMutation(apiBase: string, slug?: string) {
     },
     onError: (err: Error) => {
       setDeleteError(formatApiErrorMessage(err))
+      // A row the caller may not touch (or that is already gone) answers 404; drop it from the list.
+      void queryClient.invalidateQueries({ queryKey: [slug] })
     },
   })
 

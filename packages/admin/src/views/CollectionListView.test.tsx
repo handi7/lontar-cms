@@ -817,4 +817,36 @@ describe('CollectionListView permissions (#341)', () => {
       expect(within(dialog).queryByRole('button', { name: 'Delete' })).toBeNull()
     })
   })
+  describe('row-level access (#470)', () => {
+    beforeEach(() => {
+      vi.mocked(client.fetchPermissions).mockResolvedValue({
+        collections: {
+          articles: mockCollectionPerm({ constrained: { delete: true } }),
+        },
+        globals: {},
+      })
+    })
+
+    it('shows the error and refetches the list when a row action answers 404', async () => {
+      vi.mocked(client.deleteDoc).mockRejectedValue(
+        new client.ApiClientError('Document with ID 2 not found', 404),
+      )
+      renderWithProviders()
+      await screen.findByText('Article 2')
+      const row = screen
+        .getAllByRole('row')
+        .find((r) => within(r).queryByText('Article 2')) as HTMLElement
+      const before = vi.mocked(client.fetchCollectionDocs).mock.calls.length
+
+      fireEvent.click(within(row).getByRole('button', { name: 'Delete' }))
+      const dialog = await screen.findByRole('alertdialog')
+      fireEvent.click(within(dialog).getByRole('button', { name: 'Delete' }))
+
+      const alert = await screen.findByTestId('delete-error-alert')
+      expect(alert.textContent).toContain('Document with ID 2 not found')
+      await waitFor(() =>
+        expect(vi.mocked(client.fetchCollectionDocs).mock.calls.length).toBeGreaterThan(before),
+      )
+    })
+  })
 })
