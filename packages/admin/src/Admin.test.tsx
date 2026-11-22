@@ -108,7 +108,7 @@ describe('Admin SPA', () => {
     render(<Admin apiBase="/api" basePath="/admin" history={history} />)
 
     await waitFor(() => {
-      expect(screen.getByText('Lontar CMS')).toBeTruthy()
+      expect(screen.getAllByText('Lontar CMS').length).toBeGreaterThan(0)
       expect(screen.getAllByText('Dashboard').length).toBeGreaterThan(0)
       expect(screen.getAllByText('Posts').length).toBeGreaterThan(0)
       expect(screen.getByText('Admin User')).toBeTruthy()

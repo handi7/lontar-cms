@@ -31,7 +31,7 @@ export function AdminLayout() {
   }
 
   return (
-    <div className="lt:flex lt:min-h-screen">
+    <div className="lt:flex lt:min-h-screen lt:flex-col lt:md:flex-row">
       <Sidebar />
       {/* min-w-0 is load-bearing: a flex item defaults to min-width: auto, so
           without it a wide list table pushes the whole row past the viewport

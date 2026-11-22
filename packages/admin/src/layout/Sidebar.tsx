@@ -1,13 +1,18 @@
-import { useState, useMemo } from 'react'
+import { useState, useMemo, type ReactNode } from 'react'
 import { Link } from '@tanstack/react-router'
-import type { ClientGlobal } from '@lontar/core/client'
+import { LogOut, Menu, PanelLeftClose, PanelLeftOpen } from 'lucide-react'
+import type { ClientCollection, ClientGlobal } from '@lontar/core/client'
 import type { AdminUser } from '../api/client'
 import { Button } from '../components/ui/button'
+import { Sheet, SheetContent, SheetTitle } from '../components/ui/sheet'
+import { Tooltip, TooltipContent, TooltipTrigger } from '../components/ui/tooltip'
 import { useAdmin } from '../context/AdminContext'
 import { useAuth } from '../context/AuthContext'
 import { usePermissions } from '../context/PermissionsContext'
+import { cn } from '../lib/utils'
 import { BrandMark } from './BrandMark'
 import { ThemeToggle } from './ThemeToggle'
+import { useSidebarCollapsed } from './useSidebarCollapsed'
 
 // The active state keys on the `data-status="active"` attribute TanStack Router
 // sets on a matching Link, not on `activeProps`. The router concatenates
@@ -20,7 +25,14 @@ const navLinkClass =
 
 const navGroupClass = 'lt:flex lt:flex-col lt:gap-1'
 
-function NavTitle({ children }: { children: string }) {
+interface NavTitleProps {
+  collapsed: boolean
+  children: string
+}
+
+function NavTitle({ collapsed, children }: NavTitleProps) {
+  // The rail has no room for a heading, so a rule keeps the groups apart.
+  if (collapsed) return <div role="separator" className="lt:mx-2 lt:h-px lt:bg-border" />
   return (
     <div className="lt:px-3 lt:py-1 lt:text-xs lt:font-semibold lt:tracking-wider lt:text-muted-foreground lt:uppercase">
       {children}
@@ -28,17 +40,122 @@ function NavTitle({ children }: { children: string }) {
   )
 }
 
-function GlobalsNav({ globals }: { globals?: ClientGlobal[] }) {
+interface NavItemRenderProps {
+  className: string
+  content: ReactNode
+}
+
+interface NavItemProps {
+  label: string
+  collapsed: boolean
+  render: (props: NavItemRenderProps) => ReactNode
+}
+
+// An expanded item shows its label. A collapsed one shows the label's initial, keeps the label for
+// screen readers, and explains itself in a tooltip.
+function NavItem({ label, collapsed, render }: NavItemProps) {
+  if (!collapsed) return <>{render({ className: navLinkClass, content: label })}</>
+
+  const link = render({
+    className: cn(navLinkClass, 'lt:px-0 lt:text-center'),
+    content: (
+      <>
+        <span aria-hidden="true">{(label[0] ?? '').toUpperCase()}</span>
+        <span className="lt:sr-only">{label}</span>
+      </>
+    ),
+  })
+  return (
+    <Tooltip>
+      <TooltipTrigger asChild>{link}</TooltipTrigger>
+      <TooltipContent side="right">{label}</TooltipContent>
+    </Tooltip>
+  )
+}
+
+interface GlobalsNavProps {
+  globals?: ClientGlobal[]
+  collapsed: boolean
+}
+
+function GlobalsNav({ globals, collapsed }: GlobalsNavProps) {
   if (!globals || globals.length === 0) return null
   return (
     <div className={navGroupClass}>
-      <NavTitle>Globals</NavTitle>
+      <NavTitle collapsed={collapsed}>Globals</NavTitle>
       {globals.map((g) => (
-        <Link key={g.slug} to="/globals/$slug" params={{ slug: g.slug }} className={navLinkClass}>
-          {g.label}
-        </Link>
+        <NavItem
+          key={g.slug}
+          label={g.label}
+          collapsed={collapsed}
+          render={({ className, content }) => (
+            <Link to="/globals/$slug" params={{ slug: g.slug }} className={className}>
+              {content}
+            </Link>
+          )}
+        />
       ))}
     </div>
+  )
+}
+
+interface AccountLinkProps {
+  user: AdminUser
+  collapsed: boolean
+}
+
+function AccountLink({ user, collapsed }: AccountLinkProps) {
+  const initial = (user.name?.[0] || user.email?.[0] || 'A').toUpperCase()
+  const link = (
+    <Link
+      to="/account"
+      className={cn(
+        'lt:flex lt:items-center lt:gap-3 lt:rounded-md lt:p-1.5 lt:no-underline lt:transition-colors lt:hover:bg-accent',
+        collapsed && 'lt:justify-center',
+      )}
+      aria-label="Account settings"
+    >
+      <div className="lt:flex lt:size-[34px] lt:shrink-0 lt:items-center lt:justify-center lt:rounded-full lt:bg-primary lt:text-sm lt:font-semibold lt:text-primary-foreground">
+        {initial}
+      </div>
+      {!collapsed && (
+        <div className="lt:flex lt:min-w-0 lt:flex-col">
+          <span className="lt:truncate lt:text-[0.8125rem] lt:font-semibold lt:text-foreground">
+            {user.name || 'Admin'}
+          </span>
+          <span className="lt:truncate lt:text-xs lt:text-muted-foreground">{user.email}</span>
+        </div>
+      )}
+    </Link>
+  )
+  if (!collapsed) return link
+  return (
+    <Tooltip>
+      <TooltipTrigger asChild>{link}</TooltipTrigger>
+      <TooltipContent side="right">{user.name || user.email}</TooltipContent>
+    </Tooltip>
+  )
+}
+
+interface SignOutButtonProps {
+  onSignOut: () => void
+  isSigningOut: boolean
+  collapsed: boolean
+}
+
+function SignOutButton({ onSignOut, isSigningOut, collapsed }: SignOutButtonProps) {
+  const label = isSigningOut ? 'Signing out...' : 'Sign out'
+  return (
+    <Button
+      variant="outline"
+      size="sm"
+      onClick={onSignOut}
+      disabled={isSigningOut}
+      className="lt:w-full lt:text-muted-foreground lt:shadow-none lt:hover:border-destructive lt:hover:text-destructive"
+      aria-label="Sign out"
+    >
+      {collapsed ? <LogOut aria-hidden="true" /> : label}
+    </Button>
   )
 }
 
@@ -46,41 +163,132 @@ export interface SidebarUserProfileProps {
   user: AdminUser
   onSignOut: () => void
   isSigningOut: boolean
+  collapsed: boolean
 }
 
 function SidebarUserProfile(props: SidebarUserProfileProps) {
-  const { user, onSignOut, isSigningOut } = props
-  const initial = (user.name?.[0] || user.email?.[0] || 'A').toUpperCase()
-
+  const { user, onSignOut, isSigningOut, collapsed } = props
   return (
-    <div className="lt:flex lt:shrink-0 lt:flex-col lt:gap-3 lt:border-t lt:bg-card lt:p-4">
-      <ThemeToggle />
-      <Link
-        to="/account"
-        className="lt:flex lt:items-center lt:gap-3 lt:rounded-md lt:p-1.5 lt:no-underline lt:transition-colors lt:hover:bg-accent"
-        aria-label="Account settings"
-      >
-        <div className="lt:flex lt:size-[34px] lt:shrink-0 lt:items-center lt:justify-center lt:rounded-full lt:bg-primary lt:text-sm lt:font-semibold lt:text-primary-foreground">
-          {initial}
-        </div>
-        <div className="lt:flex lt:min-w-0 lt:flex-col">
-          <span className="lt:truncate lt:text-[0.8125rem] lt:font-semibold lt:text-foreground">
-            {user.name || 'Admin'}
-          </span>
-          <span className="lt:truncate lt:text-xs lt:text-muted-foreground">{user.email}</span>
-        </div>
-      </Link>
-      <Button
-        variant="outline"
-        size="sm"
-        onClick={onSignOut}
-        disabled={isSigningOut}
-        className="lt:w-full lt:text-muted-foreground lt:shadow-none lt:hover:border-destructive lt:hover:text-destructive"
-        aria-label="Sign out"
-      >
-        {isSigningOut ? 'Signing out...' : 'Sign out'}
-      </Button>
+    <div
+      className={cn(
+        'lt:flex lt:shrink-0 lt:flex-col lt:gap-3 lt:border-t lt:bg-card lt:p-4',
+        collapsed && 'lt:items-center lt:px-2',
+      )}
+    >
+      <ThemeToggle compact={collapsed} />
+      <AccountLink user={user} collapsed={collapsed} />
+      <SignOutButton onSignOut={onSignOut} isSigningOut={isSigningOut} collapsed={collapsed} />
     </div>
+  )
+}
+
+interface SidebarBodyProps {
+  collapsed: boolean
+  collections: ClientCollection[]
+  globals?: ClientGlobal[]
+  isAdmin: boolean
+  user: AdminUser | null
+  onSignOut: () => void
+  isSigningOut: boolean
+  /** A link in the nav was followed; the drawer closes on it. */
+  onNavigate?: () => void
+  /** The brand row's trailing control (the collapse toggle). */
+  headerAction?: ReactNode
+}
+
+function SidebarBody(props: SidebarBodyProps) {
+  const { collapsed, collections, globals, isAdmin, user, headerAction, onNavigate } = props
+  return (
+    <>
+      <div
+        className={cn(
+          'lt:flex lt:shrink-0 lt:items-center lt:justify-between lt:gap-2 lt:border-b lt:py-5',
+          collapsed ? 'lt:flex-col lt:px-2' : 'lt:px-6',
+        )}
+      >
+        <Link
+          to="/"
+          aria-label="Lontar CMS"
+          className="lt:flex lt:items-center lt:gap-2.5 lt:text-lg lt:font-bold lt:text-foreground lt:no-underline"
+        >
+          {collapsed ? (
+            <span className="lt:flex lt:size-7 lt:items-center lt:justify-center lt:rounded-md lt:bg-primary lt:text-sm lt:font-extrabold lt:text-primary-foreground">
+              L
+            </span>
+          ) : (
+            <BrandMark />
+          )}
+        </Link>
+        {headerAction}
+      </div>
+
+      {/* Following any link inside the nav, from a drawer, should put the drawer away. */}
+      <nav
+        className={cn(
+          'lt:flex lt:min-h-0 lt:flex-1 lt:flex-col lt:gap-5 lt:overflow-y-auto lt:py-4',
+          collapsed ? 'lt:px-2' : 'lt:px-3',
+        )}
+        onClick={(e) => {
+          if ((e.target as HTMLElement).closest('a')) onNavigate?.()
+        }}
+      >
+        <div className={navGroupClass}>
+          <NavItem
+            label="Dashboard"
+            collapsed={collapsed}
+            render={({ className, content }) => (
+              <Link to="/" activeOptions={{ exact: true }} className={className}>
+                {content}
+              </Link>
+            )}
+          />
+        </div>
+
+        {collections.length > 0 && (
+          <div className={navGroupClass}>
+            <NavTitle collapsed={collapsed}>Collections</NavTitle>
+            {collections.map((col) => (
+              <NavItem
+                key={col.slug}
+                label={col.labels.plural}
+                collapsed={collapsed}
+                render={({ className, content }) => (
+                  <Link to="/$collection" params={{ collection: col.slug }} className={className}>
+                    {content}
+                  </Link>
+                )}
+              />
+            ))}
+          </div>
+        )}
+
+        <GlobalsNav globals={globals} collapsed={collapsed} />
+
+        {isAdmin && (
+          <div className={navGroupClass}>
+            <NavTitle collapsed={collapsed}>Administration</NavTitle>
+            <NavItem
+              label="Users"
+              collapsed={collapsed}
+              render={({ className, content }) => (
+                <Link to="/users" className={className}>
+                  {content}
+                </Link>
+              )}
+            />
+          </div>
+        )}
+      </nav>
+
+      {user && (
+        <SidebarUserProfile
+          user={user}
+          onSignOut={props.onSignOut}
+          isSigningOut={props.isSigningOut}
+          collapsed={collapsed}
+        />
+      )}
+    </>
   )
 }
 
@@ -89,6 +297,8 @@ export function Sidebar() {
   const { canReadCollection, canReadGlobal } = usePermissions()
   const { user, signOut } = useAuth()
   const [isSigningOut, setIsSigningOut] = useState(false)
+  const [drawerOpen, setDrawerOpen] = useState(false)
+  const { collapsed, toggle } = useSidebarCollapsed()
   const adminRole = config.auth?.adminRole ?? 'admin'
   const isAdmin = user?.role === adminRole
 
@@ -113,14 +323,31 @@ export function Sidebar() {
     }
   }
 
+  const shared = {
+    collections: visibleCollections,
+    globals: visibleGlobals,
+    isAdmin,
+    user,
+    isSigningOut,
+    onSignOut: () => {
+      void handleSignOut()
+    },
+  }
+
   return (
-    // Sticky to the top of whatever scrolls the page, at the viewport's height
-    // (dvh, so mobile browser chrome does not hide the footer). Only the nav
-    // scrolls; the brand and the footer stay in view (#140). Sticky rather than
-    // a full-height inner scroll container, because the admin renders inside a
-    // host page and the document is what scrolls there.
-    <aside className="lt:sticky lt:top-0 lt:flex lt:h-dvh lt:w-[250px] lt:shrink-0 lt:flex-col lt:border-r lt:bg-card">
-      <div className="lt:shrink-0 lt:border-b lt:px-6 lt:py-5">
+    <>
+      {/* Below the md breakpoint the sidebar is a drawer behind this bar. */}
+      <div className="lt:sticky lt:top-0 lt:z-30 lt:flex lt:items-center lt:gap-3 lt:border-b lt:bg-card lt:px-4 lt:py-2.5 lt:md:hidden">
+        <Button
+          type="button"
+          variant="outline"
+          size="icon"
+          aria-label="Open navigation"
+          aria-expanded={drawerOpen}
+          onClick={() => setDrawerOpen(true)}
+        >
+          <Menu aria-hidden="true" />
+        </Button>
         <Link
           to="/"
           className="lt:flex lt:items-center lt:gap-2.5 lt:text-lg lt:font-bold lt:text-foreground lt:no-underline"
@@ -129,50 +356,49 @@ export function Sidebar() {
         </Link>
       </div>
 
-      <nav className="lt:flex lt:min-h-0 lt:flex-1 lt:flex-col lt:gap-5 lt:overflow-y-auto lt:px-3 lt:py-4">
-        <div className={navGroupClass}>
-          <Link to="/" activeOptions={{ exact: true }} className={navLinkClass}>
-            Dashboard
-          </Link>
-        </div>
+      <Sheet open={drawerOpen} onOpenChange={setDrawerOpen}>
+        <SheetContent
+          side="left"
+          aria-describedby={undefined}
+          className="lt:w-[280px] lt:max-w-[85vw] lt:gap-0 lt:p-0 lt:md:hidden"
+        >
+          <SheetTitle className="lt:sr-only">Navigation</SheetTitle>
+          <SidebarBody {...shared} collapsed={false} onNavigate={() => setDrawerOpen(false)} />
+        </SheetContent>
+      </Sheet>
 
-        {visibleCollections.length > 0 && (
-          <div className={navGroupClass}>
-            <NavTitle>Collections</NavTitle>
-            {visibleCollections.map((col) => (
-              <Link
-                key={col.slug}
-                to="/$collection"
-                params={{ collection: col.slug }}
-                className={navLinkClass}
-              >
-                {col.labels.plural}
-              </Link>
-            ))}
-          </div>
+      {/* Sticky to the top of whatever scrolls the page, at the viewport's height (dvh, so mobile
+          browser chrome does not hide the footer). Only the nav scrolls; the brand and the footer
+          stay in view (#140). Sticky rather than a full-height inner scroll container, because the
+          admin renders inside a host page and the document is what scrolls there. */}
+      <aside
+        className={cn(
+          'lt:sticky lt:top-0 lt:hidden lt:h-dvh lt:shrink-0 lt:flex-col lt:border-r lt:bg-card lt:md:flex',
+          collapsed ? 'lt:w-[72px]' : 'lt:w-[250px]',
         )}
-
-        <GlobalsNav globals={visibleGlobals} />
-
-        {isAdmin && (
-          <div className={navGroupClass}>
-            <NavTitle>Administration</NavTitle>
-            <Link to="/users" className={navLinkClass}>
-              Users
-            </Link>
-          </div>
-        )}
-      </nav>
-
-      {user && (
-        <SidebarUserProfile
-          user={user}
-          onSignOut={() => {
-            void handleSignOut()
-          }}
-          isSigningOut={isSigningOut}
+      >
+        <SidebarBody
+          {...shared}
+          collapsed={collapsed}
+          headerAction={
+            <Button
+              type="button"
+              variant="ghost"
+              size="icon"
+              aria-label={collapsed ? 'Expand sidebar' : 'Collapse sidebar'}
+              aria-expanded={!collapsed}
+              onClick={toggle}
+              className="lt:size-8 lt:text-muted-foreground"
+            >
+              {collapsed ? (
+                <PanelLeftOpen aria-hidden="true" />
+              ) : (
+                <PanelLeftClose aria-hidden="true" />
+              )}
+            </Button>
+          }
         />
-      )}
-    </aside>
+      </aside>
+    </>
   )
 }

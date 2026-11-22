@@ -765,7 +765,7 @@ function renderListHeaderActions(
   columnPreference: ColumnPreference,
 ) {
   return (
-    <div className="lt:flex lt:items-center lt:gap-3">
+    <div className="lt:flex lt:flex-wrap lt:items-center lt:gap-3">
       <ColumnPicker collection={collection} preference={columnPreference} />
       {hasLocalization && activeLocale && (
         <LocaleSwitcher

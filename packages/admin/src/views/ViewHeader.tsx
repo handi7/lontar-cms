@@ -15,7 +15,7 @@ export interface ViewHeaderProps {
 export function ViewHeader({ title, level = 1, breadcrumbs, children, actions }: ViewHeaderProps) {
   const Heading = level === 1 ? 'h1' : 'h2'
   return (
-    <header className="lt:mb-7 lt:flex lt:items-center lt:justify-between lt:gap-4">
+    <header className="lt:mb-7 lt:flex lt:flex-wrap lt:items-center lt:justify-between lt:gap-4">
       <div>
         {breadcrumbs}
         <Heading
