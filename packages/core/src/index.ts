@@ -12,7 +12,7 @@ export { CLIENT_CONFIG_VERSION } from './client/client-config'
 export { fields, block } from './fields'
 export { generateRowId } from './client/id'
 export { createLontar, type CreateLontarOptions, type LontarApp } from './server/create-lontar'
-export { getLontar } from './local'
+export { getLontar, createLontarClient, type LontarClientDefaults } from './local'
 export type {
   LontarClient,
   LontarCollections,
@@ -214,6 +214,11 @@ export type {
   CollectionAccess,
   CollectionAdmin,
   CollectionConfig,
+  Endpoint,
+  EndpointContext,
+  EndpointHandler,
+  EndpointMethod,
+  EndpointRateLimit,
   Config,
   GlobalAccess,
   GlobalConfig,

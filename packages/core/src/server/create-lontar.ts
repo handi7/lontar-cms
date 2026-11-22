@@ -19,6 +19,7 @@ import { toClientConfig } from '../config/to-client-config'
 import type { Config } from '../config/types'
 import { resolveEmailConfig, sendEmailWithTemplate } from '../email'
 import { registerApiKeyRoutes } from './routes/api-keys'
+import { registerEndpointRoutes } from './routes/endpoints'
 import { registerCollectionRoutes } from './routes/collection'
 import { registerFirstUserRoutes } from './routes/first-user'
 import { registerGlobalRoutes } from './routes/global'
@@ -415,6 +416,9 @@ export function createLontar(config: Config, options: CreateLontarOptions = {}):
     c.set('session', session)
     return await next()
   })
+
+  // Custom endpoints: after the session middleware, before every built-in route
+  registerEndpointRoutes(router, config, rateLimiter)
 
   // ClientConfig endpoint
   router.get('/_lontar/config', (c) => {

@@ -1070,3 +1070,34 @@ describe('toClientConfig', () => {
     expect(JSON.parse(JSON.stringify(client))).toStrictEqual(client)
   })
 })
+
+describe('toClientConfig endpoints (#464)', () => {
+  it('never serializes endpoints, so handlers and access functions stay on the server', () => {
+    const endpoint = {
+      name: 'secretStats',
+      method: 'get' as const,
+      path: '/stats',
+      handler: (c: { json: (v: unknown) => Response }) => c.json({}),
+    }
+    const config = defineConfig({
+      secret: SECRET,
+      db: fakeAdapter,
+      endpoints: [endpoint],
+      collections: [
+        {
+          slug: 'posts',
+          endpoints: [{ ...endpoint, name: 'approve', path: '/approve' }],
+          fields: {},
+        },
+      ],
+      globals: [{ slug: 'site', endpoints: [{ ...endpoint, name: 'ping' }], fields: {} }],
+    })
+
+    const json = JSON.stringify(toClientConfig(config))
+
+    expect(json).not.toContain('endpoints')
+    expect(json).not.toContain('secretStats')
+    expect(json).not.toContain('approve')
+    expect(json).not.toContain('ping')
+  })
+})
