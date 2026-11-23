@@ -37,8 +37,10 @@ test.describe('Collapsible sidebar (#213)', () => {
     await sidebar.getByRole('button', { name: 'Collapse sidebar' }).click()
     await expect(sidebar.getByRole('button', { name: 'Expand sidebar' })).toBeVisible()
     await expect(sidebar.getByText('Collections')).toBeHidden()
-    const railWidth = (await sidebar.boundingBox())?.width ?? 0
-    expect(railWidth).toBeLessThan(expandedWidth / 2)
+    // The width animates, so poll until it settles instead of reading it mid-transition.
+    await expect
+      .poll(async () => (await sidebar.boundingBox())?.width ?? 0)
+      .toBeLessThan(expandedWidth / 2)
 
     // A collapsed item is still a link named after its label, and a tooltip spells it out.
     const posts = sidebar.getByRole('link', { name: 'Posts', exact: true })

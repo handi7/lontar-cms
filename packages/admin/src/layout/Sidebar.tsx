@@ -440,34 +440,45 @@ export function Sidebar() {
       {/* Sticky to the top of whatever scrolls the page, at the viewport's height (dvh, so mobile
           browser chrome does not hide the footer). Only the nav scrolls; the brand and the footer
           stay in view (#140). Sticky rather than a full-height inner scroll container, because the
-          admin renders inside a host page and the document is what scrolls there. */}
+          admin renders inside a host page and the document is what scrolls there.
+          Collapsing animates the aside's width while the inner column takes its new width at once
+          (the aside's minus its 1px border), so the content never reflows mid-animation: the aside
+          wipes over it like a curtain. */}
       <aside
         className={cn(
-          'lt:sticky lt:top-0 lt:hidden lt:h-dvh lt:shrink-0 lt:flex-col lt:border-r lt:bg-card lt:md:flex',
+          'lt:sticky lt:top-0 lt:hidden lt:h-dvh lt:shrink-0 lt:overflow-hidden lt:border-r lt:bg-card lt:md:flex',
+          'lt:motion-safe:transition-[width] lt:motion-safe:duration-200 lt:motion-safe:ease-out',
           collapsed ? 'lt:w-[72px]' : 'lt:w-[250px]',
         )}
       >
-        <SidebarBody
-          {...shared}
-          collapsed={collapsed}
-          headerAction={
-            <Button
-              type="button"
-              variant="ghost"
-              size="icon"
-              aria-label={collapsed ? 'Expand sidebar' : 'Collapse sidebar'}
-              aria-expanded={!collapsed}
-              onClick={toggle}
-              className="lt:size-8 lt:text-muted-foreground"
-            >
-              {collapsed ? (
-                <PanelLeftOpen aria-hidden="true" />
-              ) : (
-                <PanelLeftClose aria-hidden="true" />
-              )}
-            </Button>
-          }
-        />
+        <div
+          className={cn(
+            'lt:flex lt:h-full lt:shrink-0 lt:flex-col',
+            collapsed ? 'lt:w-[71px]' : 'lt:w-[249px]',
+          )}
+        >
+          <SidebarBody
+            {...shared}
+            collapsed={collapsed}
+            headerAction={
+              <Button
+                type="button"
+                variant="ghost"
+                size="icon"
+                aria-label={collapsed ? 'Expand sidebar' : 'Collapse sidebar'}
+                aria-expanded={!collapsed}
+                onClick={toggle}
+                className="lt:size-8 lt:text-muted-foreground"
+              >
+                {collapsed ? (
+                  <PanelLeftOpen aria-hidden="true" />
+                ) : (
+                  <PanelLeftClose aria-hidden="true" />
+                )}
+              </Button>
+            }
+          />
+        </div>
       </aside>
     </>
   )
