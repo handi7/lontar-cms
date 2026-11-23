@@ -1406,4 +1406,75 @@ describe('toClientConfig admin.actions (#468)', () => {
       }),
     ).toThrow(/specify either "endpoint" or "component", not both/)
   })
+
+  it('fails when a bulk action refers to an endpoint whose path contains :id', () => {
+    expect(() =>
+      toClientConfig({
+        ...base,
+        collections: [
+          collection({
+            slug: 'posts',
+            endpoints: [
+              {
+                name: 'archive',
+                method: 'post',
+                path: '/:id/archive',
+                handler: () => new Response(),
+              },
+            ],
+            admin: {
+              actions: [
+                { key: 'archiveMany', label: 'Archive', endpoint: 'archive', scope: ['bulk'] },
+              ],
+            },
+            fields: { title: f.text() },
+          }),
+        ],
+      }),
+    ).toThrow(/whose path contains ":id"/)
+  })
+
+  it('serializes a bulk action with an endpoint without :id', () => {
+    const client = toClientConfig({
+      ...base,
+      collections: [
+        collection({
+          slug: 'posts',
+          endpoints: [
+            {
+              name: 'archiveMany',
+              method: 'post',
+              path: '/archive-many',
+              handler: () => new Response(),
+            },
+          ],
+          admin: {
+            actions: [
+              {
+                key: 'archiveMany',
+                label: 'Archive Many',
+                endpoint: 'archiveMany',
+                scope: ['bulk'],
+                confirm: 'Archive {count} posts?',
+                variant: 'destructive',
+              },
+            ],
+          },
+          fields: { title: f.text() },
+        }),
+      ],
+    })
+    expect(client.collections[0]?.admin?.actions).toEqual([
+      {
+        key: 'archiveMany',
+        label: 'Archive Many',
+        endpoint: 'archiveMany',
+        path: '/archive-many',
+        method: 'post',
+        scope: ['bulk'],
+        confirm: 'Archive {count} posts?',
+        variant: 'destructive',
+      },
+    ])
+  })
 })

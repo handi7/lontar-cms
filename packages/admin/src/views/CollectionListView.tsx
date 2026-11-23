@@ -1023,6 +1023,16 @@ function CollectionListTable({ collection }: CollectionListTableProps) {
     [declarativeAction],
   )
 
+  const handleExecuteBulkAction = useCallback(
+    (action: ClientAction, ids: RowId[], clearSelection: () => void) => {
+      declarativeAction.triggerAction(action, {
+        ids,
+        onSuccess: clearSelection,
+      })
+    },
+    [declarativeAction],
+  )
+
   const isAllowedAction = useCallback(
     (actionKey: string) => collectionPerm?.actions?.[actionKey] !== false,
     [collectionPerm],
@@ -1079,6 +1089,8 @@ function CollectionListTable({ collection }: CollectionListTableProps) {
     locale: listLocale,
     permission: collectionPerm,
     canDelete,
+    isActionPending: declarativeAction.isPending,
+    onExecuteAction: handleExecuteBulkAction,
   })
 
   return (

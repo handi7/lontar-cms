@@ -916,4 +916,108 @@ describe('CollectionListView permissions (#341)', () => {
       expect(screen.queryByRole('button', { name: 'Actions for Article 1' })).toBeNull()
     })
   })
+
+  describe('declarative bulk actions (#469)', () => {
+    const articlesWithBulkActions: ClientCollection = {
+      ...mockArticlesCollection,
+      admin: {
+        ...mockArticlesCollection.admin,
+        actions: [
+          {
+            key: 'archiveMany',
+            label: 'Archive Many',
+            scope: ['bulk'],
+            path: '/archive-many',
+            method: 'post',
+            confirm: 'Archive {count} articles?',
+            variant: 'destructive',
+          },
+        ],
+      },
+    }
+
+    it('renders bulk action in toolbar, confirms with {count}, and executes POST { ids }', async () => {
+      const fetchMock = vi.fn().mockResolvedValue({
+        ok: true,
+        status: 200,
+        json: () => Promise.resolve({ message: 'Archived 2 articles' }),
+      })
+      vi.stubGlobal('fetch', fetchMock)
+
+      vi.mocked(client.fetchPermissions).mockResolvedValue({
+        collections: {
+          articles: mockCollectionPerm({ actions: { archiveMany: true } }),
+        },
+        globals: {},
+      })
+
+      renderWithProviders({ collections: [articlesWithBulkActions] })
+
+      fireEvent.click(await screen.findByLabelText('Select Article 1'))
+      fireEvent.click(screen.getByLabelText('Select Article 2'))
+
+      const bar = within(screen.getByRole('toolbar', { name: 'Bulk actions' }))
+      const bulkBtn = bar.getByRole('button', { name: 'Archive Many' })
+      expect(bulkBtn).toBeTruthy()
+
+      fireEvent.click(bulkBtn)
+
+      // Alert dialog shows formatted count
+      const dialog = await screen.findByRole('alertdialog')
+      expect(within(dialog).getByText('Archive 2 articles?')).toBeTruthy()
+
+      // Confirm triggers execution
+      fireEvent.click(within(dialog).getByRole('button', { name: 'Archive Many' }))
+
+      await waitFor(() => {
+        expect(fetchMock).toHaveBeenCalledWith('/api/articles/archive-many', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          credentials: 'include',
+          body: JSON.stringify({ ids: [1, 2] }),
+        })
+      })
+
+      // Success message shown and selection cleared
+      expect(await screen.findByText('Archived 2 articles')).toBeTruthy()
+      await waitFor(() => {
+        expect(screen.queryByTestId('bulk-count')).toBeNull()
+      })
+    })
+
+    it('enables row selection even when delete and publish are forbidden if a bulk action is available', async () => {
+      vi.mocked(client.fetchPermissions).mockResolvedValue({
+        collections: {
+          articles: mockCollectionPerm({
+            delete: false,
+            update: false,
+            actions: { archiveMany: true },
+          }),
+        },
+        globals: {},
+      })
+
+      renderWithProviders({ collections: [articlesWithBulkActions] })
+
+      expect(await screen.findByText('Article 1')).toBeTruthy()
+      expect(screen.getByLabelText('Select all on this page')).toBeTruthy()
+    })
+
+    it('hides bulk action when its action permission is false', async () => {
+      vi.mocked(client.fetchPermissions).mockResolvedValue({
+        collections: {
+          articles: mockCollectionPerm({
+            actions: { archiveMany: false },
+          }),
+        },
+        globals: {},
+      })
+
+      renderWithProviders({ collections: [articlesWithBulkActions] })
+
+      fireEvent.click(await screen.findByLabelText('Select Article 1'))
+      const bar = within(screen.getByRole('toolbar', { name: 'Bulk actions' }))
+      expect(bar.queryByRole('button', { name: 'Archive Many' })).toBeNull()
+    })
+  })
 })

@@ -72,20 +72,43 @@ interface ValidateTargetParams {
   endpoint: unknown
   component: unknown
   endpoints: readonly Endpoint[] | undefined
+  scope: unknown
   issues: string[]
 }
 
+function resolveActionIdentifier(key: unknown, index: number): string {
+  return typeof key === 'string' && key.trim() ? key : String(index)
+}
+
+function validateBulkEndpointPath(
+  where: string,
+  actionId: string,
+  endpointName: string,
+  endpointPath: string,
+  scope: unknown,
+  issues: string[],
+): void {
+  const scopes = Array.isArray(scope) ? scope : [scope]
+  if (scopes.includes('bulk') && endpointPath.includes(':id')) {
+    issues.push(
+      `${where}: bulk action "${actionId}" refers to endpoint "${endpointName}" whose path contains ":id". Bulk endpoints must not take an ":id" parameter.`,
+    )
+  }
+}
+
 function validateEndpointTarget(params: ValidateTargetParams): void {
-  const { prefix, where, key, index, endpoint, endpoints, issues } = params
+  const { prefix, where, key, index, endpoint, endpoints, scope, issues } = params
   if (!isNonEmptyString(endpoint)) {
     issues.push(`${prefix}: endpoint must be a non-empty string.`)
     return
   }
-  const found = endpoints?.some((e) => e.name === endpoint)
+  const found = endpoints?.find((e) => e.name === endpoint)
+  const actionId = resolveActionIdentifier(key, index)
   if (!found) {
-    const actionId = typeof key === 'string' && key.trim() ? key : String(index)
     issues.push(`${where}: action "${actionId}" refers to unknown endpoint "${endpoint}".`)
+    return
   }
+  validateBulkEndpointPath(where, actionId, endpoint, found.path, scope, issues)
 }
 
 function validateTarget(params: ValidateTargetParams): void {
@@ -147,7 +170,7 @@ export function validateAction(
     validateCollectionScope(prefix, scope, issues)
   }
 
-  validateTarget({ prefix, where, key, index, endpoint, component, endpoints, issues })
+  validateTarget({ prefix, where, key, index, endpoint, component, endpoints, scope, issues })
   validateOptions(prefix, confirm, variant, issues)
 
   return issues

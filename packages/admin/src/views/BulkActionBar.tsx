@@ -1,3 +1,4 @@
+import type { ClientAction } from '@lontar/core/client'
 import { Alert } from '../components/ui/alert'
 import { Button } from '../components/ui/button'
 import type { BulkKind, BulkSummary, RowId } from './bulk'
@@ -17,6 +18,8 @@ export interface BulkActionBarProps {
   isRunning: boolean
   canDelete: boolean
   canPublish: boolean
+  bulkActions?: readonly ClientAction[]
+  onExecuteAction?: (action: ClientAction) => void
   onDelete: () => void
   onPublish: () => void
   onUnpublish: () => void
@@ -24,8 +27,18 @@ export interface BulkActionBarProps {
 }
 
 export function BulkActionBar(props: BulkActionBarProps) {
-  const { count, isRunning, canDelete, canPublish, onDelete, onPublish, onUnpublish, onClear } =
-    props
+  const {
+    count,
+    isRunning,
+    canDelete,
+    canPublish,
+    bulkActions,
+    onExecuteAction,
+    onDelete,
+    onPublish,
+    onUnpublish,
+    onClear,
+  } = props
   if (count === 0) return null
   return (
     <div
@@ -58,6 +71,18 @@ export function BulkActionBar(props: BulkActionBarProps) {
           </Button>
         </>
       )}
+      {bulkActions?.map((action) => (
+        <Button
+          key={action.key}
+          type="button"
+          variant={action.variant ?? 'outline'}
+          size="sm"
+          disabled={isRunning}
+          onClick={() => onExecuteAction?.(action)}
+        >
+          {action.label}
+        </Button>
+      ))}
       {canDelete && (
         <Button
           type="button"
