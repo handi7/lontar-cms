@@ -221,7 +221,7 @@ admin: {
 - `toClientConfig()` validates that each `endpoint` names an endpoint on the same collection or
   global, and fails at startup if not.
 
-Bulk actions depend on list-view row selection, planned in #150.
+Bulk actions depend on list-view row selection ([#460](https://github.com/handi7/lontar-cms/issues/460)).
 
 ### Settled points
 

@@ -1,4 +1,10 @@
-import { checkAccess, sanitizeDocRead, sanitizeDocWrite } from '../access'
+import {
+  checkAccess,
+  matchesConstraint,
+  resolveAccess,
+  sanitizeDocRead,
+  sanitizeDocWrite,
+} from '../access'
 import type { FieldAccessCache } from '../access/field-access'
 import type { AuthUser } from '../auth/types'
 import { clientFieldsToZod } from '../client/zod'
@@ -58,6 +64,10 @@ function assertCreateResultSuccess(result: MutationExecutionResult): DocumentDat
   return result.doc
 }
 
+/**
+ * Whether the creator may see the draft they just made populated. `update` access can return a
+ * constraint (ADR 0030), so it is read as a decision and the new document is checked against it.
+ */
 async function canPopulateCreateDraft(
   args: CreateOperationArgs,
   docId: unknown,
@@ -67,13 +77,22 @@ async function canPopulateCreateDraft(
   if (args.overrideAccess) return true
   if (!draft) return false
   const numericId = typeof docId === 'number' ? docId : Number(docId) || undefined
-  return Boolean(
-    await checkAccess(args.collection.access?.update, {
-      user: args.user ?? null,
-      id: numericId,
-      locale,
-    }),
+  const decision = await resolveAccess(
+    args.collection,
+    'update',
+    { user: args.user ?? null, id: numericId, locale },
+    args.config,
   )
+  if (!decision.allowed) return false
+  if (!decision.constraint) return true
+  if (numericId === undefined) return false
+  return matchesConstraint({
+    config: args.config,
+    collection: args.collection,
+    id: numericId,
+    constraint: decision.constraint,
+    locale,
+  })
 }
 
 async function prepareCreateWriteData(
