@@ -22,6 +22,11 @@ export interface CollectionPermission {
    */
   constrained?: { read?: boolean; update?: boolean; delete?: boolean }
   fields: Record<string, FieldPermission>
+  /**
+   * Whether each declarative action is available to the current user, by action key.
+   * Evaluated against each action endpoint's `access` with `{ user }` only (ADR 0029).
+   */
+  actions?: Record<string, boolean>
 }
 
 export interface GlobalPermission {
@@ -29,6 +34,11 @@ export interface GlobalPermission {
   update: boolean
   readVersions: boolean
   fields: Record<string, FieldPermission>
+  /**
+   * Whether each declarative action is available to the current user, by action key.
+   * Evaluated against each action endpoint's `access` with `{ user }` only (ADR 0029).
+   */
+  actions?: Record<string, boolean>
 }
 
 export interface PermissionsResponse {

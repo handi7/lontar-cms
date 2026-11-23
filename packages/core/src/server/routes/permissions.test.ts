@@ -503,14 +503,20 @@ describe('Permissions endpoint (GET /api/_lontar/permissions and /api/_lontar/ac
     }
 
     function setupSecuredApp() {
-      const db = buildTestDb(testStore, testGlobals)
+      const db = buildTestDb(
+        JSON.parse(JSON.stringify(testStore)) as Record<string, Record<number, StoredDoc>>,
+        JSON.parse(JSON.stringify(testGlobals)) as Record<string, DocumentData>,
+      )
       const config: Config = {
         secret: 'a-very-long-secret-key-that-is-at-least-32-chars-long!',
         db,
         collections: [confidentialDocs, articles],
         globals: [secureGlobal],
       }
-      const app = createLontar(config, { baseURL: 'http://localhost:3000' })
+      const app = createLontar(config, {
+        baseURL: 'http://localhost:3000',
+        rateLimit: { enabled: false },
+      })
       return { app, config }
     }
 
@@ -800,5 +806,67 @@ describe('custom view permissions (#467)', () => {
       },
     } as unknown as Config
     expect((await getPermissions(config, user as never)).views).toEqual({ v: false })
+  })
+})
+
+describe('GET /api/_lontar/permissions with actions (#468)', () => {
+  it('reports which collection actions are available evaluating endpoint access with user only', async () => {
+    const { getPermissions } = await import('../../access/permissions')
+    const config = {
+      secret: 'test-secret-value-1234567890',
+      db: buildTestDb({}),
+      collections: [
+        collection({
+          slug: 'articles',
+          endpoints: [
+            {
+              name: 'approve',
+              method: 'post',
+              path: '/:id/approve',
+              access: ({ user: u }) => u?.role === 'admin',
+              handler: () => new Response('ok'),
+            },
+            {
+              name: 'comment',
+              method: 'post',
+              path: '/:id/comment',
+              handler: () => new Response('ok'),
+            },
+          ],
+          admin: {
+            actions: [
+              { key: 'approve', label: 'Approve', endpoint: 'approve', scope: ['row'] },
+              { key: 'comment', label: 'Comment', endpoint: 'comment', scope: ['document'] },
+              { key: 'custom', label: 'Custom', component: 'custom-comp', scope: ['document'] },
+            ],
+          },
+          fields: { title: f.text() },
+        }),
+      ],
+    } as unknown as Config
+
+    const adminUser = { id: 'u1', role: 'admin', email: 'a@example.com' }
+    const editorUser = { id: 'u2', role: 'editor', email: 'e@example.com' }
+
+    const adminPerms = await getPermissions(config, adminUser as never)
+    expect(adminPerms.collections.articles?.actions).toEqual({
+      approve: true,
+      comment: true,
+      custom: true,
+    })
+
+    const editorPerms = await getPermissions(config, editorUser as never)
+    expect(editorPerms.collections.articles?.actions).toEqual({
+      approve: false,
+      comment: true,
+      custom: true,
+    })
+
+    const anonPerms = await getPermissions(config, null)
+    expect(anonPerms.collections.articles?.actions).toEqual({
+      approve: false,
+      comment: false,
+      custom: false,
+    })
   })
 })

@@ -19,6 +19,7 @@ import { zodResolver } from '@hookform/resolvers/zod'
 import type { z } from 'zod'
 import {
   clientFieldsToZod,
+  type ClientAction,
   type ClientField,
   type ClientGlobal,
   type ClientLocale,
@@ -44,6 +45,7 @@ import { EmptyCard } from './EmptyCard'
 import { ViewHeader } from './ViewHeader'
 import { GlobalBreadcrumbs } from './FormBreadcrumbs'
 import { DocumentSidebar } from './DocumentSidebar'
+import { useDeclarativeAction } from './useDeclarativeAction'
 import { VersionHistorySheet } from './VersionHistorySheet'
 import { PreviewPane } from './preview/PreviewPane'
 import { EditorSplitLayout, useEditorView } from './preview/EditorSplitLayout'
@@ -414,6 +416,9 @@ export interface GlobalEditorSidebarProps {
   isSavingDraft: boolean
   isUnpublishing: boolean
   readOnly?: boolean
+  documentActions?: ClientAction[]
+  isActionPending?: boolean
+  onExecuteAction?: (action: ClientAction) => void
 }
 
 function GlobalEditorSidebar(props: GlobalEditorSidebarProps) {
@@ -439,6 +444,9 @@ function GlobalEditorSidebar(props: GlobalEditorSidebarProps) {
       isSavingDraft={props.isSavingDraft}
       isUnpublishing={props.isUnpublishing}
       readOnly={props.readOnly}
+      documentActions={props.documentActions}
+      isActionPending={props.isActionPending}
+      onExecuteAction={props.onExecuteAction}
     />
   )
 }
@@ -771,6 +779,90 @@ function renderGlobalLocaleSwitcher(
   )
 }
 
+function useGlobalDocumentActions(
+  global: ClientGlobal,
+  globalPermissions?: GlobalPermission,
+  canExecuteGlobalAction?: (slug: string, key: string) => boolean,
+): ClientAction[] {
+  return useMemo(() => {
+    const actions = global.admin?.actions
+    if (!actions) return []
+    return actions.filter(
+      (action) =>
+        action.scope.includes('document') &&
+        globalPermissions?.actions?.[action.key] !== false &&
+        (canExecuteGlobalAction ? canExecuteGlobalAction(global.slug, action.key) : true),
+    )
+  }, [global.admin?.actions, global.slug, globalPermissions?.actions, canExecuteGlobalAction])
+}
+
+function useGlobalEditorData({
+  apiBase,
+  slug,
+  hasDrafts,
+  hasLocalization,
+  activeLocale,
+  fallbackLocale,
+}: {
+  apiBase: string
+  slug: string
+  hasDrafts: boolean
+  hasLocalization: boolean
+  activeLocale?: string
+  fallbackLocale?: string
+}) {
+  const { globalQuery, fallbackDoc, currentLocale } = useGlobalQueries({
+    apiBase,
+    slug,
+    hasDrafts,
+    hasLocalization,
+    activeLocale,
+    fallbackLocale,
+  })
+
+  const { data: globalPermissions, isLoading: isGlobalPermsLoading } = useGlobalPermissions(
+    apiBase,
+    slug,
+  )
+
+  const { readOnlyDoc, canReadVersions, fieldPermissions, isUnreadable } =
+    useGlobalPermissionsState(globalPermissions)
+
+  const isQueryLoading = globalQuery.isLoading || isGlobalPermsLoading
+  const showQueryState = shouldShowGlobalQueryState(
+    globalQuery.isLoading,
+    isGlobalPermsLoading,
+    globalQuery.error,
+  )
+
+  return {
+    globalQuery,
+    globalPermissions,
+    fallbackDoc,
+    currentLocale,
+    readOnlyDoc,
+    canReadVersions,
+    fieldPermissions,
+    isUnreadable,
+    showQueryState,
+    isQueryLoading,
+  }
+}
+
+function resolveGlobalEditorStatus(
+  isSubmitting: boolean,
+  isSavePending: boolean,
+  declarativeAction: { actionError: string | null; actionSuccess: string | null },
+  apiError: string | null,
+  successMsg: string | null,
+) {
+  const isSaving = isSubmitting || isSavePending
+  const submitLabel = getGlobalSubmitLabel(isSaving)
+  const displayError = declarativeAction.actionError || apiError
+  const displaySuccess = declarativeAction.actionSuccess || successMsg
+  return { isSaving, submitLabel, displayError, displaySuccess }
+}
+
 export interface GlobalEditorProps {
   global: ClientGlobal
   slug: string
@@ -790,7 +882,18 @@ function GlobalEditor({ global, slug, apiBase }: GlobalEditorProps) {
   const preview = usePreviewState(slug, hasPreview)
   const editorView = useEditorView(preview)
 
-  const { globalQuery, fallbackDoc, currentLocale } = useGlobalQueries({
+  const {
+    globalQuery,
+    globalPermissions,
+    fallbackDoc,
+    currentLocale,
+    readOnlyDoc,
+    canReadVersions,
+    fieldPermissions,
+    isUnreadable,
+    showQueryState,
+    isQueryLoading,
+  } = useGlobalEditorData({
     apiBase,
     slug,
     hasDrafts,
@@ -798,14 +901,7 @@ function GlobalEditor({ global, slug, apiBase }: GlobalEditorProps) {
     activeLocale,
     fallbackLocale,
   })
-
-  const { data: globalPermissions, isLoading: isGlobalPermsLoading } = useGlobalPermissions(
-    apiBase,
-    slug,
-  )
-
-  const { readOnlyDoc, canReadVersions, fieldPermissions, isUnreadable } =
-    useGlobalPermissionsState(globalPermissions)
+  const { canExecuteGlobalAction } = usePermissions()
 
   const {
     control,
@@ -893,21 +989,43 @@ function GlobalEditor({ global, slug, apiBase }: GlobalEditorProps) {
     setSuccessMsg,
   })
 
-  if (shouldShowGlobalQueryState(globalQuery.isLoading, isGlobalPermsLoading, globalQuery.error)) {
-    return (
-      <GlobalQueryState
-        isLoading={globalQuery.isLoading || isGlobalPermsLoading}
-        error={globalQuery.error}
-      />
-    )
+  const declarativeAction = useDeclarativeAction({
+    apiBase,
+    scopeType: 'global',
+    slug: global.slug,
+    locale: currentLocale,
+  })
+
+  const documentActions = useGlobalDocumentActions(
+    global,
+    globalPermissions,
+    canExecuteGlobalAction,
+  )
+
+  const { isSaving, submitLabel, displayError, displaySuccess } = resolveGlobalEditorStatus(
+    isSubmitting,
+    saveMutation.isPending,
+    declarativeAction,
+    apiError,
+    successMsg,
+  )
+
+  const onExecuteAction = useCallback(
+    (action: ClientAction) => {
+      declarativeAction.triggerAction(action, { doc: globalQuery.data })
+    },
+    [declarativeAction, globalQuery.data],
+  )
+
+  const canShowVersions = hasVersions && canReadVersions
+
+  if (showQueryState) {
+    return <GlobalQueryState isLoading={isQueryLoading} error={globalQuery.error} />
   }
 
   if (isUnreadable) {
     return <NotFoundView />
   }
-
-  const isSaving = isSubmitting || saveMutation.isPending
-  const submitLabel = getGlobalSubmitLabel(isSaving)
 
   return (
     <div>
@@ -922,7 +1040,9 @@ function GlobalEditor({ global, slug, apiBase }: GlobalEditorProps) {
         )}
       />
 
-      <GlobalStatusAlerts apiError={apiError} successMsg={successMsg} />
+      {declarativeAction.dialogs}
+
+      <GlobalStatusAlerts apiError={displayError} successMsg={displaySuccess} />
 
       <EditorSplitLayout
         hasPreview={hasPreview}
@@ -969,7 +1089,7 @@ function GlobalEditor({ global, slug, apiBase }: GlobalEditorProps) {
               isSaving={isSaving}
               doc={globalQuery.data}
               hasDrafts={hasDrafts}
-              hasVersions={hasVersions && canReadVersions}
+              hasVersions={canShowVersions}
               hasPreview={hasPreview}
               preview={{
                 isOpen: preview.isOpen,
@@ -986,13 +1106,16 @@ function GlobalEditor({ global, slug, apiBase }: GlobalEditorProps) {
               isSavingDraft={isSavingDraft}
               isUnpublishing={unpublishMutation.isPending}
               readOnly={readOnlyDoc}
+              documentActions={documentActions}
+              isActionPending={declarativeAction.isPending}
+              onExecuteAction={onExecuteAction}
             />
           </form>
         </DocumentFormProvider>
       </EditorSplitLayout>
 
       <GlobalVersionHistory
-        hasVersions={hasVersions && canReadVersions}
+        hasVersions={canShowVersions}
         open={isHistoryOpen}
         onOpenChange={setIsHistoryOpen}
         apiBase={apiBase}

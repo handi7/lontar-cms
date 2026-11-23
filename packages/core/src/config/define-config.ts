@@ -14,6 +14,7 @@ import type {
 import type { DatabaseAdapter } from '../database/adapter'
 import type { CollectionConfig, Config, GlobalConfig, PaginationConfig } from './types'
 import { validateAdminConfig } from './validate-admin'
+import { validateActions } from './validate-actions'
 import { validateEndpoints } from './validate-endpoints'
 
 const SLUG = /^[a-z][a-z0-9-]*$/
@@ -537,6 +538,7 @@ function validateGlobal(
     ...validateFields(where, global.fields, false, 1, hasVersions, dbAdapter, hasLocalization),
     ...validateVersions(where, global.versions),
     ...validatePreview(where, global.admin?.preview),
+    ...validateActions(where, global.admin?.actions, global.endpoints, true),
     ...validateGlobalAccess(where, global),
     ...validateScopedWebhooks(where, global.webhooks),
   ]
@@ -1070,6 +1072,7 @@ function validateAdmin(where: string, collection: CollectionConfig): string[] {
     ...(useAsTitle === undefined ? [] : check('useAsTitle')(useAsTitle)),
     ...defaultColumns.flatMap(check('defaultColumns')),
     ...validatePreview(where, collection.admin?.preview),
+    ...validateActions(where, collection.admin?.actions, collection.endpoints, false),
   ]
 }
 

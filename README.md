@@ -760,6 +760,7 @@ admin: {
 - **Field input** (`admin.component` on any field) receives `CustomFieldProps`: `value`, `onChange`, `onBlur`, `path`, `field`, `readOnly`, `locale`, `error`. It replaces the input only. The label, description, conditional display, field-level access and Zod validation stay Lontar's, so a component cannot change what is stored.
 - **Dashboard widget** (`admin.dashboard.widgets`) receives `DashboardWidgetProps`. Widgets render in config order.
 - **Custom view** (`admin.views`) receives `CustomViewProps`. It is served at `<basePath>/views/<key>` with a sidebar entry. Its `access` function is evaluated by the permissions endpoint and only the boolean reaches the admin. Hiding a view is cosmetic, so the endpoints it calls must enforce access. A collection slug `views` is rejected when `admin.views` is non-empty.
+- **Component action** (`component` on an action descriptor) receives `CustomActionProps`: `actionKey`, `label`, `id`, `doc`, `close`. It renders inside a modal dialog. Calling `close()` dismisses the dialog.
 
 Components read data through exported hooks: `useAdminConfig()`, `useAuth()`, `useLontarFetch()` (fetch bound to `apiBase` with credentials) and `useDocumentForm()` (sibling values, for field components). Anything not exported is private and may change in a minor release.
 

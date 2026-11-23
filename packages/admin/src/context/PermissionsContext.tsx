@@ -32,6 +32,8 @@ export interface PermissionsContextValue {
    * a view calls enforce access.
    */
   canViewCustomView: (key: string) => boolean
+  canExecuteCollectionAction: (slug: string, actionKey: string) => boolean
+  canExecuteGlobalAction: (slug: string, actionKey: string) => boolean
 }
 
 export const PermissionsContext = createContext<PermissionsContextValue | null>(null)
@@ -95,6 +97,16 @@ export function PermissionsProvider({
 
     const canViewCustomView = (key: string): boolean => permissions?.views?.[key] === true
 
+    const canExecuteCollectionAction = (slug: string, actionKey: string): boolean => {
+      const p = getCollectionPermission(slug)
+      return p ? p.actions?.[actionKey] !== false : true
+    }
+
+    const canExecuteGlobalAction = (slug: string, actionKey: string): boolean => {
+      const p = getGlobalPermission(slug)
+      return p ? p.actions?.[actionKey] !== false : true
+    }
+
     return {
       permissions,
       isLoading,
@@ -109,6 +121,8 @@ export function PermissionsProvider({
       canReadGlobal,
       canUpdateGlobal,
       canViewCustomView,
+      canExecuteCollectionAction,
+      canExecuteGlobalAction,
     }
   }, [data, isLoading, error, user])
 
