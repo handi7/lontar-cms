@@ -229,18 +229,32 @@ function toClientLocalization(
   }
 }
 
-/** Component keys and layout only. Anything that is a function stays on the server. */
+/** Component keys, labels and layout only. Anything that is a function stays on the server. */
 function toClientAdmin(admin: AdminConfig | undefined): ClientAdminConfig | undefined {
   const widgets = admin?.dashboard?.widgets
-  if (!widgets || widgets.length === 0) return undefined
-  return {
-    dashboard: {
-      widgets: widgets.map((widget) => ({
-        component: widget.component,
-        width: widget.width ?? 'full',
-      })),
-    },
+  const views = admin?.views
+  const result: ClientAdminConfig = {
+    ...(widgets && widgets.length > 0
+      ? {
+          dashboard: {
+            widgets: widgets.map((widget) => ({
+              component: widget.component,
+              width: widget.width ?? 'full',
+            })),
+          },
+        }
+      : {}),
+    ...(views && views.length > 0
+      ? {
+          views: views.map((view) => ({
+            key: view.key,
+            label: view.label,
+            component: view.component,
+          })),
+        }
+      : {}),
   }
+  return Object.keys(result).length > 0 ? result : undefined
 }
 
 /**

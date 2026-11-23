@@ -1,7 +1,7 @@
 import { useState, type ReactNode } from 'react'
 import { Link } from '@tanstack/react-router'
 import { LogOut, Menu, PanelLeftClose, PanelLeftOpen, Search } from 'lucide-react'
-import type { ClientCollection, ClientGlobal } from '@lontar/core/client'
+import type { ClientCollection, ClientCustomView, ClientGlobal } from '@lontar/core/client'
 import type { AdminUser } from '../api/client'
 import { Button } from '../components/ui/button'
 import { Sheet, SheetContent, SheetTitle } from '../components/ui/sheet'
@@ -70,6 +70,32 @@ function NavItem({ label, collapsed, render }: NavItemProps) {
       <TooltipTrigger asChild>{link}</TooltipTrigger>
       <TooltipContent side="right">{label}</TooltipContent>
     </Tooltip>
+  )
+}
+
+interface ViewsNavProps {
+  views: ClientCustomView[]
+  collapsed: boolean
+}
+
+function ViewsNav({ views, collapsed }: ViewsNavProps) {
+  if (views.length === 0) return null
+  return (
+    <div className={navGroupClass}>
+      <NavTitle collapsed={collapsed}>Views</NavTitle>
+      {views.map((view) => (
+        <NavItem
+          key={view.key}
+          label={view.label}
+          collapsed={collapsed}
+          render={({ className, content }) => (
+            <Link to="/views/$key" params={{ key: view.key }} className={className}>
+              {content}
+            </Link>
+          )}
+        />
+      ))}
+    </div>
   )
 }
 
@@ -226,6 +252,7 @@ interface SidebarBodyProps {
   collapsed: boolean
   collections: ClientCollection[]
   globals?: ClientGlobal[]
+  views: ClientCustomView[]
   isAdmin: boolean
   user: AdminUser | null
   onSignOut: () => void
@@ -238,7 +265,7 @@ interface SidebarBodyProps {
 }
 
 function SidebarBody(props: SidebarBodyProps) {
-  const { collapsed, collections, globals, isAdmin, user, headerAction, onNavigate } = props
+  const { collapsed, collections, globals, views, isAdmin, user, headerAction, onNavigate } = props
   return (
     <>
       <div
@@ -315,6 +342,8 @@ function SidebarBody(props: SidebarBodyProps) {
 
         <GlobalsNav globals={globals} collapsed={collapsed} />
 
+        <ViewsNav views={views} collapsed={collapsed} />
+
         {isAdmin && (
           <div className={navGroupClass}>
             <NavTitle collapsed={collapsed}>Administration</NavTitle>
@@ -345,7 +374,7 @@ function SidebarBody(props: SidebarBodyProps) {
 
 export function Sidebar() {
   const { user, signOut } = useAuth()
-  const { collections, globals, isAdmin } = useNavModel()
+  const { collections, globals, views, isAdmin } = useNavModel()
   const { setOpen: setPaletteOpen } = useCommandPalette()
   const [isSigningOut, setIsSigningOut] = useState(false)
   const [drawerOpen, setDrawerOpen] = useState(false)
@@ -365,6 +394,7 @@ export function Sidebar() {
   const shared = {
     collections,
     globals,
+    views,
     isAdmin,
     user,
     onOpenPalette: () => setPaletteOpen(true),

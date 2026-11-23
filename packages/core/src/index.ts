@@ -215,6 +215,7 @@ export type {
   CollectionAccess,
   CollectionAdmin,
   CollectionConfig,
+  CustomView,
   DashboardConfig,
   DashboardWidget,
   DashboardWidgetWidth,

@@ -288,9 +288,26 @@ export interface DashboardConfig {
   widgets?: readonly DashboardWidget[]
 }
 
+/** A screen served by a registered component, with a sidebar entry (ADR 0029). */
+export interface CustomView {
+  /** The last segment of `<adminBasePath>/views/<key>`: lowercase letters, digits and hyphens. */
+  key: string
+  /** The sidebar entry and the page title. */
+  label: string
+  /** Key of a component registered on `<Admin components>`. */
+  component: AdminComponentKey
+  /**
+   * Decides whether the admin shows the view to this user. Evaluated by the permissions endpoint;
+   * only the boolean reaches the admin, and hiding a view is cosmetic, so the endpoints it calls
+   * must enforce access. Omitted means any authenticated user.
+   */
+  access?: AccessFunction
+}
+
 /** Admin-wide extensions that are not tied to one collection or global (ADR 0029). */
 export interface AdminConfig {
   dashboard?: DashboardConfig
+  views?: readonly CustomView[]
 }
 
 /** Server-only. Never sent to the admin; see toClientConfig(). */
@@ -312,7 +329,7 @@ export interface Config {
   webhooks?: readonly WebhookConfig[]
   /** Custom endpoints mounted at `<basePath><path>`. */
   endpoints?: readonly Endpoint[]
-  /** Dashboard widgets (and, later, custom views) that refer to registered admin components. */
+  /** Dashboard widgets and custom views that refer to registered admin components. */
   admin?: AdminConfig
   collections: readonly CollectionConfig[]
   globals?: readonly GlobalConfig[]

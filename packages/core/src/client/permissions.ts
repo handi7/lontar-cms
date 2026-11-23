@@ -34,4 +34,9 @@ export interface GlobalPermission {
 export interface PermissionsResponse {
   collections: Record<string, CollectionPermission>
   globals: Record<string, GlobalPermission>
+  /**
+   * Whether the user may see each custom view, by key. Present only when the config has views.
+   * Cosmetic: the endpoints a view calls enforce access.
+   */
+  views?: Record<string, boolean>
 }

@@ -32,8 +32,16 @@ export interface ClientDashboardWidget {
   width: 'full' | 'half'
 }
 
+export interface ClientCustomView {
+  key: string
+  label: string
+  /** Key of the host component registered on `<Admin components>`. The access function stays on the server. */
+  component: string
+}
+
 export interface ClientAdminConfig {
   dashboard?: { widgets: ClientDashboardWidget[] }
+  views?: ClientCustomView[]
 }
 
 export interface ClientConfig {

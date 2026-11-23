@@ -9,6 +9,7 @@ import { AdminLayout } from '../layout/AdminLayout'
 import { AcceptInviteView } from '../views/AcceptInviteView'
 import { AccountView } from '../views/AccountView'
 import { CollectionFormView } from '../views/CollectionFormView'
+import { CustomViewRoute } from '../views/CustomViewRoute'
 import { CollectionListView } from '../views/CollectionListView'
 import { DashboardView } from '../views/DashboardView'
 import { GlobalFormView } from '../views/GlobalFormView'
@@ -91,6 +92,13 @@ export function createAdminRouter(options: { basePath?: string; history?: Router
     component: AccountView,
   })
 
+  const customViewRoute = createRoute({
+    getParentRoute: () => authenticatedRoute,
+    path: 'views/$key',
+    component: CustomViewRoute,
+    remountDeps: ({ params }) => params,
+  })
+
   const globalRoute = createRoute({
     getParentRoute: () => authenticatedRoute,
     path: 'globals/$slug',
@@ -139,6 +147,7 @@ export function createAdminRouter(options: { basePath?: string; history?: Router
       indexRoute,
       usersRoute,
       accountRoute,
+      customViewRoute,
       globalRoute,
       collectionRoute.addChildren([createRoutePath, editRoute, listRoute]),
     ]),

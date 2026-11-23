@@ -771,6 +771,15 @@ Notes on dashboard widgets:
 - An unknown key renders the same placeholder as a field input, and a widget that throws is contained, so the rest of the dashboard keeps working.
 - Widgets have no `access` option: the dashboard is the same for everyone who can sign in. Put the access check in the endpoint the widget calls.
 
+Notes on custom views:
+
+- `admin.views` is a list of `{ key, label, component, access }` on the root config. The view is served at `<basePath>/views/<key>` with an entry under **Views** in the sidebar and the command palette. `key` is kebab-case and unique, since it becomes the URL segment.
+- A view receives `CustomViewProps` (`{ viewKey, label }`; `key` is reserved by React). Lontar renders the page title from `label`; the component fills the page below it.
+- `access` takes the collection access signature (`{ user, req }`) and omitting it means any signed-in user. It is evaluated by `GET /api/_lontar/permissions`, which returns `views: { [key]: boolean }`; the function itself never reaches the admin.
+- **Hiding a view is cosmetic.** A user who types the URL of a view they cannot see (or of a key that does not exist) gets the not-found page, but the view's endpoints are what protect the data, so they must enforce access themselves.
+- A collection slug `views` is rejected at startup when `admin.views` is non-empty, since `/views/<key>` would shadow that collection's edit route.
+- An unknown component key renders the same placeholder as a field input, and a view that throws is contained, so the rest of the admin keeps working.
+
 Notes on custom field inputs:
 
 - `admin.component` is rejected at startup on `group`, `array` and `blocks`, which render their nested fields. Set it on a field inside them instead; `path` is then the full dotted path (`seo.score`, `rows.0.note`).

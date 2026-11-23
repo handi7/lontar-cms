@@ -1775,3 +1775,61 @@ describe('admin.dashboard validation (#466)', () => {
     expect(issues[0]).toContain('widgets[1]')
   })
 })
+
+describe('admin.views validation (#467)', () => {
+  const ok = { key: 'seo-audit', label: 'SEO audit', component: 'seo-audit' }
+
+  function issuesOfViews(views: unknown, collections: CollectionConfig[] = [notes()]) {
+    try {
+      defineConfig({
+        secret: SECRET,
+        db: fakeAdapter,
+        collections,
+        admin: { views } as never,
+      })
+    } catch (error) {
+      if (error instanceof LontarConfigError) return error.issues
+      throw error
+    }
+    return []
+  }
+
+  it('accepts valid views, with and without access', () => {
+    expect(
+      issuesOfViews([ok, { ...ok, key: 'two', access: ({ user }: { user: unknown }) => !!user }]),
+    ).toEqual([])
+    expect(issuesOfViews([])).toEqual([])
+  })
+
+  it.each([
+    ['views is not an array', {}, 'admin.views must be an array'],
+    ['a view is not an object', ['x'], 'views[0]: must be an object'],
+    ['key is missing', [{ ...ok, key: undefined }], 'key must be kebab-case'],
+    ['key has uppercase', [{ ...ok, key: 'SeoAudit' }], 'key must be kebab-case'],
+    ['key has a slash', [{ ...ok, key: 'a/b' }], 'key must be kebab-case'],
+    ['key starts with a digit', [{ ...ok, key: '1a' }], 'key must be kebab-case'],
+    ['label is blank', [{ ...ok, label: ' ' }], 'label must be a non-empty'],
+    ['component is missing', [{ ...ok, component: undefined }], 'component must be a non-empty'],
+    ['access is not a function', [{ ...ok, access: true }], 'access must be a function'],
+  ])('rejects when %s', (_name, views, message) => {
+    const issues = issuesOfViews(views)
+    expect(issues).toHaveLength(1)
+    expect(issues[0]).toContain(message)
+  })
+
+  it('rejects a repeated key', () => {
+    const issues = issuesOfViews([ok, { ...ok, label: 'Again' }])
+    expect(issues).toHaveLength(1)
+    expect(issues[0]).toContain('"seo-audit" is used twice')
+  })
+
+  it('rejects a collection slug "views" only when views are configured', () => {
+    const views = notes({ slug: 'views' })
+    const issues = issuesOfViews([ok], [views])
+    expect(issues).toHaveLength(1)
+    expect(issues[0]).toContain('Collection slug "views" conflicts with admin.views')
+
+    expect(issuesOfViews([], [views])).toEqual([])
+    expect(issuesOfViews(undefined, [views])).toEqual([])
+  })
+})
