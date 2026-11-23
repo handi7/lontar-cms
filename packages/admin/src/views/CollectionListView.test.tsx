@@ -9,6 +9,7 @@ import {
   type CollectionPermission,
 } from '@lontar/core/client'
 import { PortalContainerProvider } from '../context/PortalContainer'
+import { chooseDropdownMenuItem } from '../test/radix'
 import { CollectionListView } from './CollectionListView'
 import * as client from '../api/client'
 import type * as ClientModule from '../api/client'
@@ -847,6 +848,72 @@ describe('CollectionListView permissions (#341)', () => {
       await waitFor(() =>
         expect(vi.mocked(client.fetchCollectionDocs).mock.calls.length).toBeGreaterThan(before),
       )
+    })
+  })
+
+  describe('declarative row actions (#468)', () => {
+    const articlesWithActions: ClientCollection = {
+      ...mockArticlesCollection,
+      admin: {
+        ...mockArticlesCollection.admin,
+        actions: [
+          {
+            key: 'approve',
+            label: 'Approve',
+            scope: ['row'],
+            path: '/:id/approve',
+            method: 'post',
+          },
+        ],
+      },
+    }
+
+    it('renders row actions trigger and executes action when clicked', async () => {
+      const fetchMock = vi.fn().mockResolvedValue({
+        ok: true,
+        status: 200,
+        json: () => Promise.resolve({ message: 'Article 1 approved' }),
+      })
+      vi.stubGlobal('fetch', fetchMock)
+
+      vi.mocked(client.fetchPermissions).mockResolvedValue({
+        collections: {
+          articles: mockCollectionPerm({ actions: { approve: true } }),
+        },
+        globals: {},
+      })
+
+      renderWithProviders({ collections: [articlesWithActions] })
+
+      expect(await screen.findByText('Article 1')).toBeTruthy()
+      const actionTrigger = await screen.findByRole('button', { name: 'Actions for Article 1' })
+      chooseDropdownMenuItem(actionTrigger, /Approve/i)
+
+      await waitFor(() => {
+        expect(fetchMock).toHaveBeenCalledWith('/api/articles/1/approve', expect.any(Object))
+      })
+
+      expect(await screen.findByText('Article 1 approved')).toBeTruthy()
+
+      await waitFor(() => {
+        expect(fetchMock).toHaveBeenCalledWith('/api/articles/1/approve', expect.any(Object))
+      })
+
+      expect(await screen.findByText('Article 1 approved')).toBeTruthy()
+    })
+
+    it('hides row action when permission is false', async () => {
+      vi.mocked(client.fetchPermissions).mockResolvedValue({
+        collections: {
+          articles: mockCollectionPerm({ actions: { approve: false } }),
+        },
+        globals: {},
+      })
+
+      renderWithProviders({ collections: [articlesWithActions] })
+
+      await screen.findByText('Article 1')
+      expect(screen.queryByRole('button', { name: 'Actions for Article 1' })).toBeNull()
     })
   })
 })

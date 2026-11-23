@@ -10,7 +10,9 @@ import {
   type SortingState,
   type Updater,
 } from '@tanstack/react-table'
+import { MoreHorizontal } from 'lucide-react'
 import type {
+  ClientAction,
   ClientCollection,
   ClientField,
   ClientSelectField,
@@ -31,6 +33,13 @@ import { Alert } from '../components/ui/alert'
 import { Badge } from '../components/ui/badge'
 import { Button } from '../components/ui/button'
 import { Checkbox } from '../components/ui/checkbox'
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from '../components/ui/dropdown-menu'
+import { useDeclarativeAction } from './useDeclarativeAction'
 import {
   Table as UITable,
   TableBody,
@@ -273,8 +282,13 @@ function buildColumns(
   isDeleting: boolean,
   canDelete: boolean = true,
   activeLocale?: string,
+  onExecuteAction?: (action: ClientAction, rowDoc: Record<string, unknown>) => void,
+  isAllowedAction?: (actionKey: string) => boolean,
 ): ColumnDef<Record<string, unknown>>[] {
   const titleKey = titleColumnKey(collection)
+  const rowActions = (collection.admin.actions ?? []).filter(
+    (action) => action.scope.includes('row') && (!isAllowedAction || isAllowedAction(action.key)),
+  )
 
   const dataColumns: ColumnDef<Record<string, unknown>>[] = columnKeys.map((key) => {
     const field = collection.fields.find((f) => f.name === key)
@@ -314,6 +328,7 @@ function buildColumns(
     enableSorting: false,
     cell: ({ row }) => {
       const id = String(row.original.id)
+      const docTitle = String(row.original[titleKey] || row.original.id)
       return (
         <div className="lt:flex lt:items-center lt:gap-2">
           <Button asChild variant="ghost" size="sm" className={rowActionClass}>
@@ -343,6 +358,35 @@ function buildColumns(
             >
               Delete
             </Button>
+          )}
+          {rowActions.length > 0 && (
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="sm"
+                  className={rowActionClass}
+                  aria-label={`Actions for ${docTitle}`}
+                >
+                  <MoreHorizontal className="lt:size-4" />
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end">
+                {rowActions.map((action) => (
+                  <DropdownMenuItem
+                    key={action.key}
+                    className={cn(
+                      action.variant === 'destructive' &&
+                        'lt:text-destructive lt:hover:text-destructive lt:focus:text-destructive',
+                    )}
+                    onClick={() => onExecuteAction?.(action, row.original)}
+                  >
+                    {action.label}
+                  </DropdownMenuItem>
+                ))}
+              </DropdownMenuContent>
+            </DropdownMenu>
           )}
         </div>
       )
@@ -689,10 +733,12 @@ function useListDeleteMutation(apiBase: string, slug?: string) {
 interface ListAlertsProps {
   queryError?: Error | null
   deleteError?: string | null
+  actionError?: string | null
+  actionSuccess?: string | null
 }
 
-function ListAlerts({ queryError, deleteError }: ListAlertsProps) {
-  if (!queryError && !deleteError) return null
+function ListAlerts({ queryError, deleteError, actionError, actionSuccess }: ListAlertsProps) {
+  if (!queryError && !deleteError && !actionError && !actionSuccess) return null
   return (
     <>
       {queryError && (
@@ -703,6 +749,21 @@ function ListAlerts({ queryError, deleteError }: ListAlertsProps) {
       {deleteError && (
         <Alert variant="destructive" className="lt:mb-5" data-testid="delete-error-alert">
           {deleteError}
+        </Alert>
+      )}
+      {actionError && (
+        <Alert variant="destructive" className="lt:mb-5" data-testid="action-error-alert">
+          {actionError}
+        </Alert>
+      )}
+      {actionSuccess && (
+        <Alert
+          variant="success"
+          role="status"
+          className="lt:mb-5"
+          data-testid="action-success-alert"
+        >
+          {actionSuccess}
         </Alert>
       )}
     </>
@@ -801,10 +862,31 @@ function useListColumns(
   isDeleting: boolean,
   canDelete: boolean,
   activeLocale: string | undefined,
+  onExecuteAction?: (action: ClientAction, rowDoc: Record<string, unknown>) => void,
+  isAllowedAction?: (actionKey: string) => boolean,
 ) {
   return useMemo(
-    () => buildColumns(collection, columnKeys, handleDelete, isDeleting, canDelete, activeLocale),
-    [collection, columnKeys, handleDelete, isDeleting, canDelete, activeLocale],
+    () =>
+      buildColumns(
+        collection,
+        columnKeys,
+        handleDelete,
+        isDeleting,
+        canDelete,
+        activeLocale,
+        onExecuteAction,
+        isAllowedAction,
+      ),
+    [
+      collection,
+      columnKeys,
+      handleDelete,
+      isDeleting,
+      canDelete,
+      activeLocale,
+      onExecuteAction,
+      isAllowedAction,
+    ],
   )
 }
 
@@ -927,6 +1009,25 @@ function CollectionListTable({ collection }: CollectionListTableProps) {
     fallbackLocale,
   )
 
+  const declarativeAction = useDeclarativeAction({
+    apiBase,
+    scopeType: 'collection',
+    slug: collection.slug,
+    locale: listLocale,
+  })
+
+  const handleExecuteAction = useCallback(
+    (action: ClientAction, rowDoc: Record<string, unknown>) => {
+      declarativeAction.triggerAction(action, { id: rowDoc.id as never, doc: rowDoc })
+    },
+    [declarativeAction],
+  )
+
+  const isAllowedAction = useCallback(
+    (actionKey: string) => collectionPerm?.actions?.[actionKey] !== false,
+    [collectionPerm],
+  )
+
   const columnPreference = useColumnPreference(collection, collectionPerm)
   const columns = useListColumns(
     collection,
@@ -935,6 +1036,8 @@ function CollectionListTable({ collection }: CollectionListTableProps) {
     isDeleting,
     canDelete,
     activeLocale,
+    handleExecuteAction,
+    isAllowedAction,
   )
 
   const docs = useMemo(() => data?.docs ?? [], [data?.docs])
@@ -1020,9 +1123,16 @@ function CollectionListTable({ collection }: CollectionListTableProps) {
         />
       )}
 
-      <ListAlerts queryError={error} deleteError={deleteError} />
+      <ListAlerts
+        queryError={error}
+        deleteError={deleteError}
+        actionError={declarativeAction.actionError}
+        actionSuccess={declarativeAction.actionSuccess}
+      />
 
       {bulkControls}
+
+      {declarativeAction.dialogs}
 
       <ConfirmDeleteDialog
         open={confirmOpen}

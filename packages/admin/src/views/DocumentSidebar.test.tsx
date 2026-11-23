@@ -367,4 +367,83 @@ describe('DocumentSidebar', () => {
 
     expect(screen.getByRole('button', { name: /delete/i })).toBeTruthy()
   })
+
+  describe('declarative document actions (#468)', () => {
+    it('renders document actions in edit mode with correct styling', () => {
+      const onExecuteAction = vi.fn()
+      render(
+        <DocumentSidebar
+          mode="edit"
+          submitLabel="Save Changes"
+          isPending={false}
+          doc={{ id: 1 }}
+          documentActions={[
+            { key: 'approve', label: 'Approve', scope: ['document'] },
+            { key: 'archive', label: 'Archive', scope: ['document'], variant: 'destructive' },
+          ]}
+          onExecuteAction={onExecuteAction}
+        />,
+      )
+
+      const approveBtn = screen.getByRole('button', { name: 'Approve' })
+      expect(approveBtn).toBeTruthy()
+      expect(approveBtn.className).not.toContain('lt:text-destructive')
+
+      const archiveBtn = screen.getByRole('button', { name: 'Archive' })
+      expect(archiveBtn).toBeTruthy()
+      expect(archiveBtn.className).toContain('lt:text-destructive')
+
+      fireEvent.click(approveBtn)
+      expect(onExecuteAction).toHaveBeenCalledWith({
+        key: 'approve',
+        label: 'Approve',
+        scope: ['document'],
+      })
+    })
+
+    it('does not render document actions in create mode', () => {
+      render(
+        <DocumentSidebar
+          mode="create"
+          submitLabel="Create"
+          isPending={false}
+          documentActions={[{ key: 'approve', label: 'Approve', scope: ['document'] }]}
+        />,
+      )
+
+      expect(screen.queryByRole('button', { name: 'Approve' })).toBeNull()
+    })
+
+    it('disables document actions when isActionPending or isPending is true', () => {
+      const { rerender } = render(
+        <DocumentSidebar
+          mode="edit"
+          submitLabel="Save"
+          isPending={false}
+          isActionPending={true}
+          doc={{ id: 1 }}
+          documentActions={[{ key: 'approve', label: 'Approve', scope: ['document'] }]}
+        />,
+      )
+
+      expect(
+        screen.getByRole('button', { name: 'Approve' }).getAttribute('disabled'),
+      ).not.toBeNull()
+
+      rerender(
+        <DocumentSidebar
+          mode="edit"
+          submitLabel="Save"
+          isPending={true}
+          isActionPending={false}
+          doc={{ id: 1 }}
+          documentActions={[{ key: 'approve', label: 'Approve', scope: ['document'] }]}
+        />,
+      )
+
+      expect(
+        screen.getByRole('button', { name: 'Approve' }).getAttribute('disabled'),
+      ).not.toBeNull()
+    })
+  })
 })

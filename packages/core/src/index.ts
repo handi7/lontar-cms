@@ -209,6 +209,9 @@ export {
 } from './access'
 export type {
   AccessArgs,
+  ActionConfig,
+  ActionScope,
+  ActionVariant,
   AdminConfig,
   AccessFunction,
   AuthConfig,

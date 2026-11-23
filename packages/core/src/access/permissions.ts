@@ -1,5 +1,11 @@
 import type { AuthUser } from '../auth/types'
-import type { CollectionConfig, Config, GlobalConfig } from '../config/types'
+import type {
+  ActionConfig,
+  CollectionConfig,
+  Config,
+  Endpoint,
+  GlobalConfig,
+} from '../config/types'
 import type { DocumentData } from '../database/adapter'
 import type { ArrayField, BlocksField, Field, Fields, GroupField } from '../fields/types'
 import type {
@@ -296,15 +302,42 @@ async function evalRowOutcome(
   return { allowed: matches, constrained: false }
 }
 
+async function collectActionPermissions(
+  actions: readonly ActionConfig[] | undefined,
+  endpoints: readonly Endpoint[] | undefined,
+  user: AuthUser | null,
+): Promise<Record<string, boolean> | undefined> {
+  if (!actions || actions.length === 0) return undefined
+  const result: Record<string, boolean> = {}
+  for (const action of actions) {
+    if (action.endpoint) {
+      const ep = endpoints?.find((e) => e.name === action.endpoint)
+      if (ep) {
+        if (ep.access) {
+          result[action.key] = Boolean(await checkAccess(ep.access, { user }))
+        } else {
+          result[action.key] = user !== null
+        }
+      } else {
+        result[action.key] = false
+      }
+    } else {
+      result[action.key] = user !== null
+    }
+  }
+  return result
+}
+
 export async function getDocumentPermissions(
   collection: CollectionConfig,
   ctx: EvalContext,
 ): Promise<CollectionPermission> {
-  const [create, read, update, del] = await Promise.all([
+  const [create, read, update, del, actions] = await Promise.all([
     checkAccess(collection.access?.create, { user: ctx.user }),
     evalRowOutcome(collection, 'read', ctx),
     evalRowOutcome(collection, 'update', ctx),
     evalRowOutcome(collection, 'delete', ctx),
+    collectActionPermissions(collection.admin?.actions, collection.endpoints, ctx.user),
   ])
 
   const readVersions = Boolean(collection.versions) && read.allowed && update.allowed
@@ -323,6 +356,7 @@ export async function getDocumentPermissions(
     readVersions,
     ...(Object.keys(constrained).length > 0 ? { constrained } : {}),
     fields,
+    ...(actions ? { actions } : {}),
   }
 }
 
@@ -333,9 +367,10 @@ export async function getGlobalPermissions(
   const user = ctx.user
   const doc = ctx.doc
 
-  const [read, update] = await Promise.all([
+  const [read, update, actions] = await Promise.all([
     checkAccess(global.access?.read, { user, data: doc }),
     checkAccess(global.access?.update, { user, data: doc }),
+    collectActionPermissions(global.admin?.actions, global.endpoints, user),
   ])
 
   const readVersions = Boolean(global.versions) && read && update
@@ -346,6 +381,7 @@ export async function getGlobalPermissions(
     update,
     readVersions,
     fields,
+    ...(actions ? { actions } : {}),
   }
 }
 

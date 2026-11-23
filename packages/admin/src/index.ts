@@ -10,3 +10,4 @@ export { useDocumentForm, type DocumentFormValue } from './context/DocumentFormC
 export { useAdminConfig, useLontarFetch } from './hooks/useHostApi'
 export type { DashboardWidgetProps } from './views/dashboard-widget-props'
 export type { CustomViewProps } from './views/custom-view-props'
+export type { CustomActionProps } from './views/custom-action-props'

@@ -2,6 +2,8 @@ import { describe, expect, it } from 'vitest'
 import { fakeAdapter, postsConfig, SECRET } from '../__fixtures__/posts'
 import { CLIENT_CONFIG_VERSION } from '../client/client-config'
 import { block, fields as f } from '../fields'
+import { collection } from './collection'
+import { global } from './global'
 import { defineConfig } from './define-config'
 import { toClientConfig } from './to-client-config'
 import type { CollectionConfig } from './types'
@@ -1237,5 +1239,171 @@ describe('toClientConfig admin.views (#467)', () => {
     expect(toClientConfig(defineConfig({ ...base, admin: { views: [] } }))).not.toHaveProperty(
       'admin',
     )
+  })
+})
+
+describe('toClientConfig admin.actions (#468)', () => {
+  const base = { secret: SECRET, db: fakeAdapter }
+
+  it('serializes collection actions with matching endpoints, path, and method', () => {
+    const config = defineConfig({
+      ...base,
+      collections: [
+        collection({
+          slug: 'posts',
+          endpoints: [
+            {
+              name: 'approve',
+              method: 'post',
+              path: '/:id/approve',
+              handler: () => new Response('ok'),
+            },
+            {
+              name: 'archive',
+              method: 'post',
+              path: '/:id/archive',
+              handler: () => new Response('ok'),
+            },
+          ],
+          admin: {
+            actions: [
+              { key: 'approve', label: 'Approve', endpoint: 'approve', scope: ['row', 'document'] },
+              {
+                key: 'archive',
+                label: 'Archive',
+                endpoint: 'archive',
+                scope: 'row',
+                confirm: 'Are you sure?',
+                variant: 'destructive',
+              },
+            ],
+          },
+          fields: { title: f.text() },
+        }),
+      ],
+    })
+
+    const client = toClientConfig(config)
+    const col = client.collections[0]
+    expect(col?.admin.actions).toEqual([
+      {
+        key: 'approve',
+        label: 'Approve',
+        endpoint: 'approve',
+        scope: ['row', 'document'],
+        path: '/:id/approve',
+        method: 'post',
+      },
+      {
+        key: 'archive',
+        label: 'Archive',
+        endpoint: 'archive',
+        scope: ['row'],
+        confirm: 'Are you sure?',
+        variant: 'destructive',
+        path: '/:id/archive',
+        method: 'post',
+      },
+    ])
+  })
+
+  it('serializes global actions and component actions', () => {
+    const config = defineConfig({
+      ...base,
+      collections: [],
+      globals: [
+        global({
+          slug: 'site-settings',
+          endpoints: [
+            {
+              name: 'reindex',
+              method: 'post',
+              path: '/reindex',
+              handler: () => new Response('ok'),
+            },
+          ],
+          admin: {
+            actions: [
+              { key: 'reindex', label: 'Reindex', endpoint: 'reindex', scope: 'document' },
+              { key: 'export', label: 'Export', component: 'export-dialog', scope: 'document' },
+            ],
+          },
+          fields: { title: f.text() },
+        }),
+      ],
+    })
+
+    const client = toClientConfig(config)
+    const g = client.globals[0]
+    expect(g?.admin?.actions).toEqual([
+      {
+        key: 'reindex',
+        label: 'Reindex',
+        endpoint: 'reindex',
+        scope: ['document'],
+        path: '/reindex',
+        method: 'post',
+      },
+      {
+        key: 'export',
+        label: 'Export',
+        component: 'export-dialog',
+        scope: ['document'],
+      },
+    ])
+  })
+
+  it('fails when an endpoint does not name an endpoint on the same collection or global', () => {
+    expect(() =>
+      toClientConfig({
+        ...base,
+        collections: [
+          collection({
+            slug: 'posts',
+            admin: {
+              actions: [
+                { key: 'approve', label: 'Approve', endpoint: 'nonexistent', scope: ['row'] },
+              ],
+            },
+            fields: { title: f.text() },
+          }),
+        ],
+      }),
+    ).toThrow(/refers to unknown endpoint "nonexistent"/)
+  })
+
+  it('fails when both or neither endpoint and component are specified', () => {
+    expect(() =>
+      toClientConfig({
+        ...base,
+        collections: [
+          collection({
+            slug: 'posts',
+            admin: {
+              actions: [{ key: 'bad', label: 'Bad', scope: ['row'] }],
+            },
+            fields: { title: f.text() },
+          }),
+        ],
+      }),
+    ).toThrow(/must specify either "endpoint" or "component"/)
+
+    expect(() =>
+      toClientConfig({
+        ...base,
+        collections: [
+          collection({
+            slug: 'posts',
+            endpoints: [{ name: 'ep', method: 'post', path: '/ep', handler: () => new Response() }],
+            admin: {
+              actions: [
+                { key: 'bad', label: 'Bad', endpoint: 'ep', component: 'comp', scope: ['row'] },
+              ],
+            },
+            fields: { title: f.text() },
+          }),
+        ],
+      }),
+    ).toThrow(/specify either "endpoint" or "component", not both/)
   })
 })

@@ -190,6 +190,8 @@ export interface PreviewConfig {
 
 export interface GlobalAdmin {
   preview?: PreviewConfig
+  /** Declarative actions shown in the edit view document sidebar (ADR 0029). */
+  actions?: readonly ActionConfig[]
 }
 
 export interface GlobalConfig<F extends Fields = Fields> {
@@ -206,6 +208,21 @@ export interface GlobalConfig<F extends Fields = Fields> {
   fields: F
 }
 
+export type ActionScope = 'row' | 'document' | 'bulk'
+
+export type ActionVariant = 'default' | 'destructive' | 'secondary' | 'outline' | 'ghost' | 'link'
+
+/** Declarative action descriptor that binds a button to an endpoint or dialog component (ADR 0029). */
+export interface ActionConfig {
+  key: string
+  label: string
+  scope: ActionScope | readonly ActionScope[]
+  endpoint?: string
+  component?: string
+  confirm?: string
+  variant?: ActionVariant
+}
+
 /**
  * `Name` is narrowed to the collection's own field names by collection(). It is
  * not tied to `F` here: `keyof F` would make CollectionConfig invariant in `F`,
@@ -218,6 +235,8 @@ export interface CollectionAdmin<Name extends string = string> {
   defaultColumns?: Name[]
   /** Live preview configuration. */
   preview?: PreviewConfig
+  /** Declarative actions shown in row menu, selection bar, and document sidebar (ADR 0029). */
+  actions?: readonly ActionConfig[]
 }
 
 export const DEFAULT_LIMIT = 10

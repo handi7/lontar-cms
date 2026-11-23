@@ -4,6 +4,9 @@
 export { CLIENT_CONFIG_VERSION } from './client-config'
 export type { SearchResult } from './search'
 export type {
+  ActionScope,
+  ActionVariant,
+  ClientAction,
   ClientArrayField,
   ClientAdminConfig,
   ClientArrayFieldAdmin,

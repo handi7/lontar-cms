@@ -58,8 +58,27 @@ export interface ClientPreviewConfig {
   url: string
 }
 
+export type ActionScope = 'row' | 'document' | 'bulk'
+
+export type ActionVariant = 'default' | 'destructive' | 'secondary' | 'outline' | 'ghost' | 'link'
+
+export type ClientEndpointMethod = 'get' | 'post' | 'put' | 'patch' | 'delete'
+
+export interface ClientAction {
+  key: string
+  label: string
+  scope: ActionScope[]
+  endpoint?: string
+  component?: string
+  confirm?: string
+  variant?: ActionVariant
+  path?: string
+  method?: ClientEndpointMethod
+}
+
 export interface ClientGlobalAdmin {
   preview?: ClientPreviewConfig
+  actions?: ClientAction[]
 }
 
 export interface ClientGlobal {
@@ -95,6 +114,7 @@ export interface ClientCollectionAdmin {
   useAsTitle: string
   defaultColumns: string[]
   preview?: ClientPreviewConfig
+  actions?: ClientAction[]
 }
 
 export interface ClientCollection {

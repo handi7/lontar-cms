@@ -14,6 +14,7 @@ import { zodResolver } from '@hookform/resolvers/zod'
 import type { z } from 'zod'
 import {
   clientFieldsToZod,
+  type ClientAction,
   type ClientCollection,
   type ClientField,
   type ClientLocale,
@@ -33,6 +34,7 @@ import {
   queryKeys,
 } from '../api/client'
 import { FieldRenderer } from '../fields/FieldRenderer'
+import { useDeclarativeAction } from './useDeclarativeAction'
 import { FileUploadZone, formatFilesize } from '../fields/FileUploadZone'
 import {
   buildFormValidationFields,
@@ -880,6 +882,9 @@ interface CollectionEditorSplitLayoutProps {
   onUnpublish: () => void
   isPublishing: boolean
   isSavingDraft: boolean
+  documentActions?: ClientAction[]
+  isActionPending?: boolean
+  onExecuteAction?: (action: ClientAction) => void
 }
 
 function CollectionEditorSplitLayout(props: CollectionEditorSplitLayoutProps) {
@@ -957,6 +962,9 @@ function CollectionEditorSplitLayout(props: CollectionEditorSplitLayoutProps) {
             isSavingDraft={props.isSavingDraft}
             isUnpublishing={props.unpublishPending}
             readOnly={props.readOnlyDoc}
+            documentActions={props.documentActions}
+            isActionPending={props.isActionPending}
+            onExecuteAction={props.onExecuteAction}
           />
         </form>
       </DocumentFormProvider>
@@ -1190,24 +1198,74 @@ export interface CollectionEditorProps {
   id?: string
 }
 
-function CollectionEditor({ collection, mode, id }: CollectionEditorProps) {
-  const { apiBase } = useAdmin()
-  const [apiError, setApiError] = useState<string | null>(null)
-  const [successMsg, setSuccessMsg] = useState<string | null>(null)
+function useCollectionDocumentActions(
+  actions: readonly ClientAction[] | undefined,
+  docPermissions?: CollectionPermission | null,
+): ClientAction[] {
+  return useMemo(() => {
+    if (!actions) return []
+    return actions.filter(
+      (action) =>
+        action.scope.includes('document') && docPermissions?.actions?.[action.key] !== false,
+    )
+  }, [actions, docPermissions?.actions])
+}
+
+function useCollectionEditorTitles(
+  mode: 'create' | 'edit',
+  collection: ClientCollection,
+  id: string | undefined,
+  doc: Record<string, unknown> | null | undefined,
+  isSubmitting: boolean,
+  isSavePending: boolean,
+) {
+  const title = getFormTitle(mode, collection.labels.singular, id)
+  const breadcrumbTitle = resolveBreadcrumbTitle(mode, doc, collection.labels.singular, id)
+  const submitLabel = resolveSubmitLabel(
+    isSubmitting,
+    isSavePending,
+    mode,
+    collection.labels.singular,
+  )
+  return { title, breadcrumbTitle, submitLabel }
+}
+
+function useCollectionFileState() {
   const [selectedFile, setSelectedFile] = useState<File | null>(null)
   const [fileError, setFileError] = useState<string | null>(null)
-  const [confirmOpen, setConfirmOpen] = useState(false)
-  const [historyOpen, setHistoryOpen] = useState(false)
-  const isNavigatingAfterSaveRef = useRef(false)
 
-  const { hasLocalization, activeLocale, fallbackLocale, locales } = useLocale()
-  const hasDrafts = Boolean(collection.versions?.drafts)
-  const hasVersions = Boolean(collection.versions)
-  const previewUrlTemplate = collection.admin?.preview?.url
-  const hasPreview = Boolean(previewUrlTemplate)
-  const preview = usePreviewState(collection.slug, hasPreview)
-  const editorView = useEditorView(preview)
+  const handleFileChange = useCallback((file: File | null) => {
+    setSelectedFile(file)
+    setFileError(null)
+  }, [])
 
+  const resetFile = useCallback(() => {
+    setSelectedFile(null)
+    setFileError(null)
+  }, [])
+
+  return { selectedFile, fileError, setFileError, handleFileChange, resetFile }
+}
+
+function useCollectionEditorData({
+  collection,
+  mode,
+  id,
+  apiBase,
+  activeLocale,
+  fallbackLocale,
+  hasLocalization,
+  hasDrafts,
+}: {
+  collection: ClientCollection
+  mode: 'create' | 'edit'
+  id?: string
+  apiBase: string
+  activeLocale?: string
+  fallbackLocale?: string
+  hasLocalization: boolean
+  hasDrafts: boolean
+}) {
   const { docQuery, fallbackDoc, currentLocale } = useCollectionQueries({
     mode,
     apiBase,
@@ -1229,6 +1287,77 @@ function CollectionEditor({ collection, mode, id }: CollectionEditorProps) {
   const isPermsLoading = mode === 'edit' && isDocPermsLoading
   const { readOnlyDoc, canDeleteDoc, canReadVersions, fieldPermissions, isUnreadable } =
     useCollectionEditorPermissions(collection.slug, mode, docPermissions)
+
+  const isQueryLoading = docQuery.isLoading || isPermsLoading
+  const showQueryState = shouldShowQueryState(mode, isQueryLoading, docQuery.error)
+
+  return {
+    docQuery,
+    docPermissions,
+    fallbackDoc,
+    currentLocale,
+    readOnlyDoc,
+    canDeleteDoc,
+    canReadVersions,
+    fieldPermissions,
+    isUnreadable,
+    showQueryState,
+    isQueryLoading,
+  }
+}
+
+function resolveCollectionAlerts(
+  declarativeAction: { actionError: string | null; actionSuccess: string | null },
+  apiError: string | null,
+  successMsg: string | null,
+) {
+  return {
+    activeError: declarativeAction.actionError || apiError,
+    activeSuccess: declarativeAction.actionSuccess || successMsg,
+  }
+}
+
+function CollectionEditor({ collection, mode, id }: CollectionEditorProps) {
+  const { apiBase } = useAdmin()
+  const [apiError, setApiError] = useState<string | null>(null)
+  const [successMsg, setSuccessMsg] = useState<string | null>(null)
+  const [confirmOpen, setConfirmOpen] = useState(false)
+  const [historyOpen, setHistoryOpen] = useState(false)
+  const isNavigatingAfterSaveRef = useRef(false)
+
+  const { hasLocalization, activeLocale, fallbackLocale, locales } = useLocale()
+  const hasDrafts = Boolean(collection.versions?.drafts)
+  const hasVersions = Boolean(collection.versions)
+  const previewUrlTemplate = collection.admin?.preview?.url
+  const hasPreview = Boolean(previewUrlTemplate)
+  const preview = usePreviewState(collection.slug, hasPreview)
+  const editorView = useEditorView(preview)
+
+  const {
+    docQuery,
+    docPermissions,
+    fallbackDoc,
+    currentLocale,
+    readOnlyDoc,
+    canDeleteDoc,
+    canReadVersions,
+    fieldPermissions,
+    isUnreadable,
+    showQueryState,
+    isQueryLoading,
+  } = useCollectionEditorData({
+    collection,
+    mode,
+    id,
+    apiBase,
+    activeLocale,
+    fallbackLocale,
+    hasLocalization,
+    hasDrafts,
+  })
+
+  const { selectedFile, fileError, setFileError, handleFileChange, resetFile } =
+    useCollectionFileState()
 
   const {
     control,
@@ -1283,10 +1412,7 @@ function CollectionEditor({ collection, mode, id }: CollectionEditorProps) {
     fields: collection.fields,
     isDirty,
     reset,
-    onDocReset: () => {
-      setSelectedFile(null)
-      setFileError(null)
-    },
+    onDocReset: resetFile,
     lastAppliedDocRef,
   })
 
@@ -1305,8 +1431,7 @@ function CollectionEditor({ collection, mode, id }: CollectionEditorProps) {
     onSaveSuccess: () => {
       isNavigatingAfterSaveRef.current = true
       void autosave.cancelAutosave()
-      setSelectedFile(null)
-      setFileError(null)
+      resetFile()
     },
   })
 
@@ -1334,32 +1459,58 @@ function CollectionEditor({ collection, mode, id }: CollectionEditorProps) {
     setSuccessMsg,
   })
 
-  if (shouldShowQueryState(mode, docQuery.isLoading || isPermsLoading, docQuery.error)) {
-    return (
-      <CollectionQueryState
-        isLoading={docQuery.isLoading || isPermsLoading}
-        error={docQuery.error}
-      />
-    )
+  const declarativeAction = useDeclarativeAction({
+    apiBase,
+    scopeType: 'collection',
+    slug: collection.slug,
+    locale: activeLocale,
+  })
+
+  const documentActions = useCollectionDocumentActions(collection.admin?.actions, docPermissions)
+
+  const { activeError, activeSuccess } = resolveCollectionAlerts(
+    declarativeAction,
+    apiError,
+    successMsg,
+  )
+
+  const onConfirmDelete = useCallback(() => {
+    setConfirmOpen(false)
+    deleteMutation.mutate()
+  }, [deleteMutation])
+
+  const onUnpublish = useCallback(() => {
+    void (async () => {
+      await autosave.cancelAutosave()
+      unpublishMutation.mutate()
+    })()
+  }, [autosave, unpublishMutation])
+
+  const onExecuteAction = useCallback(
+    (action: ClientAction) => {
+      declarativeAction.triggerAction(action, { id, doc: docQuery.data })
+    },
+    [declarativeAction, id, docQuery.data],
+  )
+
+  if (showQueryState) {
+    return <CollectionQueryState isLoading={isQueryLoading} error={docQuery.error} />
   }
 
   if (isUnreadable) {
     return <NotFoundView />
   }
 
-  const title = getFormTitle(mode, collection.labels.singular, id)
-  const breadcrumbTitle = resolveBreadcrumbTitle(
+  const { title, breadcrumbTitle, submitLabel } = useCollectionEditorTitles(
     mode,
-    docQuery.data,
-    collection.labels.singular,
+    collection,
     id,
-  )
-  const submitLabel = resolveSubmitLabel(
+    docQuery.data,
     isSubmitting,
     saveMutation.isPending,
-    mode,
-    collection.labels.singular,
   )
+
+  const canShowVersions = hasVersions && canReadVersions
 
   return (
     <div>
@@ -1378,13 +1529,12 @@ function CollectionEditor({ collection, mode, id }: CollectionEditorProps) {
       <ConfirmDeleteDialog
         open={confirmOpen}
         onOpenChange={setConfirmOpen}
-        onConfirm={() => {
-          setConfirmOpen(false)
-          deleteMutation.mutate()
-        }}
+        onConfirm={onConfirmDelete}
       />
 
-      <CollectionStatusAlerts apiError={apiError} successMsg={successMsg} />
+      {declarativeAction.dialogs}
+
+      <CollectionStatusAlerts apiError={activeError} successMsg={activeSuccess} />
 
       <CollectionEditorSplitLayout
         collection={collection}
@@ -1406,10 +1556,7 @@ function CollectionEditor({ collection, mode, id }: CollectionEditorProps) {
         watch={watch}
         errors={errors}
         selectedFile={selectedFile}
-        onFileChange={(file) => {
-          setSelectedFile(file)
-          setFileError(null)
-        }}
+        onFileChange={handleFileChange}
         fileError={fileError}
         readOnlyDoc={readOnlyDoc}
         submitLabel={submitLabel}
@@ -1425,18 +1572,16 @@ function CollectionEditor({ collection, mode, id }: CollectionEditorProps) {
         onOpenHistory={() => setHistoryOpen(true)}
         autosaveSidebar={autosave.sidebarAutosave}
         onSaveDraft={onSaveDraft}
-        onUnpublish={() => {
-          void (async () => {
-            await autosave.cancelAutosave()
-            unpublishMutation.mutate()
-          })()
-        }}
+        onUnpublish={onUnpublish}
         isPublishing={isPublishing}
         isSavingDraft={isSavingDraft}
+        documentActions={documentActions}
+        isActionPending={declarativeAction.isPending}
+        onExecuteAction={onExecuteAction}
       />
 
       <VersionHistorySheetWrapper
-        hasVersions={hasVersions && canReadVersions}
+        hasVersions={canShowVersions}
         id={id}
         open={historyOpen}
         onOpenChange={setHistoryOpen}

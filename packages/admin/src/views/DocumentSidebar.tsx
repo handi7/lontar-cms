@@ -1,4 +1,5 @@
 import { ChevronDown, Eye, History } from 'lucide-react'
+import type { ClientAction } from '@lontar/core/client'
 import { Button } from '../components/ui/button'
 import { Card } from '../components/ui/card'
 import {
@@ -9,6 +10,7 @@ import {
 } from '../components/ui/dropdown-menu'
 import { DocumentStatusBadge, getDocumentStatus, type DocumentStatus } from './DocumentStatusBadge'
 import { AutosaveIndicator, type AutosaveStatus } from './AutosaveIndicator'
+import { cn } from '../lib/utils'
 
 export interface SidebarMetadataProps {
   doc: Record<string, unknown>
@@ -67,6 +69,9 @@ export interface SidebarActionsProps {
   isUnpublishing?: boolean
   isSavingAutosave?: boolean
   readOnly?: boolean
+  documentActions?: ClientAction[]
+  isActionPending?: boolean
+  onExecuteAction?: (action: ClientAction) => void
 }
 
 interface DraftPublishActionsProps {
@@ -231,6 +236,23 @@ function SidebarActions(props: SidebarActionsProps) {
           />
         ))}
 
+      {props.documentActions?.map((action) => (
+        <Button
+          key={action.key}
+          type="button"
+          variant={action.variant === 'destructive' ? 'outline' : (action.variant ?? 'outline')}
+          className={cn(
+            'lt:w-full',
+            action.variant === 'destructive' &&
+              'lt:text-destructive lt:hover:border-destructive lt:hover:bg-error-bg lt:hover:text-destructive',
+          )}
+          disabled={isBusy || props.isActionPending}
+          onClick={() => props.onExecuteAction?.(action)}
+        >
+          {action.label}
+        </Button>
+      ))}
+
       <PreviewToggleButton
         hasPreview={props.hasPreview}
         isOpen={props.isPreviewOpen}
@@ -293,6 +315,9 @@ export interface DocumentSidebarProps {
   isSavingAutosave?: boolean
   readOnly?: boolean
   canDelete?: boolean
+  documentActions?: ClientAction[]
+  isActionPending?: boolean
+  onExecuteAction?: (action: ClientAction) => void
 }
 
 interface ResolvedSidebarFlags {
@@ -379,6 +404,9 @@ export function DocumentSidebar(props: DocumentSidebarProps) {
           isUnpublishing={props.isUnpublishing}
           isSavingAutosave={flags.isSavingAutosave}
           readOnly={flags.readOnly}
+          documentActions={flags.mode === 'edit' ? props.documentActions : undefined}
+          isActionPending={props.isActionPending}
+          onExecuteAction={props.onExecuteAction}
         />
 
         {flags.showMetadata && props.doc && (

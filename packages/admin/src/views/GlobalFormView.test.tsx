@@ -649,5 +649,72 @@ describe('GlobalFormView permissions (#341)', () => {
         expect(titleInput.getAttribute('placeholder')).toBe('English Global Title')
       })
     })
+
+    it('renders global document actions and triggers endpoint on click (#468)', async () => {
+      const configWithAction: ClientConfig = {
+        version: CLIENT_CONFIG_VERSION,
+        collections: [],
+        globals: [
+          {
+            slug: 'settings',
+            label: 'Site Settings',
+            admin: {
+              actions: [
+                {
+                  key: 'reindex',
+                  label: 'Reindex Search',
+                  scope: ['document'],
+                  path: '/reindex',
+                  method: 'post',
+                },
+              ],
+            },
+            fields: [{ name: 'siteTitle', label: 'Site Title', type: 'text', required: true }],
+          },
+        ],
+      }
+
+      let reindexed = false
+      vi.stubGlobal(
+        'fetch',
+        vi.fn().mockImplementation((url: string, init?: RequestInit) => {
+          if (url.includes('/_lontar/config')) {
+            return mockJsonResponse(configWithAction)
+          }
+          if (url.includes('/auth/get-session')) {
+            return mockJsonResponse({ user: mockAuthUser, session: mockAuthSession })
+          }
+          if (url.includes('/_lontar/permissions/globals/settings')) {
+            return mockJsonResponse({ read: true, update: true, actions: { reindex: true } })
+          }
+          if (url.includes('/_lontar/permissions')) {
+            return mockJsonResponse({
+              collections: {},
+              globals: { settings: { read: true, update: true, actions: { reindex: true } } },
+            })
+          }
+          if (url.includes('/api/globals/settings/reindex') && init?.method === 'POST') {
+            reindexed = true
+            return mockJsonResponse({ message: 'Search index rebuilt' })
+          }
+          if (url.includes('/api/globals/settings')) {
+            return mockJsonResponse({ siteTitle: 'My Site' })
+          }
+          return Promise.reject(new Error(`Unhandled URL: ${url}`))
+        }),
+      )
+
+      const history = createMemoryHistory({ initialEntries: ['/admin/globals/settings'] })
+      render(<Admin apiBase="/api" basePath="/admin" history={history} />)
+
+      const actionBtn = await screen.findByRole('button', { name: 'Reindex Search' })
+      expect(actionBtn).toBeTruthy()
+      fireEvent.click(actionBtn)
+
+      await waitFor(() => {
+        expect(reindexed).toBe(true)
+      })
+      expect(await screen.findByText('Search index rebuilt')).toBeTruthy()
+    })
   })
 })

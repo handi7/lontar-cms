@@ -1,5 +1,7 @@
 import {
   CLIENT_CONFIG_VERSION,
+  type ActionScope,
+  type ClientAction,
   type ClientCheckboxField,
   type ClientCollection,
   type ClientConfig,
@@ -7,6 +9,7 @@ import {
   type ClientEmailField,
   type ClientField,
   type ClientGlobal,
+  type ClientGlobalAdmin,
   type ClientGroupField,
   type ClientLocalizationConfig,
   type ClientNumberField,
@@ -45,13 +48,17 @@ import type {
 } from '../fields/types'
 import { humanize } from '../utils/humanize'
 import type {
+  ActionConfig,
   AdminConfig,
   CollectionConfig,
   Config,
+  Endpoint,
   GlobalConfig,
   LocalizationConfig,
   VersionsConfig,
 } from './types'
+import { LontarConfigError } from './define-config'
+import { validateActions } from './validate-actions'
 
 const MAX_DEFAULT_COLUMNS = 4
 export const DEFAULT_STRING_MAX_LENGTH = 255
@@ -325,15 +332,79 @@ function toClientVersions(versions?: VersionsConfig): ClientVersionsConfig | und
   return Object.keys(result).length > 0 ? result : undefined
 }
 
+function normalizeActionScopes(scope: ActionConfig['scope']): ActionScope[] {
+  if (typeof scope === 'string') return [scope]
+  if (scope) return [...scope]
+  return ['document']
+}
+
+function toSingleClientAction(
+  action: ActionConfig,
+  endpoints: readonly Endpoint[] | undefined,
+): ClientAction {
+  const scopes = normalizeActionScopes(action.scope)
+  const endpoint = action.endpoint ? endpoints?.find((e) => e.name === action.endpoint) : undefined
+
+  return {
+    key: action.key,
+    label: action.label,
+    scope: scopes,
+    ...(action.confirm ? { confirm: action.confirm } : {}),
+    ...(action.variant ? { variant: action.variant } : {}),
+    ...(action.component ? { component: action.component } : {}),
+    ...(action.endpoint
+      ? {
+          endpoint: action.endpoint,
+          path: endpoint?.path,
+          method: endpoint?.method,
+        }
+      : {}),
+  }
+}
+
+function toClientActions(
+  where: string,
+  actions: readonly ActionConfig[] | undefined,
+  endpoints: readonly Endpoint[] | undefined,
+  isGlobal = false,
+): ClientAction[] | undefined {
+  if (!actions || actions.length === 0) return undefined
+  const issues = validateActions(where, actions, endpoints, isGlobal)
+  if (issues.length > 0) {
+    throw new LontarConfigError(issues)
+  }
+  return actions.map((action) => toSingleClientAction(action, endpoints))
+}
+
+function toClientGlobalAdmin(
+  global: GlobalConfig,
+  actions: ClientAction[] | undefined,
+): ClientGlobalAdmin | undefined {
+  const preview = global.admin?.preview?.url ? { url: global.admin.preview.url } : undefined
+  if (!preview && (!actions || actions.length === 0)) return undefined
+  return {
+    ...(preview ? { preview } : {}),
+    ...(actions && actions.length > 0 ? { actions } : {}),
+  }
+}
+
 export function toClientGlobal(global: GlobalConfig): ClientGlobal {
   const fields = Object.entries(global.fields).map(([name, field]) => clientField(name, field))
   const versions = toClientVersions(global.versions)
-  const preview = global.admin?.preview?.url ? { url: global.admin.preview.url } : undefined
+  const actions = toClientActions(
+    `Global "${global.slug}"`,
+    global.admin?.actions,
+    global.endpoints,
+    true,
+  )
+  const admin = toClientGlobalAdmin(global, actions)
+  const hasVersions = Boolean(versions && Object.keys(versions).length > 0)
+
   return {
     slug: global.slug,
     label: global.label ?? humanize(global.slug),
-    ...(preview ? { admin: { preview } } : {}),
-    ...(versions && Object.keys(versions).length > 0 ? { versions } : {}),
+    ...(admin ? { admin } : {}),
+    ...(hasVersions ? { versions } : {}),
     fields,
   }
 }
@@ -402,12 +473,19 @@ function clientAdmin(
   const useAsTitle = admin.useAsTitle ?? resolveDefaultTitle(fields, Boolean(upload))
   const others = fields.map((field) => field.name).filter((name) => name !== useAsTitle)
   const preview = admin.preview?.url ? { url: admin.preview.url } : undefined
+  const actions = toClientActions(
+    `Collection "${collection.slug}"`,
+    admin.actions,
+    collection.endpoints,
+    false,
+  )
   return {
     useAsTitle,
     defaultColumns: admin.defaultColumns
       ? [...admin.defaultColumns]
       : [useAsTitle, ...others].slice(0, MAX_DEFAULT_COLUMNS),
     ...(preview ? { preview } : {}),
+    ...(actions && actions.length > 0 ? { actions } : {}),
   }
 }
 
