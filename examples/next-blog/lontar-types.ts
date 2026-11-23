@@ -16,6 +16,7 @@ export interface Post {
   excerpt?: string | null
   content?: Record<string, unknown> | null
   publishedAt?: string | null
+  rating?: number | null
   editorialNotes?: string | null
 }
 
@@ -32,6 +33,7 @@ export interface PostAllLocales {
   excerpt?: Record<Locale, string> | null
   content?: Record<Locale, Record<string, unknown>> | null
   publishedAt?: string | null
+  rating?: number | null
   editorialNotes?: string | null
 }
 

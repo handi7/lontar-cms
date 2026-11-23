@@ -43,6 +43,13 @@
       "when": 1795213244161,
       "tag": "0005_futuristic_bloodscream",
       "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "7",
+      "when": 1795401647299,
+      "tag": "0006_bizarre_exiles",
+      "breakpoints": true
     }
   ]
 }

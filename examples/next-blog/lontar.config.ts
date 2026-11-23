@@ -89,7 +89,52 @@ const posts = collection({
     preview: {
       url: '/{locale}/posts/{slug}?preview=1',
     },
+    actions: [
+      {
+        key: 'archive',
+        label: 'Archive',
+        scope: ['row', 'document'],
+        endpoint: 'archive-post',
+        confirm: 'Archive this post?',
+        variant: 'secondary',
+      },
+      {
+        key: 'bulk-archive',
+        label: 'Archive',
+        scope: 'bulk',
+        endpoint: 'bulk-archive-posts',
+        confirm: 'Archive {count} selected posts?',
+        variant: 'secondary',
+      },
+    ],
   },
+  endpoints: [
+    {
+      name: 'archive-post',
+      method: 'post',
+      path: '/:id/archive',
+      access: ({ user }) => isEditorOrAdmin(user),
+      handler: async (c, { lontar, id }) => {
+        if (!id) return c.json({ error: 'Missing ID' }, 400)
+        await lontar.unpublish('posts', id)
+        return c.json({ success: true })
+      },
+    },
+    {
+      name: 'bulk-archive-posts',
+      method: 'post',
+      path: '/bulk-archive',
+      access: ({ user }) => isEditorOrAdmin(user),
+      handler: async (c, { lontar }) => {
+        const body = await c.req.json<{ ids?: Array<number | string> }>()
+        const ids = body.ids ?? []
+        for (const id of ids) {
+          await lontar.unpublish('posts', id)
+        }
+        return c.json({ success: true, count: ids.length })
+      },
+    },
+  ],
   access: {
     read: () => true,
     create: ({ user }) => Boolean(user),
@@ -108,6 +153,13 @@ const posts = collection({
       access: {
         create: ({ user }) => isEditorOrAdmin(user),
         update: ({ user }) => isEditorOrAdmin(user),
+      },
+    }),
+    rating: f.number({
+      min: 1,
+      max: 5,
+      admin: {
+        component: 'star-rating',
       },
     }),
     editorialNotes: f.textarea({
@@ -284,6 +336,40 @@ export default defineConfig({
   },
   collections: [posts, pages, categories, authors, media],
   globals: [siteSettings],
+  endpoints: [
+    {
+      name: 'pending-posts-count',
+      method: 'get',
+      path: '/stats/pending-posts',
+      access: ({ user }) => Boolean(user),
+      handler: async (c, { lontar }) => {
+        const result = await lontar.find('posts', {
+          draft: true,
+          where: { _status: { equals: 'draft' } },
+          limit: 0,
+        })
+        return c.json({ count: result.totalDocs })
+      },
+    },
+  ],
+  admin: {
+    dashboard: {
+      widgets: [
+        {
+          component: 'pending-posts-widget',
+          width: 'half',
+        },
+      ],
+    },
+    views: [
+      {
+        key: 'analytics',
+        label: 'Analytics',
+        component: 'analytics-view',
+        access: ({ user }) => Boolean(user),
+      },
+    ],
+  },
   webhooks: [
     {
       url: `${process.env.LONTAR_URL || 'http://localhost:3000'}/api/revalidate`,
