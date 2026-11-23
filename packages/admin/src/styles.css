@@ -493,6 +493,36 @@
   }
 }
 
+/* Enter and exit for components/ui/sheet.tsx, applied as arbitrary
+ * `lt:data-[state=open]:animate-[lontar-…]` values for the same reason as
+ * lontar-spin: shadcn's own classes come from tw-animate-css, whose keyframes
+ * are unprefixed and global (ADR 0019). Radix keeps a closing sheet mounted
+ * until its exit animation ends. The sheet sets --lontar-sheet-offset to the
+ * transform that puts it just off its own edge. */
+@keyframes lontar-fade-in {
+  from {
+    opacity: 0;
+  }
+}
+
+@keyframes lontar-fade-out {
+  to {
+    opacity: 0;
+  }
+}
+
+@keyframes lontar-sheet-in {
+  from {
+    transform: var(--lontar-sheet-offset);
+  }
+}
+
+@keyframes lontar-sheet-out {
+  to {
+    transform: var(--lontar-sheet-offset);
+  }
+}
+
 /* Small button size, used with .lontar-btn by FileUploadZone */
 .lontar-admin .lontar-btn-sm {
   padding: 0.25rem 0.5rem;

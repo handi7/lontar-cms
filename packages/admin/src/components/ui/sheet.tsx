@@ -1,7 +1,8 @@
 // Adapted from shadcn/ui. Differences from upstream forced by ADR 0019:
 //   - every utility carries the `lt:` prefix
 //   - the Portal receives an explicit container inside .lontar-admin (rule 3)
-//   - animation classes are omitted: enter/exit keyframes are unprefixed
+//   - enter/exit animations use the prefixed lontar-* keyframes in styles.css,
+//     not tw-animate-css, whose keyframes are unprefixed and global
 //   - panel sits on `card`, not `background`
 //   - styled exclusively with mapped theme tokens
 import * as React from 'react'
@@ -24,7 +25,11 @@ const SheetOverlay = React.forwardRef<
 >(({ className, ...props }, ref) => (
   <SheetPrimitive.Overlay
     ref={ref}
-    className={cn('lt:fixed lt:inset-0 lt:z-50 lt:bg-black/50', className)}
+    className={cn(
+      'lt:fixed lt:inset-0 lt:z-50 lt:bg-black/50',
+      'lt:motion-safe:data-[state=open]:animate-[lontar-fade-in_300ms_ease-out] lt:motion-safe:data-[state=closed]:animate-[lontar-fade-out_200ms_ease-in_forwards]',
+      className,
+    )}
     {...props}
   />
 ))
@@ -35,16 +40,21 @@ export type SheetSide = 'top' | 'bottom' | 'left' | 'right'
 function getSheetSideClass(side: SheetSide): string {
   switch (side) {
     case 'top':
-      return 'lt:inset-x-0 lt:top-0 lt:border-b'
+      return 'lt:inset-x-0 lt:top-0 lt:border-b lt:[--lontar-sheet-offset:translateY(-100%)]'
     case 'bottom':
-      return 'lt:inset-x-0 lt:bottom-0 lt:border-t'
+      return 'lt:inset-x-0 lt:bottom-0 lt:border-t lt:[--lontar-sheet-offset:translateY(100%)]'
     case 'left':
-      return 'lt:inset-y-0 lt:left-0 lt:h-full lt:w-3/4 lt:border-r lt:sm:max-w-sm'
+      return 'lt:inset-y-0 lt:left-0 lt:h-full lt:w-3/4 lt:border-r lt:sm:max-w-sm lt:[--lontar-sheet-offset:translateX(-100%)]'
     case 'right':
     default:
-      return 'lt:inset-y-0 lt:right-0 lt:h-full lt:w-3/4 lt:border-l lt:sm:max-w-xl'
+      return 'lt:inset-y-0 lt:right-0 lt:h-full lt:w-3/4 lt:border-l lt:sm:max-w-xl lt:[--lontar-sheet-offset:translateX(100%)]'
   }
 }
+
+// Slides in from the sheet's own edge (--lontar-sheet-offset, set per side above) and back out.
+// Closing is shorter than opening so dismissing never feels slow. Reduced motion skips both.
+const sheetMotionClass =
+  'lt:motion-safe:data-[state=open]:animate-[lontar-sheet-in_300ms_ease-out] lt:motion-safe:data-[state=closed]:animate-[lontar-sheet-out_200ms_ease-in_forwards]'
 
 export interface SheetContentProps extends React.ComponentPropsWithoutRef<
   typeof SheetPrimitive.Content
@@ -65,8 +75,9 @@ const SheetContent = React.forwardRef<
       <SheetPrimitive.Content
         ref={ref}
         className={cn(
-          'lt:fixed lt:z-50 lt:flex lt:flex-col lt:gap-4 lt:bg-card lt:p-6 lt:text-card-foreground lt:shadow-lg lt:transition lt:ease-in-out',
+          'lt:fixed lt:z-50 lt:flex lt:flex-col lt:gap-4 lt:bg-card lt:p-6 lt:text-card-foreground lt:shadow-lg',
           getSheetSideClass(side),
+          sheetMotionClass,
           className,
         )}
         {...props}
