@@ -7,6 +7,46 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.8.0] - 2026-11-23
+
+Admin UX & extensibility (M12, tracked in #150). The admin panel gains a collapsible sidebar, command palette navigation (⌘K / Ctrl+K), global search across collections, URL-synced list view state, a column picker, a media library grid for uploads, and row selection with bulk actions. Collections support row-level access control via constraint queries returned from access functions (ADR 0030). Developers can extend the CMS with custom REST endpoints, an admin component registry with custom field inputs, dashboard widgets, custom views, declarative row and document actions, and declarative bulk actions (ADR 0029). `@lontar/storage-local`, `@lontar/storage-s3`, `@lontar/next`, `@lontar/preview` and `@lontar/db-test-suite` have no breaking changes of their own; they are published so their `@lontar/core` peer range moves with the rest.
+
+### Upgrading
+
+- Collection access functions (`access.read`, `access.update`, `access.delete`) can now return a query constraint object (e.g. `{ author: { equals: req.user.id } }`) in addition to boolean `true` / `false`. Queries outside the constraint return `404 Not Found` for single document operations (`findById`, `update`, `delete`, `publish`, file access) and are automatically merged with user-supplied query filters on `find` ([ADR 0030](docs/adr/0030-row-level-access-control.md)) (#470).
+- When unpublishing a document, only `_status` is updated to `'draft'`; localized field values (such as unique localized slugs) are preserved rather than overwritten (#480).
+- Custom field inputs in `<Admin components={{ fields: { ... } }} />` receive `CustomFieldProps` with `value`, `onChange`, `disabled`, `readOnly`, `error`, and field schema metadata; form state bindings are handled by the admin so custom components stay decoupled from react-hook-form internals (#465).
+
+### Added
+
+- Extensibility API ([ADR 0029](docs/adr/0029-extensibility.md)):
+  - Custom REST endpoints via `endpoints` on `defineConfig`, collections, and globals, mounted under `/api/_custom/*`, `/api/:collection/_custom/*`, and `/api/globals/:slug/_custom/*` (#464).
+  - Admin component registry via `<Admin components={{ ... }}>` and custom field inputs mapped via `admin.components.Field` on field definitions (#465).
+  - Dashboard widgets via `admin.dashboard.widgets` configured globally or registered in the component registry, rendered above collections on the dashboard (#466).
+  - Custom views via `admin.views` with dedicated navigation sidebar entries, route matching, and role-based access checks (#467).
+  - Declarative row and document actions on collections (`admin.actions.row`, `admin.actions.document`) with confirm dialogs, loading states, and access control (#468).
+  - Declarative bulk actions on collections (`admin.actions.bulk`) executed across selected rows with batch endpoints and `{count}` interpolations (#469).
+- Row-level access constraints ([ADR 0030](docs/adr/0030-row-level-access-control.md)):
+  - Collection `read`, `update`, and `delete` access functions can return a `Where` constraint object to restrict queries and mutations to matching rows (#470).
+  - Applied across `find`, `findByID`, `update`, `delete`, `publish`, version snapshots, relationship population, and upload file access (#470).
+  - Row constraints surfaced in `/api/_lontar/permissions` endpoints, and list view refetches on 404 mutations (#470, #485).
+- Admin UX:
+  - Collapsible navigation sidebar and mobile sheet drawer with smooth CSS transitions (#213).
+  - List view state in URL: page, search, sort, and active filters are synced to query params (#214).
+  - Command palette (⌘K / Ctrl+K) for instant keyboard navigation across collections, globals, and views (#215).
+  - Row selection in list views with bulk delete and bulk publish/unpublish actions (#460).
+  - List view column picker to toggle and reorder visible columns, persisted per collection in localStorage (#461).
+  - Media library grid view for upload collections with file previews, mime-type filtering, and file details drawer (#462).
+  - Global search across collections integrated into the command palette via `/api/_lontar/search` (#463).
+- Examples & Testing:
+  - Complete extensibility demonstration in `examples/next-blog` featuring a custom endpoint, custom star rating field, pending posts widget, analytics view, archive row action, and bulk archive action, covered with end-to-end Playwright tests on both MySQL and PostgreSQL (#471).
+
+### Fixed
+
+- Unpublishing a document in a localized collection no longer overwrites localized slug fields (#480).
+- Single document operations (`findById`, `update`, `delete`) on documents outside a user's row-level access constraint return `404 Not Found` rather than `500` or leaking existence (#470, #486).
+- Creating a draft with relationship or upload populations properly evaluates read access constraints (#470, #497).
+
 ## [0.7.0] - 2026-11-22
 
 Localization (M11, tracked in #149). Fields can now be `localized: true`, content is read and written per locale through the REST API, the Local API, hooks, access control, drafts and versions, and the admin gains a locale switcher. `@lontar/storage-local`, `@lontar/storage-s3` and `@lontar/next` have no changes of their own; they are published so their `@lontar/core` peer range moves with the rest.
