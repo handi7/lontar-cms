@@ -26,6 +26,8 @@ export interface UseDeclarativeActionOptions {
 export interface ActionTarget {
   id?: number | string
   doc?: Record<string, unknown> | null
+  ids?: Array<number | string>
+  onSuccess?: () => void
 }
 
 export interface UseDeclarativeActionResult {
@@ -35,6 +37,10 @@ export interface UseDeclarativeActionResult {
   clearMessages: () => void
   triggerAction: (action: ClientAction, target?: ActionTarget) => void
   dialogs: ReactNode
+}
+
+function formatConfirmMessage(confirm: string, count: number): string {
+  return confirm.replace(/\{count\}/g, String(count))
 }
 
 function buildEndpointUrl(
@@ -107,6 +113,118 @@ function invalidateActionQueries(
   }
 }
 
+interface ActionDialogsProps {
+  action: ClientAction | null
+  target: ActionTarget | null
+  isConfirmOpen: boolean
+  isComponentOpen: boolean
+  onCloseConfirm: () => void
+  onCloseComponent: () => void
+  onConfirm: () => void
+}
+
+function ActionConfirmDialog({
+  action,
+  target,
+  isOpen,
+  onClose,
+  onConfirm,
+}: {
+  action: ClientAction
+  target: ActionTarget | null
+  isOpen: boolean
+  onClose: () => void
+  onConfirm: () => void
+}) {
+  if (!action.confirm) return null
+  const count = target?.ids ? target.ids.length : 1
+  const confirmDescription = formatConfirmMessage(action.confirm, count)
+  const isDestructive = action.variant === 'destructive'
+
+  return (
+    <AlertDialog open={isOpen} onOpenChange={(open) => !open && onClose()}>
+      <AlertDialogContent>
+        <AlertDialogHeader>
+          <AlertDialogTitle>{action.label}</AlertDialogTitle>
+          <AlertDialogDescription>{confirmDescription}</AlertDialogDescription>
+        </AlertDialogHeader>
+        <AlertDialogFooter>
+          <AlertDialogCancel onClick={onClose}>Cancel</AlertDialogCancel>
+          <AlertDialogAction
+            className={isDestructive ? buttonVariants({ variant: 'destructive' }) : undefined}
+            onClick={onConfirm}
+          >
+            {action.label}
+          </AlertDialogAction>
+        </AlertDialogFooter>
+      </AlertDialogContent>
+    </AlertDialog>
+  )
+}
+
+function ActionComponentDialog({
+  action,
+  target,
+  isOpen,
+  onClose,
+}: {
+  action: ClientAction
+  target: ActionTarget | null
+  isOpen: boolean
+  onClose: () => void
+}) {
+  if (!action.component) return null
+  return (
+    <Dialog open={isOpen} onOpenChange={(open) => !open && onClose()}>
+      <DialogContent>
+        <DialogHeader>
+          <DialogTitle>{action.label}</DialogTitle>
+        </DialogHeader>
+        <CustomComponent
+          name={action.component}
+          componentProps={{
+            actionKey: action.key,
+            label: action.label,
+            id: target?.id,
+            ids: target?.ids,
+            doc: target?.doc,
+            close: onClose,
+          }}
+        />
+      </DialogContent>
+    </Dialog>
+  )
+}
+
+function ActionDialogs({
+  action,
+  target,
+  isConfirmOpen,
+  isComponentOpen,
+  onCloseConfirm,
+  onCloseComponent,
+  onConfirm,
+}: ActionDialogsProps) {
+  if (!action) return null
+  return (
+    <>
+      <ActionConfirmDialog
+        action={action}
+        target={target}
+        isOpen={isConfirmOpen}
+        onClose={onCloseConfirm}
+        onConfirm={onConfirm}
+      />
+      <ActionComponentDialog
+        action={action}
+        target={target}
+        isOpen={isComponentOpen}
+        onClose={onCloseComponent}
+      />
+    </>
+  )
+}
+
 export function useDeclarativeAction(
   options: UseDeclarativeActionOptions,
 ): UseDeclarativeActionResult {
@@ -134,12 +252,14 @@ export function useDeclarativeAction(
 
       const id = target?.id
       const url = buildEndpointUrl(apiBase, scopeType, slug, action, id, locale)
+      const body = target?.ids !== undefined ? JSON.stringify({ ids: target.ids }) : undefined
 
       try {
         const res = await fetch(url, {
           method: (action.method ?? 'post').toUpperCase(),
           headers: { 'Content-Type': 'application/json' },
           credentials: 'include',
+          body,
         })
 
         if (!res.ok) {
@@ -151,6 +271,7 @@ export function useDeclarativeAction(
         const successMsg = await extractSuccessMessage(res, `${action.label} succeeded`)
         setActionSuccess(successMsg)
         invalidateActionQueries(queryClient, scopeType, slug, apiBase, id)
+        target?.onSuccess?.()
       } catch (err) {
         setActionError(err instanceof Error ? err.message : `Action "${action.label}" failed`)
       } finally {
@@ -184,51 +305,15 @@ export function useDeclarativeAction(
   }, [activeAction, activeTarget, executeEndpoint])
 
   const dialogs = (
-    <>
-      {activeAction?.confirm && (
-        <AlertDialog open={isConfirmOpen} onOpenChange={setIsConfirmOpen}>
-          <AlertDialogContent>
-            <AlertDialogHeader>
-              <AlertDialogTitle>{activeAction.label}</AlertDialogTitle>
-              <AlertDialogDescription>{activeAction.confirm}</AlertDialogDescription>
-            </AlertDialogHeader>
-            <AlertDialogFooter>
-              <AlertDialogCancel onClick={() => setIsConfirmOpen(false)}>Cancel</AlertDialogCancel>
-              <AlertDialogAction
-                className={
-                  activeAction.variant === 'destructive'
-                    ? buttonVariants({ variant: 'destructive' })
-                    : undefined
-                }
-                onClick={handleConfirm}
-              >
-                {activeAction.label}
-              </AlertDialogAction>
-            </AlertDialogFooter>
-          </AlertDialogContent>
-        </AlertDialog>
-      )}
-
-      {activeAction?.component && (
-        <Dialog open={isComponentOpen} onOpenChange={setIsComponentOpen}>
-          <DialogContent>
-            <DialogHeader>
-              <DialogTitle>{activeAction.label}</DialogTitle>
-            </DialogHeader>
-            <CustomComponent
-              name={activeAction.component}
-              componentProps={{
-                actionKey: activeAction.key,
-                label: activeAction.label,
-                id: activeTarget?.id,
-                doc: activeTarget?.doc,
-                close: () => setIsComponentOpen(false),
-              }}
-            />
-          </DialogContent>
-        </Dialog>
-      )}
-    </>
+    <ActionDialogs
+      action={activeAction}
+      target={activeTarget}
+      isConfirmOpen={isConfirmOpen}
+      isComponentOpen={isComponentOpen}
+      onCloseConfirm={() => setIsConfirmOpen(false)}
+      onCloseComponent={() => setIsComponentOpen(false)}
+      onConfirm={handleConfirm}
+    />
   )
 
   return {

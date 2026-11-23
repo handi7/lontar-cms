@@ -818,8 +818,27 @@ collection({
 - `row` and `document` actions call the endpoint with `:id` filled in. A `bulk` action sends `POST` with `{ ids: number[] }` to an endpoint without `:id`, and needs list-view row selection.
 - On success the admin refreshes the collection and shows a toast. A non-2xx response shows the endpoint's `error` message.
 - An action is shown when its endpoint's `access` passes for the current user (called with `{ user }` only). The endpoint re-checks with `id` on every call.
+- For bulk actions, the endpoint is responsible for re-checking access for every id using the bound `lontar` client:
+
+```ts
+{
+  name: 'archiveMany',
+  path: '/archive-many',
+  method: 'post',
+  access: ({ user }) => Boolean(user),
+  handler: async (c) => {
+    const { ids } = await c.req.json<{ ids: (number | string)[] }>()
+    const lontar = c.get('lontar')
+    for (const id of ids) {
+      await lontar.update({ collection: 'posts', id, data: { status: 'archived' } })
+    }
+    return c.json({ message: `Archived ${ids.length} posts` })
+  },
+}
+```
+
 - Set `component` instead of `endpoint` to open a registered component in a dialog, for flows that need input first.
-- Startup fails if an action's `endpoint` does not name an endpoint on the same collection or global.
+- Startup fails if an action's `endpoint` does not name an endpoint on the same collection or global, or if a `bulk` action refers to an endpoint whose path contains `:id`.
 
 ### Admin theming
 

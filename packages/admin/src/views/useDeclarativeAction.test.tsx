@@ -12,11 +12,15 @@ function TestActionHarness({
   actions,
   targetId,
   targetDoc,
+  targetIds,
+  onSuccess,
 }: {
   options: UseDeclarativeActionOptions
   actions: ClientAction[]
   targetId?: string | number
   targetDoc?: Record<string, unknown>
+  targetIds?: Array<string | number>
+  onSuccess?: () => void
 }) {
   const { isPending, actionSuccess, actionError, triggerAction, dialogs } =
     useDeclarativeAction(options)
@@ -30,7 +34,14 @@ function TestActionHarness({
         <button
           key={action.key}
           disabled={isPending}
-          onClick={() => triggerAction(action, { id: targetId, doc: targetDoc })}
+          onClick={() =>
+            triggerAction(action, {
+              id: targetId,
+              doc: targetDoc,
+              ids: targetIds,
+              onSuccess,
+            })
+          }
         >
           {action.label}
         </button>
@@ -44,6 +55,8 @@ function renderHarness({
   actions,
   targetId,
   targetDoc,
+  targetIds,
+  onSuccess,
   components = {},
   queryClient = new QueryClient(),
 }: {
@@ -51,6 +64,8 @@ function renderHarness({
   actions: ClientAction[]
   targetId?: string | number
   targetDoc?: Record<string, unknown>
+  targetIds?: Array<string | number>
+  onSuccess?: () => void
   components?: Record<string, React.ComponentType<CustomActionProps>>
   queryClient?: QueryClient
 }) {
@@ -64,6 +79,8 @@ function renderHarness({
               actions={actions}
               targetId={targetId}
               targetDoc={targetDoc}
+              targetIds={targetIds}
+              onSuccess={onSuccess}
             />
           </QueryClientProvider>
         </ComponentRegistryProvider>
@@ -294,5 +311,100 @@ describe('useDeclarativeAction', () => {
         expect.any(Object),
       )
     })
+  })
+
+  it('executes bulk action with POST { ids: [...] } and replaces {count} in confirm dialog', async () => {
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: () => Promise.resolve({ message: 'Archived 3 posts' }),
+    })
+    vi.stubGlobal('fetch', fetchMock)
+
+    const queryClient = new QueryClient()
+    const invalidateSpy = vi.spyOn(queryClient, 'invalidateQueries')
+    const onSuccessSpy = vi.fn()
+
+    const action: ClientAction = {
+      key: 'archiveMany',
+      label: 'Archive Many',
+      scope: ['bulk'],
+      path: '/archive-many',
+      method: 'post',
+      confirm: 'Archive {count} posts?',
+      variant: 'destructive',
+    }
+
+    renderHarness({
+      options: { apiBase: '/api', scopeType: 'collection', slug: 'posts' },
+      actions: [action],
+      targetIds: [101, 102, 103],
+      onSuccess: onSuccessSpy,
+      queryClient,
+    })
+
+    fireEvent.click(screen.getByRole('button', { name: 'Archive Many' }))
+
+    // Dialog appears and {count} is replaced with 3
+    const dialog = await screen.findByRole('alertdialog')
+    expect(within(dialog).getByText('Archive 3 posts?')).toBeTruthy()
+
+    // Confirm button triggers execution
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Archive Many' }))
+
+    await waitFor(() => {
+      expect(fetchMock).toHaveBeenCalledWith('/api/posts/archive-many', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({ ids: [101, 102, 103] }),
+      })
+    })
+
+    expect(await screen.findByTestId('action-success')).toBeTruthy()
+    expect(screen.getByTestId('action-success').textContent).toBe('Archived 3 posts')
+    expect(onSuccessSpy).toHaveBeenCalledTimes(1)
+    expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ['posts'] })
+  })
+
+  it('shows error message from non-2xx response for bulk action and does not call onSuccess', async () => {
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: false,
+      status: 400,
+      json: () => Promise.resolve({ error: 'Cannot archive locked posts' }),
+    })
+    vi.stubGlobal('fetch', fetchMock)
+
+    const onSuccessSpy = vi.fn()
+
+    const action: ClientAction = {
+      key: 'archiveMany',
+      label: 'Archive Many',
+      scope: ['bulk'],
+      path: '/archive-many',
+      method: 'post',
+    }
+
+    renderHarness({
+      options: { apiBase: '/api', scopeType: 'collection', slug: 'posts' },
+      actions: [action],
+      targetIds: [101, 102],
+      onSuccess: onSuccessSpy,
+    })
+
+    fireEvent.click(screen.getByRole('button', { name: 'Archive Many' }))
+
+    await waitFor(() => {
+      expect(fetchMock).toHaveBeenCalledWith('/api/posts/archive-many', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({ ids: [101, 102] }),
+      })
+    })
+
+    expect(await screen.findByTestId('action-error')).toBeTruthy()
+    expect(screen.getByTestId('action-error').textContent).toBe('Cannot archive locked posts')
+    expect(onSuccessSpy).not.toHaveBeenCalled()
   })
 })

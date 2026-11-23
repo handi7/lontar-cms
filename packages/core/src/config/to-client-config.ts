@@ -338,28 +338,50 @@ function normalizeActionScopes(scope: ActionConfig['scope']): ActionScope[] {
   return ['document']
 }
 
+function checkBulkEndpoint(
+  scopes: ActionScope[],
+  endpoint: Endpoint | undefined,
+  actionKey: string,
+): void {
+  if (scopes.includes('bulk') && endpoint?.path.includes(':id')) {
+    throw new Error(
+      `Bulk action "${actionKey}" refers to endpoint "${endpoint.name}" whose path contains ":id". Bulk endpoints must not take an ":id" parameter.`,
+    )
+  }
+}
+
+function resolveClientEndpointInfo(
+  endpointName: string | undefined,
+  endpoints: readonly Endpoint[] | undefined,
+) {
+  if (!endpointName) return {}
+  const found = endpoints?.find((e) => e.name === endpointName)
+  return {
+    endpoint: endpointName,
+    path: found?.path,
+    method: found?.method,
+  }
+}
+
 function toSingleClientAction(
   action: ActionConfig,
   endpoints: readonly Endpoint[] | undefined,
 ): ClientAction {
   const scopes = normalizeActionScopes(action.scope)
   const endpoint = action.endpoint ? endpoints?.find((e) => e.name === action.endpoint) : undefined
+  checkBulkEndpoint(scopes, endpoint, action.key)
 
-  return {
+  const result: ClientAction = {
     key: action.key,
     label: action.label,
     scope: scopes,
-    ...(action.confirm ? { confirm: action.confirm } : {}),
-    ...(action.variant ? { variant: action.variant } : {}),
-    ...(action.component ? { component: action.component } : {}),
-    ...(action.endpoint
-      ? {
-          endpoint: action.endpoint,
-          path: endpoint?.path,
-          method: endpoint?.method,
-        }
-      : {}),
+    ...resolveClientEndpointInfo(action.endpoint, endpoints),
   }
+  if (action.confirm) result.confirm = action.confirm
+  if (action.variant) result.variant = action.variant
+  if (action.component) result.component = action.component
+
+  return result
 }
 
 function toClientActions(

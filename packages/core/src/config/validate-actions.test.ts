@@ -126,4 +126,15 @@ describe('validateActions', () => {
       'Collection "posts": admin.actions[0]: variant "invalid" is invalid.',
     ])
   })
+
+  it('rejects bulk action whose endpoint contains :id in path', () => {
+    const issues = validateActions(
+      'Collection "posts"',
+      [{ key: 'bulkArchive', label: 'Archive', endpoint: 'approve', scope: 'bulk' }],
+      endpoints,
+    )
+    expect(issues).toEqual([
+      'Collection "posts": bulk action "bulkArchive" refers to endpoint "approve" whose path contains ":id". Bulk endpoints must not take an ":id" parameter.',
+    ])
+  })
 })
