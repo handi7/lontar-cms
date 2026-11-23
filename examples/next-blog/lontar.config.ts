@@ -344,6 +344,7 @@ export default defineConfig({
       access: ({ user }) => Boolean(user),
       handler: async (c, { lontar }) => {
         const result = await lontar.find('posts', {
+          draft: true,
           where: { _status: { equals: 'draft' } },
           limit: 0,
         })
