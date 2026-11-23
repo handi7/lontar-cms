@@ -37,11 +37,14 @@ test.describe('Extensibility (#471)', () => {
     const initialText = await page.getByTestId('pending-posts-count').textContent()
     const initialCount = Number(initialText?.trim() || '0')
 
-    // Create a new draft post
+    // Create a new draft post via Publishing options dropdown
     await page.goto('/admin/posts/create')
     await page.locator('input[name="title"]').fill(`Draft Post ${Date.now()}`)
-    await page.getByRole('button', { name: 'Save Draft' }).click()
-    await expect(page.getByText('Saved draft', { exact: false })).toBeVisible()
+    await page.getByRole('button', { name: 'Publishing options' }).click()
+    const saveDraftBtn = page.getByRole('menuitem', { name: 'Save Draft' })
+    await expect(saveDraftBtn).toBeVisible()
+    await saveDraftBtn.click()
+    await expect(page.getByRole('heading', { name: 'Posts', exact: true })).toBeVisible()
 
     // Return to dashboard and verify the pending posts count has increased
     await page.goto('/admin')
@@ -77,12 +80,14 @@ test.describe('Extensibility (#471)', () => {
     await starRating.getByRole('button', { name: '4 stars' }).click()
     await expect(page.getByTestId('star-rating-value')).toHaveText('4/5')
 
-    // Publish document
+    // Publish document (navigates back to list view)
     await page.getByRole('button', { name: 'Publish', exact: true }).click()
-    await expect(page.getByRole('link', { name: title })).toBeVisible()
+    const postLink = page.getByRole('link', { name: title })
+    await expect(postLink).toBeVisible()
 
-    // Reload edit view to verify rating persisted
-    await page.reload()
+    // Open edit view to verify rating persisted
+    await postLink.click()
+    await expect(page.getByRole('heading', { name: /Edit Post/ })).toBeVisible()
     await expect(page.getByTestId('star-rating-value')).toHaveText('4/5')
   })
 
@@ -92,9 +97,12 @@ test.describe('Extensibility (#471)', () => {
     await page.goto('/admin/posts/create')
     await page.locator('input[name="title"]').fill(title)
     await page.getByRole('button', { name: 'Publish', exact: true }).click()
-    await expect(page.getByRole('link', { name: title })).toBeVisible()
+    const postLink = page.getByRole('link', { name: title })
+    await expect(postLink).toBeVisible()
 
-    // Document sidebar action check: in edit mode, Archive action button should be visible in sidebar
+    // Open edit view to verify document sidebar action
+    await postLink.click()
+    await expect(page.getByRole('heading', { name: /Edit Post/ })).toBeVisible()
     const docArchiveBtn = page.getByRole('button', { name: 'Archive', exact: true })
     await expect(docArchiveBtn).toBeVisible()
 
