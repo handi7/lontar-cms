@@ -1,6 +1,6 @@
 {
   "name": "@lontar/preview",
-  "version": "0.7.0",
+  "version": "0.8.0",
   "description": "Frontend live preview helper for Lontar CMS: subscribe to real-time draft updates from the admin pane.",
   "keywords": [
     "lontar",
