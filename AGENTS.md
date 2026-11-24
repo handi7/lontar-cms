@@ -268,7 +268,7 @@ approval on the `npm` environment. Don't run `pnpm publish` by hand; see `docs/r
   - [x] #471 `examples/next-blog: extensibility demo with e2e` (done)
 
 - [ ] **M13: Content model completeness** (tracking in #500)
-  - [ ] #501 `docs: ADR 0031 and API for json, radio, code, point and hasMany scalar fields`
+  - [x] #501 `docs: ADR 0031 and API for json, radio, code, point and hasMany scalar fields` (done)
   - [ ] #502 `docs: ADR 0032 and API for layout fields (tabs, row, collapsible)`
   - [ ] #503 `docs: ADR 0033 and API for polymorphic relationships and join fields`
   - [ ] #504 `fields: implement the code field`

@@ -320,6 +320,58 @@ const Pages = collection({
 
 Each item inside an `array` or `blocks` field automatically receives a stable string `id`, ensuring dependable React list keys and accurate version diffing. Nested `relationship` and `upload` fields are populated recursively up to the specified `depth`.
 
+### Scalar field types (code, json, radio, point, hasMany)
+
+In addition to standard text, numbers, dates, and media uploads, collections and globals support specialized scalar field types:
+
+```ts
+import { collection, fields as f } from '@lontar/core'
+
+const Snippets = collection({
+  slug: 'snippets',
+  fields: {
+    // Code: multiline text with syntax highlighting and tab indentation handling
+    codeSnippet: f.code({
+      language: 'typescript',
+      maxLength: 10000,
+      required: true,
+    }),
+    // JSON: free-form structured JSON payload with maxBytes payload bounds
+    metadata: f.json({
+      maxBytes: 32 * 1024, // 32 KB limit (default 64 KB, max 1 MB)
+    }),
+    // Radio: single-choice picker displayed as radio buttons (horizontal or vertical layout)
+    displayMode: f.radio({
+      options: ['compact', 'expanded', 'modal'],
+      layout: 'horizontal',
+      defaultValue: 'compact',
+    }),
+    // Point: geographic coordinate [longitude, latitude], stored as flattened numeric columns
+    coordinates: f.point({
+      required: true,
+    }),
+    // hasMany on scalars: ordered primitive arrays stored in a single JSON column
+    tags: f.text({
+      hasMany: true,
+      maxRows: 20,
+    }),
+    scores: f.number({
+      hasMany: true,
+      min: 0,
+      max: 100,
+    }),
+  },
+})
+```
+
+- **`code`**: Stored as text in SQL, with language syntax hints (`language?: string`) for the admin code editor.
+- **`json`**: Stored as `json` (MySQL) or `jsonb` (Postgres). For security and DoS prevention, `where` does not reach into untyped subpaths; use `group`, `array`, or `blocks` when queryable nested paths are needed.
+- **`radio`**: Stored like `select`, with explicit layout configuration (`layout: 'horizontal' | 'vertical'`) for admin rendering.
+- **`point`**: Stored as flattened `${field}__lng` and `${field}__lat` numeric columns (`[longitude, latitude]`). Supports range filtering on `${field}.lng` and `${field}.lat`.
+- **`hasMany` on `text` and `number`**: Stored in a JSON column preserving user-defined order. Queryable with `contains` and `in`.
+
+See [ADR 0031](docs/adr/0031-scalar-fields.md) for full architectural details.
+
 ### Conditional fields
 
 Fields can be shown or hidden based on other field values using `admin.condition`. Because `ClientConfig` is plain JSON, conditions are expressed declaratively using the query filter syntax:
