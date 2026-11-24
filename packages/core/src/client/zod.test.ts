@@ -7,6 +7,7 @@ import type {
   ClientDateField,
   ClientEmailField,
   ClientField,
+  ClientJsonField,
   ClientNumberField,
   ClientRelationshipField,
   ClientRichTextField,
@@ -56,6 +57,17 @@ function code(overrides: Partial<ClientCodeField> = {}) {
     name: 'snippet',
     type: 'code',
     label: 'Snippet',
+    required: false,
+    ...overrides,
+  }
+  return clientFieldToZod(field)
+}
+
+function json(overrides: Partial<ClientJsonField> = {}) {
+  const field: ClientJsonField = {
+    name: 'metadata',
+    type: 'json',
+    label: 'Metadata',
     required: false,
     ...overrides,
   }
@@ -270,6 +282,36 @@ describe('clientFieldToZod', () => {
       expect(schema.safeParse('').success).toBe(true)
       expect(schema.safeParse(null).success).toBe(true)
       expect(schema.safeParse(undefined).success).toBe(true)
+    })
+  })
+
+  describe('json', () => {
+    it('requires a valid JSON value when required', () => {
+      const schema = json({ required: true })
+      expect(schema.safeParse({ key: 'val' }).success).toBe(true)
+      expect(schema.safeParse([1, 2, 3]).success).toBe(true)
+      expect(schema.safeParse('hello').success).toBe(true)
+      expect(schema.safeParse(123).success).toBe(true)
+      expect(schema.safeParse(false).success).toBe(true)
+      for (const value of ['', undefined, null]) {
+        expect(schema.safeParse(value).success).toBe(false)
+      }
+    })
+
+    it('accepts null and undefined when optional', () => {
+      const schema = json()
+      for (const value of [null, undefined]) {
+        expect(schema.safeParse(value).success).toBe(true)
+      }
+      expect(schema.safeParse({ foo: 'bar' }).success).toBe(true)
+    })
+
+    it('enforces maxBytes size limit', () => {
+      const schema = json({ maxBytes: 20 })
+      expect(schema.safeParse({ a: 1 }).success).toBe(true)
+      expect(
+        schema.safeParse({ longKeyName: 'very long string value exceeding twenty bytes' }).success,
+      ).toBe(false)
     })
   })
 

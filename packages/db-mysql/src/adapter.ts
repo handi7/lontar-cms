@@ -8,6 +8,8 @@ import {
   gt,
   gte,
   inArray,
+  isNotNull,
+  isNull,
   like,
   lt,
   lte,
@@ -515,20 +517,29 @@ function toPatternString(value: unknown): string {
   return ''
 }
 
+function buildNullCondition(column: AnyMySqlColumn, operator: string): SQL | undefined {
+  if (operator === 'equals') return isNull(column)
+  if (operator === 'not_equals') return isNotNull(column)
+  return undefined
+}
+
 function buildBasicCondition(
   column: AnyMySqlColumn,
   operator: string,
   value: unknown,
 ): SQL | undefined {
+  if (value === null) {
+    return buildNullCondition(column, operator)
+  }
   switch (operator) {
     case 'equals':
       return eq(column, value)
     case 'not_equals':
       return ne(column, value)
     case 'like':
-      return like(column, String(value))
+      return like(column, toPatternString(value))
     case 'contains':
-      return like(column, `%${escapeLikeWildcards(String(value))}%`)
+      return like(column, `%${escapeLikeWildcards(toPatternString(value))}%`)
     case 'in': {
       const arr = Array.isArray(value) ? value : [value]
       return arr.length > 0 ? inArray(column, arr) : undefined

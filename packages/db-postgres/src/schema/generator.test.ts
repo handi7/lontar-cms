@@ -116,6 +116,7 @@ describe('generateSchemaFile', () => {
       fields: {
         content: { type: 'textarea' },
         snippet: { type: 'code', required: true },
+        metadata: { type: 'json' },
         email: { type: 'email', unique: true },
         slug: { type: 'slug', unique: true },
         isFeatured: { type: 'checkbox', defaultValue: false },
@@ -137,6 +138,7 @@ describe('generateSchemaFile', () => {
 
     expect(output).toContain("content: text('content'),")
     expect(output).toContain("snippet: text('snippet').notNull(),")
+    expect(output).toContain("metadata: jsonb('metadata'),")
     expect(output).toContain("email: varchar('email', { length: 255 }).unique(),")
     expect(output).toContain("slug: varchar('slug', { length: 255 }).unique(),")
     expect(output).toContain("isFeatured: boolean('isFeatured').default(false),")

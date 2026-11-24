@@ -301,6 +301,8 @@ export type {
   FieldType,
   GroupField,
   GroupFieldOptions,
+  JsonField,
+  JsonValue,
   NumberField,
   RelationshipField,
   RelationshipFieldOptions,

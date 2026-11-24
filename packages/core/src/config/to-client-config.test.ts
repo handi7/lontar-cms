@@ -165,6 +165,12 @@ describe('toClientConfig', () => {
             maxLength: 1000,
             defaultValue: 'console.log("hi")',
           }),
+          json: f.json({
+            label: 'JSON Data',
+            required: true,
+            maxBytes: 1024,
+            defaultValue: { key: 'value' },
+          }),
           email: f.email({
             label: 'Email',
             required: true,
@@ -256,6 +262,14 @@ describe('toClientConfig', () => {
         minLength: 5,
         maxLength: 1000,
         defaultValue: 'console.log("hi")',
+      },
+      {
+        name: 'json',
+        type: 'json',
+        label: 'JSON Data',
+        required: true,
+        maxBytes: 1024,
+        defaultValue: { key: 'value' },
       },
       {
         name: 'email',

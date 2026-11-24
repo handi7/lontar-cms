@@ -3309,5 +3309,66 @@ export function registerAdapterConformanceSuite(
         expect(results.docs.some((doc) => doc.id === created.id)).toBe(true)
       })
     })
+
+    describe('json field (ADR 0031)', () => {
+      testCase('supports creating, reading, updating, and querying json fields', async () => {
+        const created = await adapter.create({
+          collection: snippetsCollection,
+          data: {
+            title: 'JSON Snippet',
+            code: 'const x = 1;',
+            metadata: { version: 1, tags: ['alpha', 'beta'], enabled: true },
+          },
+        })
+
+        expect(created.id).toBeDefined()
+        expect(created.metadata).toEqual({
+          version: 1,
+          tags: ['alpha', 'beta'],
+          enabled: true,
+        })
+
+        const fetched = await adapter.findByID({
+          collection: snippetsCollection,
+          id: created.id,
+        })
+        expect(fetched).not.toBeNull()
+        expect(fetched?.metadata).toEqual({
+          version: 1,
+          tags: ['alpha', 'beta'],
+          enabled: true,
+        })
+
+        const updated = await adapter.update({
+          collection: snippetsCollection,
+          id: created.id,
+          data: {
+            metadata: { version: 2, tags: ['gamma'] },
+          },
+        })
+        expect(updated).not.toBeNull()
+        expect(updated?.metadata).toEqual({ version: 2, tags: ['gamma'] })
+
+        const notNullResults = await adapter.find({
+          collection: snippetsCollection,
+          page: 1,
+          limit: 10,
+          where: {
+            metadata: { not_equals: null },
+          },
+        })
+        expect(notNullResults.docs.some((doc) => doc.id === created.id)).toBe(true)
+
+        const nullResults = await adapter.find({
+          collection: snippetsCollection,
+          page: 1,
+          limit: 10,
+          where: {
+            metadata: { equals: null },
+          },
+        })
+        expect(nullResults.docs.some((doc) => doc.id === created.id)).toBe(false)
+      })
+    })
   })
 }

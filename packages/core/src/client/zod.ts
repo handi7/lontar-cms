@@ -9,6 +9,7 @@ import type {
   ClientEmailField,
   ClientField,
   ClientGroupField,
+  ClientJsonField,
   ClientNumberField,
   ClientRelationshipField,
   ClientRichTextField,
@@ -92,6 +93,35 @@ const zodByType = {
       return schema.min(field.minLength).or(z.literal(''))
     }
     return schema
+  },
+  json: (field: ClientJsonField) => {
+    const maxBytes = field.maxBytes ?? 65536
+    const base = z.custom<unknown>(
+      (val) => {
+        if (val === undefined) return false
+        if (val === null) return !field.required
+        try {
+          const str = JSON.stringify(val)
+          if (str === undefined) return false
+          const bytes =
+            typeof Buffer !== 'undefined'
+              ? Buffer.byteLength(str, 'utf8')
+              : new TextEncoder().encode(str).length
+          return bytes <= maxBytes
+        } catch {
+          return false
+        }
+      },
+      {
+        message: `Must be valid JSON within ${maxBytes} bytes`,
+      },
+    )
+    if (field.required) {
+      return base.refine((val) => val !== null && val !== undefined && val !== '', {
+        message: 'JSON value is required',
+      })
+    }
+    return base
   },
   email: (field: ClientEmailField) => {
     const maxLength = field.maxLength ?? DEFAULT_STRING_MAX_LENGTH

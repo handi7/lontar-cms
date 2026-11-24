@@ -152,6 +152,26 @@ describe('generateSchemaFile', () => {
     expect(output).toContain('script: text(\'script\').default("console.log(\\"hello\\")"),')
   })
 
+  it('generates schema for json fields (ADR 0031)', () => {
+    const snippets: CollectionConfig = {
+      slug: 'snippets',
+      fields: {
+        config: { type: 'json', required: true },
+        metadata: { type: 'json' },
+      },
+    }
+
+    const config: Config = {
+      secret: 'test-secret',
+      db: fakeAdapter,
+      collections: [snippets],
+    }
+
+    const output = generateSchemaFile(config)
+    expect(output).toContain("config: json('config').notNull(),")
+    expect(output).toContain("metadata: json('metadata'),")
+  })
+
   it('generates schema for checkbox, select, and date fields', () => {
     const articles: CollectionConfig = {
       slug: 'articles',

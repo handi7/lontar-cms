@@ -28,6 +28,7 @@ import type {
   Field,
   Fields,
   GlobalConfig,
+  JsonField,
   LocaleConfig,
   LocalizationConfig,
   NumberField,
@@ -135,7 +136,7 @@ function uploadToColumn(name: string, field: UploadField) {
   return isColumnRequired(field) ? base.notNull() : base
 }
 
-function jsonFieldToColumn(name: string, field: ArrayField | BlocksField) {
+function jsonFieldToColumn(name: string, field: ArrayField | BlocksField | JsonField) {
   const base = json(name)
   return isColumnRequired(field) ? base.notNull() : base
 }
@@ -150,17 +151,26 @@ function basicFieldToColumn(name: string, field: Field) {
   return null
 }
 
+function advancedFieldToColumn(name: string, field: Field) {
+  if (field.type === 'relationship') return relationshipToColumn(name, field)
+  if (field.type === 'upload') return uploadToColumn(name, field)
+  if (field.type === 'array' || field.type === 'blocks' || field.type === 'json') {
+    return jsonFieldToColumn(name, field)
+  }
+  return null
+}
+
 function fieldToColumn(name: string, field: Field) {
   const basic = basicFieldToColumn(name, field)
   if (basic) return basic
+
+  const advanced = advancedFieldToColumn(name, field)
+  if (advanced) return advanced
 
   if (field.type === 'checkbox') return checkboxToColumn(name, field)
   if (field.type === 'select') return selectToColumn(name, field)
   if (field.type === 'date') return dateToColumn(name, field)
   if (field.type === 'richText') return richTextToColumn(name, field)
-  if (field.type === 'relationship') return relationshipToColumn(name, field)
-  if (field.type === 'upload') return uploadToColumn(name, field)
-  if (field.type === 'array' || field.type === 'blocks') return jsonFieldToColumn(name, field)
   throw new Error(`Unsupported field type: ${(field as Field).type}`)
 }
 

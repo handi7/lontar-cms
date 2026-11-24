@@ -553,6 +553,19 @@ describe('defineConfig', () => {
     ).toEqual([])
   })
 
+  it('validates json field limits (ADR 0031)', () => {
+    expect(issuesOf([notes({ fields: { data: f.json({ maxBytes: 2000000 }) } })])).toEqual([
+      'Collection "notes": json field "data" maxBytes must be a positive integer up to 1048576 (1 MB).',
+    ])
+    expect(issuesOf([notes({ fields: { data: f.json({ maxBytes: 0 }) } })])).toEqual([
+      'Collection "notes": json field "data" maxBytes must be a positive integer up to 1048576 (1 MB).',
+    ])
+    expect(issuesOf([notes({ fields: { data: f.json({ maxBytes: -10 }) } })])).toEqual([
+      'Collection "notes": json field "data" maxBytes must be a positive integer up to 1048576 (1 MB).',
+    ])
+    expect(issuesOf([notes({ fields: { data: f.json({ maxBytes: 65536 }) } })])).toEqual([])
+  })
+
   it('reports custom adapter name and limit when exceeding adapter maxStringLength', () => {
     const customAdapter = { ...fakeAdapter, name: 'custom-db', maxStringLength: 1000 }
     expect(() =>

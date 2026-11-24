@@ -95,23 +95,21 @@ function buildUploadFieldType(field: UploadField, collectionMap: Map<string, str
   return `number | ${target}`
 }
 
+const PRIMITIVE_FIELD_TYPES: Readonly<Record<string, string>> = {
+  text: 'string',
+  textarea: 'string',
+  code: 'string',
+  email: 'string',
+  slug: 'string',
+  date: 'string',
+  number: 'number',
+  checkbox: 'boolean',
+  richText: 'Record<string, unknown>',
+  json: 'Record<string, unknown> | unknown[] | string | number | boolean | null',
+}
+
 function renderPrimitiveFieldType(type: string): string | null {
-  switch (type) {
-    case 'text':
-    case 'textarea':
-    case 'email':
-    case 'slug':
-    case 'date':
-      return 'string'
-    case 'number':
-      return 'number'
-    case 'checkbox':
-      return 'boolean'
-    case 'richText':
-      return 'Record<string, unknown>'
-    default:
-      return null
-  }
+  return PRIMITIVE_FIELD_TYPES[type] ?? null
 }
 
 interface FieldRenderContext {

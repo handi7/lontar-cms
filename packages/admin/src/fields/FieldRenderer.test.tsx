@@ -13,6 +13,7 @@ import {
   type ClientDateField,
   type ClientEmailField,
   type ClientGroupField,
+  type ClientJsonField,
   type ClientNumberField,
   type ClientRelationshipField,
   type ClientRichTextField,
@@ -117,6 +118,38 @@ describe('FieldRenderer', () => {
     expect(screen.getByText('Code Snippet')).toBeTruthy()
     expect(screen.getByText('typescript')).toBeTruthy()
     expect(screen.getByText('*')).toBeTruthy()
+  })
+
+  it('renders json field with json editor and handles inline errors for invalid JSON (ADR 0031)', () => {
+    const field: ClientJsonField = {
+      name: 'metadata',
+      type: 'json',
+      label: 'Metadata',
+      required: true,
+      maxBytes: 1024,
+    }
+
+    render(
+      <FormWrapper>
+        {({ control, register }) => (
+          <FieldRenderer field={field} control={control} register={register} />
+        )}
+      </FormWrapper>,
+    )
+
+    const textarea = screen.getByRole<HTMLTextAreaElement>('textbox')
+    expect(textarea.tagName).toBe('TEXTAREA')
+    expect(screen.getByText('Metadata')).toBeTruthy()
+    expect(screen.getByText('json')).toBeTruthy()
+    expect(screen.getByText('*')).toBeTruthy()
+
+    // Test entering invalid JSON displays inline error
+    fireEvent.change(textarea, { target: { value: '{ invalid: ' } })
+    expect(screen.getByRole('alert')).toBeTruthy()
+
+    // Test entering valid JSON clears error
+    fireEvent.change(textarea, { target: { value: '{"valid": true}' } })
+    expect(screen.queryByRole('alert')).toBeNull()
   })
 
   it('renders email input with type="email"', () => {
