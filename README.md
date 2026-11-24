@@ -422,6 +422,47 @@ const Articles = collection({
 
 Layout fields are **presentational only**: they organize fields in the admin UI without creating nested objects or database columns. Their child fields flatten directly into the document, so query filters (`where`) and TypeScript types refer directly to the child field names (e.g. `title`, `metaTitle`). See [ADR 0032](docs/adr/0032-layout-fields.md) for full details.
 
+### Relationships and join fields
+
+Collections support both monomorphic and polymorphic relationships, as well as virtual reverse `join` fields:
+
+```ts
+import { collection, fields as f } from '@lontar/core'
+
+const Posts = collection({
+  slug: 'posts',
+  fields: {
+    title: f.text({ required: true }),
+    // Monomorphic: points to a single collection
+    category: f.relationship({ relationTo: 'categories' }),
+    // Polymorphic: points to one of several collections
+    owner: f.relationship({
+      relationTo: ['authors', 'organizations'],
+      required: true,
+    }),
+  },
+})
+
+const Authors = collection({
+  slug: 'authors',
+  fields: {
+    name: f.text({ required: true }),
+    // Join: virtual read-only field listing posts that reference this author
+    posts: f.join({
+      collection: 'posts',
+      on: 'owner',
+      limit: 10,
+      sort: '-createdAt',
+    }),
+  },
+})
+```
+
+- **Polymorphic relationships**: Hold `{ relationTo, value }` references. In single relationships, they are stored as flattened `${field}__relation_to` and `${field}__id` columns; in `hasMany`, they use a junction table.
+- **Join fields**: Virtual and read-only (zero database columns, excluded from version snapshots). Batched automatically to prevent N+1 queries and terminated by `depth`.
+
+See [ADR 0033](docs/adr/0033-polymorphic-relationships-and-joins.md) for full architectural details.
+
 ### Conditional fields
 
 Fields can be shown or hidden based on other field values using `admin.condition`. Because `ClientConfig` is plain JSON, conditions are expressed declaratively using the query filter syntax:
