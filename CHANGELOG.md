@@ -13,20 +13,20 @@ Admin UX & extensibility (M12, tracked in #150). The admin panel gains a collaps
 
 ### Upgrading
 
-- Collection access functions (`access.read`, `access.update`, `access.delete`) can now return a query constraint object (e.g. `{ author: { equals: req.user.id } }`) in addition to boolean `true` / `false`. Queries outside the constraint return `404 Not Found` for single document operations (`findById`, `update`, `delete`, `publish`, file access) and are automatically merged with user-supplied query filters on `find` ([ADR 0030](docs/adr/0030-row-level-access-control.md)) (#470).
+- Collection access functions (`access.read`, `access.update`, `access.delete`) can now return a query constraint object (e.g. `{ author: { equals: req.user.id } }`) in addition to boolean `true` / `false`. Queries outside the constraint return `404 Not Found` for single document operations (`findById`, `update`, `delete`, `publish`, file access) and are automatically merged with user-supplied query filters on `find` ([ADR 0030](docs/adr/0030-row-level-access.md)) (#470).
 - When unpublishing a document, only `_status` is updated to `'draft'`; localized field values (such as unique localized slugs) are preserved rather than overwritten (#480).
 - Custom field inputs in `<Admin components={{ fields: { ... } }} />` receive `CustomFieldProps` with `value`, `onChange`, `disabled`, `readOnly`, `error`, and field schema metadata; form state bindings are handled by the admin so custom components stay decoupled from react-hook-form internals (#465).
 
 ### Added
 
-- Extensibility API ([ADR 0029](docs/adr/0029-extensibility.md)):
+- Extensibility API ([ADR 0029](docs/adr/0029-admin-extensibility.md)):
   - Custom REST endpoints via `endpoints` on `defineConfig`, collections, and globals, mounted under `/api/_custom/*`, `/api/:collection/_custom/*`, and `/api/globals/:slug/_custom/*` (#464).
   - Admin component registry via `<Admin components={{ ... }}>` and custom field inputs mapped via `admin.components.Field` on field definitions (#465).
   - Dashboard widgets via `admin.dashboard.widgets` configured globally or registered in the component registry, rendered above collections on the dashboard (#466).
   - Custom views via `admin.views` with dedicated navigation sidebar entries, route matching, and role-based access checks (#467).
   - Declarative row and document actions on collections (`admin.actions.row`, `admin.actions.document`) with confirm dialogs, loading states, and access control (#468).
   - Declarative bulk actions on collections (`admin.actions.bulk`) executed across selected rows with batch endpoints and `{count}` interpolations (#469).
-- Row-level access constraints ([ADR 0030](docs/adr/0030-row-level-access-control.md)):
+- Row-level access constraints ([ADR 0030](docs/adr/0030-row-level-access.md)):
   - Collection `read`, `update`, and `delete` access functions can return a `Where` constraint object to restrict queries and mutations to matching rows (#470).
   - Applied across `find`, `findByID`, `update`, `delete`, `publish`, version snapshots, relationship population, and upload file access (#470).
   - Row constraints surfaced in `/api/_lontar/permissions` endpoints, and list view refetches on 404 mutations (#470, #485).

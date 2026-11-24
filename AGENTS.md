@@ -57,9 +57,9 @@ examples/
 6. **DB access goes through the adapter interface.** Core never imports Drizzle directly.
 7. **Admin CSS is scoped.** Prefix or container-scope all styles so they don't leak into the host app.
 
-## Non-goals for v0.1
+## Non-goals
 
-Do not implement these unless the current milestone says so: localization, GraphQL, field-level access control, non-MySQL databases, visual page builder, public plugin system, multi-tenancy. Full list in `docs/scope.md`.
+Localization, field-level access control and the Postgres adapter were non-goals for v0.1 and have shipped. Do not implement these unless the current milestone says so: GraphQL, databases other than MySQL and PostgreSQL, visual page builder, public plugin system, multi-tenancy. Full list in `docs/scope.md`.
 
 ## Commands
 
@@ -266,6 +266,26 @@ approval on the `npm` environment. Don't run `pnpm publish` by hand; see `docs/r
   - [x] #469 `admin: declarative bulk actions` (done)
   - [x] #470 `core: row-level constraints returned from collection access functions` (done)
   - [x] #471 `examples/next-blog: extensibility demo with e2e` (done)
+
+- [ ] **M13: Content model completeness** (tracking in #500)
+  - [ ] #501 `docs: ADR 0031 and API for json, radio, code, point and hasMany scalar fields`
+  - [ ] #502 `docs: ADR 0032 and API for layout fields (tabs, row, collapsible)`
+  - [ ] #503 `docs: ADR 0033 and API for polymorphic relationships and join fields`
+  - [ ] #504 `fields: implement the code field`
+  - [ ] #505 `fields: implement the json field`
+  - [ ] #506 `fields: implement the radio field`
+  - [ ] #507 `fields: implement the point field`
+  - [ ] #508 `fields: hasMany for text and number`
+  - [ ] #509 `fields: tabs, row and collapsible layout fields in core`
+  - [ ] #510 `admin: render tabs, row and collapsible layout fields`
+  - [ ] #511 `fields: polymorphic relationships in core and both adapters`
+  - [ ] #512 `admin: polymorphic relationship picker`
+  - [ ] #513 `fields: implement the join field in core and both adapters`
+  - [ ] #514 `admin: show join fields on the edit form`
+  - [ ] #515 `cli: types and data-preserving migrations for the M13 fields`
+  - [ ] #516 `examples/next-blog: content model demo with e2e`
+
+Planned after M13, not yet broken into issues: **M14** DX and adoption (`create-lontar-app`, docs site, OpenAPI, typed client, more framework adapters), **M15** content operations (scheduled publish, trash, audit log, import/export, edit conflicts), **M16** auth and security (OAuth, 2FA, session management, security audit), **M17** media 2.0 (crop and focal point, image formats, presigned uploads, folders), **M18** runtimes and SQLite, **M19** v1.0 hardening. Each starts with a plan and its own tracking issue.
 
 Update this section when a milestone or issue is done.
 
