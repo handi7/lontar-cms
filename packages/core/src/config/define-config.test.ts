@@ -531,6 +531,28 @@ describe('defineConfig', () => {
     expect(defineConfig(config)).toBe(config)
   })
 
+  it('validates code field limits (ADR 0031)', () => {
+    expect(issuesOf([notes({ fields: { snippet: f.code({ maxLength: 70000 }) } })])).toEqual([
+      'Collection "notes": code field "snippet" maxLength must be a positive integer up to 65535.',
+    ])
+    expect(issuesOf([notes({ fields: { snippet: f.code({ maxLength: 0 }) } })])).toEqual([
+      'Collection "notes": code field "snippet" maxLength must be a positive integer up to 65535.',
+    ])
+    expect(issuesOf([notes({ fields: { snippet: f.code({ minLength: -1 }) } })])).toEqual([
+      'Collection "notes": code field "snippet" minLength must be a non-negative integer.',
+    ])
+    expect(
+      issuesOf([notes({ fields: { snippet: f.code({ minLength: 20, maxLength: 10 }) } })]),
+    ).toEqual([
+      'Collection "notes": code field "snippet" minLength (20) cannot be greater than maxLength (10).',
+    ])
+    expect(
+      issuesOf([
+        notes({ fields: { snippet: f.code({ language: 'typescript', maxLength: 1000 }) } }),
+      ]),
+    ).toEqual([])
+  })
+
   it('reports custom adapter name and limit when exceeding adapter maxStringLength', () => {
     const customAdapter = { ...fakeAdapter, name: 'custom-db', maxStringLength: 1000 }
     expect(() =>

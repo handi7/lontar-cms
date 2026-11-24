@@ -21,6 +21,7 @@ import type {
   ArrayField,
   BlocksField,
   CheckboxField,
+  CodeField,
   CollectionConfig,
   DateField,
   EmailField,
@@ -72,6 +73,12 @@ function numberToColumn(name: string, field: NumberField) {
 }
 
 function textareaToColumn(name: string, field: TextareaField) {
+  const base = text(name)
+  const withDefault = field.defaultValue !== undefined ? base.default(field.defaultValue) : base
+  return isColumnRequired(field) ? withDefault.notNull() : withDefault
+}
+
+function codeToColumn(name: string, field: CodeField) {
   const base = text(name)
   const withDefault = field.defaultValue !== undefined ? base.default(field.defaultValue) : base
   return isColumnRequired(field) ? withDefault.notNull() : withDefault
@@ -137,6 +144,7 @@ function basicFieldToColumn(name: string, field: Field) {
   if (field.type === 'text') return textToColumn(name, field)
   if (field.type === 'number') return numberToColumn(name, field)
   if (field.type === 'textarea') return textareaToColumn(name, field)
+  if (field.type === 'code') return codeToColumn(name, field)
   if (field.type === 'email') return emailToColumn(name, field)
   if (field.type === 'slug') return slugToColumn(name, field)
   return null

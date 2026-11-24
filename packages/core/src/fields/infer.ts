@@ -6,6 +6,7 @@ interface FieldValueMap {
   text: string
   number: number
   textarea: string
+  code: string
   email: string
   slug: string
   checkbox: boolean

@@ -4,6 +4,7 @@ import {
   type ArrayField,
   type BlocksField,
   type CheckboxField,
+  type CodeField,
   type CollectionConfig,
   type Config,
   type DateField,
@@ -70,6 +71,17 @@ function renderNumberField(name: string, field: NumberField): string {
 }
 
 function renderTextareaField(name: string, field: TextareaField): string {
+  let code = `text('${name}')`
+  if (field.defaultValue !== undefined) {
+    code += `.default(${JSON.stringify(field.defaultValue)})`
+  }
+  if (isColumnRequired(field)) {
+    code += '.notNull()'
+  }
+  return code
+}
+
+function renderCodeField(name: string, field: CodeField): string {
   let code = `text('${name}')`
   if (field.defaultValue !== undefined) {
     code += `.default(${JSON.stringify(field.defaultValue)})`
@@ -180,6 +192,7 @@ function renderBasicField(name: string, field: Field): string | null {
   if (field.type === 'text') return renderTextField(name, field)
   if (field.type === 'number') return renderNumberField(name, field)
   if (field.type === 'textarea') return renderTextareaField(name, field)
+  if (field.type === 'code') return renderCodeField(name, field)
   if (field.type === 'email') return renderEmailField(name, field)
   if (field.type === 'slug') return renderSlugField(name, field)
   return null
@@ -205,6 +218,7 @@ const FIELD_TYPE_IMPORTS: Record<string, string> = {
   slug: 'varchar',
   select: 'varchar',
   textarea: 'text',
+  code: 'text',
   checkbox: 'boolean',
   date: 'datetime',
   richText: 'json',

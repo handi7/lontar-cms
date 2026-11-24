@@ -4,6 +4,7 @@ import type {
   ClientArrayField,
   ClientBlocksField,
   ClientCheckboxField,
+  ClientCodeField,
   ClientDateField,
   ClientEmailField,
   ClientField,
@@ -65,6 +66,20 @@ const zodByType = {
     return schema
   },
   textarea: (field: ClientTextareaField) => {
+    if (field.required) {
+      const minLength = Math.max(field.minLength ?? 1, 1)
+      let schema = z.string().min(minLength)
+      if (field.maxLength !== undefined) schema = schema.max(field.maxLength)
+      return schema
+    }
+    let schema = z.string()
+    if (field.maxLength !== undefined) schema = schema.max(field.maxLength)
+    if (field.minLength !== undefined && field.minLength > 0) {
+      return schema.min(field.minLength).or(z.literal(''))
+    }
+    return schema
+  },
+  code: (field: ClientCodeField) => {
     if (field.required) {
       const minLength = Math.max(field.minLength ?? 1, 1)
       let schema = z.string().min(minLength)

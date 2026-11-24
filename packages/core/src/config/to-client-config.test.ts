@@ -157,6 +157,14 @@ describe('toClientConfig', () => {
             rows: 6,
             defaultValue: 'default text',
           }),
+          code: f.code({
+            label: 'Code',
+            language: 'typescript',
+            required: true,
+            minLength: 5,
+            maxLength: 1000,
+            defaultValue: 'console.log("hi")',
+          }),
           email: f.email({
             label: 'Email',
             required: true,
@@ -238,6 +246,16 @@ describe('toClientConfig', () => {
         maxLength: 500,
         rows: 6,
         defaultValue: 'default text',
+      },
+      {
+        name: 'code',
+        type: 'code',
+        label: 'Code',
+        language: 'typescript',
+        required: true,
+        minLength: 5,
+        maxLength: 1000,
+        defaultValue: 'console.log("hi")',
       },
       {
         name: 'email',

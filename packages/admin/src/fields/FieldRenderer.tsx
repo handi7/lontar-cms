@@ -19,6 +19,7 @@ import {
   type ClientBlock,
   type ClientBlocksField,
   type ClientCheckboxField,
+  type ClientCodeField,
   type ClientDateField,
   type ClientEmailField,
   type ClientField,
@@ -57,6 +58,7 @@ import {
   SelectValue,
 } from '../components/ui/select'
 import { Textarea } from '../components/ui/textarea'
+import { CodeEditor } from '../components/CodeEditor'
 import { DateTimePicker } from './DateTimePicker'
 import { RichTextEditor } from './RichTextEditor'
 import { RelationshipPicker } from './RelationshipPicker'
@@ -238,6 +240,32 @@ function TextareaFieldInput({
         <Textarea
           id={field.name}
           rows={field.rows ?? 4}
+          minLength={field.minLength}
+          maxLength={field.maxLength}
+          placeholder={placeholder}
+          disabled={disabled || controlled.disabled}
+          {...a11yProps(a11y)}
+          {...controlled}
+          value={asInputValue(controlled.value)}
+        />
+      )}
+    />
+  )
+}
+
+export interface CodeFieldInputProps extends ControlledFieldProps<ClientCodeField> {
+  placeholder?: string
+}
+
+function CodeFieldInput({ field, control, a11y, disabled, placeholder }: CodeFieldInputProps) {
+  return (
+    <Controller
+      control={control}
+      name={field.name}
+      render={({ field: controlled }) => (
+        <CodeEditor
+          id={field.name}
+          language={field.language}
           minLength={field.minLength}
           maxLength={field.maxLength}
           placeholder={placeholder}
@@ -555,6 +583,8 @@ function StandardFieldInput(props: StandardFieldInputProps) {
       return <NumberFieldInput {...props} field={field} />
     case 'textarea':
       return <TextareaFieldInput {...props} field={field} />
+    case 'code':
+      return <CodeFieldInput {...props} field={field} />
     case 'email':
       return <EmailFieldInput {...props} field={field} />
     case 'checkbox':

@@ -81,6 +81,14 @@ export interface TextareaField extends BaseField {
   defaultValue?: string
 }
 
+export interface CodeField extends BaseField {
+  type: 'code'
+  language?: string
+  minLength?: number
+  maxLength?: number
+  defaultValue?: string
+}
+
 export interface EmailField extends BaseField {
   type: 'email'
   unique?: boolean
@@ -232,6 +240,7 @@ export type Field =
   | TextField
   | NumberField
   | TextareaField
+  | CodeField
   | EmailField
   | SlugField
   | CheckboxField

@@ -23,6 +23,7 @@ import {
   pagesCollection,
   postsCollection,
   sharedBlocksCollection,
+  snippetsCollection,
   tagsCollection,
   versionedPostsCollection,
   versionedSettingsGlobal,
@@ -3256,6 +3257,57 @@ export function registerAdapterConformanceSuite(
           expect(allGlobal!.tagline).toBe('Shared Tagline')
         },
       )
+    })
+
+    describe('code field (ADR 0031)', () => {
+      testCase('supports creating, reading, updating, and querying code fields', async () => {
+        const created = await adapter.create({
+          collection: snippetsCollection,
+          data: {
+            title: 'Math Helper',
+            code: 'export function add(a: number, b: number): number {\n  return a + b;\n}',
+          },
+        })
+
+        expect(created.id).toBeDefined()
+        expect(created.code).toBe(
+          'export function add(a: number, b: number): number {\n  return a + b;\n}',
+        )
+        expect(created.notes).toBe('// note')
+
+        const fetched = await adapter.findByID({
+          collection: snippetsCollection,
+          id: created.id,
+        })
+        expect(fetched).not.toBeNull()
+        expect(fetched?.code).toBe(
+          'export function add(a: number, b: number): number {\n  return a + b;\n}',
+        )
+
+        const updated = await adapter.update({
+          collection: snippetsCollection,
+          id: created.id,
+          data: {
+            code: 'export function add(a: number, b: number): number { return a + b; }',
+            notes: '// updated note',
+          },
+        })
+        expect(updated).not.toBeNull()
+        expect(updated!.code).toBe(
+          'export function add(a: number, b: number): number { return a + b; }',
+        )
+        expect(updated!.notes).toBe('// updated note')
+
+        const results = await adapter.find({
+          collection: snippetsCollection,
+          page: 1,
+          limit: 10,
+          where: {
+            code: { contains: 'return a + b' },
+          },
+        })
+        expect(results.docs.some((doc) => doc.id === created.id)).toBe(true)
+      })
     })
   })
 }
