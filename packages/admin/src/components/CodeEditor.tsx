@@ -112,7 +112,7 @@ export const CodeEditor = React.forwardRef<HTMLTextAreaElement, CodeEditorProps>
     return (
       <div
         className={cn(
-          'lt:flex lt:flex-col lt:overflow-hidden lt:rounded-md lt:border lt:border-input lt:bg-card lt:text-foreground lt:shadow-xs focus-within:lt:ring-1 focus-within:lt:ring-ring focus-within:lt:border-ring',
+          'lt:flex lt:flex-col lt:overflow-hidden lt:rounded-md lt:border lt:border-input lt:bg-card lt:text-foreground lt:shadow-xs lt:focus-within:ring-1 lt:focus-within:ring-ring lt:focus-within:border-ring',
           disabled && 'lt:cursor-not-allowed lt:opacity-50',
           className,
         )}
