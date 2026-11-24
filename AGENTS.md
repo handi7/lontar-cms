@@ -269,7 +269,7 @@ approval on the `npm` environment. Don't run `pnpm publish` by hand; see `docs/r
 
 - [ ] **M13: Content model completeness** (tracking in #500)
   - [x] #501 `docs: ADR 0031 and API for json, radio, code, point and hasMany scalar fields` (done)
-  - [ ] #502 `docs: ADR 0032 and API for layout fields (tabs, row, collapsible)`
+  - [x] #502 `docs: ADR 0032 and API for layout fields (tabs, row, collapsible)` (done)
   - [ ] #503 `docs: ADR 0033 and API for polymorphic relationships and join fields`
   - [ ] #504 `fields: implement the code field`
   - [ ] #505 `fields: implement the json field`
