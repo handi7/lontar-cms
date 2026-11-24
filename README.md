@@ -372,6 +372,56 @@ const Snippets = collection({
 
 See [ADR 0031](docs/adr/0031-scalar-fields.md) for full architectural details.
 
+### Layout fields (tabs, row, collapsible)
+
+For long forms with many fields, collections and globals support presentational layout fields to organize the editing experience in the admin panel:
+
+```ts
+import { collection, fields as f } from '@lontar/core'
+
+const Articles = collection({
+  slug: 'articles',
+  fields: {
+    // Tabs: organize fields into distinct tab panels
+    mainTabs: f.tabs({
+      tabs: [
+        {
+          label: 'Content',
+          fields: {
+            title: f.text({ required: true }),
+            // Row: align fields horizontally side-by-side
+            authorInfo: f.row({
+              fields: {
+                author: f.relationship({ relationTo: 'users', required: true }),
+                coAuthor: f.relationship({ relationTo: 'users' }),
+              },
+            }),
+            body: f.richText(),
+          },
+        },
+        {
+          label: 'Settings',
+          fields: {
+            // Collapsible: expandable accordion section
+            seo: f.collapsible({
+              label: 'SEO & Metadata',
+              initiallyCollapsed: true,
+              fields: {
+                metaTitle: f.text({ maxLength: 70 }),
+                metaDescription: f.textarea({ maxLength: 160 }),
+              },
+            }),
+            publishedAt: f.date(),
+          },
+        },
+      ],
+    }),
+  },
+})
+```
+
+Layout fields are **presentational only**: they organize fields in the admin UI without creating nested objects or database columns. Their child fields flatten directly into the document, so query filters (`where`) and TypeScript types refer directly to the child field names (e.g. `title`, `metaTitle`). See [ADR 0032](docs/adr/0032-layout-fields.md) for full details.
+
 ### Conditional fields
 
 Fields can be shown or hidden based on other field values using `admin.condition`. Because `ClientConfig` is plain JSON, conditions are expressed declaratively using the query filter syntax:
