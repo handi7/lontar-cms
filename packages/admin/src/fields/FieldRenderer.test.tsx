@@ -9,6 +9,7 @@ import {
   type ClientArrayField,
   type ClientBlocksField,
   type ClientCheckboxField,
+  type ClientCodeField,
   type ClientDateField,
   type ClientEmailField,
   type ClientGroupField,
@@ -87,6 +88,34 @@ describe('FieldRenderer', () => {
     expect(textarea.getAttribute('minlength')).toBe('10')
     expect(textarea.getAttribute('maxlength')).toBe('500')
     expect(screen.getByText('Content')).toBeTruthy()
+    expect(screen.getByText('*')).toBeTruthy()
+  })
+
+  it('renders code field with language and editor (ADR 0031)', () => {
+    const field: ClientCodeField = {
+      name: 'codeSnippet',
+      type: 'code',
+      label: 'Code Snippet',
+      language: 'typescript',
+      required: true,
+      minLength: 5,
+      maxLength: 1000,
+    }
+
+    render(
+      <FormWrapper>
+        {({ control, register }) => (
+          <FieldRenderer field={field} control={control} register={register} />
+        )}
+      </FormWrapper>,
+    )
+
+    const textarea = screen.getByRole<HTMLTextAreaElement>('textbox')
+    expect(textarea.tagName).toBe('TEXTAREA')
+    expect(textarea.getAttribute('minlength')).toBe('5')
+    expect(textarea.getAttribute('maxlength')).toBe('1000')
+    expect(screen.getByText('Code Snippet')).toBeTruthy()
+    expect(screen.getByText('typescript')).toBeTruthy()
     expect(screen.getByText('*')).toBeTruthy()
   })
 

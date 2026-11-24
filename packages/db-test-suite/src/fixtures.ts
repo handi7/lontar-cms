@@ -235,6 +235,16 @@ export const longSlugVersionedCollection: CollectionConfig = {
   },
 }
 
+export const snippetsCollection: CollectionConfig = {
+  slug: 'snippets',
+  labels: { singular: 'Snippet', plural: 'Snippets' },
+  fields: {
+    title: { type: 'text', required: true },
+    code: { type: 'code', required: true, language: 'typescript' },
+    notes: { type: 'code', defaultValue: '// note' },
+  },
+}
+
 export const localizedPostsCollection: CollectionConfig = {
   slug: 'localized_posts',
   labels: { singular: 'Localized Post', plural: 'Localized Posts' },
@@ -316,6 +326,7 @@ export function createTestConfig(adapter: DatabaseAdapter): Config {
       versionHistoryCollection,
       longSlugVersionedCollection,
       localizedPostsCollection,
+      snippetsCollection,
     ],
     globals: [headerGlobal, versionedSettingsGlobal, localizedHeaderGlobal],
   }

@@ -126,6 +126,23 @@ describe('collectionToTable', () => {
     expect(col(columns, 'cover').notNull).toBe(true)
   })
 
+  it('creates columns for code fields (ADR 0031)', () => {
+    const snippets: CollectionConfig = {
+      slug: 'snippets',
+      fields: {
+        code: { type: 'code', required: true },
+        script: { type: 'code', defaultValue: 'console.log("hi")' },
+      },
+    }
+
+    const table = collectionToTable(snippets)
+    const columns = getTableColumns(table) as Record<string, AnyPgColumn>
+
+    expect(col(columns, 'code').notNull).toBe(true)
+    expect(col(columns, 'script').notNull).toBe(false)
+    expect(col(columns, 'script').hasDefault).toBe(true)
+  })
+
   it('creates automatic upload columns when upload is enabled on collection', () => {
     const media: CollectionConfig = {
       slug: 'media',

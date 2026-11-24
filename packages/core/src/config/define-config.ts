@@ -3,6 +3,7 @@ import type {
   ArrayField,
   Block,
   BlocksField,
+  CodeField,
   Field,
   GroupField,
   RelationshipField,
@@ -854,6 +855,8 @@ function validateFieldType(
       return validateTextField(where, name, field, dbAdapter)
     case 'textarea':
       return validateTextareaField(where, name, field)
+    case 'code':
+      return validateCodeField(where, name, field)
     case 'slug':
       return validateSlugField(where, name, field, fields)
     case 'group':
@@ -999,6 +1002,27 @@ function validateTextareaField(where: string, name: string, field: TextareaField
     } else if (field.maxLength !== undefined && field.minLength > field.maxLength) {
       issues.push(
         `${where}: textarea field "${name}" minLength (${field.minLength}) cannot be greater than maxLength (${field.maxLength}).`,
+      )
+    }
+  }
+  return issues
+}
+
+function validateCodeField(where: string, name: string, field: CodeField): string[] {
+  const issues: string[] = []
+  if (field.maxLength !== undefined) {
+    if (!Number.isInteger(field.maxLength) || field.maxLength <= 0 || field.maxLength > 65535) {
+      issues.push(
+        `${where}: code field "${name}" maxLength must be a positive integer up to 65535.`,
+      )
+    }
+  }
+  if (field.minLength !== undefined) {
+    if (!Number.isInteger(field.minLength) || field.minLength < 0) {
+      issues.push(`${where}: code field "${name}" minLength must be a non-negative integer.`)
+    } else if (field.maxLength !== undefined && field.minLength > field.maxLength) {
+      issues.push(
+        `${where}: code field "${name}" minLength (${field.minLength}) cannot be greater than maxLength (${field.maxLength}).`,
       )
     }
   }

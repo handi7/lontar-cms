@@ -15,6 +15,7 @@ export type {
   ClientBlocksField,
   ClientBlocksFieldAdmin,
   ClientCheckboxField,
+  ClientCodeField,
   ClientCollection,
   ClientCollectionAdmin,
   ClientCustomView,

@@ -289,6 +289,7 @@ export type {
   BlocksFieldAdminOptions,
   BlocksFieldOptions,
   CheckboxField,
+  CodeField,
   DateField,
   EmailField,
   Field,

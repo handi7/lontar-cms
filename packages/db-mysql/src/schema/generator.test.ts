@@ -132,6 +132,26 @@ describe('generateSchemaFile', () => {
     expect(output).toContain("slug: varchar('slug', { length: 255 }).unique(),")
   })
 
+  it('generates schema for code fields (ADR 0031)', () => {
+    const snippets: CollectionConfig = {
+      slug: 'snippets',
+      fields: {
+        code: { type: 'code', required: true },
+        script: { type: 'code', defaultValue: 'console.log("hello")' },
+      },
+    }
+
+    const config: Config = {
+      secret: 'test-secret',
+      db: fakeAdapter,
+      collections: [snippets],
+    }
+
+    const output = generateSchemaFile(config)
+    expect(output).toContain("code: text('code').notNull(),")
+    expect(output).toContain('script: text(\'script\').default("console.log(\\"hello\\")"),')
+  })
+
   it('generates schema for checkbox, select, and date fields', () => {
     const articles: CollectionConfig = {
       slug: 'articles',

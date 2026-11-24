@@ -3,6 +3,7 @@ import { postsConfig } from '../__fixtures__/posts'
 import { toClientConfig } from '../config/to-client-config'
 import type {
   ClientCheckboxField,
+  ClientCodeField,
   ClientDateField,
   ClientEmailField,
   ClientField,
@@ -44,6 +45,17 @@ function textarea(overrides: Partial<ClientTextareaField> = {}) {
     name: 'bio',
     type: 'textarea',
     label: 'Bio',
+    required: false,
+    ...overrides,
+  }
+  return clientFieldToZod(field)
+}
+
+function code(overrides: Partial<ClientCodeField> = {}) {
+  const field: ClientCodeField = {
+    name: 'snippet',
+    type: 'code',
+    label: 'Snippet',
     required: false,
     ...overrides,
   }
@@ -225,6 +237,33 @@ describe('clientFieldToZod', () => {
 
     it('enforces minLength and maxLength', () => {
       const schema = textarea({ minLength: 5, maxLength: 10 })
+      expect(schema.safeParse('abcd').success).toBe(false)
+      expect(schema.safeParse('abcde').success).toBe(true)
+      expect(schema.safeParse('abcdefghijk').success).toBe(false)
+      expect(schema.safeParse('').success).toBe(true)
+      expect(schema.safeParse(null).success).toBe(true)
+      expect(schema.safeParse(undefined).success).toBe(true)
+    })
+  })
+
+  describe('code', () => {
+    it('requires a non-blank string when required', () => {
+      const schema = code({ required: true })
+      expect(schema.safeParse('console.log("hello")').success).toBe(true)
+      for (const value of ['', undefined, null, 42]) {
+        expect(schema.safeParse(value).success).toBe(false)
+      }
+    })
+
+    it('accepts an empty string, null and undefined when optional', () => {
+      const schema = code()
+      for (const value of ['', null, undefined]) {
+        expect(schema.safeParse(value).success).toBe(true)
+      }
+    })
+
+    it('enforces minLength and maxLength', () => {
+      const schema = code({ minLength: 5, maxLength: 10 })
       expect(schema.safeParse('abcd').success).toBe(false)
       expect(schema.safeParse('abcde').success).toBe(true)
       expect(schema.safeParse('abcdefghijk').success).toBe(false)

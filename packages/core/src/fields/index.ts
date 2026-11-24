@@ -4,6 +4,7 @@ import type {
   BlockConfig,
   BlocksField,
   CheckboxField,
+  CodeField,
   DateField,
   EmailField,
   GroupField,
@@ -33,6 +34,10 @@ function number<const O extends Options<NumberField>>(options?: O): O & { type: 
 
 function textarea<const O extends Options<TextareaField>>(options?: O): O & { type: 'textarea' } {
   return { ...(options as O), type: 'textarea' }
+}
+
+function code<const O extends Options<CodeField>>(options?: O): O & { type: 'code' } {
+  return { ...(options as O), type: 'code' }
 }
 
 function email<const O extends Options<EmailField>>(options?: O): O & { type: 'email' } {
@@ -164,6 +169,7 @@ export const fields = {
   text,
   number,
   textarea,
+  code,
   email,
   slug,
   checkbox,

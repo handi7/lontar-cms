@@ -161,6 +161,14 @@ export interface ClientTextareaField extends ClientFieldBase {
   defaultValue?: string
 }
 
+export interface ClientCodeField extends ClientFieldBase {
+  type: 'code'
+  language?: string
+  minLength?: number
+  maxLength?: number
+  defaultValue?: string
+}
+
 export interface ClientEmailField extends ClientFieldBase {
   type: 'email'
   unique?: boolean
@@ -255,6 +263,7 @@ export type ClientField =
   | ClientTextField
   | ClientNumberField
   | ClientTextareaField
+  | ClientCodeField
   | ClientEmailField
   | ClientSlugField
   | ClientCheckboxField

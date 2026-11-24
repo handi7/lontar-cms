@@ -22,6 +22,12 @@ describe('fields', () => {
       rows: 6,
       maxLength: 500,
     })
+    expect(f.code({ required: true, language: 'typescript', maxLength: 1000 })).toStrictEqual({
+      type: 'code',
+      required: true,
+      language: 'typescript',
+      maxLength: 1000,
+    })
     expect(f.email({ required: true, unique: true })).toStrictEqual({
       type: 'email',
       required: true,
