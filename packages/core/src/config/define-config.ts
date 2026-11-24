@@ -6,6 +6,7 @@ import type {
   CodeField,
   Field,
   GroupField,
+  JsonField,
   RelationshipField,
   SlugField,
   TextareaField,
@@ -840,6 +841,27 @@ function validateContainerField(
   ]
 }
 
+function validateTextLikeField(
+  where: string,
+  name: string,
+  field: Field,
+  fields: Record<string, Field>,
+  dbAdapter?: DatabaseAdapter,
+): string[] | null {
+  switch (field.type) {
+    case 'text':
+      return validateTextField(where, name, field, dbAdapter)
+    case 'textarea':
+      return validateTextareaField(where, name, field)
+    case 'code':
+      return validateCodeField(where, name, field)
+    case 'slug':
+      return validateSlugField(where, name, field, fields)
+    default:
+      return null
+  }
+}
+
 function validateFieldType(
   where: string,
   name: string,
@@ -850,15 +872,12 @@ function validateFieldType(
   hasLocalization = false,
   containerLocalized = false,
 ): string[] {
+  const textLike = validateTextLikeField(where, name, field, fields, dbAdapter)
+  if (textLike) return textLike
+
   switch (field.type) {
-    case 'text':
-      return validateTextField(where, name, field, dbAdapter)
-    case 'textarea':
-      return validateTextareaField(where, name, field)
-    case 'code':
-      return validateCodeField(where, name, field)
-    case 'slug':
-      return validateSlugField(where, name, field, fields)
+    case 'json':
+      return validateJsonField(where, name, field)
     case 'group':
     case 'array':
     case 'blocks':
@@ -1023,6 +1042,18 @@ function validateCodeField(where: string, name: string, field: CodeField): strin
     } else if (field.maxLength !== undefined && field.minLength > field.maxLength) {
       issues.push(
         `${where}: code field "${name}" minLength (${field.minLength}) cannot be greater than maxLength (${field.maxLength}).`,
+      )
+    }
+  }
+  return issues
+}
+
+function validateJsonField(where: string, name: string, field: JsonField): string[] {
+  const issues: string[] = []
+  if (field.maxBytes !== undefined) {
+    if (!Number.isInteger(field.maxBytes) || field.maxBytes <= 0 || field.maxBytes > 1048576) {
+      issues.push(
+        `${where}: json field "${name}" maxBytes must be a positive integer up to 1048576 (1 MB).`,
       )
     }
   }

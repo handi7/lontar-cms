@@ -133,6 +133,24 @@ describe('collectionToTable', () => {
     expect(col(columns, 'script').hasDefault).toBe(true)
   })
 
+  it('creates columns for json fields (ADR 0031)', () => {
+    const snippets: CollectionConfig = {
+      slug: 'snippets',
+      fields: {
+        config: { type: 'json', required: true },
+        metadata: { type: 'json' },
+      },
+    }
+
+    const table = collectionToTable(snippets)
+    const columns = getTableColumns(table) as Record<string, AnyMySqlColumn>
+
+    expect(col(columns, 'config').columnType).toBe('MySqlJson')
+    expect(col(columns, 'config').notNull).toBe(true)
+    expect(col(columns, 'metadata').columnType).toBe('MySqlJson')
+    expect(col(columns, 'metadata').notNull).toBe(false)
+  })
+
   it('creates automatic upload columns when upload is enabled on collection', () => {
     const media: CollectionConfig = {
       slug: 'media',

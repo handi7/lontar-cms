@@ -28,6 +28,11 @@ describe('fields', () => {
       language: 'typescript',
       maxLength: 1000,
     })
+    expect(f.json({ required: true, maxBytes: 1000 })).toStrictEqual({
+      type: 'json',
+      required: true,
+      maxBytes: 1000,
+    })
     expect(f.email({ required: true, unique: true })).toStrictEqual({
       type: 'email',
       required: true,

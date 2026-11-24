@@ -275,6 +275,21 @@ function resolveScalarFieldValue(
   return { value: val, hasValue: val !== null && val !== undefined }
 }
 
+function resolveJsonFieldValue(
+  row: Record<string, unknown>,
+  colName: string,
+  field: Field,
+  localeCtx: ResolvedLocaleContext,
+  isFieldLocalized: boolean,
+): { value: unknown; hasValue: boolean } {
+  if (isFieldLocalized && localeCtx.allLocales.length > 0) {
+    const val = resolveLocalizedJsonArray(row, colName, field, localeCtx)
+    return { value: val, hasValue: val !== null && val !== undefined }
+  }
+  const val = parseJsonValue(row[colName])
+  return { value: val, hasValue: val !== null && val !== undefined }
+}
+
 function resolveFieldValue(
   row: Record<string, unknown>,
   colName: string,
@@ -293,6 +308,9 @@ function resolveFieldValue(
   if (field.type === 'array' || field.type === 'blocks') {
     const jsonVal = resolveJsonArrayValue(row, colName, field, localeCtx)
     return { value: jsonVal, hasValue: jsonVal !== null }
+  }
+  if (field.type === 'json') {
+    return resolveJsonFieldValue(row, colName, field, localeCtx, isFieldLocalized)
   }
   return resolveScalarFieldValue(row, colName, field, localeCtx, isFieldLocalized)
 }

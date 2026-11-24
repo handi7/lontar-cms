@@ -8,6 +8,7 @@ import type {
   DateField,
   EmailField,
   GroupField,
+  JsonField,
   NumberField,
   RelationshipField,
   RichTextField,
@@ -38,6 +39,10 @@ function textarea<const O extends Options<TextareaField>>(options?: O): O & { ty
 
 function code<const O extends Options<CodeField>>(options?: O): O & { type: 'code' } {
   return { ...(options as O), type: 'code' }
+}
+
+function json<const O extends Options<JsonField>>(options?: O): O & { type: 'json' } {
+  return { ...(options as O), type: 'json' }
 }
 
 function email<const O extends Options<EmailField>>(options?: O): O & { type: 'email' } {
@@ -170,6 +175,7 @@ export const fields = {
   number,
   textarea,
   code,
+  json,
   email,
   slug,
   checkbox,

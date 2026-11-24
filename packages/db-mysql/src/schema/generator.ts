@@ -11,6 +11,7 @@ import {
   type EmailField,
   type Field,
   type GlobalConfig,
+  type JsonField,
   type NumberField,
   type RelationshipField,
   type RichTextField,
@@ -180,7 +181,7 @@ function renderUploadField(name: string, field: UploadField): string {
   return code
 }
 
-function renderArrayField(name: string, field: ArrayField | BlocksField): string {
+function renderArrayField(name: string, field: ArrayField | BlocksField | JsonField): string {
   let code = `json('${name}')`
   if (isColumnRequired(field)) {
     code += '.notNull()'
@@ -198,17 +199,26 @@ function renderBasicField(name: string, field: Field): string | null {
   return null
 }
 
+function renderAdvancedField(name: string, field: Field): string | null {
+  if (field.type === 'relationship') return renderRelationshipField(name, field)
+  if (field.type === 'upload') return renderUploadField(name, field)
+  if (field.type === 'array' || field.type === 'blocks' || field.type === 'json') {
+    return renderArrayField(name, field)
+  }
+  return null
+}
+
 function renderField(name: string, field: Field): string {
   const basic = renderBasicField(name, field)
   if (basic) return basic
+
+  const advanced = renderAdvancedField(name, field)
+  if (advanced) return advanced
 
   if (field.type === 'checkbox') return renderCheckboxField(name, field)
   if (field.type === 'select') return renderSelectField(name, field)
   if (field.type === 'date') return renderDateField(name, field)
   if (field.type === 'richText') return renderRichTextField(name, field)
-  if (field.type === 'relationship') return renderRelationshipField(name, field)
-  if (field.type === 'upload') return renderUploadField(name, field)
-  if (field.type === 'array' || field.type === 'blocks') return renderArrayField(name, field)
   throw new Error(`Unsupported field type: ${(field as Field).type}`)
 }
 
@@ -219,6 +229,7 @@ const FIELD_TYPE_IMPORTS: Record<string, string> = {
   select: 'varchar',
   textarea: 'text',
   code: 'text',
+  json: 'json',
   checkbox: 'boolean',
   date: 'datetime',
   richText: 'json',

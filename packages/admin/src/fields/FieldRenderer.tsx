@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo } from 'react'
+import { useState, useEffect, useMemo, useRef } from 'react'
 import type {
   ControlledFieldProps,
   FieldA11y,
@@ -24,6 +24,7 @@ import {
   type ClientEmailField,
   type ClientField,
   type ClientGroupField,
+  type ClientJsonField,
   type ClientNumberField,
   type ClientRichTextField,
   type ClientSelectField,
@@ -273,6 +274,149 @@ function CodeFieldInput({ field, control, a11y, disabled, placeholder }: CodeFie
           {...a11yProps(a11y)}
           {...controlled}
           value={asInputValue(controlled.value)}
+        />
+      )}
+    />
+  )
+}
+
+export interface JsonFieldInputProps extends ControlledFieldProps<ClientJsonField> {
+  placeholder?: string
+}
+
+function formatJsonValue(val: unknown): string {
+  if (val === null || val === undefined) return ''
+  if (typeof val === 'string') {
+    try {
+      const parsed: unknown = JSON.parse(val)
+      return JSON.stringify(parsed, null, 2)
+    } catch {
+      return val
+    }
+  }
+  try {
+    return JSON.stringify(val, null, 2)
+  } catch {
+    return ''
+  }
+}
+
+interface JsonFieldEditorProps {
+  field: ClientJsonField
+  controlled: {
+    name: string
+    value: unknown
+    onChange: (...event: unknown[]) => void
+    onBlur: () => void
+    disabled?: boolean
+  }
+  fieldState: {
+    error?: unknown
+  }
+  a11y: FieldA11y
+  disabled?: boolean
+  placeholder?: string
+}
+
+function JsonFieldEditor({
+  field,
+  controlled,
+  fieldState,
+  a11y,
+  disabled,
+  placeholder,
+}: JsonFieldEditorProps) {
+  const [textValue, setTextValue] = useState<string>(() => formatJsonValue(controlled.value))
+  const [parseError, setParseError] = useState<string | null>(null)
+  const isInternalChangeRef = useRef(false)
+
+  useEffect(() => {
+    if (isInternalChangeRef.current) {
+      isInternalChangeRef.current = false
+      return
+    }
+    setTextValue(formatJsonValue(controlled.value))
+    setParseError(null)
+  }, [controlled.value])
+
+  const handleChange = (newText: string) => {
+    isInternalChangeRef.current = true
+    setTextValue(newText)
+    if (newText.trim() === '') {
+      setParseError(null)
+      controlled.onChange(null)
+      return
+    }
+    try {
+      const parsed: unknown = JSON.parse(newText)
+      const maxBytes = field.maxBytes ?? 65536
+      const bytes = new TextEncoder().encode(newText).length
+      if (bytes > maxBytes) {
+        setParseError(`JSON exceeds maximum size of ${maxBytes} bytes (${bytes} bytes)`)
+        controlled.onChange(newText)
+      } else {
+        setParseError(null)
+        controlled.onChange(parsed)
+      }
+    } catch (err) {
+      setParseError((err as Error).message || 'Invalid JSON')
+      controlled.onChange(newText)
+    }
+  }
+
+  const isInvalid = Boolean(parseError || fieldState.error || a11y.invalid)
+
+  return (
+    <div className="lt:flex lt:flex-col lt:gap-1.5">
+      <CodeEditor
+        id={field.name}
+        language="json"
+        placeholder={placeholder}
+        disabled={disabled || controlled.disabled}
+        value={textValue}
+        onChange={handleChange}
+        onBlur={controlled.onBlur}
+        aria-label={
+          a11y.required ? `${field.label || field.name} (required)` : field.label || field.name
+        }
+        aria-required={a11y.required}
+        aria-invalid={isInvalid}
+        aria-describedby={a11y.describedBy}
+      />
+      {parseError ? (
+        <p className="lt:text-xs lt:text-destructive" role="alert">
+          {parseError}
+        </p>
+      ) : null}
+    </div>
+  )
+}
+
+function JsonFieldInput({ field, control, a11y, disabled, placeholder }: JsonFieldInputProps) {
+  return (
+    <Controller
+      control={control}
+      name={field.name}
+      rules={{
+        validate: (val: unknown) => {
+          if (typeof val === 'string' && val.trim() !== '') {
+            try {
+              void (JSON.parse(val) as unknown)
+            } catch {
+              return 'Invalid JSON'
+            }
+          }
+          return true
+        },
+      }}
+      render={({ field: controlled, fieldState }) => (
+        <JsonFieldEditor
+          field={field}
+          controlled={controlled}
+          fieldState={fieldState}
+          a11y={a11y}
+          disabled={disabled}
+          placeholder={placeholder}
         />
       )}
     />
@@ -585,6 +729,8 @@ function StandardFieldInput(props: StandardFieldInputProps) {
       return <TextareaFieldInput {...props} field={field} />
     case 'code':
       return <CodeFieldInput {...props} field={field} />
+    case 'json':
+      return <JsonFieldInput {...props} field={field} />
     case 'email':
       return <EmailFieldInput {...props} field={field} />
     case 'checkbox':

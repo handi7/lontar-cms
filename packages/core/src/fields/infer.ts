@@ -1,5 +1,5 @@
 import type { DraftSystemFields, SystemFields, UploadSystemFields } from '../client/system-fields'
-import type { Block, Field, Fields } from './types'
+import type { Block, Field, Fields, JsonValue } from './types'
 
 /** The value each field type stores. Every new field type needs an entry here. */
 interface FieldValueMap {
@@ -7,6 +7,7 @@ interface FieldValueMap {
   number: number
   textarea: string
   code: string
+  json: JsonValue
   email: string
   slug: string
   checkbox: boolean

@@ -169,6 +169,12 @@ export interface ClientCodeField extends ClientFieldBase {
   defaultValue?: string
 }
 
+export interface ClientJsonField extends ClientFieldBase {
+  type: 'json'
+  maxBytes?: number
+  defaultValue?: unknown
+}
+
 export interface ClientEmailField extends ClientFieldBase {
   type: 'email'
   unique?: boolean
@@ -264,6 +270,7 @@ export type ClientField =
   | ClientNumberField
   | ClientTextareaField
   | ClientCodeField
+  | ClientJsonField
   | ClientEmailField
   | ClientSlugField
   | ClientCheckboxField

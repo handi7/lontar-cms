@@ -63,6 +63,15 @@ const complexCollection: CollectionConfig = {
   },
 }
 
+const jsonCollection: CollectionConfig = {
+  slug: 'snippets',
+  labels: { singular: 'Snippet', plural: 'Snippets' },
+  fields: {
+    title: { type: 'text', required: true },
+    metadata: { type: 'json' },
+  },
+}
+
 describe('validateWhere', () => {
   it('returns empty array when where is undefined or empty', () => {
     expect(validateWhere(undefined, testCollection)).toEqual([])
@@ -280,6 +289,31 @@ describe('validateWhere', () => {
       },
     ])
   })
+
+  it('validates json fields: only nullability allowed, rejects nested paths and non-null ops', () => {
+    expect(validateWhere({ metadata: null }, jsonCollection)).toEqual([])
+    expect(validateWhere({ metadata: { equals: null } }, jsonCollection)).toEqual([])
+    expect(validateWhere({ metadata: { not_equals: null } }, jsonCollection)).toEqual([])
+
+    expect(validateWhere({ metadata: { equals: 'bad' } }, jsonCollection)).toEqual([
+      {
+        path: 'metadata.equals',
+        message: 'Operator "equals" on json field "metadata" only supports null',
+      },
+    ])
+    expect(validateWhere({ metadata: { contains: 'text' } }, jsonCollection)).toEqual([
+      {
+        path: 'metadata.contains',
+        message: 'Operator "contains" is not supported on json field "metadata"',
+      },
+    ])
+    expect(validateWhere({ 'metadata.nestedKey': { equals: 123 } }, jsonCollection)).toEqual([
+      {
+        path: 'metadata.nestedKey',
+        message: 'Unknown field "metadata.nestedKey"',
+      },
+    ])
+  })
 })
 
 describe('validateSort', () => {
@@ -433,6 +467,21 @@ describe('validateSort', () => {
       {
         path: 'author__name',
         message: 'Sorting on array or blocks field "author__name" is not supported',
+      },
+    ])
+  })
+
+  it('rejects sorting on json fields (ADR 0031)', () => {
+    expect(validateSort('metadata', jsonCollection)).toEqual([
+      {
+        path: 'metadata',
+        message: 'Cannot sort on field "metadata" of type "json"',
+      },
+    ])
+    expect(validateSort('-metadata', jsonCollection)).toEqual([
+      {
+        path: 'metadata',
+        message: 'Cannot sort on field "metadata" of type "json"',
       },
     ])
   })

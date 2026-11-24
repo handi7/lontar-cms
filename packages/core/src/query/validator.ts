@@ -193,11 +193,51 @@ export function getAllowedFields(
   return allowed
 }
 
-function validateFieldFilter(
+function validateJsonFieldFilter(
   fieldPath: string,
   filter: unknown,
   issues: QueryValidationIssue[],
 ): void {
+  if (filter === null) {
+    return
+  }
+  if (typeof filter !== 'object' || Array.isArray(filter) || filter instanceof Date) {
+    issues.push({
+      path: fieldPath,
+      message: `Field "${fieldPath}" of type "json" only supports nullability filters`,
+    })
+    return
+  }
+  for (const [op, val] of Object.entries(filter)) {
+    if (op !== 'equals' && op !== 'not_equals') {
+      issues.push({
+        path: `${fieldPath}.${op}`,
+        message: `Operator "${op}" is not supported on json field "${fieldPath}"`,
+      })
+    } else if (val !== null) {
+      issues.push({
+        path: `${fieldPath}.${op}`,
+        message: `Operator "${op}" on json field "${fieldPath}" only supports null`,
+      })
+    }
+  }
+}
+
+function validateFieldFilter(
+  fieldPath: string,
+  filter: unknown,
+  issues: QueryValidationIssue[],
+  collection?: CollectionConfig,
+): void {
+  if (collection) {
+    const topKey = getTopKey(fieldPath)
+    const topField = resolveTopField(collection, topKey)
+    if (topField?.type === 'json') {
+      validateJsonFieldFilter(fieldPath, filter, issues)
+      return
+    }
+  }
+
   if (filter === null || typeof filter !== 'object' || filter instanceof Date) {
     return
   }
@@ -221,6 +261,7 @@ function validateLogicalGroup(
   allowed: Set<string>,
   groupFields: Set<string>,
   issues: QueryValidationIssue[],
+  collection?: CollectionConfig,
 ): void {
   if (!Array.isArray(items)) {
     issues.push({
@@ -241,7 +282,7 @@ function validateLogicalGroup(
       })
       continue
     }
-    validateWhereNode(item as Where, allowed, groupFields, itemPath, issues)
+    validateWhereNode(item as Where, allowed, groupFields, itemPath, issues, collection)
   }
 }
 
@@ -266,14 +307,15 @@ function validateWhereEntry(
   allowed: Set<string>,
   groupFields: Set<string>,
   issues: QueryValidationIssue[],
+  collection?: CollectionConfig,
 ): void {
   if (key === 'and' || key === 'or') {
-    validateLogicalGroup(fieldPath, val, allowed, groupFields, issues)
+    validateLogicalGroup(fieldPath, val, allowed, groupFields, issues, collection)
     return
   }
 
   if (isNestedGroupWhere(fieldPath, val, groupFields)) {
-    validateWhereNode(val, allowed, groupFields, fieldPath, issues)
+    validateWhereNode(val, allowed, groupFields, fieldPath, issues, collection)
     return
   }
 
@@ -285,7 +327,7 @@ function validateWhereEntry(
     return
   }
 
-  validateFieldFilter(fieldPath, val, issues)
+  validateFieldFilter(fieldPath, val, issues, collection)
 }
 
 function validateWhereNode(
@@ -294,11 +336,12 @@ function validateWhereNode(
   groupFields: Set<string>,
   currentPath: string,
   issues: QueryValidationIssue[],
+  collection?: CollectionConfig,
 ): void {
   for (const [key, val] of Object.entries(where)) {
     if (val === undefined) continue
     const fieldPath = currentPath ? `${currentPath}.${key}` : key
-    validateWhereEntry(key, val, fieldPath, allowed, groupFields, issues)
+    validateWhereEntry(key, val, fieldPath, allowed, groupFields, issues, collection)
   }
 }
 
@@ -313,7 +356,7 @@ export function validateWhere(
   const allowed = getAllowedFields(collection, localization)
   const groupFields = getGroupFields(collection)
   const issues: QueryValidationIssue[] = []
-  validateWhereNode(where, allowed, groupFields, '', issues)
+  validateWhereNode(where, allowed, groupFields, '', issues, collection)
   return issues
 }
 
@@ -327,7 +370,8 @@ function isScalarSortable(field: Field): boolean {
     field.type !== 'group' &&
     field.type !== 'array' &&
     field.type !== 'blocks' &&
-    field.type !== 'richText'
+    field.type !== 'richText' &&
+    field.type !== 'json'
   )
 }
 
@@ -423,6 +467,21 @@ function isContainerField(collection: CollectionConfig, fieldPath: string): bool
   return field?.type === 'group' || field?.type === 'array' || field?.type === 'blocks'
 }
 
+function checkDisallowedTypeSort(
+  topField: Field | undefined,
+  topKey: string,
+  field: string,
+): QueryValidationIssue | null {
+  if (topKey !== field) return null
+  if (topField?.type === 'richText' || topField?.type === 'json') {
+    return {
+      path: field,
+      message: `Cannot sort on field "${field}" of type "${topField.type}"`,
+    }
+  }
+  return null
+}
+
 function checkDisallowedSortField(
   collection: CollectionConfig,
   field: string,
@@ -441,13 +500,7 @@ function checkDisallowedSortField(
   }
   const topKey = getTopKey(field)
   const topField = resolveTopField(collection, topKey)
-  if (topField?.type === 'richText' && (topKey === field || topKey === `${field}`)) {
-    return {
-      path: field,
-      message: `Cannot sort on field "${field}" of type "richText"`,
-    }
-  }
-  return null
+  return checkDisallowedTypeSort(topField, topKey, field)
 }
 
 function validateSingleSortItem(

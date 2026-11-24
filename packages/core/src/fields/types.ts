@@ -236,11 +236,21 @@ export interface BlocksField extends BaseField {
   admin?: BlocksFieldAdminOptions
 }
 
+export type JsonValue =
+  string | number | boolean | null | { [key: string]: JsonValue } | JsonValue[]
+
+export interface JsonField extends BaseField {
+  type: 'json'
+  maxBytes?: number
+  defaultValue?: JsonValue
+}
+
 export type Field =
   | TextField
   | NumberField
   | TextareaField
   | CodeField
+  | JsonField
   | EmailField
   | SlugField
   | CheckboxField

@@ -528,16 +528,25 @@ function escapeLikeWildcards(value: string): string {
   return value.replace(/[\\%_]/g, '\\$&')
 }
 
+function buildNullCondition(column: PgColumn, operator: string): SQL | undefined {
+  if (operator === 'equals') return isNull(column)
+  if (operator === 'not_equals') return isNotNull(column)
+  return undefined
+}
+
 function buildBasicCondition(column: PgColumn, operator: string, value: unknown): SQL | undefined {
+  if (value === null) {
+    return buildNullCondition(column, operator)
+  }
   switch (operator) {
     case 'equals':
       return eq(column, value)
     case 'not_equals':
       return ne(column, value)
     case 'like':
-      return ilike(column, String(value))
+      return ilike(column, toPatternString(value))
     case 'contains':
-      return ilike(column, `%${escapeLikeWildcards(String(value))}%`)
+      return ilike(column, `%${escapeLikeWildcards(toPatternString(value))}%`)
     case 'exists':
       return value ? isNotNull(column) : isNull(column)
     default:
