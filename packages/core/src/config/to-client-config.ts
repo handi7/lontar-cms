@@ -15,6 +15,7 @@ import {
   type ClientGroupField,
   type ClientLocalizationConfig,
   type ClientNumberField,
+  type ClientRadioField,
   type ClientRelationshipField,
   type ClientRichTextField,
   type ClientSelectField,
@@ -41,6 +42,7 @@ import type {
   GroupField,
   JsonField,
   NumberField,
+  RadioField,
   RelationshipField,
   RichTextField,
   SelectField,
@@ -158,6 +160,14 @@ const toClientField = {
   select: (name: string, field: SelectField, parentLocalized?: boolean): ClientSelectField => ({
     ...baseField(name, field, parentLocalized),
     options: normalizeSelectOptions(field.options),
+    ...defined({
+      defaultValue: field.defaultValue,
+    }),
+  }),
+  radio: (name: string, field: RadioField, parentLocalized?: boolean): ClientRadioField => ({
+    ...baseField(name, field, parentLocalized),
+    options: normalizeSelectOptions(field.options),
+    layout: field.layout ?? 'vertical',
     ...defined({
       defaultValue: field.defaultValue,
     }),

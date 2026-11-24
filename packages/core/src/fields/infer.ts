@@ -12,6 +12,7 @@ interface FieldValueMap {
   slug: string
   checkbox: boolean
   select: string
+  radio: string
   date: string
   richText: Record<string, unknown>
   relationship: number

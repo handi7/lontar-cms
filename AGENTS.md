@@ -273,7 +273,7 @@ approval on the `npm` environment. Don't run `pnpm publish` by hand; see `docs/r
   - [x] #503 `docs: ADR 0033 and API for polymorphic relationships and join fields` (done)
   - [x] #504 `fields: implement the code field` (done)
   - [x] #505 `fields: implement the json field` (done)
-  - [ ] #506 `fields: implement the radio field`
+  - [x] #506 `fields: implement the radio field` (done)
   - [ ] #507 `fields: implement the point field`
   - [ ] #508 `fields: hasMany for text and number`
   - [ ] #509 `fields: tabs, row and collapsible layout fields in core`

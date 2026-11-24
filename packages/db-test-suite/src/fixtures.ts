@@ -243,6 +243,12 @@ export const snippetsCollection: CollectionConfig = {
     code: { type: 'code', required: true, language: 'typescript' },
     notes: { type: 'code', defaultValue: '// note' },
     metadata: { type: 'json' },
+    status: {
+      type: 'radio',
+      options: ['draft', 'published', 'archived'],
+      defaultValue: 'draft',
+      required: true,
+    },
   },
 }
 

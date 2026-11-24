@@ -7,6 +7,7 @@ import type {
   Field,
   GroupField,
   JsonField,
+  RadioField,
   RelationshipField,
   SlugField,
   TextareaField,
@@ -878,6 +879,8 @@ function validateFieldType(
   switch (field.type) {
     case 'json':
       return validateJsonField(where, name, field)
+    case 'radio':
+      return validateRadioField(where, name, field)
     case 'group':
     case 'array':
     case 'blocks':
@@ -1056,6 +1059,17 @@ function validateJsonField(where: string, name: string, field: JsonField): strin
         `${where}: json field "${name}" maxBytes must be a positive integer up to 1048576 (1 MB).`,
       )
     }
+  }
+  return issues
+}
+
+function validateRadioField(where: string, name: string, field: RadioField): string[] {
+  const issues: string[] = []
+  if (!Array.isArray(field.options) || field.options.length === 0) {
+    issues.push(`${where}: radio field "${name}" must have a non-empty options array.`)
+  }
+  if (field.layout !== undefined && field.layout !== 'horizontal' && field.layout !== 'vertical') {
+    issues.push(`${where}: radio field "${name}" layout must be either "horizontal" or "vertical".`)
   }
   return issues
 }

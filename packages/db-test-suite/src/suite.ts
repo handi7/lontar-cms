@@ -3370,5 +3370,76 @@ export function registerAdapterConformanceSuite(
         expect(nullResults.docs.some((doc) => doc.id === created.id)).toBe(false)
       })
     })
+
+    describe('radio field (ADR 0031)', () => {
+      testCase('supports creating, reading, updating, and querying radio fields', async () => {
+        const created = await adapter.create({
+          collection: snippetsCollection,
+          data: {
+            title: 'Radio Snippet',
+            code: 'const r = true;',
+            status: 'published',
+          },
+        })
+
+        expect(created.id).toBeDefined()
+        expect(created.status).toBe('published')
+
+        const createdWithDefault = await adapter.create({
+          collection: snippetsCollection,
+          data: {
+            title: 'Default Status Snippet',
+            code: 'const d = true;',
+          },
+        })
+        expect(createdWithDefault.status).toBe('draft')
+
+        const fetched = await adapter.findByID({
+          collection: snippetsCollection,
+          id: created.id,
+        })
+        expect(fetched).not.toBeNull()
+        expect(fetched?.status).toBe('published')
+
+        const updated = await adapter.update({
+          collection: snippetsCollection,
+          id: created.id,
+          data: {
+            status: 'archived',
+          },
+        })
+        expect(updated).not.toBeNull()
+        expect(updated?.status).toBe('archived')
+
+        const findEquals = await adapter.find({
+          collection: snippetsCollection,
+          page: 1,
+          limit: 10,
+          where: {
+            status: { equals: 'archived' },
+          },
+        })
+        expect(findEquals.docs.some((doc) => doc.id === created.id)).toBe(true)
+
+        const findIn = await adapter.find({
+          collection: snippetsCollection,
+          page: 1,
+          limit: 10,
+          where: {
+            status: { in: ['draft', 'archived'] },
+          },
+        })
+        expect(findIn.docs.some((doc) => doc.id === created.id)).toBe(true)
+        expect(findIn.docs.some((doc) => doc.id === createdWithDefault.id)).toBe(true)
+
+        const findSorted = await adapter.find({
+          collection: snippetsCollection,
+          page: 1,
+          limit: 10,
+          sort: 'status',
+        })
+        expect(findSorted.docs.length).toBeGreaterThanOrEqual(2)
+      })
+    })
   })
 }

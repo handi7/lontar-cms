@@ -15,6 +15,7 @@ import {
   type ClientGroupField,
   type ClientJsonField,
   type ClientNumberField,
+  type ClientRadioField,
   type ClientRelationshipField,
   type ClientRichTextField,
   type ClientSelectField,
@@ -361,6 +362,69 @@ describe('FieldRenderer', () => {
 
     chooseSelectOption(trigger, 'Published')
     expect(trigger.textContent).toBe('Published')
+  })
+
+  it('renders radio field with options and handles selection (ADR 0031)', () => {
+    const field: ClientRadioField = {
+      name: 'theme',
+      type: 'radio',
+      label: 'Theme',
+      required: true,
+      layout: 'vertical',
+      options: [
+        { label: 'Light Mode', value: 'light' },
+        { label: 'Dark Mode', value: 'dark' },
+      ],
+    }
+
+    render(
+      <FormWrapper defaultValues={{ theme: 'light' }}>
+        {({ control, register }) => (
+          <FieldRenderer field={field} control={control} register={register} />
+        )}
+      </FormWrapper>,
+    )
+
+    const radioGroup = screen.getByRole('radiogroup', { name: /^theme/i })
+    expect(radioGroup).toBeDefined()
+    expect(radioGroup.className).toContain('lt:grid')
+
+    const lightOption = screen.getByRole('radio', { name: 'Light Mode' })
+    const darkOption = screen.getByRole('radio', { name: 'Dark Mode' })
+
+    expect(lightOption.getAttribute('aria-checked')).toBe('true')
+    expect(darkOption.getAttribute('aria-checked')).toBe('false')
+
+    fireEvent.click(darkOption)
+    expect(lightOption.getAttribute('aria-checked')).toBe('false')
+    expect(darkOption.getAttribute('aria-checked')).toBe('true')
+  })
+
+  it('renders radio field with horizontal layout (ADR 0031)', () => {
+    const field: ClientRadioField = {
+      name: 'alignment',
+      type: 'radio',
+      label: 'Alignment',
+      required: false,
+      layout: 'horizontal',
+      options: [
+        { label: 'Left', value: 'left' },
+        { label: 'Center', value: 'center' },
+        { label: 'Right', value: 'right' },
+      ],
+    }
+
+    render(
+      <FormWrapper defaultValues={{ alignment: 'left' }}>
+        {({ control, register }) => (
+          <FieldRenderer field={field} control={control} register={register} />
+        )}
+      </FormWrapper>,
+    )
+
+    const radioGroup = screen.getByRole('radiogroup', { name: /^alignment/i })
+    expect(radioGroup.className).toContain('lt:flex')
+    expect(radioGroup.className).toContain('lt:gap-4')
   })
 
   it('lists every option, and an empty choice only when the select is optional', () => {

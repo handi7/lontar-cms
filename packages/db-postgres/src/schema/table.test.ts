@@ -161,6 +161,33 @@ describe('collectionToTable', () => {
     expect(col(columns, 'metadata').notNull).toBe(false)
   })
 
+  it('creates columns for radio fields (ADR 0031)', () => {
+    const polls: CollectionConfig = {
+      slug: 'polls',
+      fields: {
+        choice: {
+          type: 'radio',
+          options: ['yes', 'no'],
+          defaultValue: 'yes',
+          required: true,
+        },
+        optionalChoice: {
+          type: 'radio',
+          options: ['a', 'b'],
+        },
+      },
+    }
+
+    const table = collectionToTable(polls)
+    const columns = getTableColumns(table) as Record<string, AnyPgColumn>
+
+    expect(col(columns, 'choice').columnType).toBe('PgVarchar')
+    expect(col(columns, 'choice').notNull).toBe(true)
+    expect(col(columns, 'choice').hasDefault).toBe(true)
+    expect(col(columns, 'optionalChoice').columnType).toBe('PgVarchar')
+    expect(col(columns, 'optionalChoice').notNull).toBe(false)
+  })
+
   it('creates automatic upload columns when upload is enabled on collection', () => {
     const media: CollectionConfig = {
       slug: 'media',

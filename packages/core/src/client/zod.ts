@@ -11,6 +11,7 @@ import type {
   ClientGroupField,
   ClientJsonField,
   ClientNumberField,
+  ClientRadioField,
   ClientRelationshipField,
   ClientRichTextField,
   ClientSelectField,
@@ -150,6 +151,17 @@ const zodByType = {
     return z.boolean()
   },
   select: (field: ClientSelectField) => {
+    const [first, ...rest] = field.options.map((o) => o.value)
+    if (!first) {
+      return z.string()
+    }
+    const enumSchema = z.enum([first, ...rest])
+    if (field.required) {
+      return enumSchema
+    }
+    return enumSchema.or(z.literal(''))
+  },
+  radio: (field: ClientRadioField) => {
     const [first, ...rest] = field.options.map((o) => o.value)
     if (!first) {
       return z.string()

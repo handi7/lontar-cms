@@ -10,6 +10,7 @@ import type {
   GroupField,
   JsonField,
   NumberField,
+  RadioField,
   RelationshipField,
   RichTextField,
   SelectField,
@@ -59,6 +60,10 @@ function checkbox<const O extends Options<CheckboxField>>(options?: O): O & { ty
 
 function select<const O extends Options<SelectField>>(options: O): O & { type: 'select' } {
   return { ...options, type: 'select' }
+}
+
+function radio<const O extends Options<RadioField>>(options: O): O & { type: 'radio' } {
+  return { ...options, type: 'radio' }
 }
 
 function date<const O extends Options<DateField>>(options?: O): O & { type: 'date' } {
@@ -180,6 +185,7 @@ export const fields = {
   slug,
   checkbox,
   select,
+  radio,
   date,
   richText,
   relationship,

@@ -52,6 +52,14 @@ describe('fields', () => {
       options: ['draft', 'published'],
       defaultValue: 'draft',
     })
+    expect(
+      f.radio({ options: ['light', 'dark'], layout: 'horizontal', defaultValue: 'light' }),
+    ).toStrictEqual({
+      type: 'radio',
+      options: ['light', 'dark'],
+      layout: 'horizontal',
+      defaultValue: 'light',
+    })
     expect(f.date({ required: true })).toStrictEqual({
       type: 'date',
       required: true,

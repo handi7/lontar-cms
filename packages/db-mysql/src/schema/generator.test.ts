@@ -172,6 +172,31 @@ describe('generateSchemaFile', () => {
     expect(output).toContain("metadata: json('metadata'),")
   })
 
+  it('generates schema for radio fields (ADR 0031)', () => {
+    const polls: CollectionConfig = {
+      slug: 'polls',
+      fields: {
+        choice: {
+          type: 'radio',
+          options: ['yes', 'no'],
+          defaultValue: 'yes',
+          required: true,
+        },
+      },
+    }
+
+    const config: Config = {
+      secret: 'test-secret',
+      db: fakeAdapter,
+      collections: [polls],
+    }
+
+    const output = generateSchemaFile(config)
+    expect(output).toContain(
+      'choice: varchar(\'choice\', { length: 120 }).default("yes").notNull(),',
+    )
+  })
+
   it('generates schema for checkbox, select, and date fields', () => {
     const articles: CollectionConfig = {
       slug: 'articles',
