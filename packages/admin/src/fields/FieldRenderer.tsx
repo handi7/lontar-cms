@@ -26,6 +26,7 @@ import {
   type ClientGroupField,
   type ClientJsonField,
   type ClientNumberField,
+  type ClientRadioField,
   type ClientRichTextField,
   type ClientSelectField,
   type ClientSlugField,
@@ -59,6 +60,7 @@ import {
   SelectValue,
 } from '../components/ui/select'
 import { Textarea } from '../components/ui/textarea'
+import { RadioGroup, RadioGroupItem } from '../components/ui/radio-group'
 import { CodeEditor } from '../components/CodeEditor'
 import { DateTimePicker } from './DateTimePicker'
 import { RichTextEditor } from './RichTextEditor'
@@ -570,6 +572,57 @@ function SelectFieldInput({
   )
 }
 
+export interface RadioFieldInputProps extends ControlledFieldProps<ClientRadioField> {
+  disabled?: boolean
+}
+
+function RadioFieldInput({ field, control, a11y, disabled }: RadioFieldInputProps) {
+  const initialValue = field.defaultValue ?? ''
+
+  return (
+    <Controller
+      control={control}
+      name={field.name}
+      defaultValue={initialValue}
+      render={({ field: controlled }) => {
+        const current = typeof controlled.value === 'string' ? controlled.value : ''
+        const isHorizontal = field.layout === 'horizontal'
+
+        return (
+          <RadioGroup
+            value={current}
+            onValueChange={controlled.onChange}
+            disabled={disabled || controlled.disabled}
+            className={isHorizontal ? 'lt:flex lt:flex-wrap lt:gap-4' : 'lt:grid lt:gap-2.5'}
+            aria-label={
+              a11y.required ? `${field.label || field.name} (required)` : field.label || field.name
+            }
+            aria-required={a11y.required}
+            aria-invalid={a11y.invalid}
+            aria-describedby={a11y.describedBy}
+          >
+            {field.options.map((opt) => {
+              const itemId = `${field.name}-${opt.value}`
+              return (
+                <div key={opt.value} className="lt:flex lt:items-center lt:gap-2">
+                  <RadioGroupItem
+                    value={opt.value}
+                    id={itemId}
+                    data-testid={`radio-${field.name}-${opt.value}`}
+                  />
+                  <Label htmlFor={itemId} className="lt:cursor-pointer lt:text-sm lt:font-normal">
+                    {opt.label}
+                  </Label>
+                </div>
+              )
+            })}
+          </RadioGroup>
+        )
+      }}
+    />
+  )
+}
+
 function DateFieldInput({ field, control, a11y, disabled }: ControlledFieldProps<ClientDateField>) {
   // The form holds the same local datetime string the native
   // <input type="datetime-local"> did (formatDateForInput in, formatDateForSubmit
@@ -718,25 +771,38 @@ interface StandardFieldInputProps {
   fullName?: string
 }
 
-function StandardFieldInput(props: StandardFieldInputProps) {
+function TextLikeFieldInput(props: StandardFieldInputProps) {
   const { field } = props
   switch (field.type) {
     case 'text':
       return <TextFieldInput {...props} field={field} />
-    case 'number':
-      return <NumberFieldInput {...props} field={field} />
     case 'textarea':
       return <TextareaFieldInput {...props} field={field} />
     case 'code':
       return <CodeFieldInput {...props} field={field} />
-    case 'json':
-      return <JsonFieldInput {...props} field={field} />
     case 'email':
       return <EmailFieldInput {...props} field={field} />
+    default:
+      return null
+  }
+}
+
+function StandardFieldInput(props: StandardFieldInputProps) {
+  const textLike = TextLikeFieldInput(props)
+  if (textLike) return textLike
+
+  const { field } = props
+  switch (field.type) {
+    case 'number':
+      return <NumberFieldInput {...props} field={field} />
+    case 'json':
+      return <JsonFieldInput {...props} field={field} />
     case 'checkbox':
       return <CheckboxFieldInput {...props} field={field} />
     case 'select':
       return <SelectFieldInput {...props} field={field} />
+    case 'radio':
+      return <RadioFieldInput {...props} field={field} />
     case 'date':
       return <DateFieldInput {...props} field={field} />
     default:

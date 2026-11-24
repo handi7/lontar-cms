@@ -121,6 +121,26 @@ export interface SelectField extends BaseField {
   defaultValue?: string
 }
 
+export type RadioLayout = 'horizontal' | 'vertical'
+
+export interface RadioFieldOptions {
+  label?: string
+  required?: boolean
+  options: readonly SelectOption[]
+  layout?: RadioLayout
+  defaultValue?: string
+  admin?: FieldAdminOptions
+  access?: FieldAccess
+  localized?: boolean
+}
+
+export interface RadioField extends BaseField {
+  type: 'radio'
+  options: readonly SelectOption[]
+  layout?: RadioLayout
+  defaultValue?: string
+}
+
 export interface DateField extends BaseField {
   type: 'date'
   defaultValue?: string
@@ -255,6 +275,7 @@ export type Field =
   | SlugField
   | CheckboxField
   | SelectField
+  | RadioField
   | DateField
   | RichTextField
   | RelationshipField

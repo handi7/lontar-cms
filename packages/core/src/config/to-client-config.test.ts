@@ -195,6 +195,13 @@ describe('toClientConfig', () => {
             options: ['draft', { label: 'Published', value: 'published' }],
             defaultValue: 'draft',
           }),
+          radio: f.radio({
+            label: 'Theme',
+            required: true,
+            options: ['light', { label: 'Dark Mode', value: 'dark' }],
+            layout: 'horizontal',
+            defaultValue: 'light',
+          }),
           date: f.date({
             label: 'Published At',
             required: true,
@@ -307,6 +314,18 @@ describe('toClientConfig', () => {
           { label: 'Published', value: 'published' },
         ],
         defaultValue: 'draft',
+      },
+      {
+        name: 'radio',
+        type: 'radio',
+        label: 'Theme',
+        required: true,
+        options: [
+          { label: 'Light', value: 'light' },
+          { label: 'Dark Mode', value: 'dark' },
+        ],
+        layout: 'horizontal',
+        defaultValue: 'light',
       },
       {
         name: 'date',

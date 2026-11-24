@@ -33,6 +33,7 @@ import type {
   LocaleConfig,
   LocalizationConfig,
   NumberField,
+  RadioField,
   RelationshipField,
   RichTextField,
   SelectField,
@@ -108,7 +109,7 @@ function checkboxToColumn(name: string, field: CheckboxField) {
   return isColumnRequired(field) ? withDefault.notNull() : withDefault
 }
 
-function selectToColumn(name: string, field: SelectField) {
+function selectToColumn(name: string, field: SelectField | RadioField) {
   const base = varchar(name, { length: 120 })
   const withDefault = field.defaultValue !== undefined ? base.default(field.defaultValue) : base
   return isColumnRequired(field) ? withDefault.notNull() : withDefault
@@ -169,7 +170,7 @@ function fieldToColumn(name: string, field: Field) {
   if (advanced) return advanced
 
   if (field.type === 'checkbox') return checkboxToColumn(name, field)
-  if (field.type === 'select') return selectToColumn(name, field)
+  if (field.type === 'select' || field.type === 'radio') return selectToColumn(name, field)
   if (field.type === 'date') return dateToColumn(name, field)
   if (field.type === 'richText') return richTextToColumn(name, field)
   throw new Error(`Unsupported field type: ${(field as Field).type}`)

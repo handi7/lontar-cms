@@ -13,6 +13,7 @@ import {
   type GlobalConfig,
   type JsonField,
   type NumberField,
+  type RadioField,
   type RelationshipField,
   type RichTextField,
   type SelectField,
@@ -142,7 +143,7 @@ function renderCheckboxField(name: string, field: CheckboxField): string {
   return code
 }
 
-function renderSelectField(name: string, field: SelectField): string {
+function renderSelectField(name: string, field: SelectField | RadioField): string {
   let code = `varchar('${name}', { length: 120 })`
   if (field.defaultValue !== undefined) {
     code += `.default(${JSON.stringify(field.defaultValue)})`
@@ -226,7 +227,7 @@ function renderField(name: string, field: Field): string {
   if (advanced) return advanced
 
   if (field.type === 'checkbox') return renderCheckboxField(name, field)
-  if (field.type === 'select') return renderSelectField(name, field)
+  if (field.type === 'select' || field.type === 'radio') return renderSelectField(name, field)
   if (field.type === 'date') return renderDateField(name, field)
   if (field.type === 'richText') return renderRichTextField(name, field)
   throw new Error(`Unsupported field type: ${(field as Field).type}`)
@@ -237,6 +238,7 @@ const FIELD_TYPE_IMPORTS: Record<string, string> = {
   email: 'varchar',
   slug: 'varchar',
   select: 'varchar',
+  radio: 'varchar',
   textarea: 'text',
   code: 'text',
   json: 'jsonb',

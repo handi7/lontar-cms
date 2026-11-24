@@ -9,6 +9,7 @@ import type {
   ClientField,
   ClientJsonField,
   ClientNumberField,
+  ClientRadioField,
   ClientRelationshipField,
   ClientRichTextField,
   ClientSelectField,
@@ -116,6 +117,22 @@ function select(overrides: Partial<ClientSelectField> = {}) {
     options: [
       { label: 'Draft', value: 'draft' },
       { label: 'Published', value: 'published' },
+    ],
+    ...overrides,
+  }
+  return clientFieldToZod(field)
+}
+
+function radio(overrides: Partial<ClientRadioField> = {}) {
+  const field: ClientRadioField = {
+    name: 'theme',
+    type: 'radio',
+    label: 'Theme',
+    layout: 'vertical',
+    required: false,
+    options: [
+      { label: 'Light', value: 'light' },
+      { label: 'Dark', value: 'dark' },
     ],
     ...overrides,
   }
@@ -421,6 +438,30 @@ describe('clientFieldToZod', () => {
 
     it('rejects invalid options when optional', () => {
       const schema = select()
+      expect(schema.safeParse('unknown').success).toBe(false)
+    })
+  })
+
+  describe('radio', () => {
+    it('requires a valid option when required', () => {
+      const schema = radio({ required: true })
+      expect(schema.safeParse('light').success).toBe(true)
+      expect(schema.safeParse('dark').success).toBe(true)
+      for (const value of ['system', '', undefined, null, 123]) {
+        expect(schema.safeParse(value).success).toBe(false)
+      }
+    })
+
+    it('accepts valid option, empty string, null, and undefined when optional', () => {
+      const schema = radio()
+      expect(schema.safeParse('light').success).toBe(true)
+      for (const value of ['', null, undefined]) {
+        expect(schema.safeParse(value).success).toBe(true)
+      }
+    })
+
+    it('rejects invalid options when optional', () => {
+      const schema = radio()
       expect(schema.safeParse('unknown').success).toBe(false)
     })
   })

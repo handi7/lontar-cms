@@ -566,6 +566,35 @@ describe('defineConfig', () => {
     expect(issuesOf([notes({ fields: { data: f.json({ maxBytes: 65536 }) } })])).toEqual([])
   })
 
+  it('validates radio field options and layout (ADR 0031)', () => {
+    expect(issuesOf([notes({ fields: { choice: f.radio({ options: [] }) } })])).toEqual([
+      'Collection "notes": radio field "choice" must have a non-empty options array.',
+    ])
+    expect(
+      issuesOf([
+        notes({
+          fields: {
+            choice: f.radio({
+              options: ['a', 'b'],
+              layout: 'diagonal' as unknown as 'horizontal',
+            }),
+          },
+        }),
+      ]),
+    ).toEqual([
+      'Collection "notes": radio field "choice" layout must be either "horizontal" or "vertical".',
+    ])
+    expect(
+      issuesOf([
+        notes({
+          fields: {
+            choice: f.radio({ options: ['a', 'b'], layout: 'horizontal' }),
+          },
+        }),
+      ]),
+    ).toEqual([])
+  })
+
   it('reports custom adapter name and limit when exceeding adapter maxStringLength', () => {
     const customAdapter = { ...fakeAdapter, name: 'custom-db', maxStringLength: 1000 }
     expect(() =>

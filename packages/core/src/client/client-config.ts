@@ -206,6 +206,15 @@ export interface ClientSelectField extends ClientFieldBase {
   defaultValue?: string
 }
 
+export type ClientRadioLayout = 'horizontal' | 'vertical'
+
+export interface ClientRadioField extends ClientFieldBase {
+  type: 'radio'
+  options: ClientSelectOption[]
+  layout: ClientRadioLayout
+  defaultValue?: string
+}
+
 export interface ClientDateField extends ClientFieldBase {
   type: 'date'
   defaultValue?: string
@@ -275,6 +284,7 @@ export type ClientField =
   | ClientSlugField
   | ClientCheckboxField
   | ClientSelectField
+  | ClientRadioField
   | ClientDateField
   | ClientRichTextField
   | ClientRelationshipField

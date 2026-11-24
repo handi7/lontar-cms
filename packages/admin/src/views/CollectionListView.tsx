@@ -15,6 +15,7 @@ import type {
   ClientAction,
   ClientCollection,
   ClientField,
+  ClientRadioField,
   ClientSelectField,
   FieldPermission,
   Where,
@@ -86,7 +87,10 @@ function renderBooleanCell(val: unknown): React.ReactNode {
   return val ? <Badge variant="success">true</Badge> : <Badge variant="muted">false</Badge>
 }
 
-function renderSelectCell(val: unknown, field: ClientSelectField): React.ReactNode {
+function renderSelectCell(
+  val: unknown,
+  field: ClientSelectField | ClientRadioField,
+): React.ReactNode {
   const str = typeof val === 'string' ? val : typeof val === 'number' ? String(val) : ''
   const opt = field.options.find((o) => o.value === str)
   return <Badge variant="secondary">{opt?.label ?? str}</Badge>
@@ -134,6 +138,7 @@ function renderFieldCell(val: unknown, field: ClientField): React.ReactNode {
     case 'checkbox':
       return renderBooleanCell(val)
     case 'select':
+    case 'radio':
       return renderSelectCell(val, field)
     case 'date':
       return renderDateCell(val)

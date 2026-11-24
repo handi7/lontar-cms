@@ -122,6 +122,12 @@ describe('generateSchemaFile', () => {
         isFeatured: { type: 'checkbox', defaultValue: false },
         category: { type: 'select', options: ['news', 'tech'], defaultValue: 'news' },
         publishedAt: { type: 'date' },
+        theme: {
+          type: 'radio',
+          options: ['light', 'dark'],
+          defaultValue: 'light',
+          required: true,
+        },
         body: { type: 'richText' },
         author: { type: 'relationship', relationTo: 'users', required: true },
         cover: { type: 'upload', relationTo: 'media' },
@@ -145,6 +151,9 @@ describe('generateSchemaFile', () => {
     expect(output).toContain('category: varchar(\'category\', { length: 120 }).default("news"),')
     expect(output).toContain(
       "publishedAt: timestamp('publishedAt', { precision: 3, withTimezone: true, mode: 'date' }),",
+    )
+    expect(output).toContain(
+      'theme: varchar(\'theme\', { length: 120 }).default("light").notNull(),',
     )
     expect(output).toContain("body: jsonb('body'),")
     expect(output).toContain("author: integer('author').notNull(),")

@@ -8,6 +8,7 @@ import type {
   GlobalConfig,
   GroupField,
   RelationshipField,
+  RadioField,
   SelectField,
   UploadConfig,
   UploadField,
@@ -70,7 +71,7 @@ function formatFieldName(name: string): string {
   return /^[a-zA-Z_$][a-zA-Z0-9_$]*$/.test(name) ? name : JSON.stringify(name)
 }
 
-function buildSelectType(field: SelectField): string {
+function buildSelectType(field: SelectField | RadioField): string {
   if (!field.options || field.options.length === 0) {
     return 'string'
   }
@@ -286,7 +287,7 @@ function renderContainerFieldType(
 function renderLeafFieldType(field: Field, collectionMap: Map<string, string>): string | null {
   const primitive = renderPrimitiveFieldType(field.type)
   if (primitive) return primitive
-  if (field.type === 'select') return buildSelectType(field)
+  if (field.type === 'select' || field.type === 'radio') return buildSelectType(field)
   if (field.type === 'relationship') return buildRelationshipType(field, collectionMap)
   if (field.type === 'upload') return buildUploadFieldType(field, collectionMap)
   return null
