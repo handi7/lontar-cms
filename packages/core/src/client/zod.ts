@@ -11,6 +11,7 @@ import type {
   ClientGroupField,
   ClientJsonField,
   ClientNumberField,
+  ClientPointField,
   ClientRadioField,
   ClientRelationshipField,
   ClientRichTextField,
@@ -172,6 +173,8 @@ const zodByType = {
     }
     return enumSchema.or(z.literal(''))
   },
+  point: (_field: ClientPointField) =>
+    z.tuple([z.number().min(-180).max(180), z.number().min(-90).max(90)]),
   date: (field: ClientDateField) => {
     const dateSchema = z.union([
       z.string().refine((val) => !isNaN(Date.parse(val)), {

@@ -3441,5 +3441,108 @@ export function registerAdapterConformanceSuite(
         expect(findSorted.docs.length).toBeGreaterThanOrEqual(2)
       })
     })
+
+    describe('point field (ADR 0031)', () => {
+      testCase('supports creating, reading, updating, and querying point fields', async () => {
+        const created = await adapter.create({
+          collection: snippetsCollection,
+          data: {
+            title: 'Point Snippet',
+            code: 'const p = [106.8456, -6.2088];',
+            location: [106.8456, -6.2088],
+          },
+        })
+
+        expect(created.id).toBeDefined()
+        expect(created.location).toEqual([106.8456, -6.2088])
+
+        const createdNull = await adapter.create({
+          collection: snippetsCollection,
+          data: {
+            title: 'Null Point Snippet',
+            code: 'const p = null;',
+            location: null,
+          },
+        })
+        expect(createdNull.location).toBeNull()
+
+        const fetched = await adapter.findByID({
+          collection: snippetsCollection,
+          id: created.id,
+        })
+        expect(fetched).not.toBeNull()
+        expect(fetched?.location).toEqual([106.8456, -6.2088])
+
+        const updated = await adapter.update({
+          collection: snippetsCollection,
+          id: created.id,
+          data: {
+            location: [107.6191, -6.9175],
+          },
+        })
+        expect(updated).not.toBeNull()
+        expect(updated?.location).toEqual([107.6191, -6.9175])
+
+        const findLngGt = await adapter.find({
+          collection: snippetsCollection,
+          page: 1,
+          limit: 10,
+          where: {
+            'location.lng': { greater_than: 107 },
+          },
+        })
+        expect(findLngGt.docs.some((doc) => doc.id === created.id)).toBe(true)
+
+        const findLatLt = await adapter.find({
+          collection: snippetsCollection,
+          page: 1,
+          limit: 10,
+          where: {
+            'location.lat': { less_than: -6.5 },
+          },
+        })
+        expect(findLatLt.docs.some((doc) => doc.id === created.id)).toBe(true)
+
+        const findAlias = await adapter.find({
+          collection: snippetsCollection,
+          page: 1,
+          limit: 10,
+          where: {
+            'location.longitude': { equals: 107.6191 },
+          },
+        })
+        expect(findAlias.docs.some((doc) => doc.id === created.id)).toBe(true)
+
+        const findNull = await adapter.find({
+          collection: snippetsCollection,
+          page: 1,
+          limit: 10,
+          where: {
+            location: null,
+          },
+        })
+        expect(findNull.docs.some((doc) => doc.id === createdNull.id)).toBe(true)
+        expect(findNull.docs.some((doc) => doc.id === created.id)).toBe(false)
+
+        const findNotNull = await adapter.find({
+          collection: snippetsCollection,
+          page: 1,
+          limit: 10,
+          where: {
+            location: { not_equals: null },
+          },
+        })
+        expect(findNotNull.docs.some((doc) => doc.id === created.id)).toBe(true)
+        expect(findNotNull.docs.some((doc) => doc.id === createdNull.id)).toBe(false)
+
+        const findSorted = await adapter.find({
+          collection: snippetsCollection,
+          page: 1,
+          limit: 10,
+          sort: 'location.lng',
+        })
+        expect(findSorted.docs.length).toBeGreaterThanOrEqual(2)
+      })
+    })
   })
 }

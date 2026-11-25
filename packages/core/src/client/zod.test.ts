@@ -9,6 +9,7 @@ import type {
   ClientField,
   ClientJsonField,
   ClientNumberField,
+  ClientPointField,
   ClientRadioField,
   ClientRelationshipField,
   ClientRichTextField,
@@ -134,6 +135,17 @@ function radio(overrides: Partial<ClientRadioField> = {}) {
       { label: 'Light', value: 'light' },
       { label: 'Dark', value: 'dark' },
     ],
+    ...overrides,
+  }
+  return clientFieldToZod(field)
+}
+
+function point(overrides: Partial<ClientPointField> = {}) {
+  const field: ClientPointField = {
+    name: 'coordinates',
+    type: 'point',
+    label: 'Coordinates',
+    required: false,
     ...overrides,
   }
   return clientFieldToZod(field)
@@ -463,6 +475,40 @@ describe('clientFieldToZod', () => {
     it('rejects invalid options when optional', () => {
       const schema = radio()
       expect(schema.safeParse('unknown').success).toBe(false)
+    })
+  })
+
+  describe('point', () => {
+    it('accepts valid [lng, lat] coordinate pairs when required', () => {
+      const schema = point({ required: true })
+      expect(schema.safeParse([106.8456, -6.2088]).success).toBe(true)
+      expect(schema.safeParse([-180, -90]).success).toBe(true)
+      expect(schema.safeParse([180, 90]).success).toBe(true)
+      expect(schema.safeParse([0, 0]).success).toBe(true)
+    })
+
+    it('rejects coordinates out of bounds', () => {
+      const schema = point({ required: true })
+      expect(schema.safeParse([-180.1, 0]).success).toBe(false)
+      expect(schema.safeParse([180.1, 0]).success).toBe(false)
+      expect(schema.safeParse([0, -90.1]).success).toBe(false)
+      expect(schema.safeParse([0, 90.1]).success).toBe(false)
+    })
+
+    it('rejects invalid shapes (not 2 elements, non-numbers, null when required)', () => {
+      const schema = point({ required: true })
+      expect(schema.safeParse([10]).success).toBe(false)
+      expect(schema.safeParse([10, 20, 30]).success).toBe(false)
+      expect(schema.safeParse(['10', '20']).success).toBe(false)
+      expect(schema.safeParse(null).success).toBe(false)
+      expect(schema.safeParse(undefined).success).toBe(false)
+    })
+
+    it('accepts null and undefined when optional', () => {
+      const schema = point({ required: false })
+      expect(schema.safeParse(null).success).toBe(true)
+      expect(schema.safeParse(undefined).success).toBe(true)
+      expect(schema.safeParse([106.8456, -6.2088]).success).toBe(true)
     })
   })
 

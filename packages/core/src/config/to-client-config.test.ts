@@ -202,6 +202,11 @@ describe('toClientConfig', () => {
             layout: 'horizontal',
             defaultValue: 'light',
           }),
+          point: f.point({
+            label: 'Location',
+            required: true,
+            defaultValue: [106.8456, -6.2088],
+          }),
           date: f.date({
             label: 'Published At',
             required: true,
@@ -326,6 +331,13 @@ describe('toClientConfig', () => {
         ],
         layout: 'horizontal',
         defaultValue: 'light',
+      },
+      {
+        name: 'point',
+        type: 'point',
+        label: 'Location',
+        required: true,
+        defaultValue: [106.8456, -6.2088],
       },
       {
         name: 'date',

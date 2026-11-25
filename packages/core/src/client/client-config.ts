@@ -215,6 +215,11 @@ export interface ClientRadioField extends ClientFieldBase {
   defaultValue?: string
 }
 
+export interface ClientPointField extends ClientFieldBase {
+  type: 'point'
+  defaultValue?: [number, number]
+}
+
 export interface ClientDateField extends ClientFieldBase {
   type: 'date'
   defaultValue?: string
@@ -285,6 +290,7 @@ export type ClientField =
   | ClientCheckboxField
   | ClientSelectField
   | ClientRadioField
+  | ClientPointField
   | ClientDateField
   | ClientRichTextField
   | ClientRelationshipField

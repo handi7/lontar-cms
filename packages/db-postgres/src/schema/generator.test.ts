@@ -160,6 +160,28 @@ describe('generateSchemaFile', () => {
     expect(output).toContain("cover: integer('cover'),")
   })
 
+  it('generates schema for point fields (ADR 0031)', () => {
+    const places: CollectionConfig = {
+      slug: 'places',
+      fields: {
+        location: {
+          type: 'point',
+          required: true,
+        },
+      },
+    }
+
+    const config: Config = {
+      secret: 'test-secret',
+      db: fakeAdapter,
+      collections: [places],
+    }
+
+    const output = generateSchemaFile(config)
+    expect(output).toContain("location__lng: doublePrecision('location__lng').notNull(),")
+    expect(output).toContain("location__lat: doublePrecision('location__lat').notNull(),")
+  })
+
   it('handles array and blocks fields with jsonb', () => {
     const pages: CollectionConfig = {
       slug: 'pages',

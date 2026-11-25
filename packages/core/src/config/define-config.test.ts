@@ -595,6 +595,51 @@ describe('defineConfig', () => {
     ).toEqual([])
   })
 
+  it('validates point field defaultValue (ADR 0031)', () => {
+    expect(
+      issuesOf([
+        notes({
+          fields: {
+            loc: f.point({ defaultValue: [100] as unknown as [number, number] }),
+          },
+        }),
+      ]),
+    ).toEqual([
+      'Collection "notes": point field "loc" defaultValue must be a 2-element tuple [longitude, latitude].',
+    ])
+    expect(
+      issuesOf([
+        notes({
+          fields: {
+            loc: f.point({ defaultValue: [-185, 20] }),
+          },
+        }),
+      ]),
+    ).toEqual([
+      'Collection "notes": point field "loc" defaultValue longitude must be a number between -180 and 180.',
+    ])
+    expect(
+      issuesOf([
+        notes({
+          fields: {
+            loc: f.point({ defaultValue: [100, 95] }),
+          },
+        }),
+      ]),
+    ).toEqual([
+      'Collection "notes": point field "loc" defaultValue latitude must be a number between -90 and 90.',
+    ])
+    expect(
+      issuesOf([
+        notes({
+          fields: {
+            loc: f.point({ defaultValue: [106.8456, -6.2088] }),
+          },
+        }),
+      ]),
+    ).toEqual([])
+  })
+
   it('reports custom adapter name and limit when exceeding adapter maxStringLength', () => {
     const customAdapter = { ...fakeAdapter, name: 'custom-db', maxStringLength: 1000 }
     expect(() =>

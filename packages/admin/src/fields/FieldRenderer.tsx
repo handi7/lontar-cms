@@ -26,6 +26,7 @@ import {
   type ClientGroupField,
   type ClientJsonField,
   type ClientNumberField,
+  type ClientPointField,
   type ClientRadioField,
   type ClientRichTextField,
   type ClientSelectField,
@@ -576,6 +577,161 @@ export interface RadioFieldInputProps extends ControlledFieldProps<ClientRadioFi
   disabled?: boolean
 }
 
+function updatePointCoordinate(
+  tuple: [number | null, number | null] | null,
+  index: 0 | 1,
+  valStr: string,
+): [number | null, number | null] | null {
+  if (valStr.trim() === '') {
+    const otherIndex = index === 0 ? 1 : 0
+    const otherVal = tuple?.[otherIndex]
+    if (otherVal === null || otherVal === undefined) {
+      return null
+    }
+    const next: [number | null, number | null] = [null, null]
+    next[otherIndex] = otherVal
+    return next
+  }
+  const num = Number(valStr)
+  const parsed = Number.isNaN(num) ? null : num
+  const otherIndex = index === 0 ? 1 : 0
+  const otherVal = tuple?.[otherIndex] ?? null
+  const next: [number | null, number | null] = [null, null]
+  next[index] = parsed
+  next[otherIndex] = otherVal
+  return next
+}
+
+interface CoordinateInputProps {
+  id: string
+  label: string
+  min: number
+  max: number
+  placeholder: string
+  value: number | ''
+  disabled?: boolean
+  required?: boolean
+  invalid?: boolean
+  describedBy?: string
+  onChange: (val: string) => void
+  onBlur: () => void
+  testId: string
+}
+
+function CoordinateInput({
+  id,
+  label,
+  min,
+  max,
+  placeholder,
+  value,
+  disabled,
+  required,
+  invalid,
+  describedBy,
+  onChange,
+  onBlur,
+  testId,
+}: CoordinateInputProps) {
+  return (
+    <div className="lt:flex lt:flex-col lt:gap-1.5">
+      <label htmlFor={id} className="lt:text-xs lt:font-medium lt:text-muted-foreground">
+        {label}
+      </label>
+      <Input
+        id={id}
+        type="number"
+        step="any"
+        min={min}
+        max={max}
+        placeholder={placeholder}
+        disabled={disabled}
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        onBlur={onBlur}
+        aria-label={required ? `${label} (required)` : label}
+        aria-required={required}
+        aria-invalid={invalid}
+        aria-describedby={describedBy}
+        data-testid={testId}
+      />
+    </div>
+  )
+}
+
+interface PointInputControlsProps {
+  field: ClientPointField
+  controlled: {
+    value: unknown
+    onChange: (val: unknown) => void
+    onBlur: () => void
+    disabled?: boolean
+  }
+  a11y: ControlledFieldProps<ClientPointField>['a11y']
+  disabled?: boolean
+}
+
+function PointInputControls({ field, controlled, a11y, disabled }: PointInputControlsProps) {
+  const tuple = Array.isArray(controlled.value)
+    ? (controlled.value as [number | null, number | null])
+    : null
+  const lngVal = tuple && typeof tuple[0] === 'number' ? tuple[0] : ''
+  const latVal = tuple && typeof tuple[1] === 'number' ? tuple[1] : ''
+  const isDisabled = disabled || controlled.disabled
+
+  return (
+    <div className="lt:grid lt:grid-cols-2 lt:gap-3">
+      <CoordinateInput
+        id={`${field.name}-lng`}
+        label="Longitude"
+        min={-180}
+        max={180}
+        placeholder="Longitude (-180 to 180)"
+        value={lngVal}
+        disabled={isDisabled}
+        required={a11y.required}
+        invalid={a11y.invalid}
+        describedBy={a11y.describedBy}
+        onChange={(text) => controlled.onChange(updatePointCoordinate(tuple, 0, text))}
+        onBlur={controlled.onBlur}
+        testId={`point-input-${field.name}-lng`}
+      />
+      <CoordinateInput
+        id={`${field.name}-lat`}
+        label="Latitude"
+        min={-90}
+        max={90}
+        placeholder="Latitude (-90 to 90)"
+        value={latVal}
+        disabled={isDisabled}
+        required={a11y.required}
+        invalid={a11y.invalid}
+        describedBy={a11y.describedBy}
+        onChange={(text) => controlled.onChange(updatePointCoordinate(tuple, 1, text))}
+        onBlur={controlled.onBlur}
+        testId={`point-input-${field.name}-lat`}
+      />
+    </div>
+  )
+}
+
+export interface PointFieldInputProps extends ControlledFieldProps<ClientPointField> {
+  disabled?: boolean
+}
+
+function PointFieldInput({ field, control, a11y, disabled }: PointFieldInputProps) {
+  return (
+    <Controller
+      control={control}
+      name={field.name}
+      defaultValue={field.defaultValue ?? null}
+      render={({ field: controlled }) => (
+        <PointInputControls field={field} controlled={controlled} a11y={a11y} disabled={disabled} />
+      )}
+    />
+  )
+}
+
 function RadioFieldInput({ field, control, a11y, disabled }: RadioFieldInputProps) {
   const initialValue = field.defaultValue ?? ''
 
@@ -797,6 +953,8 @@ function StandardFieldInput(props: StandardFieldInputProps) {
       return <NumberFieldInput {...props} field={field} />
     case 'json':
       return <JsonFieldInput {...props} field={field} />
+    case 'point':
+      return <PointFieldInput {...props} field={field} />
     case 'checkbox':
       return <CheckboxFieldInput {...props} field={field} />
     case 'select':

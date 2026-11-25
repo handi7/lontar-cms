@@ -188,6 +188,33 @@ describe('collectionToTable', () => {
     expect(col(columns, 'optionalChoice').notNull).toBe(false)
   })
 
+  it('creates columns for point fields (ADR 0031)', () => {
+    const places: CollectionConfig = {
+      slug: 'places',
+      fields: {
+        location: {
+          type: 'point',
+          required: true,
+        },
+        optionalLocation: {
+          type: 'point',
+        },
+      },
+    }
+
+    const table = collectionToTable(places)
+    const columns = getTableColumns(table) as Record<string, AnyPgColumn>
+
+    expect(col(columns, 'location__lng').columnType).toBe('PgDoublePrecision')
+    expect(col(columns, 'location__lng').notNull).toBe(true)
+    expect(col(columns, 'location__lat').columnType).toBe('PgDoublePrecision')
+    expect(col(columns, 'location__lat').notNull).toBe(true)
+    expect(col(columns, 'optionalLocation__lng').columnType).toBe('PgDoublePrecision')
+    expect(col(columns, 'optionalLocation__lng').notNull).toBe(false)
+    expect(col(columns, 'optionalLocation__lat').columnType).toBe('PgDoublePrecision')
+    expect(col(columns, 'optionalLocation__lat').notNull).toBe(false)
+  })
+
   it('creates automatic upload columns when upload is enabled on collection', () => {
     const media: CollectionConfig = {
       slug: 'media',

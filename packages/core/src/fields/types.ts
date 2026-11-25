@@ -265,12 +265,20 @@ export interface JsonField extends BaseField {
   defaultValue?: JsonValue
 }
 
+export interface PointField extends BaseField {
+  type: 'point'
+  defaultValue?: [number, number]
+}
+
+export type PointFieldOptions = Omit<PointField, 'type'>
+
 export type Field =
   | TextField
   | NumberField
   | TextareaField
   | CodeField
   | JsonField
+  | PointField
   | EmailField
   | SlugField
   | CheckboxField

@@ -60,6 +60,11 @@ describe('fields', () => {
       layout: 'horizontal',
       defaultValue: 'light',
     })
+    expect(f.point({ defaultValue: [106.8456, -6.2088], required: true })).toStrictEqual({
+      type: 'point',
+      defaultValue: [106.8456, -6.2088],
+      required: true,
+    })
     expect(f.date({ required: true })).toStrictEqual({
       type: 'date',
       required: true,

@@ -249,6 +249,7 @@ export const snippetsCollection: CollectionConfig = {
       defaultValue: 'draft',
       required: true,
     },
+    location: { type: 'point' },
   },
 }
 

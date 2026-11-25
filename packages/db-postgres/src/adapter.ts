@@ -67,6 +67,7 @@ import {
   type VersionsTable,
 } from './schema/table'
 import {
+  flattenPointValue,
   projectStoredDoc,
   resolveLocaleContext,
   sanitizeDataWithLocale,
@@ -92,6 +93,18 @@ type DbExecutor = AdapterDb | AdapterTx
 type InsertValues = Parameters<ReturnType<AdapterDb['insert']>['values']>[0]
 type UpdateSetValues = Parameters<ReturnType<AdapterDb['update']>['set']>[0]
 
+function unflattenPointField(
+  row: Record<string, unknown>,
+  prefix: string,
+): [number, number] | null {
+  const lng = row[`${prefix}__lng`]
+  const lat = row[`${prefix}__lat`]
+  if ((lng === null || lng === undefined) && (lat === null || lat === undefined)) {
+    return null
+  }
+  return [Number(lng), Number(lat)]
+}
+
 function unflattenSubField(
   row: Record<string, unknown>,
   colName: string,
@@ -100,6 +113,10 @@ function unflattenSubField(
   if (subField.type === 'group') {
     const nested = unflattenGroupField(row, colName, subField)
     return { value: nested, hasValue: nested !== null }
+  }
+  if (subField.type === 'point') {
+    const pt = unflattenPointField(row, colName)
+    return { value: pt, hasValue: pt !== null }
   }
   const val = row[colName]
   const value = val instanceof Date ? val.toISOString() : (val ?? null)
@@ -133,6 +150,8 @@ function unflattenDoc(doc: Record<string, unknown>, fields?: Fields): Record<str
   for (const [fieldName, field] of Object.entries(fields)) {
     if (field.type === 'group') {
       result[fieldName] = unflattenGroupField(doc, fieldName, field)
+    } else if (field.type === 'point') {
+      result[fieldName] = unflattenPointField(doc, fieldName)
     }
   }
   for (const key of Object.keys(result)) {
@@ -290,6 +309,23 @@ function sanitizeFieldValue(
   }
 }
 
+function flattenSubFieldValue(
+  subField: Field,
+  subVal: unknown,
+  fullCol: string,
+): Record<string, unknown> | null {
+  if (subField.type === 'group') {
+    return flattenGroupValue(subField, subVal, fullCol)
+  }
+  if (subField.type === 'point') {
+    return flattenPointValue(subVal, fullCol)
+  }
+  if (!(subField.type === 'relationship' && subField.hasMany)) {
+    return { [fullCol]: sanitizeFieldValue(subField, subVal) }
+  }
+  return null
+}
+
 function flattenGroupValue(
   groupField: GroupField,
   val: unknown,
@@ -308,11 +344,9 @@ function flattenGroupValue(
   for (const [subKey, subVal] of Object.entries(val as Record<string, unknown>)) {
     const subField = groupField.fields[subKey]
     if (!subField) continue
-    const fullCol = `${colName}__${subKey}`
-    if (subField.type === 'group') {
-      Object.assign(result, flattenGroupValue(subField, subVal, fullCol))
-    } else if (!(subField.type === 'relationship' && subField.hasMany)) {
-      result[fullCol] = sanitizeFieldValue(subField, subVal)
+    const flattened = flattenSubFieldValue(subField, subVal, `${colName}__${subKey}`)
+    if (flattened) {
+      Object.assign(result, flattened)
     }
   }
   return result
@@ -327,6 +361,8 @@ function sanitizeEntry(
   const field = fields[key]
   if (field?.type === 'group') {
     Object.assign(clean, flattenGroupValue(field, value, key))
+  } else if (field?.type === 'point') {
+    Object.assign(clean, flattenPointValue(value, key))
   } else if (!(field?.type === 'relationship' && field.hasMany)) {
     clean[key] = sanitizeFieldValue(field, value)
   }
@@ -419,9 +455,21 @@ interface ResolveStepResult {
   skipCount?: number
 }
 
+function resolvePointStep(parts: string[], i: number): ResolveStepResult | null {
+  const next = parts[i + 1]
+  if (next === 'lng' || next === 'longitude' || next === 'lat' || next === 'latitude') {
+    return { done: true, field: { type: 'number', name: next } as unknown as Field }
+  }
+  return null
+}
+
 function resolveStep(f: Field, parts: string[], i: number): ResolveStepResult {
   if (i === parts.length - 1) {
     return { done: true, field: f }
+  }
+  if (f.type === 'point') {
+    const pointResult = resolvePointStep(parts, i)
+    if (pointResult) return pointResult
   }
   if (f.type === 'group' || f.type === 'array') {
     if (parts[i + 1] === 'id') {
@@ -970,14 +1018,78 @@ function parseJsonFieldConditions(
   return parseJsonArrayConditions(column, pathInfo, filter)
 }
 
+function normalizePointPath(fieldPath: string): string {
+  return fieldPath
+    .replace(/\.longitude(?=$|\.|_)/g, '.lng')
+    .replace(/__longitude(?=$|\.|__|_)/g, '__lng')
+    .replace(/\.latitude(?=$|\.|_)/g, '.lat')
+    .replace(/__latitude(?=$|\.|__|_)/g, '__lat')
+}
+
 function resolveFilterColumnName(
   collection: CollectionConfig,
   fieldName: string,
   loc?: string,
 ): string {
-  const baseCol = fieldName.replace(/\./g, '__')
-  const isLoc = isPathLocalized(collection.fields, fieldName)
+  const normalized = normalizePointPath(fieldName)
+  const baseCol = normalized.replace(/\./g, '__')
+  const isLoc = isPathLocalized(collection.fields, normalized)
   return isLoc && loc ? `${baseCol}_${loc}` : baseCol
+}
+
+function isPointNullFilter(filter: unknown): boolean {
+  if (filter === null) return true
+  if (typeof filter === 'object' && filter !== null) {
+    return (filter as Record<string, unknown>).equals === null
+  }
+  return false
+}
+
+function isPointNotNullFilter(filter: unknown): boolean {
+  return (
+    typeof filter === 'object' &&
+    filter !== null &&
+    (filter as Record<string, unknown>).not_equals === null
+  )
+}
+
+function parsePointNullConditions(
+  table: DynamicTable,
+  baseColName: string,
+  filter: unknown,
+): SQL[] {
+  const colLng = table[`${baseColName}__lng`]
+  const colLat = table[`${baseColName}__lat`]
+  if (!colLng || !colLat) return []
+
+  if (isPointNullFilter(filter)) {
+    const cond = and(isNull(colLng), isNull(colLat))
+    return cond ? [cond] : []
+  }
+  if (isPointNotNullFilter(filter)) {
+    const cond = and(isNotNull(colLng), isNotNull(colLat))
+    return cond ? [cond] : []
+  }
+  return []
+}
+
+function parseSpecialFieldConditions(
+  field: Field | undefined,
+  table: DynamicTable,
+  junctionTables: Record<string, JunctionTable>,
+  colName: string,
+  fieldName: string,
+  filter: unknown,
+  localeCtx?: ResolvedLocaleContext,
+): SQL[] | null {
+  if (field?.type === 'point') {
+    return parsePointNullConditions(table, colName, filter)
+  }
+  if (field?.type === 'relationship' && field.hasMany) {
+    const jTable = junctionTables[colName] ?? junctionTables[fieldName]
+    return parseHasManyConditions(table, jTable, filter, localeCtx)
+  }
+  return null
 }
 
 function parseFieldConditions(
@@ -999,10 +1111,16 @@ function parseFieldConditions(
   }
 
   const colName = resolveFilterColumnName(collection, fieldName, resolveTargetLocale(localeCtx))
-  if (field?.type === 'relationship' && field.hasMany) {
-    const jTable = junctionTables[colName] ?? junctionTables[fieldName]
-    return parseHasManyConditions(table, jTable, filter, localeCtx)
-  }
+  const specialConds = parseSpecialFieldConditions(
+    field,
+    table,
+    junctionTables,
+    colName,
+    fieldName,
+    filter,
+    localeCtx,
+  )
+  if (specialConds !== null) return specialConds
 
   const column = Object.hasOwn(table, colName) ? table[colName] : undefined
   if (!column) return []
@@ -1081,8 +1199,9 @@ function defaultOrderBy(table: DynamicTable): SQL[] {
 }
 
 function resolveSortColumnName(item: SortItem, collection: CollectionConfig, loc?: string): string {
-  const baseCol = item.field.replace(/\./g, '__')
-  const isLoc = isPathLocalized(collection.fields, item.field)
+  const normalized = normalizePointPath(item.field)
+  const baseCol = normalized.replace(/\./g, '__')
+  const isLoc = isPathLocalized(collection.fields, normalized)
   return isLoc && loc ? `${baseCol}_${loc}` : baseCol
 }
 

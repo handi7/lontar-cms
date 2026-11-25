@@ -220,6 +220,7 @@ function renderField(name: string, field: Field): string {
   if (field.type === 'select' || field.type === 'radio') return renderSelectField(name, field)
   if (field.type === 'date') return renderDateField(name, field)
   if (field.type === 'richText') return renderRichTextField(name, field)
+  if (field.type === 'point') return `double('${name}')`
   throw new Error(`Unsupported field type: ${(field as Field).type}`)
 }
 
@@ -235,6 +236,7 @@ const FIELD_TYPE_IMPORTS: Record<string, string> = {
   checkbox: 'boolean',
   date: 'datetime',
   richText: 'json',
+  point: 'double',
   relationship: 'int',
   upload: 'int',
   array: 'json',
@@ -253,6 +255,9 @@ function collectFieldImports(field: Field, imports: Set<string>): void {
     imports.add(imp)
   }
   if (field.type === 'number' && !field.integer) {
+    imports.add('double')
+  }
+  if (field.type === 'point') {
     imports.add('double')
   }
 }

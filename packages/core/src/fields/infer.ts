@@ -8,6 +8,7 @@ interface FieldValueMap {
   textarea: string
   code: string
   json: JsonValue
+  point: [number, number]
   email: string
   slug: string
   checkbox: boolean
