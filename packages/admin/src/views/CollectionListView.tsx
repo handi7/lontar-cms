@@ -145,7 +145,18 @@ function renderUploadCell(val: unknown): React.ReactNode {
   return `#${String(val)}`
 }
 
+function renderScalarHasManyCell(val: unknown, field: ClientField): React.ReactNode | null {
+  if (Array.isArray(val) && (field.type === 'text' || field.type === 'number') && field.hasMany) {
+    if (val.length === 0) return <span className="lt:text-muted-foreground">—</span>
+    return val.join(', ')
+  }
+  return null
+}
+
 function renderFieldCell(val: unknown, field: ClientField): React.ReactNode {
+  const hasManyCell = renderScalarHasManyCell(val, field)
+  if (hasManyCell !== null) return hasManyCell
+
   switch (field.type) {
     case 'checkbox':
       return renderBooleanCell(val)

@@ -387,6 +387,60 @@ describe('toClientConfig', () => {
     ])
   })
 
+  it('serializes hasMany text and number fields', () => {
+    const col = clientCollection({
+      slug: 'items',
+      fields: {
+        tags: f.text({
+          label: 'Tags',
+          hasMany: true,
+          minRows: 1,
+          maxRows: 20,
+          minLength: 2,
+          maxLength: 30,
+          defaultValue: ['alpha', 'beta'],
+        }),
+        scores: f.number({
+          label: 'Scores',
+          hasMany: true,
+          minRows: 2,
+          maxRows: 10,
+          min: 0,
+          max: 100,
+          integer: true,
+          defaultValue: [10, 20],
+        }),
+      },
+    })
+    expect(col?.fields).toStrictEqual([
+      {
+        name: 'tags',
+        type: 'text',
+        label: 'Tags',
+        required: false,
+        hasMany: true,
+        minRows: 1,
+        maxRows: 20,
+        minLength: 2,
+        maxLength: 30,
+        defaultValue: ['alpha', 'beta'],
+      },
+      {
+        name: 'scores',
+        type: 'number',
+        label: 'Scores',
+        required: false,
+        hasMany: true,
+        minRows: 2,
+        maxRows: 10,
+        min: 0,
+        max: 100,
+        integer: true,
+        defaultValue: [10, 20],
+      },
+    ])
+  })
+
   it('serializes collection pagination settings when configured', () => {
     const col = clientCollection({
       slug: 'books',
@@ -1080,8 +1134,8 @@ describe('toClientConfig', () => {
 
     const client = toClientConfig(config)
 
-    // Version bumped to 3
-    expect(client.version).toBe(3)
+    // Version bumped to CLIENT_CONFIG_VERSION
+    expect(client.version).toBe(CLIENT_CONFIG_VERSION)
 
     // Localization serialized properly
     expect(client.localization).toStrictEqual({

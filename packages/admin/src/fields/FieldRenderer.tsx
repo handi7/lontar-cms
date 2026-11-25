@@ -44,6 +44,7 @@ import {
   Lock,
   Plus,
   Trash2,
+  X,
 } from 'lucide-react'
 import { Button } from '../components/ui/button'
 import { Badge } from '../components/ui/badge'
@@ -168,13 +169,241 @@ function asInputValue(value: unknown): string | number {
   return ''
 }
 
-function TextFieldInput({
-  field,
-  control,
-  a11y,
-  disabled,
-  placeholder,
-}: ControlledFieldProps<ClientTextField> & { placeholder?: string }) {
+interface HasManyTagBadgeProps {
+  tag: string
+  index: number
+  disabled?: boolean
+  onRemove: (index: number) => void
+}
+
+function HasManyTagBadge(props: HasManyTagBadgeProps) {
+  const { tag, index, disabled, onRemove } = props
+  return (
+    <Badge
+      variant="secondary"
+      className="lt:inline-flex lt:items-center lt:gap-1 lt:py-1 lt:px-2.5 lt:text-xs lt:font-normal"
+    >
+      <span>{tag}</span>
+      {!disabled && (
+        <button
+          type="button"
+          onClick={() => onRemove(index)}
+          className="lt:inline-flex lt:items-center lt:justify-center lt:size-3.5 lt:rounded-full lt:hover:bg-muted-foreground/20 lt:cursor-pointer"
+          aria-label={`Remove ${tag}`}
+        >
+          <X className="lt:size-3" />
+        </button>
+      )}
+    </Badge>
+  )
+}
+
+interface HasManyTextFieldInputProps extends ControlledFieldProps<ClientTextField> {
+  placeholder?: string
+}
+
+function HasManyTextFieldInput(props: HasManyTextFieldInputProps) {
+  const { field, control, a11y, disabled, placeholder } = props
+  const [inputValue, setInputValue] = useState('')
+  const maxRows = field.maxRows ?? 100
+
+  return (
+    <Controller
+      control={control}
+      name={field.name}
+      render={({ field: controlled }) => {
+        const items = Array.isArray(controlled.value)
+          ? (controlled.value as unknown as string[])
+          : []
+        const canAdd = !disabled && items.length < maxRows && inputValue.trim().length > 0
+
+        const handleAdd = () => {
+          const trimmed = inputValue.trim()
+          if (!trimmed || items.length >= maxRows) return
+          if (field.minLength !== undefined && trimmed.length < field.minLength) return
+          if (field.maxLength !== undefined && trimmed.length > field.maxLength) return
+          controlled.onChange([...items, trimmed])
+          setInputValue('')
+        }
+
+        const handleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
+          if (e.key === 'Enter') {
+            e.preventDefault()
+            handleAdd()
+          }
+        }
+
+        const handleRemove = (index: number) => {
+          controlled.onChange(items.filter((_, idx) => idx !== index))
+        }
+
+        return (
+          <div className="lt:flex lt:flex-col lt:gap-2">
+            {items.length > 0 && (
+              <div className="lt:flex lt:flex-wrap lt:gap-1.5" data-testid={`tags-${field.name}`}>
+                {items.map((item, idx) => (
+                  <HasManyTagBadge
+                    key={`${idx}-${item}`}
+                    tag={item}
+                    index={idx}
+                    disabled={disabled}
+                    onRemove={handleRemove}
+                  />
+                ))}
+              </div>
+            )}
+            {!disabled && items.length < maxRows && (
+              <div className="lt:flex lt:gap-2">
+                <Input
+                  id={field.name}
+                  type="text"
+                  value={inputValue}
+                  onChange={(e) => setInputValue(e.target.value)}
+                  onKeyDown={handleKeyDown}
+                  placeholder={placeholder ?? `Add ${field.label}...`}
+                  minLength={field.minLength}
+                  maxLength={field.maxLength}
+                  disabled={disabled}
+                  {...a11yProps(a11y)}
+                  className="lt:flex-1"
+                />
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  onClick={handleAdd}
+                  disabled={!canAdd}
+                >
+                  <Plus className="lt:size-4 lt:mr-1" />
+                  Add
+                </Button>
+              </div>
+            )}
+          </div>
+        )
+      }}
+    />
+  )
+}
+
+interface HasManyNumberRowProps {
+  value: number
+  index: number
+  field: ClientNumberField
+  disabled?: boolean
+  onChange: (index: number, val: number) => void
+  onRemove: (index: number) => void
+}
+
+function HasManyNumberRow(props: HasManyNumberRowProps) {
+  const { value, index, field, disabled, onChange, onRemove } = props
+  return (
+    <div className="lt:flex lt:items-center lt:gap-2">
+      <Input
+        type="number"
+        value={value}
+        step={field.integer ? '1' : 'any'}
+        min={field.min}
+        max={field.max}
+        disabled={disabled}
+        onChange={(e) => {
+          const parsed = parseNumberValue(e.target.value)
+          onChange(index, parsed ?? 0)
+        }}
+        className="lt:flex-1"
+      />
+      {!disabled && (
+        <Button
+          type="button"
+          variant="ghost"
+          size="icon"
+          onClick={() => onRemove(index)}
+          aria-label={`Remove row ${index + 1}`}
+          className="lt:size-8 lt:text-muted-foreground lt:hover:text-destructive"
+        >
+          <Trash2 className="lt:size-4" />
+        </Button>
+      )}
+    </div>
+  )
+}
+
+interface HasManyNumberFieldInputProps extends ControlledFieldProps<ClientNumberField> {
+  placeholder?: string
+}
+
+function HasManyNumberFieldInput(props: HasManyNumberFieldInputProps) {
+  const { field, control, disabled } = props
+  const maxRows = field.maxRows ?? 100
+
+  return (
+    <Controller
+      control={control}
+      name={field.name}
+      render={({ field: controlled }) => {
+        const items = Array.isArray(controlled.value)
+          ? (controlled.value as unknown as number[])
+          : []
+
+        const handleAdd = () => {
+          if (items.length >= maxRows) return
+          const defaultVal = field.min ?? 0
+          controlled.onChange([...items, defaultVal])
+        }
+
+        const handleChange = (index: number, val: number) => {
+          const next = [...items]
+          next[index] = val
+          controlled.onChange(next)
+        }
+
+        const handleRemove = (index: number) => {
+          controlled.onChange(items.filter((_, idx) => idx !== index))
+        }
+
+        return (
+          <div className="lt:flex lt:flex-col lt:gap-2">
+            {items.map((item, idx) => (
+              <HasManyNumberRow
+                key={idx}
+                value={item}
+                index={idx}
+                field={field}
+                disabled={disabled}
+                onChange={handleChange}
+                onRemove={handleRemove}
+              />
+            ))}
+            {!disabled && items.length < maxRows && (
+              <div>
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  onClick={handleAdd}
+                  disabled={disabled}
+                >
+                  <Plus className="lt:size-4 lt:mr-1" />
+                  Add {field.label}
+                </Button>
+              </div>
+            )}
+          </div>
+        )
+      }}
+    />
+  )
+}
+
+interface TextFieldInputProps extends ControlledFieldProps<ClientTextField> {
+  placeholder?: string
+}
+
+function TextFieldInput(props: TextFieldInputProps) {
+  if (props.field.hasMany) {
+    return <HasManyTextFieldInput {...props} />
+  }
+  const { field, control, a11y, disabled, placeholder } = props
   return (
     <Controller
       control={control}
@@ -196,13 +425,15 @@ function TextFieldInput({
   )
 }
 
-function NumberFieldInput({
-  field,
-  control,
-  a11y,
-  disabled,
-  placeholder,
-}: ControlledFieldProps<ClientNumberField> & { placeholder?: string }) {
+interface NumberFieldInputProps extends ControlledFieldProps<ClientNumberField> {
+  placeholder?: string
+}
+
+function NumberFieldInput(props: NumberFieldInputProps) {
+  if (props.field.hasMany) {
+    return <HasManyNumberFieldInput {...props} />
+  }
+  const { field, control, a11y, disabled, placeholder } = props
   return (
     <Controller
       control={control}

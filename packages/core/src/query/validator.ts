@@ -436,7 +436,7 @@ export function validateWhere(
 // -----------------------------------------------------------------------------
 
 function isScalarSortable(field: Field): boolean {
-  if (field.type === 'relationship' && field.hasMany) return false
+  if ('hasMany' in field && field.hasMany) return false
   return (
     field.type !== 'group' &&
     field.type !== 'array' &&
@@ -570,13 +570,23 @@ function isContainerField(collection: CollectionConfig, fieldPath: string): bool
   return field?.type === 'group' || field?.type === 'array' || field?.type === 'blocks'
 }
 
+function isDisallowedSortType(type?: string): boolean {
+  return type === 'richText' || type === 'json' || type === 'point'
+}
+
 function checkDisallowedTypeSort(
   topField: Field | undefined,
   topKey: string,
   field: string,
 ): QueryValidationIssue | null {
-  if (topKey !== field) return null
-  if (topField?.type === 'richText' || topField?.type === 'json' || topField?.type === 'point') {
+  if (topKey !== field || !topField) return null
+  if ('hasMany' in topField && topField.hasMany) {
+    return {
+      path: field,
+      message: `Cannot sort on field "${field}" with hasMany: true`,
+    }
+  }
+  if (isDisallowedSortType(topField.type)) {
     return {
       path: field,
       message: `Cannot sort on field "${field}" of type "${topField.type}"`,

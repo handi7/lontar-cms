@@ -50,6 +50,16 @@ function isColumnRequired(field: Field): boolean {
 }
 
 function renderTextField(name: string, field: TextField): string {
+  if (field.hasMany) {
+    let code = `json('${name}')`
+    if (field.defaultValue !== undefined) {
+      code += `.default(${JSON.stringify(field.defaultValue)})`
+    }
+    if (isColumnRequired(field)) {
+      code += '.notNull()'
+    }
+    return code
+  }
   const length = field.maxLength ?? 255
   let code = `varchar('${name}', { length: ${length} })`
   if (field.defaultValue !== undefined) {
@@ -62,9 +72,19 @@ function renderTextField(name: string, field: TextField): string {
 }
 
 function renderNumberField(name: string, field: NumberField): string {
+  if (field.hasMany) {
+    let code = `json('${name}')`
+    if (field.defaultValue !== undefined) {
+      code += `.default(${JSON.stringify(field.defaultValue)})`
+    }
+    if (isColumnRequired(field)) {
+      code += '.notNull()'
+    }
+    return code
+  }
   let code = field.integer ? `int('${name}')` : `double('${name}')`
   if (field.defaultValue !== undefined) {
-    code += `.default(${field.defaultValue})`
+    code += `.default(${JSON.stringify(field.defaultValue)})`
   }
   if (isColumnRequired(field)) {
     code += '.notNull()'
@@ -248,6 +268,10 @@ function collectFieldImports(field: Field, imports: Set<string>): void {
     for (const subField of Object.values(field.fields)) {
       collectFieldImports(subField, imports)
     }
+    return
+  }
+  if ((field.type === 'text' || field.type === 'number') && field.hasMany) {
+    imports.add('json')
     return
   }
   const imp = FIELD_TYPE_IMPORTS[field.type]

@@ -59,18 +59,24 @@ export interface BaseField {
 
 export interface TextField extends BaseField {
   type: 'text'
+  hasMany?: boolean
+  minRows?: number
+  maxRows?: number
   minLength?: number
   maxLength?: number
-  defaultValue?: string
+  defaultValue?: string | string[]
 }
 
 export interface NumberField extends BaseField {
   type: 'number'
+  hasMany?: boolean
+  minRows?: number
+  maxRows?: number
   min?: number
   max?: number
   /** Only whole numbers are valid, and the column is an integer type. */
   integer?: boolean
-  defaultValue?: number
+  defaultValue?: number | number[]
 }
 
 export interface TextareaField extends BaseField {

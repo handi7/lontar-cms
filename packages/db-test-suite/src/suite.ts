@@ -3543,6 +3543,114 @@ export function registerAdapterConformanceSuite(
         })
         expect(findSorted.docs.length).toBeGreaterThanOrEqual(2)
       })
+
+      it('stores, retrieves and queries hasMany text and number fields', async () => {
+        const created1 = await adapter.create({
+          collection: snippetsCollection,
+          data: {
+            title: 'Full Stack Snippet',
+            code: 'console.log("full stack")',
+            tags: ['typescript', 'node', 'cms'],
+            scores: [10, 20, 30],
+          },
+        })
+
+        const created2 = await adapter.create({
+          collection: snippetsCollection,
+          data: {
+            title: 'Frontend Snippet',
+            code: 'console.log("frontend")',
+            tags: ['react', 'css'],
+            scores: [40, 50],
+          },
+        })
+
+        const created3 = await adapter.create({
+          collection: snippetsCollection,
+          data: {
+            title: 'Untagged Snippet',
+            code: 'console.log("untagged")',
+            tags: null,
+            scores: null,
+          },
+        })
+
+        const fetched = await adapter.findByID({
+          collection: snippetsCollection,
+          id: created1.id,
+        })
+        expect(fetched?.tags).toEqual(['typescript', 'node', 'cms'])
+        expect(fetched?.scores).toEqual([10, 20, 30])
+
+        // Query text contains
+        const resContainsNode = await adapter.find({
+          collection: snippetsCollection,
+          page: 1,
+          limit: 10,
+          where: { tags: { contains: 'node' } },
+        })
+        expect(resContainsNode.docs.some((d) => d.id === created1.id)).toBe(true)
+        expect(resContainsNode.docs.some((d) => d.id === created2.id)).toBe(false)
+
+        // Query text in
+        const resInTags = await adapter.find({
+          collection: snippetsCollection,
+          page: 1,
+          limit: 10,
+          where: { tags: { in: ['python', 'react'] } },
+        })
+        expect(resInTags.docs.some((d) => d.id === created2.id)).toBe(true)
+        expect(resInTags.docs.some((d) => d.id === created1.id)).toBe(false)
+
+        // Query number contains
+        const resContainsScore = await adapter.find({
+          collection: snippetsCollection,
+          page: 1,
+          limit: 10,
+          where: { scores: { contains: 20 } },
+        })
+        expect(resContainsScore.docs.some((d) => d.id === created1.id)).toBe(true)
+        expect(resContainsScore.docs.some((d) => d.id === created2.id)).toBe(false)
+
+        // Query number in
+        const resInScores = await adapter.find({
+          collection: snippetsCollection,
+          page: 1,
+          limit: 10,
+          where: { scores: { in: [99, 50] } },
+        })
+        expect(resInScores.docs.some((d) => d.id === created2.id)).toBe(true)
+        expect(resInScores.docs.some((d) => d.id === created1.id)).toBe(false)
+
+        // Query exact equality
+        const resEquals = await adapter.find({
+          collection: snippetsCollection,
+          page: 1,
+          limit: 10,
+          where: { tags: { equals: ['react', 'css'] } },
+        })
+        expect(resEquals.docs.some((d) => d.id === created2.id)).toBe(true)
+        expect(resEquals.docs.some((d) => d.id === created1.id)).toBe(false)
+
+        // Query null and not null
+        const resNull = await adapter.find({
+          collection: snippetsCollection,
+          page: 1,
+          limit: 10,
+          where: { tags: null },
+        })
+        expect(resNull.docs.some((d) => d.id === created3.id)).toBe(true)
+        expect(resNull.docs.some((d) => d.id === created1.id)).toBe(false)
+
+        const resNotNull = await adapter.find({
+          collection: snippetsCollection,
+          page: 1,
+          limit: 10,
+          where: { tags: { not_equals: null } },
+        })
+        expect(resNotNull.docs.some((d) => d.id === created1.id)).toBe(true)
+        expect(resNotNull.docs.some((d) => d.id === created3.id)).toBe(false)
+      })
     })
   })
 }

@@ -1,7 +1,7 @@
 import type { FieldCondition } from './condition'
 
 /** Bumped whenever the shape below changes incompatibly. */
-export const CLIENT_CONFIG_VERSION = 3
+export const CLIENT_CONFIG_VERSION = 4
 
 export interface ClientAuthConfig {
   roles: string[]
@@ -140,17 +140,23 @@ export interface ClientFieldBase {
 
 export interface ClientTextField extends ClientFieldBase {
   type: 'text'
+  hasMany?: boolean
+  minRows?: number
+  maxRows?: number
   minLength?: number
   maxLength?: number
-  defaultValue?: string
+  defaultValue?: string | string[]
 }
 
 export interface ClientNumberField extends ClientFieldBase {
   type: 'number'
+  hasMany?: boolean
+  minRows?: number
+  maxRows?: number
   min?: number
   max?: number
   integer?: boolean
-  defaultValue?: number
+  defaultValue?: number | number[]
 }
 
 export interface ClientTextareaField extends ClientFieldBase {

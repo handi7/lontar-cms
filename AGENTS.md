@@ -275,7 +275,7 @@ approval on the `npm` environment. Don't run `pnpm publish` by hand; see `docs/r
   - [x] #505 `fields: implement the json field` (done)
   - [x] #506 `fields: implement the radio field` (done)
   - [x] #507 `fields: implement the point field` (done)
-  - [ ] #508 `fields: hasMany for text and number`
+  - [x] #508 `fields: hasMany for text and number` (done)
   - [ ] #509 `fields: tabs, row and collapsible layout fields in core`
   - [ ] #510 `admin: render tabs, row and collapsible layout fields`
   - [ ] #511 `fields: polymorphic relationships in core and both adapters`

@@ -677,6 +677,75 @@ describe('FieldRenderer', () => {
     fireEvent.change(lngInput, { target: { value: '107.5' } })
     expect(lngInput.value).toBe('107.5')
   })
+
+  it('renders hasMany text field with tag badges, add input and remove button', () => {
+    const field: ClientTextField = {
+      name: 'tags',
+      type: 'text',
+      label: 'Tags',
+      hasMany: true,
+      required: false,
+    }
+
+    render(
+      <FormWrapper defaultValues={{ tags: ['react', 'node'] }}>
+        {({ control, register, setValue }) => (
+          <FieldRenderer field={field} control={control} register={register} setValue={setValue} />
+        )}
+      </FormWrapper>,
+    )
+
+    expect(screen.getByText('react')).toBeTruthy()
+    expect(screen.getByText('node')).toBeTruthy()
+
+    const input = screen.getByPlaceholderText('Add Tags...')
+    const addButton = screen.getByRole('button', { name: /^add$/i })
+
+    fireEvent.change(input, { target: { value: 'vue' } })
+    fireEvent.click(addButton)
+
+    expect(screen.getByText('vue')).toBeTruthy()
+
+    const removeReactBtn = screen.getByRole('button', { name: 'Remove react' })
+    fireEvent.click(removeReactBtn)
+    expect(screen.queryByText('react')).toBeNull()
+  })
+
+  it('renders hasMany number field with rows and add button', () => {
+    const field: ClientNumberField = {
+      name: 'scores',
+      type: 'number',
+      label: 'Scores',
+      hasMany: true,
+      integer: true,
+      required: false,
+    }
+
+    render(
+      <FormWrapper defaultValues={{ scores: [10, 20] }}>
+        {({ control, register, setValue }) => (
+          <FieldRenderer field={field} control={control} register={register} setValue={setValue} />
+        )}
+      </FormWrapper>,
+    )
+
+    const inputs = screen.getAllByRole<HTMLInputElement>('spinbutton')
+    expect(inputs).toHaveLength(2)
+    expect(inputs[0]?.value).toBe('10')
+    expect(inputs[1]?.value).toBe('20')
+
+    const addBtn = screen.getByRole('button', { name: /add scores/i })
+    fireEvent.click(addBtn)
+
+    const updatedInputs = screen.getAllByRole<HTMLInputElement>('spinbutton')
+    expect(updatedInputs).toHaveLength(3)
+
+    const removeBtn = screen.getByRole('button', { name: 'Remove row 1' })
+    fireEvent.click(removeBtn)
+
+    const finalInputs = screen.getAllByRole<HTMLInputElement>('spinbutton')
+    expect(finalInputs).toHaveLength(2)
+  })
 })
 
 describe('FieldRenderer accessibility and binding', () => {

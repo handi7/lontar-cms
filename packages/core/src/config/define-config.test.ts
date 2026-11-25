@@ -1941,4 +1941,119 @@ describe('admin.views validation (#467)', () => {
     expect(issuesOfViews([], [views])).toEqual([])
     expect(issuesOfViews(undefined, [views])).toEqual([])
   })
+
+  it('validates hasMany scalar fields (text and number)', () => {
+    // Valid text and number hasMany fields
+    expect(
+      issuesOf([
+        notes({
+          fields: {
+            tags: f.text({
+              hasMany: true,
+              minRows: 1,
+              maxRows: 10,
+              defaultValue: ['a', 'b'],
+            }),
+            scores: f.number({
+              hasMany: true,
+              minRows: 0,
+              maxRows: 5,
+              defaultValue: [1, 2],
+            }),
+          },
+        }),
+      ]),
+    ).toEqual([])
+
+    // Rejects array defaultValue when hasMany is not true
+    expect(
+      issuesOf([
+        notes({
+          fields: {
+            title: f.text({
+              defaultValue: ['a', 'b'],
+            }),
+          },
+        }),
+      ]),
+    ).toEqual([
+      'Collection "notes": text field "title" defaultValue cannot be an array when hasMany is not true.',
+    ])
+
+    // Rejects minRows / maxRows when hasMany is not true
+    expect(
+      issuesOf([
+        notes({
+          fields: {
+            title: f.text({ minRows: 2 }),
+          },
+        }),
+      ]),
+    ).toEqual([
+      'Collection "notes": text field "title" cannot set minRows or maxRows unless hasMany is true.',
+    ])
+
+    // Rejects non-array defaultValue when hasMany is true
+    expect(
+      issuesOf([
+        notes({
+          fields: {
+            tags: f.text({
+              hasMany: true,
+              defaultValue: 'invalid',
+            }),
+          },
+        }),
+      ]),
+    ).toEqual([
+      'Collection "notes": text field "tags" defaultValue must be an array when hasMany is true.',
+    ])
+
+    // Rejects minRows > maxRows
+    expect(
+      issuesOf([
+        notes({
+          fields: {
+            tags: f.text({
+              hasMany: true,
+              minRows: 10,
+              maxRows: 2,
+            }),
+          },
+        }),
+      ]),
+    ).toEqual([
+      'Collection "notes": text field "tags" minRows (10) cannot be greater than maxRows (2).',
+    ])
+
+    // Rejects maxRows > 500
+    expect(
+      issuesOf([
+        notes({
+          fields: {
+            tags: f.text({
+              hasMany: true,
+              maxRows: 501,
+            }),
+          },
+        }),
+      ]),
+    ).toEqual(['Collection "notes": text field "tags" maxRows (501) exceeds maximum of 500.'])
+
+    // Rejects min > max on number
+    expect(
+      issuesOf([
+        notes({
+          fields: {
+            rating: f.number({
+              min: 10,
+              max: 2,
+            }),
+          },
+        }),
+      ]),
+    ).toEqual([
+      'Collection "notes": number field "rating" min (10) cannot be greater than max (2).',
+    ])
+  })
 })

@@ -15,6 +15,7 @@ import {
   lte,
   max,
   ne,
+  not,
   notInArray,
   or,
   sql,
@@ -403,7 +404,7 @@ function castConfigField(
   value: unknown,
 ): unknown {
   if (!field) return value
-  if (field.type === 'number' || field.type === 'relationship') {
+  if ((field.type === 'number' && !field.hasMany) || field.type === 'relationship') {
     const num = Number(value)
     return Number.isNaN(num) ? value : num
   }
@@ -1073,6 +1074,83 @@ function parsePointNullConditions(
   return []
 }
 
+function parsePgScalarContains(column: PgColumn, val: unknown): SQL {
+  return sql`(${column} IS NOT NULL AND ${column} @> ${JSON.stringify([val])}::jsonb)`
+}
+
+function parsePgScalarEquals(column: PgColumn, val: unknown): SQL {
+  if (val === null) return isNull(column)
+  return sql`(${column} IS NOT NULL AND ${column} = ${JSON.stringify(val)}::jsonb)`
+}
+
+function parsePgScalarIn(column: PgColumn, val: unknown): SQL | undefined {
+  if (!Array.isArray(val) || val.length === 0) return sql`1=0`
+  const conds = val.map((v) => parsePgScalarContains(column, v))
+  return or(...conds)
+}
+
+function parsePgScalarNotIn(column: PgColumn, val: unknown): SQL | undefined {
+  if (!Array.isArray(val) || val.length === 0) return undefined
+  const conds = val.map((v) => parsePgScalarContains(column, v))
+  const disjunction = or(...conds)
+  return disjunction ? not(disjunction) : undefined
+}
+
+function parsePgScalarHasManyOp(column: PgColumn, op: string, val: unknown): SQL | undefined {
+  switch (op) {
+    case 'contains':
+      return parsePgScalarContains(column, val)
+    case 'not_contains':
+      return sql`(${column} IS NULL OR NOT (${column} @> ${JSON.stringify([val])}::jsonb))`
+    case 'equals':
+      return parsePgScalarEquals(column, val)
+    case 'not_equals':
+      return val === null
+        ? isNotNull(column)
+        : sql`(${column} IS NULL OR ${column} != ${JSON.stringify(val)}::jsonb)`
+    case 'in':
+      return parsePgScalarIn(column, val)
+    case 'not_in':
+      return parsePgScalarNotIn(column, val)
+    case 'exists':
+      return val ? isNotNull(column) : isNull(column)
+    default:
+      return undefined
+  }
+}
+
+function parseScalarHasManyConditions(column: PgColumn, filter: unknown): SQL[] {
+  if (filter === null) {
+    return [isNull(column)]
+  }
+  if (Array.isArray(filter)) {
+    return [parsePgScalarEquals(column, filter)]
+  }
+  if (typeof filter !== 'object') {
+    return [parsePgScalarContains(column, filter)]
+  }
+  const conds: SQL[] = []
+  for (const [op, val] of Object.entries(filter as Record<string, unknown>)) {
+    const cond = parsePgScalarHasManyOp(column, op, val)
+    if (cond) conds.push(cond)
+  }
+  return conds
+}
+
+function isScalarHasMany(field?: Field): boolean {
+  if (!field || !('hasMany' in field) || !field.hasMany) return false
+  return field.type === 'text' || field.type === 'number'
+}
+
+function resolveScalarHasManyConditions(
+  table: DynamicTable,
+  colName: string,
+  filter: unknown,
+): SQL[] {
+  const column = Object.hasOwn(table, colName) ? table[colName] : undefined
+  return column ? parseScalarHasManyConditions(column, filter) : []
+}
+
 function parseSpecialFieldConditions(
   field: Field | undefined,
   table: DynamicTable,
@@ -1082,6 +1160,9 @@ function parseSpecialFieldConditions(
   filter: unknown,
   localeCtx?: ResolvedLocaleContext,
 ): SQL[] | null {
+  if (isScalarHasMany(field)) {
+    return resolveScalarHasManyConditions(table, colName, filter)
+  }
   if (field?.type === 'point') {
     return parsePointNullConditions(table, colName, filter)
   }

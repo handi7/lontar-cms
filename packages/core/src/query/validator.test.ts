@@ -525,6 +525,28 @@ describe('validateSort', () => {
       },
     ])
   })
+
+  it('rejects sorting on hasMany scalar fields (ADR 0031)', () => {
+    const hasManyCol: CollectionConfig = {
+      slug: 'items',
+      fields: {
+        tags: { type: 'text', hasMany: true },
+        scores: { type: 'number', hasMany: true },
+      },
+    }
+    expect(validateSort('tags', hasManyCol)).toEqual([
+      {
+        path: 'tags',
+        message: 'Cannot sort on field "tags" with hasMany: true',
+      },
+    ])
+    expect(validateSort('scores', hasManyCol)).toEqual([
+      {
+        path: 'scores',
+        message: 'Cannot sort on field "scores" with hasMany: true',
+      },
+    ])
+  })
 })
 
 describe('getTopKey', () => {

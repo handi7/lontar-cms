@@ -250,6 +250,8 @@ export const snippetsCollection: CollectionConfig = {
       required: true,
     },
     location: { type: 'point' },
+    tags: { type: 'text', hasMany: true },
+    scores: { type: 'number', hasMany: true, integer: true },
   },
 }
 

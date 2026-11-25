@@ -939,4 +939,28 @@ async function runInvalidLocale() {
     )
     expect(errorMessages.some((msg) => msg.includes('misspelled-locale'))).toBe(true)
   }, 15000)
+
+  it('generates string[] and number[] types for hasMany text and number fields', () => {
+    const config: Config = {
+      secret: 'test-secret',
+      db: { name: 'mock' } as unknown as Config['db'],
+      collections: [
+        {
+          slug: 'articles',
+          fields: {
+            tags: { type: 'text', hasMany: true, required: true },
+            optionalTags: { type: 'text', hasMany: true },
+            ratings: { type: 'number', hasMany: true, required: true },
+            optionalRatings: { type: 'number', hasMany: true },
+          },
+        },
+      ],
+    }
+
+    const output = generateTypes(config)
+    expect(output).toContain('tags: string[]')
+    expect(output).toContain('optionalTags?: string[] | null')
+    expect(output).toContain('ratings: number[]')
+    expect(output).toContain('optionalRatings?: number[] | null')
+  })
 })
