@@ -15,6 +15,7 @@ import {
   type ClientGroupField,
   type ClientLocalizationConfig,
   type ClientNumberField,
+  type ClientPointField,
   type ClientRadioField,
   type ClientRelationshipField,
   type ClientRichTextField,
@@ -42,6 +43,7 @@ import type {
   GroupField,
   JsonField,
   NumberField,
+  PointField,
   RadioField,
   RelationshipField,
   RichTextField,
@@ -168,6 +170,12 @@ const toClientField = {
     ...baseField(name, field, parentLocalized),
     options: normalizeSelectOptions(field.options),
     layout: field.layout ?? 'vertical',
+    ...defined({
+      defaultValue: field.defaultValue,
+    }),
+  }),
+  point: (name: string, field: PointField, parentLocalized?: boolean): ClientPointField => ({
+    ...baseField(name, field, parentLocalized),
     ...defined({
       defaultValue: field.defaultValue,
     }),

@@ -72,6 +72,15 @@ const jsonCollection: CollectionConfig = {
   },
 }
 
+const pointCollection: CollectionConfig = {
+  slug: 'places',
+  labels: { singular: 'Place', plural: 'Places' },
+  fields: {
+    name: { type: 'text', required: true },
+    location: { type: 'point' },
+  },
+}
+
 describe('validateWhere', () => {
   it('returns empty array when where is undefined or empty', () => {
     expect(validateWhere(undefined, testCollection)).toEqual([])
@@ -314,6 +323,31 @@ describe('validateWhere', () => {
       },
     ])
   })
+
+  it('validates point fields: nullability on top-level, dot notation for coordinates, rejects unknown subpaths', () => {
+    expect(validateWhere({ location: null }, pointCollection)).toEqual([])
+    expect(validateWhere({ location: { equals: null } }, pointCollection)).toEqual([])
+    expect(validateWhere({ location: { not_equals: null } }, pointCollection)).toEqual([])
+    expect(validateWhere({ 'location.lng': { greater_than: 100 } }, pointCollection)).toEqual([])
+    expect(validateWhere({ 'location.lat': { less_than: 0 } }, pointCollection)).toEqual([])
+    expect(validateWhere({ 'location.longitude': { equals: 106.8456 } }, pointCollection)).toEqual(
+      [],
+    )
+    expect(validateWhere({ 'location.latitude': { equals: -6.2088 } }, pointCollection)).toEqual([])
+
+    expect(validateWhere({ location: { equals: [100, 20] } }, pointCollection)).toEqual([
+      {
+        path: 'location.equals',
+        message: 'Operator "equals" on point field "location" only supports null',
+      },
+    ])
+    expect(validateWhere({ 'location.unknown': { equals: 123 } }, pointCollection)).toEqual([
+      {
+        path: 'location.unknown',
+        message: 'Unknown field "location.unknown"',
+      },
+    ])
+  })
 })
 
 describe('validateSort', () => {
@@ -321,6 +355,12 @@ describe('validateSort', () => {
     expect(validateSort(undefined, testCollection)).toEqual([])
     expect(validateSort('', testCollection)).toEqual([])
     expect(validateSort([], testCollection)).toEqual([])
+  })
+
+  it('validates point field sort paths', () => {
+    expect(validateSort('location.lng', pointCollection)).toEqual([])
+    expect(validateSort('-location.lat', pointCollection)).toEqual([])
+    expect(validateSort('location.longitude', pointCollection)).toEqual([])
   })
 
   it('validates scalar and system fields', () => {

@@ -304,6 +304,8 @@ export type {
   JsonField,
   JsonValue,
   NumberField,
+  PointField,
+  PointFieldOptions,
   RadioField,
   RadioFieldOptions,
   RadioLayout,

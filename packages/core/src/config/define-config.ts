@@ -7,6 +7,7 @@ import type {
   Field,
   GroupField,
   JsonField,
+  PointField,
   RadioField,
   RelationshipField,
   SlugField,
@@ -881,6 +882,8 @@ function validateFieldType(
       return validateJsonField(where, name, field)
     case 'radio':
       return validateRadioField(where, name, field)
+    case 'point':
+      return validatePointField(where, name, field)
     case 'group':
     case 'array':
     case 'blocks':
@@ -1072,6 +1075,36 @@ function validateRadioField(where: string, name: string, field: RadioField): str
     issues.push(`${where}: radio field "${name}" layout must be either "horizontal" or "vertical".`)
   }
   return issues
+}
+
+function validatePointCoordinates(
+  where: string,
+  name: string,
+  defaultValue: [unknown, unknown],
+): string[] {
+  const issues: string[] = []
+  const [lng, lat] = defaultValue
+  if (typeof lng !== 'number' || Number.isNaN(lng) || lng < -180 || lng > 180) {
+    issues.push(
+      `${where}: point field "${name}" defaultValue longitude must be a number between -180 and 180.`,
+    )
+  }
+  if (typeof lat !== 'number' || Number.isNaN(lat) || lat < -90 || lat > 90) {
+    issues.push(
+      `${where}: point field "${name}" defaultValue latitude must be a number between -90 and 90.`,
+    )
+  }
+  return issues
+}
+
+function validatePointField(where: string, name: string, field: PointField): string[] {
+  if (field.defaultValue === undefined) return []
+  if (!Array.isArray(field.defaultValue) || field.defaultValue.length !== 2) {
+    return [
+      `${where}: point field "${name}" defaultValue must be a 2-element tuple [longitude, latitude].`,
+    ]
+  }
+  return validatePointCoordinates(where, name, field.defaultValue)
 }
 
 function validateSlug(slug: string, kind = 'Collection'): string[] {

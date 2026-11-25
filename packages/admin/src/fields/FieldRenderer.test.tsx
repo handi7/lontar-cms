@@ -15,6 +15,7 @@ import {
   type ClientGroupField,
   type ClientJsonField,
   type ClientNumberField,
+  type ClientPointField,
   type ClientRadioField,
   type ClientRelationshipField,
   type ClientRichTextField,
@@ -646,6 +647,35 @@ describe('FieldRenderer', () => {
 
     expect(screen.getByText('Cover Image')).toBeTruthy()
     expect(screen.getByTestId('upload-picker-browse-btn')).toBeTruthy()
+  })
+
+  it('renders point field with longitude and latitude inputs (ADR 0031)', () => {
+    const field: ClientPointField = {
+      name: 'location',
+      type: 'point',
+      label: 'Location',
+      required: true,
+    }
+
+    render(
+      <FormWrapper defaultValues={{ location: [106.8456, -6.2088] }}>
+        {({ control, register, setValue }) => (
+          <FieldRenderer field={field} control={control} register={register} setValue={setValue} />
+        )}
+      </FormWrapper>,
+    )
+
+    const lngInput = screen.getByTestId<HTMLInputElement>('point-input-location-lng')
+    const latInput = screen.getByTestId<HTMLInputElement>('point-input-location-lat')
+
+    expect(screen.getByText('Location')).toBeTruthy()
+    expect(screen.getByText('Longitude')).toBeTruthy()
+    expect(screen.getByText('Latitude')).toBeTruthy()
+    expect(lngInput.value).toBe('106.8456')
+    expect(latInput.value).toBe('-6.2088')
+
+    fireEvent.change(lngInput, { target: { value: '107.5' } })
+    expect(lngInput.value).toBe('107.5')
   })
 })
 

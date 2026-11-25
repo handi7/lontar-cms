@@ -31,6 +31,7 @@ export type {
   ClientLocale,
   ClientLocalizationConfig,
   ClientNumberField,
+  ClientPointField,
   ClientPreviewConfig,
   ClientRadioField,
   ClientRadioLayout,

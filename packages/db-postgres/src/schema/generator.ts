@@ -230,6 +230,7 @@ function renderField(name: string, field: Field): string {
   if (field.type === 'select' || field.type === 'radio') return renderSelectField(name, field)
   if (field.type === 'date') return renderDateField(name, field)
   if (field.type === 'richText') return renderRichTextField(name, field)
+  if (field.type === 'point') return `doublePrecision('${name}')`
   throw new Error(`Unsupported field type: ${(field as Field).type}`)
 }
 
@@ -245,6 +246,7 @@ const FIELD_TYPE_IMPORTS: Record<string, string> = {
   checkbox: 'boolean',
   date: 'timestamp',
   richText: 'jsonb',
+  point: 'doublePrecision',
   relationship: 'integer',
   upload: 'integer',
   array: 'jsonb',

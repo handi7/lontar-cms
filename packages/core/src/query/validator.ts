@@ -115,6 +115,32 @@ function addBlocksFieldToAllowed(
   }
 }
 
+function addPointFieldToAllowed(
+  allowed: Set<string>,
+  name: string,
+  field: Field,
+  locales: string[],
+  parentLocalized: boolean,
+): void {
+  if (field.type !== 'point') return
+  const isLoc = parentLocalized || Boolean(field.localized)
+  const subKeys = ['lng', 'longitude', 'lat', 'latitude']
+  for (const sub of subKeys) {
+    allowed.add(`${name}.${sub}`)
+    allowed.add(`${name}__${sub}`)
+    if (isLoc && locales.length > 0) {
+      for (const loc of locales) {
+        allowed.add(`${name}.${sub}_${loc}`)
+        allowed.add(`${name}__${sub}_${loc}`)
+        allowed.add(`${name}.${sub}.${loc}`)
+        allowed.add(`${name}__${sub}__${loc}`)
+        allowed.add(`${name}_${loc}.${sub}`)
+        allowed.add(`${name}_${loc}__${sub}`)
+      }
+    }
+  }
+}
+
 function addFieldToAllowed(
   allowed: Set<string>,
   name: string,
@@ -127,6 +153,7 @@ function addFieldToAllowed(
   if (isLoc && locales.length > 0) {
     addLocalizedVariations(allowed, name, locales)
   }
+  addPointFieldToAllowed(allowed, name, field, locales, isLoc)
   addGroupFieldToAllowed(allowed, name, field, locales, isLoc)
   addArrayFieldToAllowed(allowed, name, field, locales, isLoc)
   addBlocksFieldToAllowed(allowed, name, field, locales, isLoc)
@@ -223,19 +250,63 @@ function validateJsonFieldFilter(
   }
 }
 
+function validatePointFieldFilter(
+  fieldPath: string,
+  filter: unknown,
+  issues: QueryValidationIssue[],
+): void {
+  if (filter === null) {
+    return
+  }
+  if (typeof filter !== 'object' || Array.isArray(filter) || filter instanceof Date) {
+    issues.push({
+      path: fieldPath,
+      message: `Field "${fieldPath}" of type "point" only supports nullability filters or coordinate subpaths`,
+    })
+    return
+  }
+  for (const [op, val] of Object.entries(filter)) {
+    if (op !== 'equals' && op !== 'not_equals') {
+      issues.push({
+        path: `${fieldPath}.${op}`,
+        message: `Operator "${op}" is not supported on point field "${fieldPath}"`,
+      })
+    } else if (val !== null) {
+      issues.push({
+        path: `${fieldPath}.${op}`,
+        message: `Operator "${op}" on point field "${fieldPath}" only supports null`,
+      })
+    }
+  }
+}
+
+function validateSpecialTopFieldFilter(
+  collection: CollectionConfig,
+  fieldPath: string,
+  filter: unknown,
+  issues: QueryValidationIssue[],
+): boolean {
+  const topKey = getTopKey(fieldPath)
+  const topField = resolveTopField(collection, topKey)
+  if (topField?.type === 'json') {
+    validateJsonFieldFilter(fieldPath, filter, issues)
+    return true
+  }
+  if (topField?.type === 'point' && fieldPath === topKey) {
+    validatePointFieldFilter(fieldPath, filter, issues)
+    return true
+  }
+  return false
+}
+
 function validateFieldFilter(
   fieldPath: string,
   filter: unknown,
   issues: QueryValidationIssue[],
   collection?: CollectionConfig,
 ): void {
-  if (collection) {
-    const topKey = getTopKey(fieldPath)
-    const topField = resolveTopField(collection, topKey)
-    if (topField?.type === 'json') {
-      validateJsonFieldFilter(fieldPath, filter, issues)
-      return
-    }
+  if (collection && validateSpecialTopFieldFilter(collection, fieldPath, filter, issues)) {
+    return
   }
 
   if (filter === null || typeof filter !== 'object' || filter instanceof Date) {
@@ -371,8 +442,35 @@ function isScalarSortable(field: Field): boolean {
     field.type !== 'array' &&
     field.type !== 'blocks' &&
     field.type !== 'richText' &&
-    field.type !== 'json'
+    field.type !== 'json' &&
+    field.type !== 'point'
   )
+}
+
+function addPointSortableFields(
+  sortable: Set<string>,
+  basePath: string,
+  locales: string[],
+  isLoc: boolean,
+): void {
+  const subPaths = [
+    `${basePath}.lng`,
+    `${basePath}__lng`,
+    `${basePath}.longitude`,
+    `${basePath}__longitude`,
+    `${basePath}.lat`,
+    `${basePath}__lat`,
+    `${basePath}.latitude`,
+    `${basePath}__latitude`,
+  ]
+  for (const p of subPaths) {
+    sortable.add(p)
+  }
+  if (isLoc && locales.length > 0) {
+    for (const p of subPaths) {
+      addLocalizedVariations(sortable, p, locales)
+    }
+  }
 }
 
 function collectSortableGroupFields(
@@ -393,6 +491,9 @@ function collectSortableGroupFields(
         addLocalizedVariations(sortable, dotPath, locales)
         addLocalizedVariations(sortable, underPath, locales)
       }
+    } else if (subField.type === 'point') {
+      addPointSortableFields(sortable, dotPath, locales, isLoc)
+      addPointSortableFields(sortable, underPath, locales, isLoc)
     } else if (subField.type === 'group') {
       collectSortableGroupFields(sortable, dotPath, subField.fields, locales, isLoc)
       collectSortableGroupFields(sortable, underPath, subField.fields, locales, isLoc)
@@ -430,6 +531,8 @@ function collectSortableFields(
       if (isLoc && locales.length > 0) {
         addLocalizedVariations(sortable, name, locales)
       }
+    } else if (field.type === 'point') {
+      addPointSortableFields(sortable, name, locales, isLoc)
     } else if (field.type === 'group') {
       collectSortableGroupFields(sortable, name, field.fields, locales, isLoc)
     }
@@ -473,7 +576,7 @@ function checkDisallowedTypeSort(
   field: string,
 ): QueryValidationIssue | null {
   if (topKey !== field) return null
-  if (topField?.type === 'richText' || topField?.type === 'json') {
+  if (topField?.type === 'richText' || topField?.type === 'json' || topField?.type === 'point') {
     return {
       path: field,
       message: `Cannot sort on field "${field}" of type "${topField.type}"`,

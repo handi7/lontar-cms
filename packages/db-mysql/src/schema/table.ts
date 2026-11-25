@@ -172,6 +172,7 @@ function fieldToColumn(name: string, field: Field) {
   if (field.type === 'select' || field.type === 'radio') return selectToColumn(name, field)
   if (field.type === 'date') return dateToColumn(name, field)
   if (field.type === 'richText') return richTextToColumn(name, field)
+  if (field.type === 'point') return double(name)
   throw new Error(`Unsupported field type: ${(field as Field).type}`)
 }
 
@@ -381,6 +382,34 @@ function flattenFieldEntry(
   const isLocalized = parentLocalized || Boolean(field.localized)
   if (field.type === 'group') {
     return flattenGroupFields(field.fields, colName, currentPath, isConditional, isLocalized)
+  }
+  if (field.type === 'point') {
+    return [
+      {
+        name: `${colName}__lng`,
+        path: [...currentPath, 'lng'],
+        field: {
+          type: 'number',
+          name: `${colName}__lng`,
+          required: isColumnRequired(field),
+          defaultValue: field.defaultValue ? field.defaultValue[0] : undefined,
+          admin: field.admin,
+          localized: isLocalized,
+        } as unknown as Field,
+      },
+      {
+        name: `${colName}__lat`,
+        path: [...currentPath, 'lat'],
+        field: {
+          type: 'number',
+          name: `${colName}__lat`,
+          required: isColumnRequired(field),
+          defaultValue: field.defaultValue ? field.defaultValue[1] : undefined,
+          admin: field.admin,
+          localized: isLocalized,
+        } as unknown as Field,
+      },
+    ]
   }
   return [
     {

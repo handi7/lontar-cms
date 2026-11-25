@@ -70,6 +70,48 @@ export function isEmptyForFallback(value: unknown, field?: Field): boolean {
   return false
 }
 
+function parseCoordinate(val: unknown): number | null {
+  if (val === null || val === undefined) return null
+  const num = Number(val)
+  return Number.isNaN(num) ? null : num
+}
+
+function extractCoordinates(val: unknown): [number | null, number | null] | null {
+  if (val === null) return [null, null]
+  if (Array.isArray(val) && val.length === 2) {
+    return [parseCoordinate(val[0]), parseCoordinate(val[1])]
+  }
+  if (val && typeof val === 'object') {
+    const obj = val as Record<string, unknown>
+    const lng = obj.lng ?? obj.longitude
+    const lat = obj.lat ?? obj.latitude
+    return [parseCoordinate(lng), parseCoordinate(lat)]
+  }
+  return null
+}
+
+export function flattenPointValue(val: unknown, colName: string): Record<string, unknown> {
+  const coords = extractCoordinates(val)
+  if (!coords) return {}
+  return {
+    [`${colName}__lng`]: coords[0],
+    [`${colName}__lat`]: coords[1],
+  }
+}
+
+function extractPointFromRow(
+  row: Record<string, unknown>,
+  colLng: string,
+  colLat: string,
+): [number, number] | null {
+  const lng = row[colLng]
+  const lat = row[colLat]
+  if ((lng === null || lng === undefined) && (lat === null || lat === undefined)) {
+    return null
+  }
+  return [Number(lng), Number(lat)]
+}
+
 function extractRawValue(row: Record<string, unknown>, colName: string): unknown {
   const val = row[colName]
   return val instanceof Date ? val.toISOString() : (val ?? null)
@@ -290,6 +332,38 @@ function resolveJsonFieldValue(
   return { value: val, hasValue: val !== null && val !== undefined }
 }
 
+function resolvePointFieldValue(
+  row: Record<string, unknown>,
+  colName: string,
+  _field: Field,
+  localeCtx: ResolvedLocaleContext,
+  isFieldLocalized: boolean,
+): { value: unknown; hasValue: boolean } {
+  if (isFieldLocalized && localeCtx.allLocales.length > 0) {
+    if (localeCtx.isAll) {
+      const dict: Record<string, unknown> = {}
+      for (const loc of localeCtx.allLocales) {
+        dict[loc] = extractPointFromRow(row, `${colName}__lng_${loc}`, `${colName}__lat_${loc}`)
+      }
+      return { value: dict, hasValue: true }
+    }
+    const req = localeCtx.requestedLocale
+    let val = req
+      ? extractPointFromRow(row, `${colName}__lng_${req}`, `${colName}__lat_${req}`)
+      : null
+    if (val === null && localeCtx.fallbackLocale && localeCtx.fallbackLocale !== req) {
+      val = extractPointFromRow(
+        row,
+        `${colName}__lng_${localeCtx.fallbackLocale}`,
+        `${colName}__lat_${localeCtx.fallbackLocale}`,
+      )
+    }
+    return { value: val, hasValue: val !== null }
+  }
+  const val = extractPointFromRow(row, `${colName}__lng`, `${colName}__lat`)
+  return { value: val, hasValue: val !== null }
+}
+
 function resolveFieldValue(
   row: Record<string, unknown>,
   colName: string,
@@ -301,6 +375,9 @@ function resolveFieldValue(
   if (field.type === 'group') {
     const nested = projectGroup(row, colName, field, localeCtx, isFieldLocalized)
     return { value: nested, hasValue: nested !== null }
+  }
+  if (field.type === 'point') {
+    return resolvePointFieldValue(row, colName, field, localeCtx, isFieldLocalized)
   }
   if (field.type === 'relationship' && field.hasMany) {
     return { value: undefined, hasValue: false }
@@ -713,6 +790,39 @@ function shouldSkipField(field?: Field): boolean {
   return Boolean(field?.type === 'relationship' && field.hasMany)
 }
 
+function sanitizePointField(
+  clean: Record<string, unknown>,
+  fullKey: string,
+  _field: Field,
+  value: unknown,
+  localeCtx: ResolvedLocaleContext,
+  isLocalized: boolean,
+): void {
+  if (!isLocalized || localeCtx.allLocales.length === 0) {
+    Object.assign(clean, flattenPointValue(value, fullKey))
+    return
+  }
+  if (localeCtx.isAll) {
+    if (!value || typeof value !== 'object') return
+    const dict = value as Record<string, unknown>
+    for (const loc of localeCtx.allLocales) {
+      if (loc in dict) {
+        const pt = dict[loc]
+        const flat = flattenPointValue(pt, fullKey)
+        clean[`${fullKey}__lng_${loc}`] = flat[`${fullKey}__lng`]
+        clean[`${fullKey}__lat_${loc}`] = flat[`${fullKey}__lat`]
+      }
+    }
+    return
+  }
+  const loc = localeCtx.requestedLocale
+  if (loc) {
+    const flat = flattenPointValue(value, fullKey)
+    clean[`${fullKey}__lng_${loc}`] = flat[`${fullKey}__lng`]
+    clean[`${fullKey}__lat_${loc}`] = flat[`${fullKey}__lat`]
+  }
+}
+
 function sanitizeFieldEntry(
   clean: Record<string, unknown>,
   fields: Fields,
@@ -734,6 +844,10 @@ function sanitizeFieldEntry(
 
   if (field.type === 'group') {
     sanitizeGroupField(clean, key, field, value, localeCtx, existingDoc, fullKey, isLoc)
+    return
+  }
+  if (field.type === 'point') {
+    sanitizePointField(clean, fullKey, field, value, localeCtx, isLoc)
     return
   }
   if (isLoc && localeCtx.allLocales.length > 0) {

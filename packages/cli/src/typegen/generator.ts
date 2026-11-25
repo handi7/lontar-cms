@@ -107,6 +107,7 @@ const PRIMITIVE_FIELD_TYPES: Readonly<Record<string, string>> = {
   checkbox: 'boolean',
   richText: 'Record<string, unknown>',
   json: 'Record<string, unknown> | unknown[] | string | number | boolean | null',
+  point: '[number, number]',
 }
 
 function renderPrimitiveFieldType(type: string): string | null {

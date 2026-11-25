@@ -197,6 +197,28 @@ describe('generateSchemaFile', () => {
     )
   })
 
+  it('generates schema for point fields (ADR 0031)', () => {
+    const places: CollectionConfig = {
+      slug: 'places',
+      fields: {
+        location: {
+          type: 'point',
+          required: true,
+        },
+      },
+    }
+
+    const config: Config = {
+      secret: 'test-secret',
+      db: fakeAdapter,
+      collections: [places],
+    }
+
+    const output = generateSchemaFile(config)
+    expect(output).toContain("location__lng: double('location__lng').notNull(),")
+    expect(output).toContain("location__lat: double('location__lat').notNull(),")
+  })
+
   it('generates schema for checkbox, select, and date fields', () => {
     const articles: CollectionConfig = {
       slug: 'articles',

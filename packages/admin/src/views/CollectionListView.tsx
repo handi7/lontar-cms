@@ -104,6 +104,18 @@ function renderDateCell(val: unknown): string {
   return typeof val === 'string' ? val : ''
 }
 
+function renderPointCell(val: unknown): string {
+  if (
+    Array.isArray(val) &&
+    val.length === 2 &&
+    typeof val[0] === 'number' &&
+    typeof val[1] === 'number'
+  ) {
+    return `${val[0]}, ${val[1]}`
+  }
+  return ''
+}
+
 function getDocTitle(doc: Record<string, unknown>): string {
   if (typeof doc.filename === 'string' && doc.filename) return doc.filename
   if (typeof doc.title === 'string' && doc.title) return doc.title
@@ -142,6 +154,8 @@ function renderFieldCell(val: unknown, field: ClientField): React.ReactNode {
       return renderSelectCell(val, field)
     case 'date':
       return renderDateCell(val)
+    case 'point':
+      return renderPointCell(val)
     case 'upload':
       return renderUploadCell(val)
     default:
