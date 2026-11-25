@@ -15,6 +15,24 @@ describe('fields', () => {
       required: true,
       maxLength: 120,
     })
+    expect(
+      f.text({ hasMany: true, minRows: 1, maxRows: 10, defaultValue: ['a', 'b'] }),
+    ).toStrictEqual({
+      type: 'text',
+      hasMany: true,
+      minRows: 1,
+      maxRows: 10,
+      defaultValue: ['a', 'b'],
+    })
+    expect(f.number({ hasMany: true, minRows: 1, maxRows: 5, defaultValue: [1, 2] })).toStrictEqual(
+      {
+        type: 'number',
+        hasMany: true,
+        minRows: 1,
+        maxRows: 5,
+        defaultValue: [1, 2],
+      },
+    )
     expect(f.number()).toStrictEqual({ type: 'number' })
     expect(f.textarea({ required: true, rows: 6, maxLength: 500 })).toStrictEqual({
       type: 'textarea',
@@ -474,6 +492,19 @@ describe('InferDoc', () => {
           }[]
         | null
     }>()
+    const tagsCol = collection({
+      slug: 'items',
+      fields: {
+        tags: f.text({ hasMany: true, required: true }),
+        optionalTags: f.text({ hasMany: true }),
+        scores: f.number({ hasMany: true, required: true }),
+        optionalScores: f.number({ hasMany: true }),
+      },
+    })
+    docOf(tagsCol).toHaveProperty('tags').toEqualTypeOf<string[]>()
+    docOf(tagsCol).toHaveProperty('optionalTags').toEqualTypeOf<string[] | null>()
+    docOf(tagsCol).toHaveProperty('scores').toEqualTypeOf<number[]>()
+    docOf(tagsCol).toHaveProperty('optionalScores').toEqualTypeOf<number[] | null>()
   })
 })
 

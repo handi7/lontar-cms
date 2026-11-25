@@ -89,6 +89,9 @@ const toClientField = {
   text: (name: string, field: TextField, parentLocalized?: boolean): ClientTextField => ({
     ...baseField(name, field, parentLocalized),
     ...defined({
+      hasMany: field.hasMany,
+      minRows: field.minRows,
+      maxRows: field.maxRows,
       minLength: field.minLength,
       maxLength: field.maxLength ?? DEFAULT_STRING_MAX_LENGTH,
       defaultValue: field.defaultValue,
@@ -97,6 +100,9 @@ const toClientField = {
   number: (name: string, field: NumberField, parentLocalized?: boolean): ClientNumberField => ({
     ...baseField(name, field, parentLocalized),
     ...defined({
+      hasMany: field.hasMany,
+      minRows: field.minRows,
+      maxRows: field.maxRows,
       min: field.min,
       max: field.max,
       integer: field.integer,

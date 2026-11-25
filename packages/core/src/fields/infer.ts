@@ -65,11 +65,19 @@ type FieldValue<F extends Field> = F extends {
         : InferBlockRow<B>[] | null
       : F extends { type: 'relationship'; hasMany: true }
         ? number[]
-        : F['type'] extends keyof FieldValueMap
+        : F extends { type: 'text'; hasMany: true }
           ? F extends { required: true }
-            ? FieldValueMap[F['type']]
-            : FieldValueMap[F['type']] | null
-          : unknown
+            ? string[]
+            : string[] | null
+          : F extends { type: 'number'; hasMany: true }
+            ? F extends { required: true }
+              ? number[]
+              : number[] | null
+            : F['type'] extends keyof FieldValueMap
+              ? F extends { required: true }
+                ? FieldValueMap[F['type']]
+                : FieldValueMap[F['type']] | null
+              : unknown
 
 type Simplify<T> = { [K in keyof T]: T[K] }
 

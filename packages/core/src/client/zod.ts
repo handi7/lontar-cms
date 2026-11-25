@@ -43,6 +43,20 @@ export function isRichTextEmpty(val: unknown): boolean {
   return true
 }
 
+function buildScalarHasManySchema<T extends z.ZodTypeAny>(
+  itemSchema: T,
+  field: { required?: boolean; minRows?: number; maxRows?: number },
+) {
+  let arr = z.array(itemSchema)
+  const minRows = field.minRows ?? (field.required ? 1 : 0)
+  if (minRows > 0) {
+    arr = arr.min(minRows, `Must have at least ${minRows} ${minRows === 1 ? 'item' : 'items'}`)
+  }
+  const maxRows = field.maxRows ?? 100
+  arr = arr.max(maxRows, `Must have at most ${maxRows} items`)
+  return arr
+}
+
 /*
  * The one place field rules become validation (docs/adr/0003-client-config-format.md).
  * The server runs its fields through toClientConfig() and then these same
@@ -51,6 +65,11 @@ export function isRichTextEmpty(val: unknown): boolean {
 const zodByType = {
   text: (field: ClientTextField) => {
     const maxLength = field.maxLength ?? DEFAULT_STRING_MAX_LENGTH
+    if (field.hasMany) {
+      const minLength = field.minLength ?? 1
+      const itemSchema = z.string().min(minLength).max(maxLength)
+      return buildScalarHasManySchema(itemSchema, field)
+    }
     if (field.required) {
       const minLength = Math.max(field.minLength ?? 1, 1)
       return z.string().min(minLength).max(maxLength)
@@ -62,11 +81,14 @@ const zodByType = {
     return schema
   },
   number: (field: ClientNumberField) => {
-    let schema = z.number()
-    if (field.integer) schema = schema.int()
-    if (field.min !== undefined) schema = schema.min(field.min)
-    if (field.max !== undefined) schema = schema.max(field.max)
-    return schema
+    let itemSchema = z.number()
+    if (field.integer) itemSchema = itemSchema.int()
+    if (field.min !== undefined) itemSchema = itemSchema.min(field.min)
+    if (field.max !== undefined) itemSchema = itemSchema.max(field.max)
+    if (field.hasMany) {
+      return buildScalarHasManySchema(itemSchema, field)
+    }
+    return itemSchema
   },
   textarea: (field: ClientTextareaField) => {
     if (field.required) {

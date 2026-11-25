@@ -286,6 +286,8 @@ function renderContainerFieldType(
 }
 
 function renderLeafFieldType(field: Field, collectionMap: Map<string, string>): string | null {
+  if (field.type === 'text' && field.hasMany) return 'string[]'
+  if (field.type === 'number' && field.hasMany) return 'number[]'
   const primitive = renderPrimitiveFieldType(field.type)
   if (primitive) return primitive
   if (field.type === 'select' || field.type === 'radio') return buildSelectType(field)

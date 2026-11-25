@@ -674,5 +674,22 @@ describe('collectionToTable', () => {
       expect(col(columns, 'announcement_id')).toBeDefined()
       expect(col(columns, 'logoId')).toBeDefined()
     })
+
+    it('maps hasMany text and number fields to json columns (ADR 0031)', () => {
+      const colDef: CollectionConfig = {
+        slug: 'articles',
+        fields: {
+          tags: { type: 'text', hasMany: true, required: true },
+          scores: { type: 'number', hasMany: true },
+        },
+      }
+      const table = collectionToTable(colDef)
+      const columns = getTableColumns(table) as Record<string, AnyMySqlColumn>
+
+      expect(col(columns, 'tags').columnType).toBe('MySqlJson')
+      expect(col(columns, 'tags').notNull).toBe(true)
+      expect(col(columns, 'scores').columnType).toBe('MySqlJson')
+      expect(col(columns, 'scores').notNull).toBe(false)
+    })
   })
 })

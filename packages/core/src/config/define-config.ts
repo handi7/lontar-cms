@@ -7,6 +7,7 @@ import type {
   Field,
   GroupField,
   JsonField,
+  NumberField,
   PointField,
   RadioField,
   RelationshipField,
@@ -864,6 +865,21 @@ function validateTextLikeField(
   }
 }
 
+function validateScalarField(where: string, name: string, field: Field): string[] | null {
+  switch (field.type) {
+    case 'number':
+      return validateNumberField(where, name, field)
+    case 'json':
+      return validateJsonField(where, name, field)
+    case 'radio':
+      return validateRadioField(where, name, field)
+    case 'point':
+      return validatePointField(where, name, field)
+    default:
+      return null
+  }
+}
+
 function validateFieldType(
   where: string,
   name: string,
@@ -877,13 +893,10 @@ function validateFieldType(
   const textLike = validateTextLikeField(where, name, field, fields, dbAdapter)
   if (textLike) return textLike
 
+  const scalar = validateScalarField(where, name, field)
+  if (scalar) return scalar
+
   switch (field.type) {
-    case 'json':
-      return validateJsonField(where, name, field)
-    case 'radio':
-      return validateRadioField(where, name, field)
-    case 'point':
-      return validatePointField(where, name, field)
     case 'group':
     case 'array':
     case 'blocks':
@@ -1002,6 +1015,172 @@ function validateTextMinLength(
   return []
 }
 
+function validateScalarMinRows(
+  where: string,
+  name: string,
+  fieldType: string,
+  minRows?: number,
+): string[] {
+  if (minRows !== undefined && (!Number.isInteger(minRows) || minRows < 0)) {
+    return [`${where}: ${fieldType} field "${name}" minRows must be a non-negative integer.`]
+  }
+  return []
+}
+
+function validateScalarMaxRows(
+  where: string,
+  name: string,
+  fieldType: string,
+  maxRows?: number,
+): string[] {
+  if (maxRows === undefined) return []
+  if (!Number.isInteger(maxRows) || maxRows <= 0) {
+    return [`${where}: ${fieldType} field "${name}" maxRows must be a positive integer.`]
+  }
+  if (maxRows > 500) {
+    return [`${where}: ${fieldType} field "${name}" maxRows (${maxRows}) exceeds maximum of 500.`]
+  }
+  return []
+}
+
+function validateScalarRows(
+  where: string,
+  name: string,
+  fieldType: string,
+  minRows?: number,
+  maxRows?: number,
+): string[] {
+  const issues = [
+    ...validateScalarMinRows(where, name, fieldType, minRows),
+    ...validateScalarMaxRows(where, name, fieldType, maxRows),
+  ]
+  if (minRows !== undefined && maxRows !== undefined && minRows > maxRows) {
+    issues.push(
+      `${where}: ${fieldType} field "${name}" minRows (${minRows}) cannot be greater than maxRows (${maxRows}).`,
+    )
+  }
+  return issues
+}
+
+function validateHasManyRowOptions(
+  where: string,
+  name: string,
+  fieldType: string,
+  hasMany?: boolean,
+  minRows?: number,
+  maxRows?: number,
+): string[] {
+  if (!hasMany) {
+    if (minRows !== undefined || maxRows !== undefined) {
+      return [
+        `${where}: ${fieldType} field "${name}" cannot set minRows or maxRows unless hasMany is true.`,
+      ]
+    }
+    return []
+  }
+  return validateScalarRows(where, name, fieldType, minRows, maxRows)
+}
+
+function validateTextDefaultValue(where: string, name: string, field: TextField): string[] {
+  if (field.defaultValue === undefined) return []
+  if (field.hasMany) {
+    if (!Array.isArray(field.defaultValue)) {
+      return [`${where}: text field "${name}" defaultValue must be an array when hasMany is true.`]
+    }
+    if (field.defaultValue.some((v) => typeof v !== 'string')) {
+      return [`${where}: text field "${name}" defaultValue must only contain strings.`]
+    }
+    return []
+  }
+  if (Array.isArray(field.defaultValue)) {
+    return [
+      `${where}: text field "${name}" defaultValue cannot be an array when hasMany is not true.`,
+    ]
+  }
+  if (typeof field.defaultValue !== 'string') {
+    return [`${where}: text field "${name}" defaultValue must be a string.`]
+  }
+  return []
+}
+
+function validateNumberArrayDefaultValue(
+  where: string,
+  name: string,
+  field: NumberField,
+): string[] {
+  if (!Array.isArray(field.defaultValue)) {
+    return [`${where}: number field "${name}" defaultValue must be an array when hasMany is true.`]
+  }
+  if (field.defaultValue.some((v) => typeof v !== 'number' || Number.isNaN(v))) {
+    return [`${where}: number field "${name}" defaultValue must only contain numbers.`]
+  }
+  if (field.integer && field.defaultValue.some((v) => !Number.isInteger(v))) {
+    return [
+      `${where}: number field "${name}" defaultValue items must be integers when integer is true.`,
+    ]
+  }
+  return []
+}
+
+function validateNumberScalarDefaultValue(
+  where: string,
+  name: string,
+  field: NumberField,
+): string[] {
+  if (Array.isArray(field.defaultValue)) {
+    return [
+      `${where}: number field "${name}" defaultValue cannot be an array when hasMany is not true.`,
+    ]
+  }
+  if (typeof field.defaultValue !== 'number' || Number.isNaN(field.defaultValue)) {
+    return [`${where}: number field "${name}" defaultValue must be a number.`]
+  }
+  if (field.integer && !Number.isInteger(field.defaultValue)) {
+    return [
+      `${where}: number field "${name}" defaultValue must be an integer when integer is true.`,
+    ]
+  }
+  return []
+}
+
+function validateNumberDefaultValue(where: string, name: string, field: NumberField): string[] {
+  if (field.defaultValue === undefined) return []
+  return field.hasMany
+    ? validateNumberArrayDefaultValue(where, name, field)
+    : validateNumberScalarDefaultValue(where, name, field)
+}
+
+function validateNumberBounds(where: string, name: string, field: NumberField): string[] {
+  const issues: string[] = []
+  if (field.min !== undefined && (typeof field.min !== 'number' || Number.isNaN(field.min))) {
+    issues.push(`${where}: number field "${name}" min must be a valid number.`)
+  }
+  if (field.max !== undefined && (typeof field.max !== 'number' || Number.isNaN(field.max))) {
+    issues.push(`${where}: number field "${name}" max must be a valid number.`)
+  }
+  if (field.min !== undefined && field.max !== undefined && field.min > field.max) {
+    issues.push(
+      `${where}: number field "${name}" min (${field.min}) cannot be greater than max (${field.max}).`,
+    )
+  }
+  return issues
+}
+
+function validateNumberField(where: string, name: string, field: NumberField): string[] {
+  return [
+    ...validateNumberBounds(where, name, field),
+    ...validateHasManyRowOptions(
+      where,
+      name,
+      'number',
+      field.hasMany,
+      field.minRows,
+      field.maxRows,
+    ),
+    ...validateNumberDefaultValue(where, name, field),
+  ]
+}
+
 function validateTextField(
   where: string,
   name: string,
@@ -1009,8 +1188,10 @@ function validateTextField(
   dbAdapter?: DatabaseAdapter,
 ): string[] {
   return [
-    ...validateTextMaxLength(where, name, field.maxLength, dbAdapter),
+    ...(field.hasMany ? [] : validateTextMaxLength(where, name, field.maxLength, dbAdapter)),
     ...validateTextMinLength(where, name, field.minLength, field.maxLength),
+    ...validateHasManyRowOptions(where, name, 'text', field.hasMany, field.minRows, field.maxRows),
+    ...validateTextDefaultValue(where, name, field),
   ]
 }
 

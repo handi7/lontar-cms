@@ -1019,5 +1019,39 @@ describe('CollectionListView permissions (#341)', () => {
       const bar = within(screen.getByRole('toolbar', { name: 'Bulk actions' }))
       expect(bar.queryByRole('button', { name: 'Archive Many' })).toBeNull()
     })
+
+    it('renders hasMany text and number fields as comma-separated values in cells', async () => {
+      const collectionWithHasMany: ClientCollection = {
+        slug: 'articles',
+        labels: { singular: 'Article', plural: 'Articles' },
+        admin: {
+          useAsTitle: 'title',
+          defaultColumns: ['title', 'tags', 'scores'],
+        },
+        fields: [
+          { name: 'title', label: 'Title', type: 'text', required: true },
+          { name: 'tags', label: 'Tags', type: 'text', hasMany: true, required: false },
+          { name: 'scores', label: 'Scores', type: 'number', hasMany: true, required: false },
+        ],
+      }
+
+      vi.mocked(client.fetchCollectionDocs).mockResolvedValue({
+        docs: [
+          { id: 1, title: 'Article 1', tags: ['react', 'node'], scores: [10, 20] },
+          { id: 2, title: 'Article 2', tags: [], scores: null },
+        ],
+        totalDocs: 2,
+        totalPages: 1,
+        page: 1,
+        limit: 10,
+        hasPrevPage: false,
+        hasNextPage: false,
+      })
+
+      renderWithProviders({ collections: [collectionWithHasMany] })
+
+      expect(await screen.findByText('react, node')).toBeTruthy()
+      expect(await screen.findByText('10, 20')).toBeTruthy()
+    })
   })
 })

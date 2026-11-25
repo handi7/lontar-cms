@@ -63,14 +63,26 @@ function isColumnRequired(field: Field): boolean {
 }
 
 function textToColumn(name: string, field: TextField) {
+  if (field.hasMany) {
+    const base = json(name)
+    const withDefault = field.defaultValue !== undefined ? base.default(field.defaultValue) : base
+    return isColumnRequired(field) ? withDefault.notNull() : withDefault
+  }
   const base = varchar(name, { length: field.maxLength ?? 255 })
-  const withDefault = field.defaultValue !== undefined ? base.default(field.defaultValue) : base
+  const defaultVal = typeof field.defaultValue === 'string' ? field.defaultValue : undefined
+  const withDefault = defaultVal !== undefined ? base.default(defaultVal) : base
   return isColumnRequired(field) ? withDefault.notNull() : withDefault
 }
 
 function numberToColumn(name: string, field: NumberField) {
+  if (field.hasMany) {
+    const base = json(name)
+    const withDefault = field.defaultValue !== undefined ? base.default(field.defaultValue) : base
+    return isColumnRequired(field) ? withDefault.notNull() : withDefault
+  }
   const base = field.integer ? int(name) : double(name)
-  const withDefault = field.defaultValue !== undefined ? base.default(field.defaultValue) : base
+  const defaultVal = typeof field.defaultValue === 'number' ? field.defaultValue : undefined
+  const withDefault = defaultVal !== undefined ? base.default(defaultVal) : base
   return isColumnRequired(field) ? withDefault.notNull() : withDefault
 }
 

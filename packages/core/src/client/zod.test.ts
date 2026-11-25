@@ -233,6 +233,25 @@ describe('clientFieldToZod', () => {
     it('keeps a minLength above 1 on a required field', () => {
       expect(text({ required: true, minLength: 3 }).safeParse('ab').success).toBe(false)
     })
+
+    it('validates hasMany array of strings and row bounds', () => {
+      const schema = text({ hasMany: true, required: true, minRows: 2, maxRows: 3, minLength: 2 })
+      expect(schema.safeParse(['ab', 'cd']).success).toBe(true)
+      expect(schema.safeParse(['ab', 'cd', 'ef']).success).toBe(true)
+      expect(schema.safeParse(['ab']).success).toBe(false)
+      expect(schema.safeParse(['ab', 'cd', 'ef', 'gh']).success).toBe(false)
+      expect(schema.safeParse(['ab', 'c']).success).toBe(false)
+      expect(schema.safeParse(['ab', 123]).success).toBe(false)
+      expect(schema.safeParse(null).success).toBe(false)
+    })
+
+    it('accepts null/undefined for optional hasMany text', () => {
+      const schema = text({ hasMany: true, required: false })
+      expect(schema.safeParse(null).success).toBe(true)
+      expect(schema.safeParse(undefined).success).toBe(true)
+      expect(schema.safeParse([]).success).toBe(true)
+      expect(schema.safeParse(['hello']).success).toBe(true)
+    })
   })
 
   describe('number', () => {
@@ -257,6 +276,23 @@ describe('clientFieldToZod', () => {
       expect(schema.safeParse(0).success).toBe(true)
       expect(schema.safeParse(null).success).toBe(false)
       expect(schema.safeParse(undefined).success).toBe(false)
+    })
+
+    it('validates hasMany array of numbers and bounds', () => {
+      const schema = number({
+        hasMany: true,
+        required: true,
+        minRows: 1,
+        maxRows: 2,
+        integer: true,
+        min: 10,
+      })
+      expect(schema.safeParse([10]).success).toBe(true)
+      expect(schema.safeParse([10, 20]).success).toBe(true)
+      expect(schema.safeParse([]).success).toBe(false)
+      expect(schema.safeParse([10, 20, 30]).success).toBe(false)
+      expect(schema.safeParse([5]).success).toBe(false)
+      expect(schema.safeParse([10.5]).success).toBe(false)
     })
   })
 
