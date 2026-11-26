@@ -47,6 +47,7 @@ export interface DiffableFieldItem {
   type: string
   fields?: unknown
   blocks?: unknown
+  tabs?: unknown
   localized?: boolean
 }
 
@@ -410,18 +411,42 @@ function isDiffableFieldItem(val: unknown): val is DiffableFieldItem & { name: s
   )
 }
 
+function iterateLayoutField(
+  field: DiffableFieldItem,
+  list: Array<{ name: string; field: DiffableFieldItem }>,
+): boolean {
+  if (field.type === 'tabs' && Array.isArray(field.tabs)) {
+    for (const tab of field.tabs as Array<{ fields?: unknown }>) {
+      if (tab && tab.fields) {
+        list.push(...iterateFields(tab.fields as DiffableFields))
+      }
+    }
+    return true
+  }
+  if ((field.type === 'row' || field.type === 'collapsible') && field.fields) {
+    list.push(...iterateFields(field.fields as DiffableFields))
+    return true
+  }
+  return false
+}
+
 function iterateFields(fields: DiffableFields): Array<{ name: string; field: DiffableFieldItem }> {
+  const list: Array<{ name: string; field: DiffableFieldItem }> = []
   if (Array.isArray(fields)) {
-    const list: Array<{ name: string; field: DiffableFieldItem }> = []
     const arr = fields as readonly unknown[]
     for (const f of arr) {
-      if (isDiffableFieldItem(f)) {
+      if (isDiffableFieldItem(f) && !iterateLayoutField(f, list)) {
         list.push({ name: f.name, field: f })
       }
     }
     return list
   }
-  return Object.entries(fields).map(([name, field]) => ({ name, field }))
+  for (const [name, field] of Object.entries(fields)) {
+    if (!iterateLayoutField(field, list)) {
+      list.push({ name, field })
+    }
+  }
+  return list
 }
 
 export function diffFields(

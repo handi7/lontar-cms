@@ -1,8 +1,12 @@
 import {
+  flattenClientFields,
   generateRowId,
   sanitizeConditionalFields,
   type ClientArrayField,
+  type ClientCollapsibleField,
   type ClientField,
+  type ClientRowField,
+  type ClientTabsField,
   type FieldPermission,
 } from '@lontar/core/client'
 
@@ -117,7 +121,7 @@ export function formatDocForForm(
   for (const sysField of EXCLUDED_FORM_SYSTEM_FIELDS) {
     delete formatted[sysField]
   }
-  for (const f of fields) {
+  for (const f of flattenClientFields(fields)) {
     if (f.name in formatted) {
       formatted[f.name] = formatFieldForForm(f, formatted[f.name])
     }
@@ -177,6 +181,7 @@ export function formatDocForSubmit(
   permissions?: Record<string, FieldPermission>,
   mode: 'create' | 'edit' = 'edit',
 ): Record<string, unknown> {
+  const flatFields = flattenClientFields(fields)
   const formatted = { ...data }
   if (isRoot) {
     delete formatted.id
@@ -184,14 +189,14 @@ export function formatDocForSubmit(
   for (const sysField of EXCLUDED_SUBMIT_SYSTEM_FIELDS) {
     delete formatted[sysField]
   }
-  for (const f of fields) {
+  for (const f of flatFields) {
     if (f.name in formatted) {
       formatted[f.name] = formatFieldValueForSubmit(f, formatted[f.name])
     }
   }
-  const sanitized = sanitizeConditionalFields(fields, formatted)
+  const sanitized = sanitizeConditionalFields(flatFields, formatted)
   if (permissions) {
-    return stripReadOnlyFields(fields, sanitized, permissions, mode)
+    return stripReadOnlyFields(flatFields, sanitized, permissions, mode)
   }
   return sanitized
 }
@@ -246,7 +251,7 @@ function stripReadOnlyFromObject(
 ): Record<string, unknown> {
   if (!permissions) return data
   const formatted = { ...data }
-  for (const f of fields) {
+  for (const f of flattenClientFields(fields)) {
     if (!(f.name in formatted)) continue
     const perm = permissions[f.name]
     if (!perm) continue
@@ -295,17 +300,37 @@ function mapSubfieldPermissions(f: ClientField, perm: FieldPermission | undefine
   return f
 }
 
+function filterReadableLayoutField(
+  f: ClientTabsField | ClientRowField | ClientCollapsibleField,
+  permissions: Record<string, FieldPermission>,
+): ClientField | null {
+  if (f.type === 'tabs') {
+    const tabs = f.tabs
+      .map((tab) => ({ ...tab, fields: filterReadableFields(tab.fields, permissions) }))
+      .filter((tab) => tab.fields.length > 0)
+    return tabs.length > 0 ? { ...f, tabs } : null
+  }
+  const fields = filterReadableFields(f.fields, permissions)
+  return fields.length > 0 ? { ...f, fields } : null
+}
+
 export function filterReadableFields(
   fields: readonly ClientField[],
   permissions?: Record<string, FieldPermission>,
 ): ClientField[] {
   if (!permissions) return [...fields]
-  return fields
-    .filter((f) => {
-      const perm = permissions[f.name]
-      return perm ? perm.read !== false : true
-    })
-    .map((f) => mapSubfieldPermissions(f, permissions[f.name]))
+  const result: ClientField[] = []
+  for (const f of fields) {
+    if (f.type === 'tabs' || f.type === 'row' || f.type === 'collapsible') {
+      const filtered = filterReadableLayoutField(f, permissions)
+      if (filtered) result.push(filtered)
+      continue
+    }
+    const perm = permissions[f.name]
+    if (perm?.read === false) continue
+    result.push(mapSubfieldPermissions(f, perm))
+  }
+  return result
 }
 
 function makeFieldOptionalForValidation(field: ClientField): ClientField {
@@ -350,12 +375,35 @@ function mapSubfieldValidation(
   return f
 }
 
+function buildLayoutValidationField(
+  f: ClientTabsField | ClientRowField | ClientCollapsibleField,
+  permissions: Record<string, FieldPermission> | undefined,
+  mode: 'create' | 'edit',
+  readOnlyDoc: boolean,
+): ClientField | null {
+  if (f.type === 'tabs') {
+    const tabs = f.tabs
+      .map((tab) => ({
+        ...tab,
+        fields: buildFormValidationFields(tab.fields, permissions, mode, readOnlyDoc),
+      }))
+      .filter((tab) => tab.fields.length > 0)
+    return tabs.length > 0 ? { ...f, tabs } : null
+  }
+  const fields = buildFormValidationFields(f.fields, permissions, mode, readOnlyDoc)
+  return fields.length > 0 ? { ...f, fields } : null
+}
+
 function buildSingleValidationField(
   f: ClientField,
   permissions: Record<string, FieldPermission> | undefined,
   mode: 'create' | 'edit',
   readOnlyDoc: boolean,
 ): ClientField | null {
+  if (f.type === 'tabs' || f.type === 'row' || f.type === 'collapsible') {
+    return buildLayoutValidationField(f, permissions, mode, readOnlyDoc)
+  }
+
   const perm = permissions?.[f.name]
   if (perm?.read === false) return null
 
@@ -433,7 +481,7 @@ export function isSameDoc(
 
 export function computeDefaultValues(fields: readonly ClientField[]): Record<string, unknown> {
   const defaults: Record<string, unknown> = {}
-  for (const f of fields) {
+  for (const f of flattenClientFields(fields)) {
     const val = getFieldDefault(f)
     if (val !== undefined) {
       defaults[f.name] = val

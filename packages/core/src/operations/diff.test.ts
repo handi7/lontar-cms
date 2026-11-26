@@ -387,4 +387,57 @@ describe('diffSnapshots', () => {
       value: 'Halo Semesta',
     })
   })
+
+  it('diffs fields nested inside tabs, row, and collapsible layout containers', () => {
+    const col = collection({
+      slug: 'articles',
+      fields: {
+        layoutTabs: f.tabs({
+          tabs: [
+            {
+              label: 'Main',
+              fields: {
+                titleRow: f.row({
+                  fields: {
+                    title: f.text({ required: true }),
+                  },
+                }),
+              },
+            },
+            {
+              label: 'Meta',
+              fields: {
+                metaBox: f.collapsible({
+                  label: 'Meta',
+                  fields: {
+                    subtitle: f.text(),
+                  },
+                }),
+              },
+            },
+          ],
+        }),
+      },
+    })
+
+    const diff = diffSnapshots(
+      col,
+      { id: 1, title: 'Old', subtitle: 'Same' },
+      { id: 1, title: 'New', subtitle: 'Same' },
+    )
+    expect(diff.hasChanges).toBe(true)
+    expect(diff.fields.title).toEqual({
+      type: 'primitive',
+      change: 'modified',
+      oldValue: 'Old',
+      value: 'New',
+    })
+    expect(diff.fields.subtitle).toEqual({
+      type: 'primitive',
+      change: 'unchanged',
+      oldValue: 'Same',
+      value: 'Same',
+    })
+    expect(diff.fields.layoutTabs).toBeUndefined()
+  })
 })

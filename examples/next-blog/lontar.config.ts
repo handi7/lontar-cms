@@ -47,8 +47,28 @@ const categories = collection({
     delete: ({ user }) => isAdmin(user),
   },
   fields: {
-    name: f.text({ required: true }),
-    slug: f.slug({ from: 'name', unique: true }),
+    categoryTabs: f.tabs({
+      tabs: [
+        {
+          label: 'General',
+          fields: {
+            name: f.text({ required: true }),
+          },
+        },
+        {
+          label: 'URL',
+          fields: {
+            slugSection: f.collapsible({
+              label: 'Slug Settings',
+              initiallyCollapsed: true,
+              fields: {
+                slug: f.slug({ from: 'name', unique: true }),
+              },
+            }),
+          },
+        },
+      ],
+    }),
   },
 })
 
@@ -262,8 +282,12 @@ const pages = collection({
     delete: ({ user }) => isAdmin(user),
   },
   fields: {
-    title: f.text({ required: true, maxLength: 120, localized: true }),
-    slug: f.slug({ from: 'title', unique: true, localized: true }),
+    titleRow: f.row({
+      fields: {
+        title: f.text({ required: true, maxLength: 120, localized: true }),
+        slug: f.slug({ from: 'title', unique: true, localized: true }),
+      },
+    }),
     seo: f.group({
       localized: true,
       fields: {

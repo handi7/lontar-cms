@@ -11,14 +11,15 @@ import {
   type Updater,
 } from '@tanstack/react-table'
 import { MoreHorizontal } from 'lucide-react'
-import type {
-  ClientAction,
-  ClientCollection,
-  ClientField,
-  ClientRadioField,
-  ClientSelectField,
-  FieldPermission,
-  Where,
+import {
+  flattenClientFields,
+  type ClientAction,
+  type ClientCollection,
+  type ClientField,
+  type ClientRadioField,
+  type ClientSelectField,
+  type FieldPermission,
+  type Where,
 } from '@lontar/core/client'
 import { useAdmin, useCollection } from '../context/AdminContext'
 import { usePermissions } from '../context/PermissionsContext'
@@ -320,8 +321,9 @@ function buildColumns(
     (action) => action.scope.includes('row') && (!isAllowedAction || isAllowedAction(action.key)),
   )
 
+  const flatFields = flattenClientFields(collection.fields)
   const dataColumns: ColumnDef<Record<string, unknown>>[] = columnKeys.map((key) => {
-    const field = collection.fields.find((f) => f.name === key)
+    const field = flatFields.find((f) => f.name === key)
     return {
       id: key,
       header: getColumnLabel(key, collection),

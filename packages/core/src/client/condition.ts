@@ -1,4 +1,5 @@
 import type { ClientField, ClientBlock } from './client-config'
+import { flattenClientFields } from './flatten'
 import type { FilterOperator, FilterValue } from './query'
 
 export type ConditionOperator = FilterOperator | 'exists'
@@ -349,10 +350,11 @@ export function sanitizeConditionalFields(
   data: Record<string, unknown>,
   originalDoc?: Record<string, unknown>,
 ): Record<string, unknown> {
+  const flatFields = flattenClientFields(fields)
   const context = originalDoc ? { ...originalDoc, ...data } : data
   const result: Record<string, unknown> = { ...data }
 
-  for (const f of fields) {
+  for (const f of flatFields) {
     if (f.condition && !matchesCondition(f.condition, context, context)) {
       if (f.name in result || (originalDoc && f.name in originalDoc)) {
         result[f.name] = null

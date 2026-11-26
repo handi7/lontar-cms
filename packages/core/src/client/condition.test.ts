@@ -745,5 +745,64 @@ describe('condition evaluator', () => {
         items: [{ id: 'i1', label: 'Item 1', advancedConfig: 'secret-val' }],
       })
     })
+
+    it('sanitizes conditional fields inside tabs, row, and collapsible layout containers', () => {
+      const fields: ClientField[] = [
+        { name: 'mode', type: 'text', label: 'Mode', required: false },
+        {
+          name: 'layoutTabs',
+          type: 'tabs',
+          label: 'Tabs',
+          required: false,
+          tabs: [
+            {
+              label: 'Main',
+              fields: [
+                {
+                  name: 'rowFields',
+                  type: 'row',
+                  label: 'Row',
+                  required: false,
+                  fields: [
+                    {
+                      name: 'customUrl',
+                      type: 'text',
+                      label: 'Custom URL',
+                      required: false,
+                      condition: { mode: 'custom' },
+                    },
+                  ],
+                },
+              ],
+            },
+            {
+              label: 'Advanced',
+              condition: { mode: 'advanced' },
+              fields: [
+                {
+                  name: 'advBox',
+                  type: 'collapsible',
+                  label: 'Advanced Box',
+                  required: false,
+                  fields: [{ name: 'advNote', type: 'text', label: 'Note', required: false }],
+                },
+              ],
+            },
+          ],
+        },
+      ]
+
+      const res = sanitizeConditionalFields(fields, {
+        mode: 'basic',
+        customUrl: 'https://stale.test',
+        advNote: 'stale note',
+      })
+
+      expect(res).toEqual({
+        mode: 'basic',
+        customUrl: null,
+        advNote: null,
+      })
+    })
   })
 })
