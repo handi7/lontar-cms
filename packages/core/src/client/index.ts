@@ -16,6 +16,8 @@ export type {
   ClientBlocksFieldAdmin,
   ClientCheckboxField,
   ClientCodeField,
+  ClientCollapsibleField,
+  ClientCollapsibleFieldAdmin,
   ClientJsonField,
   ClientCollection,
   ClientCollectionAdmin,
@@ -37,9 +39,15 @@ export type {
   ClientRadioLayout,
   ClientRelationshipField,
   ClientRichTextField,
+  ClientRowField,
+  ClientRowFieldAdmin,
   ClientSelectField,
   ClientSelectOption,
   ClientSlugField,
+  ClientTab,
+  ClientTabAdmin,
+  ClientTabsField,
+  ClientTabsFieldAdmin,
   ClientTextareaField,
   ClientTextField,
   ClientUploadConfig,
@@ -92,6 +100,7 @@ export {
   isRichTextEmpty,
   type ClientFieldsToZodOptions,
 } from './zod'
+export { flattenClientFields, isClientLayoutField } from './flatten'
 export { generateRowId } from './id'
 export type {
   ChangeType,

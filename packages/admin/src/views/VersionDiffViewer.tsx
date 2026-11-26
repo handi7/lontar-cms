@@ -1,14 +1,15 @@
 import { useState } from 'react'
-import type {
-  ArrayFieldDiff,
-  ArrayItemDiff,
-  BlocksFieldDiff,
-  ChangeType,
-  ClientField,
-  DocumentDiff,
-  FieldDiff,
-  GroupFieldDiff,
-  PrimitiveFieldDiff,
+import {
+  flattenClientFields,
+  type ArrayFieldDiff,
+  type ArrayItemDiff,
+  type BlocksFieldDiff,
+  type ChangeType,
+  type ClientField,
+  type DocumentDiff,
+  type FieldDiff,
+  type GroupFieldDiff,
+  type PrimitiveFieldDiff,
 } from '@lontar/core/client'
 import { ChevronDown, ChevronRight } from 'lucide-react'
 import { cn } from '../lib/utils'
@@ -202,7 +203,7 @@ function GroupDiffView({ diff, subfields, oldLabel, newLabel }: GroupDiffViewPro
 
       {expanded && (
         <div className="lt:pt-2 lt:border-t lt:border-border lt:flex lt:flex-col lt:gap-2.5">
-          {subfields.map((subfield) => {
+          {flattenClientFields(subfields).map((subfield) => {
             const fieldDiff = diff.fields[subfield.name]
             if (!fieldDiff) return null
             return (
@@ -251,7 +252,7 @@ interface ArrayItemSubfieldsProps {
 function ArrayItemSubfields({ diffs, subfields, oldLabel, newLabel }: ArrayItemSubfieldsProps) {
   return (
     <div className="lt:pt-2 lt:border-t lt:border-border lt:flex lt:flex-col lt:gap-2">
-      {subfields.map((subfield) => {
+      {flattenClientFields(subfields).map((subfield) => {
         const fieldDiff = diffs[subfield.name]
         if (!fieldDiff) return null
         return (
@@ -452,7 +453,7 @@ export function VersionDiffViewer({
         </div>
       )}
 
-      {fields.map((field) => {
+      {flattenClientFields(fields).map((field) => {
         const fieldDiff = diff.fields[field.name]
         if (!fieldDiff) return null
         return (

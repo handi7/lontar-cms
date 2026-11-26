@@ -33,7 +33,8 @@ import {
   ApiClientError,
   queryKeys,
 } from '../api/client'
-import { FieldRenderer } from '../fields/FieldRenderer'
+import { ScopeFieldList } from '../fields/FieldRenderer'
+import { TabMemoryProvider } from '../fields/LayoutFields'
 import { useDeclarativeAction } from './useDeclarativeAction'
 import { FileUploadZone, formatFilesize } from '../fields/FileUploadZone'
 import {
@@ -169,27 +170,19 @@ function FormFields({
         )}
 
         <div className="lt:flex lt:flex-col lt:gap-6">
-          {collection.fields.map((field) => {
-            const fieldPerm = permissions?.[field.name]
-            if (fieldPerm?.read === false) return null
-            const fallbackValue = fallbackDoc ? fallbackDoc[field.name] : undefined
-            return (
-              <FieldRenderer
-                key={field.name}
-                field={field}
-                control={control}
-                register={register}
-                setValue={setValue}
-                watch={watch}
-                mode={mode}
-                error={errors[field.name]}
-                permissions={fieldPerm}
-                readOnlyDoc={readOnlyDoc}
-                fallbackValue={fallbackValue}
-                hasLocalization={hasLocalization}
-              />
-            )
-          })}
+          <ScopeFieldList
+            fields={collection.fields}
+            control={control}
+            register={register}
+            setValue={setValue}
+            watch={watch}
+            mode={mode}
+            scopeErrors={errors}
+            scopePermissions={permissions}
+            readOnlyDoc={readOnlyDoc}
+            scopeFallback={fallbackDoc ?? undefined}
+            hasLocalization={hasLocalization}
+          />
         </div>
       </Card>
     </div>
@@ -1608,5 +1601,9 @@ export function CollectionFormView({ mode }: CollectionFormViewProps) {
   if (mode === 'create' && !canCreateInCollection(slug)) return <NotFoundView />
   if (mode === 'edit' && !canReadCollection(slug)) return <NotFoundView />
 
-  return <CollectionEditor collection={collection} mode={mode} id={id} />
+  return (
+    <TabMemoryProvider key={`${slug}:${mode}:${id ?? 'create'}`}>
+      <CollectionEditor collection={collection} mode={mode} id={id} />
+    </TabMemoryProvider>
+  )
 }

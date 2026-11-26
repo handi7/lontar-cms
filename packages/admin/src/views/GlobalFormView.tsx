@@ -30,7 +30,8 @@ import { DocumentFormProvider } from '../context/DocumentFormContext'
 import { useAdmin, useGlobal } from '../context/AdminContext'
 import { usePermissions, useGlobalPermissions } from '../context/PermissionsContext'
 import { fetchGlobal, saveGlobal, unpublishGlobal, ApiClientError, queryKeys } from '../api/client'
-import { FieldRenderer } from '../fields/FieldRenderer'
+import { ScopeFieldList } from '../fields/FieldRenderer'
+import { TabMemoryProvider } from '../fields/LayoutFields'
 import {
   buildFormValidationFields,
   computeDefaultValues,
@@ -86,27 +87,19 @@ function GlobalFormFields({
     >
       <Card className="lt:block lt:p-8 lt:shadow-none">
         <div className="lt:flex lt:flex-col lt:gap-6">
-          {fields.map((field) => {
-            const fieldPerm = permissions?.[field.name]
-            if (fieldPerm?.read === false) return null
-            const fallbackValue = fallbackDoc ? fallbackDoc[field.name] : undefined
-            return (
-              <FieldRenderer
-                key={field.name}
-                field={field}
-                control={control}
-                register={register}
-                setValue={setValue}
-                watch={watch}
-                mode="edit"
-                error={errors[field.name]}
-                permissions={fieldPerm}
-                readOnlyDoc={readOnlyDoc}
-                fallbackValue={fallbackValue}
-                hasLocalization={hasLocalization}
-              />
-            )
-          })}
+          <ScopeFieldList
+            fields={fields}
+            control={control}
+            register={register}
+            setValue={setValue}
+            watch={watch}
+            mode="edit"
+            scopeErrors={errors}
+            scopePermissions={permissions}
+            readOnlyDoc={readOnlyDoc}
+            scopeFallback={fallbackDoc ?? undefined}
+            hasLocalization={hasLocalization}
+          />
         </div>
       </Card>
     </div>
@@ -1137,5 +1130,9 @@ export function GlobalFormView() {
   if (!global || !slug) return <NotFoundView />
   if (!canReadGlobal(slug)) return <NotFoundView />
 
-  return <GlobalEditor global={global} slug={slug} apiBase={apiBase} />
+  return (
+    <TabMemoryProvider key={slug}>
+      <GlobalEditor global={global} slug={slug} apiBase={apiBase} />
+    </TabMemoryProvider>
+  )
 }

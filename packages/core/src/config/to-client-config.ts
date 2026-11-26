@@ -61,6 +61,7 @@ import type {
   TextField,
   UploadField,
 } from '../fields/types'
+import { flattenClientFields } from '../client/flatten'
 import { humanize } from '../utils/humanize'
 import type {
   ActionConfig,
@@ -586,8 +587,9 @@ function clientAdmin(
   fields: ClientField[],
 ): ClientCollection['admin'] {
   const { admin = {}, upload } = collection
-  const useAsTitle = admin.useAsTitle ?? resolveDefaultTitle(fields, Boolean(upload))
-  const others = fields.map((field) => field.name).filter((name) => name !== useAsTitle)
+  const flatFields = flattenClientFields(fields)
+  const useAsTitle = admin.useAsTitle ?? resolveDefaultTitle(flatFields, Boolean(upload))
+  const others = flatFields.map((field) => field.name).filter((name) => name !== useAsTitle)
   const preview = admin.preview?.url ? { url: admin.preview.url } : undefined
   const actions = toClientActions(
     `Collection "${collection.slug}"`,

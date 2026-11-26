@@ -984,4 +984,114 @@ describe('form-utils', () => {
       })
     })
   })
+
+  describe('layout fields (tabs, row, collapsible) (#510)', () => {
+    const layoutFields: ClientField[] = [
+      { name: 'showExtra', type: 'checkbox', label: 'Show Extra', required: false },
+      {
+        name: 'mainTabs',
+        type: 'tabs',
+        label: 'Main Tabs',
+        required: false,
+        tabs: [
+          {
+            label: 'General',
+            fields: [
+              {
+                name: 'row1',
+                type: 'row',
+                label: 'Row 1',
+                required: false,
+                fields: [
+                  {
+                    name: 'title',
+                    type: 'text',
+                    label: 'Title',
+                    required: true,
+                    defaultValue: 'Untitled',
+                  },
+                  {
+                    name: 'publishedAt',
+                    type: 'date',
+                    label: 'Published At',
+                    required: false,
+                  },
+                ],
+              },
+            ],
+          },
+          {
+            label: 'Extra',
+            condition: { showExtra: { equals: true } },
+            fields: [
+              {
+                name: 'details',
+                type: 'collapsible',
+                label: 'Details',
+                required: false,
+                initiallyCollapsed: true,
+                fields: [
+                  { name: 'secretNote', type: 'text', label: 'Secret Note', required: true },
+                  { name: 'lockedNote', type: 'text', label: 'Locked Note', required: true },
+                ],
+              },
+            ],
+          },
+        ],
+      },
+    ]
+
+    it('computes defaults, formats for form, and formats/sanitizes for submit across layout containers', () => {
+      expect(computeDefaultValues(layoutFields)).toEqual({
+        showExtra: false,
+        title: 'Untitled',
+      })
+
+      const formDoc = formatDocForForm(layoutFields, {
+        showExtra: true,
+        title: 'Hello',
+        publishedAt: '2024-05-01T03:00:00.000Z',
+      })
+      expect(formDoc.publishedAt).toBe(formatDateForInput('2024-05-01T03:00:00.000Z'))
+
+      // When showExtra is false, fields inside the conditional tab are sanitized to null
+      const submitHidden = formatDocForSubmit(layoutFields, {
+        showExtra: false,
+        title: 'Hello',
+        publishedAt: '2024-05-01T10:00',
+        secretNote: 'Should null out',
+      })
+      expect(submitHidden.publishedAt).toBe(formatDateForSubmit('2024-05-01T10:00'))
+      expect(submitHidden.secretNote).toBeNull()
+    })
+
+    it('filters readable fields, strips read-only fields, and relaxes validation inside layout containers', () => {
+      const perms: Record<string, FieldPermission> = {
+        showExtra: { read: true, create: true, update: true },
+        title: { read: true, create: true, update: true },
+        publishedAt: { read: true, create: true, update: true },
+        secretNote: { read: false, create: false, update: false },
+        lockedNote: { read: true, create: true, update: false },
+      }
+
+      const readable = filterReadableFields(layoutFields, perms)
+      const tabs = readable[1] as Extract<ClientField, { type: 'tabs' }>
+      const extraTab = tabs.tabs[1]!
+      const collapsible = extraTab.fields[0] as Extract<ClientField, { type: 'collapsible' }>
+      expect(collapsible.fields.map((f) => f.name)).toEqual(['lockedNote'])
+
+      const stripped = stripReadOnlyFields(
+        layoutFields,
+        { showExtra: true, title: 'Hello', lockedNote: 'Locked' },
+        perms,
+        'edit',
+      )
+      expect(stripped.lockedNote).toBeUndefined()
+
+      const validationFields = buildFormValidationFields(layoutFields, perms, 'edit')
+      const schema = clientFieldsToZod(validationFields)
+      // Both secretNote (read: false) and lockedNote (update: false) were required, now optional
+      expect(schema.safeParse({ showExtra: true, title: 'Valid' }).success).toBe(true)
+    })
+  })
 })

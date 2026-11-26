@@ -1,5 +1,10 @@
 import { useState } from 'react'
-import type { ClientCollection, ClientField, FieldPermission } from '@lontar/core/client'
+import {
+  flattenClientFields,
+  type ClientCollection,
+  type ClientField,
+  type FieldPermission,
+} from '@lontar/core/client'
 import { Badge } from '../components/ui/badge'
 import { Button } from '../components/ui/button'
 import { Input } from '../components/ui/input'
@@ -52,7 +57,7 @@ export function collectFilterFields(
   fieldPermissions?: Record<string, FieldPermission>,
 ): FilterFieldOption[] {
   const options: FilterFieldOption[] = []
-  for (const field of fields) {
+  for (const field of flattenClientFields(fields)) {
     const perm = fieldPermissions?.[field.name]
     if (perm?.read === false) continue
 
@@ -267,7 +272,7 @@ export function resolveSearchField(
     return preferred
   }
 
-  const fallback = collection.fields.find(
+  const fallback = flattenClientFields(collection.fields).find(
     (f) =>
       (f.type === 'text' || f.type === 'email' || f.type === 'slug' || f.type === 'textarea') &&
       fieldPermissions?.[f.name]?.read !== false,

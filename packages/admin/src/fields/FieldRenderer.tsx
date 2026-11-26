@@ -10,10 +10,11 @@ import type {
 import { Controller, useFieldArray, useWatch } from 'react-hook-form'
 import {
   extractConditionPaths,
+  flattenClientFields,
   generateRowId,
   getValueByPath,
+  isClientLayoutField,
   matchesCondition,
-  setValueByPath,
   type FieldCondition,
   type ClientArrayField,
   type ClientBlock,
@@ -69,22 +70,117 @@ import { RichTextEditor } from './RichTextEditor'
 import { RelationshipPicker } from './RelationshipPicker'
 import { UploadPicker } from './UploadPicker'
 import { CustomFieldInput } from './CustomFieldInput'
+import {
+  buildWatchedRootValues,
+  CollapsibleFieldRenderer,
+  RowFieldRenderer,
+  TabsFieldRenderer,
+} from './LayoutFields'
 
 export interface FieldRendererProps {
   field: ClientField
   control: FormControl
   register: FormRegister
   error?: { message?: string } | Record<string, unknown>
+  scopeErrors?: Record<string, unknown>
   setValue?: FormSetValue
   watch?: FormWatch
   mode?: 'create' | 'edit'
   pathPrefix?: string
   permissions?: FieldPermission
+  scopePermissions?: Record<string, FieldPermission>
   disabled?: boolean
   readOnlyDoc?: boolean
   fallbackValue?: unknown
+  scopeFallback?: Record<string, unknown>
   hasLocalization?: boolean
   parentLocalized?: boolean
+}
+
+export interface ScopeFieldListProps {
+  fields: readonly ClientField[]
+  control: FormControl
+  register: FormRegister
+  setValue?: FormSetValue
+  watch?: FormWatch
+  mode?: 'create' | 'edit'
+  pathPrefix?: string
+  scopeErrors?: Record<string, unknown>
+  scopePermissions?: Record<string, FieldPermission>
+  scopeFallback?: Record<string, unknown>
+  disabled?: boolean
+  readOnlyDoc?: boolean
+  hasLocalization?: boolean
+  parentLocalized?: boolean
+}
+
+export function ScopeFieldList({
+  fields,
+  control,
+  register,
+  setValue,
+  watch,
+  mode,
+  pathPrefix,
+  scopeErrors,
+  scopePermissions,
+  scopeFallback,
+  disabled,
+  readOnlyDoc,
+  hasLocalization,
+  parentLocalized,
+}: ScopeFieldListProps) {
+  return (
+    <>
+      {fields.map((subField) => {
+        if (isClientLayoutField(subField)) {
+          return (
+            <FieldRenderer
+              key={subField.name}
+              field={subField}
+              control={control}
+              register={register}
+              setValue={setValue}
+              watch={watch}
+              mode={mode}
+              pathPrefix={pathPrefix}
+              scopeErrors={scopeErrors}
+              scopePermissions={scopePermissions}
+              scopeFallback={scopeFallback}
+              disabled={disabled}
+              readOnlyDoc={readOnlyDoc}
+              hasLocalization={hasLocalization}
+              parentLocalized={parentLocalized}
+            />
+          )
+        }
+        const subPerm = scopePermissions?.[subField.name]
+        if (subPerm?.read === false) return null
+        const subError = extractSubProperty(scopeErrors, subField.name)
+        const subFallback = extractSubProperty(scopeFallback, subField.name)
+
+        return (
+          <FieldRenderer
+            key={subField.name}
+            field={subField}
+            control={control}
+            register={register}
+            setValue={setValue}
+            watch={watch}
+            mode={mode}
+            pathPrefix={pathPrefix}
+            error={subError as { message?: string } | undefined}
+            permissions={subPerm}
+            disabled={disabled}
+            readOnlyDoc={readOnlyDoc}
+            fallbackValue={subFallback}
+            hasLocalization={hasLocalization}
+            parentLocalized={parentLocalized}
+          />
+        )
+      })}
+    </>
+  )
 }
 
 export interface FieldLocalizationBadgeProps {
@@ -1312,33 +1408,22 @@ function GroupFieldRenderer({
           </span>
         )}
       </legend>
-      {field.fields.map((subField) => {
-        const subPerm = permissions?.fields?.[subField.name]
-        if (subPerm && subPerm.read === false) return null
-
-        const subError = extractSubProperty(error, subField.name)
-        const subFallback = extractSubProperty(fallbackValue, subField.name)
-
-        return (
-          <FieldRenderer
-            key={subField.name}
-            field={subField}
-            control={control}
-            register={register}
-            setValue={setValue}
-            watch={watch}
-            mode={mode}
-            pathPrefix={fullName}
-            error={subError as { message?: string } | undefined}
-            permissions={subPerm}
-            disabled={disabled}
-            readOnlyDoc={readOnlyDoc}
-            fallbackValue={subFallback}
-            hasLocalization={hasLocalization}
-            parentLocalized={isLocalized}
-          />
-        )
-      })}
+      <ScopeFieldList
+        fields={field.fields}
+        control={control}
+        register={register}
+        setValue={setValue}
+        watch={watch}
+        mode={mode}
+        pathPrefix={fullName}
+        scopeErrors={error}
+        scopePermissions={permissions?.fields}
+        scopeFallback={fallbackValue as Record<string, unknown> | undefined}
+        disabled={disabled}
+        readOnlyDoc={readOnlyDoc}
+        hasLocalization={hasLocalization}
+        parentLocalized={isLocalized}
+      />
     </fieldset>
   )
 }
@@ -1410,7 +1495,7 @@ function getRowLabelFromSubfields(
     }
   }
 
-  const firstTextField = field.fields.find(
+  const firstTextField = flattenClientFields(field.fields).find(
     (f) => f.type === 'text' || f.type === 'slug' || f.type === 'email',
   )
   if (firstTextField) {
@@ -1482,100 +1567,37 @@ function ArrayRowRenderer({
           <span>{label}</span>
         </button>
 
-        <div className="lt:flex lt:items-center lt:gap-1">
-          <Button
-            type="button"
-            variant="ghost"
-            size="icon"
-            className="lt:size-7"
-            disabled={index === 0 || disabled}
-            onClick={(e) => {
-              e.stopPropagation()
-              onMoveUp()
-            }}
-            aria-label="Move row up"
-            title="Move row up"
-          >
-            <ArrowUp className="lt:size-3.5" />
-          </Button>
-          <Button
-            type="button"
-            variant="ghost"
-            size="icon"
-            className="lt:size-7"
-            disabled={index === totalRows - 1 || disabled}
-            onClick={(e) => {
-              e.stopPropagation()
-              onMoveDown()
-            }}
-            aria-label="Move row down"
-            title="Move row down"
-          >
-            <ArrowDown className="lt:size-3.5" />
-          </Button>
-          <Button
-            type="button"
-            variant="ghost"
-            size="icon"
-            className="lt:size-7"
-            disabled={totalRows >= maxRows || disabled}
-            onClick={(e) => {
-              e.stopPropagation()
-              onDuplicate()
-            }}
-            aria-label="Duplicate row"
-            title="Duplicate row"
-          >
-            <Copy className="lt:size-3.5" />
-          </Button>
-          <Button
-            type="button"
-            variant="ghost"
-            size="icon"
-            className="lt:size-7 lt:text-destructive lt:hover:bg-destructive/10"
-            disabled={totalRows <= minRows || disabled}
-            onClick={(e) => {
-              e.stopPropagation()
-              onRemove()
-            }}
-            aria-label="Remove row"
-            title="Remove row"
-          >
-            <Trash2 className="lt:size-3.5" />
-          </Button>
-        </div>
+        <RowActionButtons
+          noun="row"
+          index={index}
+          totalRows={totalRows}
+          minRows={minRows}
+          maxRows={maxRows}
+          disabled={disabled}
+          onMoveUp={onMoveUp}
+          onMoveDown={onMoveDown}
+          onDuplicate={onDuplicate}
+          onRemove={onRemove}
+        />
       </div>
 
       {!collapsed && (
         <div className="lt:p-4 lt:flex lt:flex-col lt:gap-4">
-          {field.fields.map((subField) => {
-            const subPerm = permissions?.fields?.[subField.name]
-            if (subPerm?.read === false) {
-              return null
-            }
-            const subError =
-              rowError && typeof rowError === 'object' && Object.hasOwn(rowError, subField.name)
-                ? rowError[subField.name]
-                : undefined
-            return (
-              <FieldRenderer
-                key={subField.name}
-                field={subField}
-                control={control}
-                register={register}
-                setValue={setValue}
-                watch={watch}
-                mode={mode}
-                pathPrefix={rowPath}
-                error={subError as { message?: string } | undefined}
-                permissions={subPerm}
-                disabled={disabled}
-                readOnlyDoc={readOnlyDoc}
-                hasLocalization={hasLocalization}
-                parentLocalized={parentLocalized}
-              />
-            )
-          })}
+          <ScopeFieldList
+            fields={field.fields}
+            control={control}
+            register={register}
+            setValue={setValue}
+            watch={watch}
+            mode={mode}
+            pathPrefix={rowPath}
+            scopeErrors={rowError}
+            scopePermissions={permissions?.fields}
+            disabled={disabled}
+            readOnlyDoc={readOnlyDoc}
+            hasLocalization={hasLocalization}
+            parentLocalized={parentLocalized}
+          />
         </div>
       )}
     </div>
@@ -1809,7 +1831,7 @@ function getBlockRowLabel(
 ): string {
   const blockTitle = block.labels?.singular || block.slug
   if (watch) {
-    const firstTextField = block.fields.find(
+    const firstTextField = flattenClientFields(block.fields).find(
       (f) => f.type === 'text' || f.type === 'slug' || f.type === 'email',
     )
     if (firstTextField) {
@@ -1820,6 +1842,97 @@ function getBlockRowLabel(
     }
   }
   return `${blockTitle} #${index + 1}`
+}
+
+interface RowActionButtonsProps {
+  noun: 'row' | 'block'
+  index: number
+  totalRows: number
+  minRows: number
+  maxRows: number
+  disabled?: boolean
+  onMoveUp: () => void
+  onMoveDown: () => void
+  onDuplicate: () => void
+  onRemove: () => void
+}
+
+function RowActionButtons({
+  noun,
+  index,
+  totalRows,
+  minRows,
+  maxRows,
+  disabled,
+  onMoveUp,
+  onMoveDown,
+  onDuplicate,
+  onRemove,
+}: RowActionButtonsProps) {
+  return (
+    <div className="lt:flex lt:items-center lt:gap-1">
+      <Button
+        type="button"
+        variant="ghost"
+        size="icon"
+        className="lt:size-7"
+        disabled={index === 0 || disabled}
+        onClick={(e) => {
+          e.stopPropagation()
+          onMoveUp()
+        }}
+        aria-label={`Move ${noun} up`}
+        title={`Move ${noun} up`}
+      >
+        <ArrowUp className="lt:size-3.5" />
+      </Button>
+      <Button
+        type="button"
+        variant="ghost"
+        size="icon"
+        className="lt:size-7"
+        disabled={index === totalRows - 1 || disabled}
+        onClick={(e) => {
+          e.stopPropagation()
+          onMoveDown()
+        }}
+        aria-label={`Move ${noun} down`}
+        title={`Move ${noun} down`}
+      >
+        <ArrowDown className="lt:size-3.5" />
+      </Button>
+      <Button
+        type="button"
+        variant="ghost"
+        size="icon"
+        className="lt:size-7"
+        disabled={totalRows >= maxRows || disabled}
+        onClick={(e) => {
+          e.stopPropagation()
+          onDuplicate()
+        }}
+        aria-label={`Duplicate ${noun}`}
+        title={`Duplicate ${noun}`}
+      >
+        <Copy className="lt:size-3.5" />
+      </Button>
+      <Button
+        type="button"
+        variant="ghost"
+        size="icon"
+        className="lt:size-7 lt:text-destructive lt:hover:bg-destructive/10"
+        disabled={totalRows <= minRows || disabled}
+        onClick={(e) => {
+          e.stopPropagation()
+          onRemove()
+        }}
+        aria-label={`Remove ${noun}`}
+        title={`Remove ${noun}`}
+      >
+        <Trash2 className="lt:size-3.5" />
+      </Button>
+    </div>
+  )
 }
 
 function BlockRowRenderer({
@@ -1847,6 +1960,7 @@ function BlockRowRenderer({
 }: BlockRowRendererProps) {
   const [collapsed, setCollapsed] = useState(false)
   const label = getBlockRowLabel(block, index, rowPath, watch)
+  const blockPermissions = permissions?.blocks?.[block.slug]?.fields
 
   useEffect(() => {
     register(`${rowPath}.blockType` as never)
@@ -1874,102 +1988,38 @@ function BlockRowRenderer({
           <span>{label}</span>
         </button>
 
-        <div className="lt:flex lt:items-center lt:gap-1">
-          <Button
-            type="button"
-            variant="ghost"
-            size="icon"
-            className="lt:size-7"
-            disabled={index === 0 || disabled}
-            onClick={(e) => {
-              e.stopPropagation()
-              onMoveUp()
-            }}
-            aria-label="Move block up"
-            title="Move block up"
-          >
-            <ArrowUp className="lt:size-3.5" />
-          </Button>
-          <Button
-            type="button"
-            variant="ghost"
-            size="icon"
-            className="lt:size-7"
-            disabled={index === totalRows - 1 || disabled}
-            onClick={(e) => {
-              e.stopPropagation()
-              onMoveDown()
-            }}
-            aria-label="Move block down"
-            title="Move block down"
-          >
-            <ArrowDown className="lt:size-3.5" />
-          </Button>
-          <Button
-            type="button"
-            variant="ghost"
-            size="icon"
-            className="lt:size-7"
-            disabled={totalRows >= maxRows || disabled}
-            onClick={(e) => {
-              e.stopPropagation()
-              onDuplicate()
-            }}
-            aria-label="Duplicate block"
-            title="Duplicate block"
-          >
-            <Copy className="lt:size-3.5" />
-          </Button>
-          <Button
-            type="button"
-            variant="ghost"
-            size="icon"
-            className="lt:size-7 lt:text-destructive lt:hover:bg-destructive/10"
-            disabled={totalRows <= minRows || disabled}
-            onClick={(e) => {
-              e.stopPropagation()
-              onRemove()
-            }}
-            aria-label="Remove block"
-            title="Remove block"
-          >
-            <Trash2 className="lt:size-3.5" />
-          </Button>
-        </div>
+        <RowActionButtons
+          noun="block"
+          index={index}
+          totalRows={totalRows}
+          minRows={minRows}
+          maxRows={maxRows}
+          disabled={disabled}
+          onMoveUp={onMoveUp}
+          onMoveDown={onMoveDown}
+          onDuplicate={onDuplicate}
+          onRemove={onRemove}
+        />
       </div>
 
       {!collapsed && (
         <div className="lt:p-4 lt:flex lt:flex-col lt:gap-4">
           <input type="hidden" value={block.slug} {...register(`${rowPath}.blockType` as never)} />
-          {block.fields.map((subField) => {
-            const blockPerm = permissions?.blocks?.[block.slug]
-            const subPerm = blockPerm?.fields?.[subField.name]
-            if (subPerm?.read === false) {
-              return null
-            }
-            const subError =
-              rowError && typeof rowError === 'object' && Object.hasOwn(rowError, subField.name)
-                ? rowError[subField.name]
-                : undefined
-            return (
-              <FieldRenderer
-                key={subField.name}
-                field={subField}
-                control={control}
-                register={register}
-                setValue={setValue}
-                watch={watch}
-                mode={mode}
-                pathPrefix={rowPath}
-                error={subError as { message?: string } | undefined}
-                permissions={subPerm}
-                disabled={disabled}
-                readOnlyDoc={readOnlyDoc}
-                hasLocalization={hasLocalization}
-                parentLocalized={parentLocalized}
-              />
-            )
-          })}
+          <ScopeFieldList
+            fields={block.fields}
+            control={control}
+            register={register}
+            setValue={setValue}
+            watch={watch}
+            mode={mode}
+            pathPrefix={rowPath}
+            scopeErrors={rowError}
+            scopePermissions={blockPermissions}
+            disabled={disabled}
+            readOnlyDoc={readOnlyDoc}
+            hasLocalization={hasLocalization}
+            parentLocalized={parentLocalized}
+          />
         </div>
       )}
     </div>
@@ -2238,23 +2288,113 @@ function StandardFieldRenderer({
   )
 }
 
-function UnconditionalFieldRenderer({
-  field,
-  control,
-  register,
-  error,
-  setValue,
-  watch,
-  mode,
-  pathPrefix,
-  permissions,
-  disabled,
-  readOnlyDoc,
-  fallbackValue,
-  hasLocalization,
-  parentLocalized,
-}: FieldRendererProps) {
+function renderLayoutField(props: FieldRendererProps, fullName: string) {
+  const {
+    field,
+    control,
+    register,
+    error,
+    scopeErrors,
+    setValue,
+    watch,
+    mode,
+    pathPrefix,
+    permissions,
+    scopePermissions,
+    disabled,
+    readOnlyDoc,
+    fallbackValue,
+    scopeFallback,
+    hasLocalization,
+    parentLocalized,
+  } = props
+
+  const resolvedErrors = scopeErrors ?? error
+  const resolvedPermissions = scopePermissions ?? permissions?.fields
+  const resolvedFallback = scopeFallback ?? (fallbackValue as Record<string, unknown> | undefined)
+
+  const renderFields = (childFields: readonly ClientField[]) => (
+    <ScopeFieldList
+      fields={childFields}
+      control={control}
+      register={register}
+      setValue={setValue}
+      watch={watch}
+      mode={mode}
+      pathPrefix={pathPrefix}
+      scopeErrors={resolvedErrors}
+      scopePermissions={resolvedPermissions}
+      scopeFallback={resolvedFallback}
+      disabled={disabled}
+      readOnlyDoc={readOnlyDoc}
+      hasLocalization={hasLocalization}
+      parentLocalized={parentLocalized}
+    />
+  )
+
+  if (field.type === 'tabs') {
+    return (
+      <TabsFieldRenderer
+        field={field}
+        fullName={fullName}
+        control={control}
+        watch={watch}
+        pathPrefix={pathPrefix}
+        scopeErrors={resolvedErrors}
+        scopePermissions={resolvedPermissions}
+        renderFields={renderFields}
+      />
+    )
+  }
+  if (field.type === 'row') {
+    return (
+      <RowFieldRenderer
+        field={field}
+        fullName={fullName}
+        scopePermissions={resolvedPermissions}
+        renderFields={renderFields}
+      />
+    )
+  }
+  if (field.type === 'collapsible') {
+    return (
+      <CollapsibleFieldRenderer
+        field={field}
+        fullName={fullName}
+        control={control}
+        pathPrefix={pathPrefix}
+        scopeErrors={resolvedErrors}
+        scopePermissions={resolvedPermissions}
+        renderFields={renderFields}
+      />
+    )
+  }
+  return null
+}
+
+function UnconditionalFieldRenderer(props: FieldRendererProps) {
+  const {
+    field,
+    control,
+    register,
+    error,
+    setValue,
+    watch,
+    mode,
+    pathPrefix,
+    permissions,
+    disabled,
+    readOnlyDoc,
+    fallbackValue,
+    hasLocalization,
+    parentLocalized,
+  } = props
   const fullName = pathPrefix ? `${pathPrefix}.${field.name}` : field.name
+
+  const layoutElement = isClientLayoutField(field) ? renderLayoutField(props, fullName) : null
+  if (isClientLayoutField(field)) {
+    return layoutElement
+  }
 
   if (field.type === 'group') {
     const isLocked = isFieldReadOnly(permissions, mode, readOnlyDoc)
@@ -2342,27 +2482,6 @@ function UnconditionalFieldRenderer({
       parentLocalized={parentLocalized}
     />
   )
-}
-
-function buildWatchedRootValues(
-  watchedPaths: string[],
-  watchedValues: unknown,
-  fallbackWatch?: () => Record<string, unknown>,
-): Record<string, unknown> {
-  if (watchedPaths.length > 0) {
-    if (Array.isArray(watchedValues)) {
-      const root: Record<string, unknown> = {}
-      watchedPaths.forEach((path, i) => {
-        setValueByPath(root, path, watchedValues[i])
-      })
-      return root
-    }
-    return fallbackWatch ? fallbackWatch() : {}
-  }
-  if (watchedValues && typeof watchedValues === 'object' && !Array.isArray(watchedValues)) {
-    return watchedValues as Record<string, unknown>
-  }
-  return fallbackWatch ? fallbackWatch() : {}
 }
 
 function ConditionalFieldRenderer(props: FieldRendererProps & { condition: FieldCondition }) {

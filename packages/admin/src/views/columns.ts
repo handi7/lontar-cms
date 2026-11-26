@@ -1,4 +1,8 @@
-import type { ClientCollection, FieldPermission } from '@lontar/core/client'
+import {
+  flattenClientFields,
+  type ClientCollection,
+  type FieldPermission,
+} from '@lontar/core/client'
 
 const SYSTEM_KEYS = new Set(['id', '_status', 'createdAt', 'updatedAt'])
 
@@ -11,7 +15,7 @@ export function getColumnLabel(key: string, collection: ClientCollection): strin
   if (key === '_status') return 'Status'
   if (key === 'createdAt') return 'Created At'
   if (key === 'updatedAt') return 'Updated At'
-  const field = collection.fields.find((f) => f.name === key)
+  const field = flattenClientFields(collection.fields).find((f) => f.name === key)
   return field?.label ?? key
 }
 
@@ -45,7 +49,7 @@ function configuredColumnKeys(collection: ClientCollection): string[] {
   const keys =
     collection.admin.defaultColumns.length > 0
       ? [...collection.admin.defaultColumns]
-      : ['id', ...collection.fields.map((f) => f.name), 'createdAt']
+      : ['id', ...flattenClientFields(collection.fields).map((f) => f.name), 'createdAt']
 
   if (collection.versions?.drafts && !keys.includes('_status')) {
     const createdAtIndex = keys.indexOf('createdAt')
@@ -74,7 +78,7 @@ export function selectableColumnKeys(
   fieldPermissions?: Record<string, FieldPermission>,
 ): string[] {
   const keys = new Set(configuredColumnKeys(collection))
-  for (const field of collection.fields) {
+  for (const field of flattenClientFields(collection.fields)) {
     if (!UNPICKABLE_TYPES.has(field.type)) keys.add(field.name)
   }
   keys.add('id')
