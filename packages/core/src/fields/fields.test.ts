@@ -655,4 +655,40 @@ describe('layout fields and flattenFields', () => {
       metaTitle: string | null
     }>()
   })
+
+  it('builds and infers polymorphic relationship fields (ADR 0033)', () => {
+    expect(f.relationship({ relationTo: ['authors', 'editors'], required: true })).toStrictEqual({
+      type: 'relationship',
+      relationTo: ['authors', 'editors'],
+      required: true,
+    })
+    expect(f.relationship({ relationTo: ['authors', 'editors'], hasMany: true })).toStrictEqual({
+      type: 'relationship',
+      relationTo: ['authors', 'editors'],
+      hasMany: true,
+    })
+    expect(() => f.relationship({ relationTo: [] })).toThrow('cannot be empty')
+    expect(() => f.relationship({ relationTo: ['authors', ''] })).toThrow('non-empty collection')
+
+    const col = collection({
+      slug: 'activities',
+      fields: {
+        owner: f.relationship({ relationTo: ['authors', 'editors'], required: true }),
+        optionalOwner: f.relationship({ relationTo: ['authors', 'editors'] }),
+        related: f.relationship({ relationTo: ['authors', 'editors'], hasMany: true }),
+      },
+    })
+
+    docOf(col).toEqualTypeOf<{
+      id: number
+      createdAt: string
+      updatedAt: string
+      owner: { relationTo: 'authors'; value: number } | { relationTo: 'editors'; value: number }
+      optionalOwner:
+        { relationTo: 'authors'; value: number } | { relationTo: 'editors'; value: number } | null
+      related: (
+        { relationTo: 'authors'; value: number } | { relationTo: 'editors'; value: number }
+      )[]
+    }>()
+  })
 })

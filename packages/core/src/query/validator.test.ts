@@ -653,3 +653,105 @@ describe('validateWhere and validateSort with layout fields (tabs, row, collapsi
     ])
   })
 })
+
+describe('validateWhere and validateSort with polymorphic relationships (ADR 0033)', () => {
+  const polyCol: CollectionConfig = {
+    slug: 'activities',
+    fields: {
+      title: { type: 'text' },
+      owner: { type: 'relationship', relationTo: ['authors', 'editors'] },
+      related: { type: 'relationship', relationTo: ['authors', 'editors'], hasMany: true },
+      meta: {
+        type: 'group',
+        fields: {
+          reviewer: { type: 'relationship', relationTo: ['authors', 'editors'], localized: true },
+        },
+      },
+      items: {
+        type: 'array',
+        fields: {
+          target: { type: 'relationship', relationTo: ['authors', 'editors'] },
+        },
+      },
+    },
+  }
+  const locConfig = { locales: ['en', 'id'], defaultLocale: 'en' }
+
+  it('allows dotted paths, nested objects, and nullability filters on polymorphic relationships', () => {
+    expect(
+      validateWhere(
+        {
+          'owner.relationTo': { equals: 'authors' },
+          'owner.value': { equals: 42 },
+          'related.relationTo': { in: ['authors', 'editors'] },
+          'related.value': { equals: 10 },
+          'meta.reviewer.relationTo': { equals: 'editors' },
+          'items.target.relationTo': { equals: 'authors' },
+          'items.target.value': { equals: 7 },
+        },
+        polyCol,
+        locConfig,
+      ),
+    ).toEqual([])
+
+    expect(
+      validateWhere(
+        {
+          owner: { relationTo: { equals: 'authors' }, value: { equals: 42 } },
+          related: { relationTo: 'editors', value: 5 },
+        },
+        polyCol,
+      ),
+    ).toEqual([])
+
+    expect(validateWhere({ owner: null }, polyCol)).toEqual([])
+    expect(validateWhere({ owner: { equals: null } }, polyCol)).toEqual([])
+    expect(validateWhere({ owner: { not_equals: null } }, polyCol)).toEqual([])
+  })
+
+  it('rejects invalid operators and unknown subpaths on polymorphic relationships', () => {
+    expect(validateWhere({ owner: { equals: 'authors' } }, polyCol)).toEqual([
+      {
+        path: 'owner.equals',
+        message: 'Operator "equals" on polymorphic relationship field "owner" only supports null',
+      },
+    ])
+    expect(validateWhere({ 'owner.unknown': { equals: 'x' } }, polyCol)).toEqual([
+      {
+        path: 'owner.unknown',
+        message: 'Unknown field "owner.unknown"',
+      },
+    ])
+    expect(validateWhere({ owner: { unknown: { equals: 'x' } } }, polyCol)).toEqual([
+      {
+        path: 'owner.unknown',
+        message: 'Operator "unknown" is not supported on polymorphic relationship field "owner"',
+      },
+    ])
+  })
+
+  it('validates sort paths on single polymorphic relationships and rejects root or hasMany sorts', () => {
+    expect(validateSort('owner.relationTo', polyCol, locConfig)).toEqual([])
+    expect(validateSort('-owner.value', polyCol, locConfig)).toEqual([])
+    expect(validateSort('meta.reviewer.value', polyCol, locConfig)).toEqual([])
+
+    expect(validateSort('owner', polyCol)).toEqual([
+      {
+        path: 'owner',
+        message: 'Cannot sort on polymorphic relationship field "owner"',
+      },
+    ])
+    expect(validateSort('related', polyCol)).toEqual([
+      {
+        path: 'related',
+        message: 'Cannot sort on field "related" with hasMany: true',
+      },
+    ])
+    expect(validateSort('related.value', polyCol)).toEqual([
+      {
+        path: 'related.value',
+        message: 'Unknown field "related.value"',
+      },
+    ])
+  })
+})

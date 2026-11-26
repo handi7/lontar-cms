@@ -807,5 +807,54 @@ describe('collectionToTable', () => {
         expect(layoutCols[key]?.notNull).toBe(flatCols[key]?.notNull)
       }
     })
+
+    it('maps polymorphic single and hasMany relationships to flattened columns and junction tables (ADR 0033)', () => {
+      const polyCol: CollectionConfig = {
+        slug: 'activities',
+        fields: {
+          owner: { type: 'relationship', relationTo: ['authors', 'editors'], required: true },
+          optionalOwner: { type: 'relationship', relationTo: ['authors', 'editors'] },
+          related: { type: 'relationship', relationTo: ['authors', 'editors'], hasMany: true },
+          meta: {
+            type: 'group',
+            fields: {
+              reviewer: {
+                type: 'relationship',
+                relationTo: ['authors', 'editors'],
+                localized: true,
+              },
+            },
+          },
+        },
+      }
+
+      const table = collectionToTable(polyCol, ['en', 'id'])
+      const columns = getTableColumns(table) as Record<string, AnyPgColumn>
+
+      expect(col(columns, 'owner__relation_to').columnType).toBe('PgVarchar')
+      expect(col(columns, 'owner__relation_to').notNull).toBe(true)
+      expect(col(columns, 'owner__id').columnType).toBe('PgInteger')
+      expect(col(columns, 'owner__id').notNull).toBe(true)
+
+      expect(col(columns, 'optionalOwner__relation_to').notNull).toBe(false)
+      expect(col(columns, 'optionalOwner__id').notNull).toBe(false)
+
+      expect(col(columns, 'meta__reviewer__relation_to_en').notNull).toBe(false)
+      expect(col(columns, 'meta__reviewer__id_en').notNull).toBe(false)
+      expect(col(columns, 'meta__reviewer__relation_to_id').notNull).toBe(false)
+      expect(col(columns, 'meta__reviewer__id_id').notNull).toBe(false)
+
+      const jTables = getCollectionJunctionTables(polyCol)
+      expect(jTables.related).toBeDefined()
+      const jCols = getTableColumns(jTables.related!) as Record<string, AnyPgColumn>
+      expect(Object.keys(jCols)).toEqual(['id', 'parentId', 'relationTo', 'targetId', 'order'])
+      expect(col(jCols, 'relationTo').columnType).toBe('PgVarchar')
+      expect(col(jCols, 'relationTo').notNull).toBe(true)
+
+      const jConfig = getTableConfig(jTables.related!)
+      expect(jConfig.uniqueConstraints.map((u) => u.columns.map((c) => c.name))).toEqual([
+        ['parent_id', 'relation_to', 'target_id'],
+      ])
+    })
   })
 })

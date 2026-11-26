@@ -412,16 +412,46 @@ function validateUploadTarget(
   return []
 }
 
+function validatePolymorphicTargets(
+  where: string,
+  name: string,
+  relationTo: readonly string[],
+  collectionMap: Map<string, CollectionConfig>,
+): string[] {
+  if (relationTo.length === 0) {
+    return [
+      `${where}: relationship field "${name}" must specify at least one collection in "relationTo".`,
+    ]
+  }
+  const issues: string[] = []
+  const seen = new Set<string>()
+  for (const slug of relationTo) {
+    if (seen.has(slug)) {
+      issues.push(
+        `${where}: relationship field "${name}" has duplicate collection "${slug}" in "relationTo".`,
+      )
+      continue
+    }
+    seen.add(slug)
+    if (!collectionMap.has(slug)) {
+      issues.push(`${where}: relationship field "${name}" refers to unknown collection "${slug}".`)
+    }
+  }
+  return issues
+}
+
 function validateRelationshipTarget(
   where: string,
   name: string,
   field: RelationshipField,
   collectionMap: Map<string, CollectionConfig>,
 ): string[] {
-  if (!collectionMap.has(field.relationTo)) {
-    return [
-      `${where}: relationship field "${name}" refers to unknown collection "${field.relationTo}".`,
-    ]
+  if (Array.isArray(field.relationTo)) {
+    return validatePolymorphicTargets(where, name, field.relationTo, collectionMap)
+  }
+  const slug = field.relationTo as string
+  if (!collectionMap.has(slug)) {
+    return [`${where}: relationship field "${name}" refers to unknown collection "${slug}".`]
   }
   return []
 }

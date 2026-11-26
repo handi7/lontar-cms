@@ -162,7 +162,10 @@ function parseJsonField(val: string): unknown {
   }
 }
 
-function parseRelationshipField(val: string, hasMany?: boolean): unknown {
+function parseRelationshipField(val: string, hasMany?: boolean, isPolymorphic = false): unknown {
+  if (isPolymorphic) {
+    return parseJsonField(val)
+  }
   if (hasMany) {
     try {
       return JSON.parse(val)
@@ -190,7 +193,7 @@ function parseStringField(val: string, field: Field): unknown {
     case 'richText':
       return parseJsonField(val)
     case 'relationship':
-      return parseRelationshipField(val, field.hasMany)
+      return parseRelationshipField(val, field.hasMany, Array.isArray(field.relationTo))
     default:
       return val
   }

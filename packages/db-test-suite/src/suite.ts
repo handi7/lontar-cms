@@ -5,6 +5,7 @@ import path from 'node:path'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import {
   createLontar,
+  createLontarClient,
   UniqueConstraintError,
   type Config,
   type DatabaseAdapter,
@@ -21,6 +22,7 @@ import {
   longSlugVersionedCollection,
   nestedCollection,
   pagesCollection,
+  polymorphicActivitiesCollection,
   postsCollection,
   sharedBlocksCollection,
   snippetsCollection,
@@ -3650,6 +3652,207 @@ export function registerAdapterConformanceSuite(
         })
         expect(resNotNull.docs.some((d) => d.id === created1.id)).toBe(true)
         expect(resNotNull.docs.some((d) => d.id === created3.id)).toBe(false)
+      })
+    })
+
+    describe('polymorphic relationships (ADR 0033)', () => {
+      it('stores, updates, queries, sorts, localizes, and populates polymorphic single and hasMany relationships', async () => {
+        const cat1 = await adapter.create({
+          collection: categoriesCollection,
+          data: { name: 'Poly Cat 1' },
+        })
+        const tag1 = await adapter.create({
+          collection: tagsCollection,
+          data: { slug: 'poly-tag-1' },
+        })
+        const tag2 = await adapter.create({
+          collection: tagsCollection,
+          data: { slug: 'poly-tag-2' },
+        })
+
+        const act1 = await adapter.create({
+          collection: polymorphicActivitiesCollection,
+          locale: 'en',
+          data: {
+            title: 'Activity One',
+            _status: 'published',
+            owner: { relationTo: 'categories', value: cat1.id },
+            related: [
+              { relationTo: 'tags', value: tag1.id },
+              { relationTo: 'categories', value: cat1.id },
+              { relationTo: 'tags', value: tag2.id },
+            ],
+            localizedOwner: { relationTo: 'categories', value: cat1.id },
+            localizedRelated: [{ relationTo: 'tags', value: tag1.id }],
+            meta: {
+              reviewer: { relationTo: 'tags', value: tag2.id },
+            },
+            items: [{ label: 'First', target: { relationTo: 'categories', value: cat1.id } }],
+            sections: [{ blockType: 'link', target: { relationTo: 'tags', value: tag1.id } }],
+          },
+        })
+
+        expect(act1.owner).toEqual({ relationTo: 'categories', value: cat1.id })
+        expect(act1.related).toEqual([
+          { relationTo: 'tags', value: tag1.id },
+          { relationTo: 'categories', value: cat1.id },
+          { relationTo: 'tags', value: tag2.id },
+        ])
+        expect(act1.meta).toEqual({ reviewer: { relationTo: 'tags', value: tag2.id } })
+
+        // Update Indonesian locale separately
+        await adapter.update({
+          collection: polymorphicActivitiesCollection,
+          id: act1.id,
+          locale: 'id',
+          data: {
+            localizedOwner: { relationTo: 'tags', value: tag2.id },
+            localizedRelated: [{ relationTo: 'categories', value: cat1.id }],
+          },
+        })
+
+        const act1IdLocale = await adapter.findByID({
+          collection: polymorphicActivitiesCollection,
+          id: act1.id,
+          locale: 'id',
+        })
+        expect(act1IdLocale?.localizedOwner).toEqual({ relationTo: 'tags', value: tag2.id })
+        expect(act1IdLocale?.localizedRelated).toEqual([
+          { relationTo: 'categories', value: cat1.id },
+        ])
+
+        const act1AllLocales = await adapter.findByID({
+          collection: polymorphicActivitiesCollection,
+          id: act1.id,
+          locale: 'all',
+        })
+        expect(act1AllLocales?.localizedOwner).toEqual({
+          en: { relationTo: 'categories', value: cat1.id },
+          id: { relationTo: 'tags', value: tag2.id },
+        })
+        expect(act1AllLocales?.localizedRelated).toEqual({
+          en: [{ relationTo: 'tags', value: tag1.id }],
+          id: [{ relationTo: 'categories', value: cat1.id }],
+        })
+
+        // Second activity with tag owner and null localizedOwner
+        const act2 = await adapter.create({
+          collection: polymorphicActivitiesCollection,
+          locale: 'en',
+          data: {
+            title: 'Activity Two',
+            _status: 'published',
+            owner: { relationTo: 'tags', value: tag2.id },
+            related: [{ relationTo: 'categories', value: cat1.id }],
+          },
+        })
+
+        // Third activity with null owner
+        const act3 = await adapter.create({
+          collection: polymorphicActivitiesCollection,
+          locale: 'en',
+          data: {
+            title: 'Activity Three',
+            _status: 'published',
+            owner: null,
+          },
+        })
+        expect(act3.owner).toBeNull()
+
+        // Where queries on single polymorphic subpaths & nullability
+        const byRelTo = await adapter.find({
+          collection: polymorphicActivitiesCollection,
+          page: 1,
+          limit: 10,
+          where: { 'owner.relationTo': { equals: 'categories' } },
+        })
+        expect(byRelTo.docs.map((d) => d.id)).toEqual([act1.id])
+
+        const byValue = await adapter.find({
+          collection: polymorphicActivitiesCollection,
+          page: 1,
+          limit: 10,
+          where: { 'owner.value': { equals: String(tag2.id) } },
+        })
+        expect(byValue.docs.map((d) => d.id)).toEqual([act2.id])
+
+        const byNull = await adapter.find({
+          collection: polymorphicActivitiesCollection,
+          page: 1,
+          limit: 10,
+          where: { owner: null },
+        })
+        expect(byNull.docs.some((d) => d.id === act3.id)).toBe(true)
+        expect(byNull.docs.some((d) => d.id === act1.id)).toBe(false)
+
+        // Where queries on hasMany polymorphic subpaths & combined object filter
+        const byRelatedCombo = await adapter.find({
+          collection: polymorphicActivitiesCollection,
+          page: 1,
+          limit: 10,
+          where: { related: { relationTo: 'tags', value: tag1.id } },
+        })
+        expect(byRelatedCombo.docs.map((d) => d.id)).toEqual([act1.id])
+
+        // Where query inside group and array
+        const byGroup = await adapter.find({
+          collection: polymorphicActivitiesCollection,
+          page: 1,
+          limit: 10,
+          where: { 'meta.reviewer.relationTo': { equals: 'tags' } },
+        })
+        expect(byGroup.docs.map((d) => d.id)).toEqual([act1.id])
+
+        const byArray = await adapter.find({
+          collection: polymorphicActivitiesCollection,
+          page: 1,
+          limit: 10,
+          where: { 'items.target.relationTo': { equals: 'categories' } },
+        })
+        expect(byArray.docs.map((d) => d.id)).toEqual([act1.id])
+
+        // Sort on polymorphic subpaths
+        const sorted = await adapter.find({
+          collection: polymorphicActivitiesCollection,
+          page: 1,
+          limit: 10,
+          where: { owner: { not_equals: null } },
+          sort: 'owner.relationTo',
+        })
+        expect(sorted.docs.map((d) => d.id)).toEqual([act1.id, act2.id])
+
+        // Populate via Local API (depth: 1)
+        const local = createLontarClient({
+          ...config,
+          collections: config.collections.map((c) => ({
+            ...c,
+            access: { read: () => true, create: () => true, update: () => true },
+          })),
+        })
+        const populated = await local.findByID('polymorphic_activities', {
+          id: act1.id,
+          depth: 1,
+          overrideAccess: true,
+        })
+        expect(populated?.owner).toMatchObject({
+          relationTo: 'categories',
+          value: { id: cat1.id, name: 'Poly Cat 1' },
+        })
+        expect(populated?.related).toHaveLength(3)
+        expect(populated?.related).toMatchObject([
+          {
+            relationTo: 'tags',
+            value: { id: tag1.id, slug: 'poly-tag-1' },
+          },
+          {
+            relationTo: 'categories',
+            value: { id: cat1.id, name: 'Poly Cat 1' },
+          },
+          {
+            relationTo: 'tags',
+            value: { id: tag2.id, slug: 'poly-tag-2' },
+          },
+        ])
       })
     })
   })

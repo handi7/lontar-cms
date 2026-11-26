@@ -958,4 +958,51 @@ describe('generateSchemaFile', () => {
     expect(layoutSchema).toContain('double')
     expect(layoutSchema).toContain('json')
   })
+
+  it('generates columns and junction tables for polymorphic relationships (ADR 0033)', () => {
+    const polyConfig: Config = {
+      secret: 'test-secret',
+      db: fakeAdapter,
+      localization: { locales: ['en', 'id'], defaultLocale: 'en' },
+      collections: [
+        { slug: 'authors', fields: { name: { type: 'text' } } },
+        { slug: 'editors', fields: { name: { type: 'text' } } },
+        {
+          slug: 'activities',
+          fields: {
+            owner: { type: 'relationship', relationTo: ['authors', 'editors'], required: true },
+            localizedOwner: {
+              type: 'relationship',
+              relationTo: ['authors', 'editors'],
+              localized: true,
+            },
+            related: { type: 'relationship', relationTo: ['authors', 'editors'], hasMany: true },
+            localizedRelated: {
+              type: 'relationship',
+              relationTo: ['authors', 'editors'],
+              hasMany: true,
+              localized: true,
+            },
+          },
+        },
+      ],
+    }
+
+    const output = generateSchemaFile(polyConfig)
+    expect(output).toContain(
+      "owner__relation_to: varchar('owner__relation_to', { length: 255 }).notNull(),",
+    )
+    expect(output).toContain("owner__id: int('owner__id').notNull(),")
+    expect(output).toContain(
+      "localizedOwner__relation_to_en: varchar('localizedOwner__relation_to_en', { length: 255 }),",
+    )
+    expect(output).toContain("localizedOwner__id_en: int('localizedOwner__id_en'),")
+    expect(output).toContain("relationTo: varchar('relation_to', { length: 255 }).notNull(),")
+    expect(output).toContain(
+      "unique('activities_related_parent_target_unique').on(table.parentId, table.relationTo, table.targetId)",
+    )
+    expect(output).toContain(
+      "unique('activities_localizedRelated_parent_locale_target_unique').on(table.parentId, table._locale, table.relationTo, table.targetId)",
+    )
+  })
 })

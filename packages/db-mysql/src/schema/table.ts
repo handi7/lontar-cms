@@ -202,6 +202,7 @@ export type DynamicTable = MySqlTable & {
 export type JunctionTable = MySqlTable & {
   id: AnyMySqlColumn
   parentId: AnyMySqlColumn
+  relationTo?: AnyMySqlColumn
   targetId: AnyMySqlColumn
   order: AnyMySqlColumn
   _locale?: AnyMySqlColumn
@@ -336,35 +337,88 @@ export function getGlobalVersionsTable(
   return createVersionsTable(global.slug, parentTable)
 }
 
-export function createJunctionTable(tableName: string, isLocalized = false): JunctionTable {
-  if (isLocalized) {
-    const parentLocaleOrderIdx = getJunctionParentLocaleOrderIndexName(tableName)
-    const targetIdx = `${tableName}_target_idx`
-    const parentLocaleTargetUnique = getJunctionParentLocaleTargetUniqueName(tableName)
-    const columns = {
+function createLocalizedJunctionTable(tableName: string, isPolymorphic: boolean): JunctionTable {
+  const parentLocaleOrderIdx = getJunctionParentLocaleOrderIndexName(tableName)
+  const targetIdx = `${tableName}_target_idx`
+  const parentLocaleTargetUnique = getJunctionParentLocaleTargetUniqueName(tableName)
+  if (isPolymorphic) {
+    return mysqlTable(
+      tableName,
+      {
+        id: int('id').autoincrement().primaryKey(),
+        parentId: int('parent_id').notNull(),
+        relationTo: varchar('relation_to', { length: 255 }).notNull(),
+        targetId: int('target_id').notNull(),
+        _locale: varchar('_locale', { length: 10 }).notNull(),
+        order: int('order').default(0).notNull(),
+      },
+      (t) => [
+        index(parentLocaleOrderIdx).on(t.parentId, t._locale, t.order),
+        index(targetIdx).on(t.relationTo, t.targetId),
+        unique(parentLocaleTargetUnique).on(t.parentId, t._locale, t.relationTo, t.targetId),
+      ],
+    )
+  }
+  return mysqlTable(
+    tableName,
+    {
       id: int('id').autoincrement().primaryKey(),
       parentId: int('parent_id').notNull(),
       targetId: int('target_id').notNull(),
       _locale: varchar('_locale', { length: 10 }).notNull(),
       order: int('order').default(0).notNull(),
-    }
-    return mysqlTable(tableName, columns, (t) => [
+    },
+    (t) => [
       index(parentLocaleOrderIdx).on(t.parentId, t._locale, t.order),
       index(targetIdx).on(t.targetId),
       unique(parentLocaleTargetUnique).on(t.parentId, t._locale, t.targetId),
-    ])
+    ],
+  )
+}
+
+function createStandardJunctionTable(tableName: string, isPolymorphic: boolean): JunctionTable {
+  if (isPolymorphic) {
+    return mysqlTable(
+      tableName,
+      {
+        id: int('id').autoincrement().primaryKey(),
+        parentId: int('parent_id').notNull(),
+        relationTo: varchar('relation_to', { length: 255 }).notNull(),
+        targetId: int('target_id').notNull(),
+        order: int('order').default(0).notNull(),
+      },
+      (t) => [
+        index(`${tableName}_parent_idx`).on(t.parentId),
+        index(`${tableName}_target_idx`).on(t.relationTo, t.targetId),
+        unique(`${tableName}_parent_target_unique`).on(t.parentId, t.relationTo, t.targetId),
+      ],
+    )
   }
-  const columns = {
-    id: int('id').autoincrement().primaryKey(),
-    parentId: int('parent_id').notNull(),
-    targetId: int('target_id').notNull(),
-    order: int('order').default(0).notNull(),
+  return mysqlTable(
+    tableName,
+    {
+      id: int('id').autoincrement().primaryKey(),
+      parentId: int('parent_id').notNull(),
+      targetId: int('target_id').notNull(),
+      order: int('order').default(0).notNull(),
+    },
+    (t) => [
+      index(`${tableName}_parent_idx`).on(t.parentId),
+      index(`${tableName}_target_idx`).on(t.targetId),
+      unique(`${tableName}_parent_target_unique`).on(t.parentId, t.targetId),
+    ],
+  )
+}
+
+export function createJunctionTable(
+  tableName: string,
+  isLocalized = false,
+  isPolymorphic = false,
+): JunctionTable {
+  if (isLocalized) {
+    return createLocalizedJunctionTable(tableName, isPolymorphic)
   }
-  return mysqlTable(tableName, columns, (t) => [
-    index(`${tableName}_parent_idx`).on(t.parentId),
-    index(`${tableName}_target_idx`).on(t.targetId),
-    unique(`${tableName}_parent_target_unique`).on(t.parentId, t.targetId),
-  ])
+  return createStandardJunctionTable(tableName, isPolymorphic)
 }
 
 export interface FlattenedColumnField {
@@ -405,6 +459,76 @@ function flattenLayoutColumnFields(
   return flattenGroupFields(field.fields, prefix, pathPrefix, isConditional, isLocalized)
 }
 
+function expandPointColumns(
+  colName: string,
+  currentPath: string[],
+  field: Field & { type: 'point' },
+  isLocalized: boolean,
+): FlattenedColumnField[] {
+  return [
+    {
+      name: `${colName}__lng`,
+      path: [...currentPath, 'lng'],
+      field: {
+        type: 'number',
+        name: `${colName}__lng`,
+        required: isColumnRequired(field),
+        defaultValue: field.defaultValue ? field.defaultValue[0] : undefined,
+        admin: field.admin,
+        localized: isLocalized,
+      } as unknown as Field,
+    },
+    {
+      name: `${colName}__lat`,
+      path: [...currentPath, 'lat'],
+      field: {
+        type: 'number',
+        name: `${colName}__lat`,
+        required: isColumnRequired(field),
+        defaultValue: field.defaultValue ? field.defaultValue[1] : undefined,
+        admin: field.admin,
+        localized: isLocalized,
+      } as unknown as Field,
+    },
+  ]
+}
+
+function expandPolymorphicColumns(
+  colName: string,
+  currentPath: string[],
+  field: Field,
+  isLocalized: boolean,
+): FlattenedColumnField[] {
+  return [
+    {
+      name: `${colName}__relation_to`,
+      path: [...currentPath, 'relationTo'],
+      field: {
+        type: 'text',
+        maxLength: 255,
+        required: isColumnRequired(field),
+        admin: field.admin,
+        localized: isLocalized,
+      } as unknown as Field,
+    },
+    {
+      name: `${colName}__id`,
+      path: [...currentPath, 'value'],
+      field: {
+        type: 'number',
+        integer: true,
+        required: isColumnRequired(field),
+        admin: field.admin,
+        localized: isLocalized,
+      } as unknown as Field,
+    },
+  ]
+}
+
+function isSinglePolymorphicField(field: Field): boolean {
+  return field.type === 'relationship' && !field.hasMany && Array.isArray(field.relationTo)
+}
+
 function flattenFieldEntry(
   name: string,
   field: Field,
@@ -424,32 +548,10 @@ function flattenFieldEntry(
     return flattenGroupFields(field.fields, colName, currentPath, isConditional, isLocalized)
   }
   if (field.type === 'point') {
-    return [
-      {
-        name: `${colName}__lng`,
-        path: [...currentPath, 'lng'],
-        field: {
-          type: 'number',
-          name: `${colName}__lng`,
-          required: isColumnRequired(field),
-          defaultValue: field.defaultValue ? field.defaultValue[0] : undefined,
-          admin: field.admin,
-          localized: isLocalized,
-        } as unknown as Field,
-      },
-      {
-        name: `${colName}__lat`,
-        path: [...currentPath, 'lat'],
-        field: {
-          type: 'number',
-          name: `${colName}__lat`,
-          required: isColumnRequired(field),
-          defaultValue: field.defaultValue ? field.defaultValue[1] : undefined,
-          admin: field.admin,
-          localized: isLocalized,
-        } as unknown as Field,
-      },
-    ]
+    return expandPointColumns(colName, currentPath, field, isLocalized)
+  }
+  if (isSinglePolymorphicField(field)) {
+    return expandPolymorphicColumns(colName, currentPath, field, isLocalized)
   }
   return [
     {
@@ -483,7 +585,11 @@ export function getCollectionJunctionTables(
   for (const { name, field } of flattenGroupFields(collection.fields)) {
     if (field.type === 'relationship' && field.hasMany) {
       const tableName = getJunctionTableName(collection.slug, name)
-      tables[name] = createJunctionTable(tableName, Boolean(field.localized))
+      tables[name] = createJunctionTable(
+        tableName,
+        Boolean(field.localized),
+        Array.isArray(field.relationTo),
+      )
     }
   }
   return tables

@@ -971,4 +971,183 @@ describe('populateDocs', () => {
       })
     })
   })
+
+  describe('polymorphic relationships (ADR 0033)', () => {
+    const authorsCol: CollectionConfig = {
+      slug: 'authors',
+      access: { read: () => true },
+      fields: { name: { type: 'text', required: true } },
+    }
+    const editorsCol: CollectionConfig = {
+      slug: 'editors',
+      access: { read: () => true },
+      fields: {
+        name: { type: 'text', required: true },
+        mentor: { type: 'relationship', relationTo: ['authors', 'editors'] },
+      },
+    }
+    const secretCol: CollectionConfig = {
+      slug: 'secrets',
+      access: { read: () => false },
+      fields: { label: { type: 'text' } },
+    }
+    const activitiesCol: CollectionConfig = {
+      slug: 'activities',
+      access: { read: () => true },
+      fields: {
+        owner: { type: 'relationship', relationTo: ['authors', 'editors', 'secrets'] },
+        related: {
+          type: 'relationship',
+          relationTo: ['authors', 'editors', 'secrets'],
+          hasMany: true,
+        },
+        items: {
+          type: 'array',
+          fields: {
+            target: { type: 'relationship', relationTo: ['authors', 'editors'] },
+          },
+        },
+      },
+    }
+
+    const now = '2026-01-01T00:00:00.000Z'
+    const authorsDocs: StoredDoc[] = [
+      { id: 1, name: 'Alice', createdAt: now, updatedAt: now },
+      { id: 2, name: 'Bob', createdAt: now, updatedAt: now },
+    ]
+    const editorsDocs: StoredDoc[] = [
+      {
+        id: 10,
+        name: 'Carol',
+        mentor: { relationTo: 'authors', value: 2 },
+        createdAt: now,
+        updatedAt: now,
+      },
+    ]
+
+    it('batches queries per target collection and preserves mixed order at depth 1 and 2', async () => {
+      const db = createMockAdapter({
+        authors: authorsDocs,
+        editors: editorsDocs,
+        secrets: [{ id: 99, label: 'Hidden', createdAt: now, updatedAt: now }],
+      })
+      const findSpy = vi.spyOn(db, 'find')
+
+      const result = await populateDocs({
+        docs: [
+          {
+            id: 100,
+            owner: { relationTo: 'editors', value: 10 },
+            related: [
+              { relationTo: 'authors', value: 1 },
+              { relationTo: 'editors', value: 10 },
+              { relationTo: 'authors', value: 2 },
+            ],
+            items: [{ id: 'r1', target: { relationTo: 'authors', value: 1 } }],
+          },
+        ],
+        collection: activitiesCol,
+        depth: 2,
+        collections: [activitiesCol, authorsCol, editorsCol, secretCol],
+        db,
+      })
+
+      // 1 query for authors ([1, 2]) + 1 query for editors ([10]) at depth 1,
+      // plus 1 query for authors ([2]) when populating editor.mentor at depth 2.
+      expect(findSpy).toHaveBeenCalledTimes(3)
+      expect(result[0]?.owner).toEqual({
+        relationTo: 'editors',
+        value: {
+          id: 10,
+          name: 'Carol',
+          mentor: { relationTo: 'authors', value: authorsDocs[1] },
+          createdAt: now,
+          updatedAt: now,
+        },
+      })
+      expect(result[0]?.related).toEqual([
+        { relationTo: 'authors', value: authorsDocs[0] },
+        {
+          relationTo: 'editors',
+          value: {
+            id: 10,
+            name: 'Carol',
+            mentor: { relationTo: 'authors', value: authorsDocs[1] },
+            createdAt: now,
+            updatedAt: now,
+          },
+        },
+        { relationTo: 'authors', value: authorsDocs[1] },
+      ])
+      expect(result[0]?.items).toEqual([
+        { id: 'r1', target: { relationTo: 'authors', value: authorsDocs[0] } },
+      ])
+    })
+
+    it('handles missing targets and denied collections safely', async () => {
+      const db = createMockAdapter({
+        authors: authorsDocs,
+        editors: editorsDocs,
+        secrets: [{ id: 99, label: 'Hidden', createdAt: now, updatedAt: now }],
+      })
+
+      const result = await populateDocs({
+        docs: [
+          {
+            id: 101,
+            owner: { relationTo: 'authors', value: 999 },
+            related: [
+              { relationTo: 'authors', value: 1 },
+              { relationTo: 'authors', value: 999 },
+              { relationTo: 'secrets', value: 99 },
+            ],
+          },
+        ],
+        collection: activitiesCol,
+        depth: 1,
+        collections: [activitiesCol, authorsCol, editorsCol, secretCol],
+        db,
+      })
+
+      expect(result[0]?.owner).toEqual({ relationTo: 'authors', value: null })
+      expect(result[0]?.related).toEqual([
+        { relationTo: 'authors', value: authorsDocs[0] },
+        { relationTo: 'secrets', value: 99 },
+      ])
+    })
+
+    it('terminates circular polymorphic references at depth', async () => {
+      const db = createMockAdapter({
+        authors: authorsDocs,
+        editors: [
+          {
+            id: 10,
+            name: 'Carol',
+            mentor: { relationTo: 'editors', value: 10 },
+            createdAt: now,
+            updatedAt: now,
+          },
+        ],
+      })
+
+      const result = await populateDocs({
+        docs: [
+          {
+            id: 10,
+            name: 'Carol',
+            mentor: { relationTo: 'editors', value: 10 },
+          },
+        ],
+        collection: editorsCol,
+        depth: 3,
+        collections: [editorsCol, authorsCol],
+        db,
+      })
+
+      const populatedMentor = result[0]?.mentor as { relationTo: string; value: DocumentData }
+      expect(populatedMentor.relationTo).toBe('editors')
+      expect(populatedMentor.value.name).toBe('Carol')
+      expect(populatedMentor.value.mentor).toEqual({ relationTo: 'editors', value: 10 })
+    })
+  })
 })

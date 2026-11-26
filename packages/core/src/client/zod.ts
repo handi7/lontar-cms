@@ -221,6 +221,19 @@ const zodByType = {
   },
   relationship: (field: ClientRelationshipField) => {
     const idSchema = z.number().int().positive().max(MAX_INT_32)
+    if (Array.isArray(field.relationTo)) {
+      const [first, ...rest] = field.relationTo
+      const relationToSchema = first ? z.enum([first, ...rest]) : z.string().min(1)
+      const itemSchema = z.object({
+        relationTo: relationToSchema,
+        value: idSchema,
+      })
+      if (field.hasMany) {
+        const arr = z.array(itemSchema)
+        return field.required ? arr.min(1, 'At least one relation is required') : arr
+      }
+      return itemSchema
+    }
     if (field.hasMany) {
       const arr = z.array(idSchema)
       return field.required ? arr.min(1, 'At least one relation is required') : arr

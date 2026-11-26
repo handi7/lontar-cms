@@ -546,39 +546,53 @@ export const rateLimit = pgTable(
 )`
 }
 
-function renderJunctionTable(tableName: string, isLocalized = false): string {
+function renderJunctionTable(
+  tableName: string,
+  isLocalized = false,
+  isPolymorphic = false,
+): string {
   const identifier = slugToIdentifier(tableName)
+  const relToLine = isPolymorphic
+    ? "\n    relationTo: varchar('relation_to', { length: 255 }).notNull(),"
+    : ''
+  const targetIdxCols = isPolymorphic ? 'table.relationTo, table.targetId' : 'table.targetId'
   if (isLocalized) {
     const parentLocaleOrderIdx = getJunctionParentLocaleOrderIndexName(tableName)
     const parentLocaleTargetUnique = getJunctionParentLocaleTargetUniqueName(tableName)
+    const uniqueCols = isPolymorphic
+      ? 'table.parentId, table._locale, table.relationTo, table.targetId'
+      : 'table.parentId, table._locale, table.targetId'
     return `export const ${identifier} = pgTable(
   '${tableName}',
   {
     id: serial('id').primaryKey(),
-    parentId: integer('parent_id').notNull(),
+    parentId: integer('parent_id').notNull(),${relToLine}
     targetId: integer('target_id').notNull(),
     _locale: varchar('_locale', { length: 10 }).notNull(),
     order: integer('order').default(0).notNull(),
   },
   (table) => [
     index('${parentLocaleOrderIdx}').on(table.parentId, table._locale, table.order),
-    index('${tableName}_target_idx').on(table.targetId),
-    unique('${parentLocaleTargetUnique}').on(table.parentId, table._locale, table.targetId),
+    index('${tableName}_target_idx').on(${targetIdxCols}),
+    unique('${parentLocaleTargetUnique}').on(${uniqueCols}),
   ],
 )`
   }
+  const uniqueCols = isPolymorphic
+    ? 'table.parentId, table.relationTo, table.targetId'
+    : 'table.parentId, table.targetId'
   return `export const ${identifier} = pgTable(
   '${tableName}',
   {
     id: serial('id').primaryKey(),
-    parentId: integer('parent_id').notNull(),
+    parentId: integer('parent_id').notNull(),${relToLine}
     targetId: integer('target_id').notNull(),
     order: integer('order').default(0).notNull(),
   },
   (table) => [
     index('${tableName}_parent_idx').on(table.parentId),
-    index('${tableName}_target_idx').on(table.targetId),
-    unique('${tableName}_parent_target_unique').on(table.parentId, table.targetId),
+    index('${tableName}_target_idx').on(${targetIdxCols}),
+    unique('${tableName}_parent_target_unique').on(${uniqueCols}),
   ],
 )`
 }
@@ -586,6 +600,7 @@ function renderJunctionTable(tableName: string, isLocalized = false): string {
 interface JunctionTableSpec {
   tableName: string
   isLocalized: boolean
+  isPolymorphic: boolean
 }
 
 function findJunctionTables(collections: readonly CollectionConfig[]): JunctionTableSpec[] {
@@ -596,6 +611,7 @@ function findJunctionTables(collections: readonly CollectionConfig[]): JunctionT
         specs.push({
           tableName: getJunctionTableName(col.slug, name),
           isLocalized: Boolean(field.localized),
+          isPolymorphic: Array.isArray(field.relationTo),
         })
       }
     }
@@ -605,7 +621,7 @@ function findJunctionTables(collections: readonly CollectionConfig[]): JunctionT
 
 function renderJunctionTables(collections: readonly CollectionConfig[]): string {
   return findJunctionTables(collections)
-    .map((s) => renderJunctionTable(s.tableName, s.isLocalized))
+    .map((s) => renderJunctionTable(s.tableName, s.isLocalized, s.isPolymorphic))
     .join('\n\n')
 }
 

@@ -216,7 +216,9 @@ const toClientField = {
     parentLocalized?: boolean,
   ): ClientRelationshipField => ({
     ...baseField(name, field, parentLocalized),
-    relationTo: field.relationTo,
+    relationTo: Array.isArray(field.relationTo)
+      ? [...(field.relationTo as readonly string[])]
+      : (field.relationTo as string),
     ...defined({
       hasMany: field.hasMany,
     }),

@@ -227,9 +227,11 @@ function SingleRelationshipPicker({
   watch,
   disabled,
 }: RelationshipPickerProps) {
-  const { apiBase, basePath, titleField, singularLabel, pluralLabel } = useRelationshipConfig(
-    field.relationTo,
-  )
+  const relationTo = Array.isArray(field.relationTo)
+    ? (field.relationTo[0] ?? '')
+    : field.relationTo
+  const { apiBase, basePath, titleField, singularLabel, pluralLabel } =
+    useRelationshipConfig(relationTo)
   const { hasLocalization, activeLocale, fallbackLocale } = useLocale()
   const currentLocale = hasLocalization ? activeLocale : undefined
 
@@ -242,10 +244,10 @@ function SingleRelationshipPicker({
   const [isSearching, setIsSearching] = useState(false)
 
   const docQuery = useQuery({
-    queryKey: ['collection-doc', field.relationTo, selectedId, currentLocale],
+    queryKey: ['collection-doc', relationTo, selectedId, currentLocale],
     queryFn: () =>
       selectedId
-        ? fetchDoc(apiBase, field.relationTo, selectedId, {
+        ? fetchDoc(apiBase, relationTo, selectedId, {
             locale: currentLocale,
             fallbackLocale,
           })
@@ -257,7 +259,7 @@ function SingleRelationshipPicker({
 
   const search = (
     <RelationshipSearchDropdown
-      relationTo={field.relationTo}
+      relationTo={relationTo}
       titleField={titleField}
       singularLabel={singularLabel}
       pluralLabel={pluralLabel}
@@ -278,7 +280,7 @@ function SingleRelationshipPicker({
         selectedId={selectedId}
         title={title}
         basePath={basePath}
-        relationTo={field.relationTo}
+        relationTo={relationTo}
         disabled={disabled}
         changeButton={
           <PickerPopover
@@ -493,9 +495,11 @@ function ManyRelationshipPicker({
   watch,
   disabled,
 }: RelationshipPickerProps) {
-  const { apiBase, basePath, titleField, singularLabel, pluralLabel } = useRelationshipConfig(
-    field.relationTo,
-  )
+  const relationTo = Array.isArray(field.relationTo)
+    ? (field.relationTo[0] ?? '')
+    : field.relationTo
+  const { apiBase, basePath, titleField, singularLabel, pluralLabel } =
+    useRelationshipConfig(relationTo)
   const { hasLocalization, activeLocale, fallbackLocale } = useLocale()
   const currentLocale = hasLocalization ? activeLocale : undefined
 
@@ -508,7 +512,7 @@ function ManyRelationshipPicker({
   const [isSearching, setIsSearching] = useState(false)
   const docsMap = useManySelectedDocs(
     apiBase,
-    field.relationTo,
+    relationTo,
     selectedIds,
     currentLocale,
     fallbackLocale,
@@ -545,7 +549,7 @@ function ManyRelationshipPicker({
           docsMap={docsMap}
           titleField={titleField}
           basePath={basePath}
-          relationTo={field.relationTo}
+          relationTo={relationTo}
           onMove={handleMove}
           onRemove={handleRemove}
           disabled={disabled}
@@ -567,7 +571,7 @@ function ManyRelationshipPicker({
           }
         >
           <RelationshipSearchDropdown
-            relationTo={field.relationTo}
+            relationTo={relationTo}
             titleField={titleField}
             singularLabel={singularLabel}
             pluralLabel={pluralLabel}

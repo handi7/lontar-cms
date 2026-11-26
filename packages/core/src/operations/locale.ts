@@ -139,9 +139,10 @@ function projectLocalizedScalar(
   reqLocale: string,
   fbLocale?: string,
 ): unknown {
-  // A richText document is a plain object too. One that is already projected (a create or update
-  // result, an unpublish response) is not a locale dictionary and must pass through unchanged.
-  if (!isPlainObject(val) || isLegacyRichText(val)) {
+  // A richText document or polymorphic reference is a plain object too. One that is already
+  // projected (a create or update result, an unpublish response) is not a locale dictionary and
+  // must pass through unchanged.
+  if (!isPlainObject(val) || isNonLocalePlainObject(val)) {
     return val ?? null
   }
   const dict = val
@@ -284,7 +285,7 @@ function mergeLocalizedScalar(
   defaultLocale?: string,
 ): Record<string, unknown> {
   const existingDict: Record<string, unknown> =
-    isPlainObject(origVal) && !isLegacyRichText(origVal) ? { ...origVal } : {}
+    isPlainObject(origVal) && !isNonLocalePlainObject(origVal) ? { ...origVal } : {}
   if (
     Object.keys(existingDict).length === 0 &&
     origVal !== undefined &&
@@ -415,15 +416,18 @@ function isPlainObject(value: unknown): value is Record<string, unknown> {
   return Boolean(value) && typeof value === 'object' && !Array.isArray(value)
 }
 
-// A richText document stored before its field became localized is a plain object that is not a
-// locale dictionary; merging a locale key into it would corrupt it.
-function isLegacyRichText(value: Record<string, unknown>): boolean {
-  return value.type === 'doc'
+// A richText document or polymorphic reference is a plain object that is not a locale
+// dictionary; treating it as one would return `null` on projection or corrupt it on merge.
+function isNonLocalePlainObject(value: Record<string, unknown>): boolean {
+  return (
+    value.type === 'doc' ||
+    ('relationTo' in value && typeof value.relationTo === 'string' && 'value' in value)
+  )
 }
 
 function mergeAllLocalesLocalizedValue(origVal: unknown, incomingVal: unknown): unknown {
   if (!isPlainObject(incomingVal)) return incomingVal
-  const base = isPlainObject(origVal) && !isLegacyRichText(origVal) ? origVal : {}
+  const base = isPlainObject(origVal) && !isNonLocalePlainObject(origVal) ? origVal : {}
   return { ...base, ...incomingVal }
 }
 

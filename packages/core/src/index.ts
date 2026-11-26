@@ -19,7 +19,7 @@ export {
   type ClientRowField,
   type ClientCollapsibleField,
 } from './client/client-config'
-export { fields, block, flattenFields, isLayoutField } from './fields'
+export { fields, block, flattenFields, isLayoutField, isPolymorphicRelationship } from './fields'
 export { generateRowId } from './client/id'
 export { createLontar, type CreateLontarOptions, type LontarApp } from './server/create-lontar'
 export { getLontar, createLontarClient, type LontarClientDefaults } from './local'
@@ -319,6 +319,7 @@ export type {
   NumberField,
   PointField,
   PointFieldOptions,
+  PolymorphicValue,
   RadioField,
   RadioFieldOptions,
   RadioLayout,

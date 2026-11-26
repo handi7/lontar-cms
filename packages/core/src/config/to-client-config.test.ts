@@ -227,6 +227,16 @@ describe('toClientConfig', () => {
             relationTo: 'categories',
             hasMany: true,
           }),
+          owner: f.relationship({
+            label: 'Owner',
+            relationTo: ['users', 'categories'],
+            required: true,
+          }),
+          mixedRefs: f.relationship({
+            label: 'Mixed Refs',
+            relationTo: ['users', 'categories'],
+            hasMany: true,
+          }),
         },
       },
       [
@@ -366,6 +376,21 @@ describe('toClientConfig', () => {
         label: 'Categories',
         required: false,
         relationTo: 'categories',
+        hasMany: true,
+      },
+      {
+        name: 'owner',
+        type: 'relationship',
+        label: 'Owner',
+        required: true,
+        relationTo: ['users', 'categories'],
+      },
+      {
+        name: 'mixedRefs',
+        type: 'relationship',
+        label: 'Mixed Refs',
+        required: false,
+        relationTo: ['users', 'categories'],
         hasMany: true,
       },
     ])

@@ -88,7 +88,17 @@ function buildRelationshipType(
   field: RelationshipField,
   collectionMap: Map<string, string>,
 ): string {
-  const target = collectionMap.get(field.relationTo) ?? 'Record<string, unknown>'
+  if (Array.isArray(field.relationTo)) {
+    const targets = field.relationTo as readonly string[]
+    const union = targets
+      .map((slug) => {
+        const target = collectionMap.get(slug) ?? 'Record<string, unknown>'
+        return `{ relationTo: ${JSON.stringify(slug)}; value: number | ${target} }`
+      })
+      .join(' | ')
+    return field.hasMany ? `(${union})[]` : union
+  }
+  const target = collectionMap.get(field.relationTo as string) ?? 'Record<string, unknown>'
   return field.hasMany ? `(number | ${target})[]` : `number | ${target}`
 }
 

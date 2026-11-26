@@ -312,6 +312,57 @@ export const localizedHeaderGlobal: GlobalConfig = {
   },
 }
 
+export const polymorphicActivitiesCollection: CollectionConfig = {
+  slug: 'polymorphic_activities',
+  labels: { singular: 'Activity', plural: 'Activities' },
+  versions: { drafts: true },
+  access: {
+    read: () => true,
+    create: () => true,
+    update: () => true,
+  },
+  fields: {
+    title: { type: 'text', required: true },
+    owner: { type: 'relationship', relationTo: ['categories', 'tags'] },
+    related: { type: 'relationship', relationTo: ['categories', 'tags'], hasMany: true },
+    localizedOwner: {
+      type: 'relationship',
+      relationTo: ['categories', 'tags'],
+      localized: true,
+    },
+    localizedRelated: {
+      type: 'relationship',
+      relationTo: ['categories', 'tags'],
+      hasMany: true,
+      localized: true,
+    },
+    meta: {
+      type: 'group',
+      fields: {
+        reviewer: { type: 'relationship', relationTo: ['categories', 'tags'] },
+      },
+    },
+    items: {
+      type: 'array',
+      fields: {
+        label: { type: 'text' },
+        target: { type: 'relationship', relationTo: ['categories', 'tags'] },
+      },
+    },
+    sections: {
+      type: 'blocks',
+      blocks: [
+        {
+          slug: 'link',
+          fields: {
+            target: { type: 'relationship', relationTo: ['categories', 'tags'] },
+          },
+        },
+      ],
+    },
+  },
+}
+
 export function createTestConfig(adapter: DatabaseAdapter): Config {
   return {
     secret: 'test-secret',
@@ -337,6 +388,7 @@ export function createTestConfig(adapter: DatabaseAdapter): Config {
       longSlugVersionedCollection,
       localizedPostsCollection,
       snippetsCollection,
+      polymorphicActivitiesCollection,
     ],
     globals: [headerGlobal, versionedSettingsGlobal, localizedHeaderGlobal],
   }

@@ -116,16 +116,13 @@ function addBlocksFieldToAllowed(
   }
 }
 
-function addPointFieldToAllowed(
+function addSubPathsToAllowed(
   allowed: Set<string>,
   name: string,
-  field: Field,
+  subKeys: readonly string[],
   locales: string[],
-  parentLocalized: boolean,
+  isLoc: boolean,
 ): void {
-  if (field.type !== 'point') return
-  const isLoc = parentLocalized || Boolean(field.localized)
-  const subKeys = ['lng', 'longitude', 'lat', 'latitude']
   for (const sub of subKeys) {
     allowed.add(`${name}.${sub}`)
     allowed.add(`${name}__${sub}`)
@@ -154,7 +151,11 @@ function addFieldToAllowed(
   if (isLoc && locales.length > 0) {
     addLocalizedVariations(allowed, name, locales)
   }
-  addPointFieldToAllowed(allowed, name, field, locales, isLoc)
+  if (field.type === 'point') {
+    addSubPathsToAllowed(allowed, name, ['lng', 'longitude', 'lat', 'latitude'], locales, isLoc)
+  } else if (field.type === 'relationship' && Array.isArray(field.relationTo)) {
+    addSubPathsToAllowed(allowed, name, ['relationTo', 'value'], locales, isLoc)
+  }
   addGroupFieldToAllowed(allowed, name, field, locales, isLoc)
   addArrayFieldToAllowed(allowed, name, field, locales, isLoc)
   addBlocksFieldToAllowed(allowed, name, field, locales, isLoc)
@@ -191,12 +192,47 @@ function collectContainerPaths(
   }
 }
 
+function collectBlocksPolymorphicPaths(
+  polyPaths: Set<string>,
+  blocks: readonly { slug: string; fields: Record<string, Field> }[],
+  dotPath: string,
+): void {
+  for (const b of blocks) {
+    collectPolymorphicPaths(polyPaths, b.fields, dotPath)
+    collectPolymorphicPaths(polyPaths, b.fields, `${dotPath}.${b.slug}`)
+  }
+}
+
+function collectPolymorphicPaths(
+  polyPaths: Set<string>,
+  fields: Record<string, Field>,
+  prefix = '',
+): void {
+  for (const [name, field] of Object.entries(flattenFields(fields))) {
+    const dotPath = prefix ? `${prefix}.${name}` : name
+    if (field.type === 'relationship' && Array.isArray(field.relationTo)) {
+      polyPaths.add(dotPath)
+      polyPaths.add(prefix ? `${prefix}__${name}` : name)
+    } else if (field.type === 'group' || field.type === 'array') {
+      collectPolymorphicPaths(polyPaths, field.fields, dotPath)
+    } else if (field.type === 'blocks') {
+      collectBlocksPolymorphicPaths(polyPaths, field.blocks, dotPath)
+    }
+  }
+}
+
 export function getGroupFields(collection: CollectionConfig): Set<string> {
   const containers = new Set<string>()
   for (const [name, field] of Object.entries(flattenFields(collection.fields))) {
     collectContainerPaths(containers, name, field)
   }
   return containers
+}
+
+function getPolymorphicFields(collection: CollectionConfig): Set<string> {
+  const polyPaths = new Set<string>()
+  collectPolymorphicPaths(polyPaths, collection.fields)
+  return polyPaths
 }
 
 export function getAllowedFields(
@@ -251,8 +287,10 @@ function validateJsonFieldFilter(
   }
 }
 
-function validatePointFieldFilter(
+function validateNullabilityOnlyFilter(
   fieldPath: string,
+  fieldLabel: string,
+  subpathHint: string,
   filter: unknown,
   issues: QueryValidationIssue[],
 ): void {
@@ -262,7 +300,7 @@ function validatePointFieldFilter(
   if (typeof filter !== 'object' || Array.isArray(filter) || filter instanceof Date) {
     issues.push({
       path: fieldPath,
-      message: `Field "${fieldPath}" of type "point" only supports nullability filters or coordinate subpaths`,
+      message: `Field "${fieldPath}" of type "${fieldLabel}" only supports nullability filters or ${subpathHint}`,
     })
     return
   }
@@ -270,15 +308,47 @@ function validatePointFieldFilter(
     if (op !== 'equals' && op !== 'not_equals') {
       issues.push({
         path: `${fieldPath}.${op}`,
-        message: `Operator "${op}" is not supported on point field "${fieldPath}"`,
+        message: `Operator "${op}" is not supported on ${fieldLabel} field "${fieldPath}"`,
       })
     } else if (val !== null) {
       issues.push({
         path: `${fieldPath}.${op}`,
-        message: `Operator "${op}" on point field "${fieldPath}" only supports null`,
+        message: `Operator "${op}" on ${fieldLabel} field "${fieldPath}" only supports null`,
       })
     }
   }
+}
+
+function stepIntoNestedField(
+  found: Field,
+  parts: string[],
+  index: number,
+): { nextFields: Record<string, Field>; advance: number } | null {
+  if (found.type === 'group' || found.type === 'array') {
+    return { nextFields: flattenFields(found.fields), advance: 0 }
+  }
+  if (found.type === 'blocks') {
+    const block = found.blocks.find((b) => b.slug === parts[index + 1])
+    return block ? { nextFields: flattenFields(block.fields), advance: 1 } : null
+  }
+  return null
+}
+
+function resolveFieldByPath(fields: Record<string, Field>, fieldPath: string): Field | undefined {
+  const parts = fieldPath.includes('.') ? fieldPath.split('.') : fieldPath.split('__')
+  let current: Record<string, Field> = flattenFields(fields)
+  for (let i = 0; i < parts.length; i++) {
+    const part = parts[i]
+    if (!part) return undefined
+    const found = current[part]
+    if (!found) return undefined
+    if (i === parts.length - 1) return found
+    const step = stepIntoNestedField(found, parts, i)
+    if (!step) return undefined
+    current = step.nextFields
+    i += step.advance
+  }
+  return undefined
 }
 
 function validateSpecialTopFieldFilter(
@@ -294,7 +364,19 @@ function validateSpecialTopFieldFilter(
     return true
   }
   if (topField?.type === 'point' && fieldPath === topKey) {
-    validatePointFieldFilter(fieldPath, filter, issues)
+    validateNullabilityOnlyFilter(fieldPath, 'point', 'coordinate subpaths', filter, issues)
+    return true
+  }
+  const targetField =
+    fieldPath === topKey ? topField : resolveFieldByPath(collection.fields, fieldPath)
+  if (targetField?.type === 'relationship' && Array.isArray(targetField.relationTo)) {
+    validateNullabilityOnlyFilter(
+      fieldPath,
+      'polymorphic relationship',
+      'relationTo/value subpaths',
+      filter,
+      issues,
+    )
     return true
   }
   return false
@@ -327,16 +409,38 @@ function validateFieldFilter(
   }
 }
 
+function isNestedPolymorphicWhere(
+  fieldPath: string,
+  val: unknown,
+  polyFields: Set<string>,
+): val is Where {
+  if (
+    !polyFields.has(fieldPath) ||
+    val === null ||
+    typeof val !== 'object' ||
+    val instanceof Date ||
+    Array.isArray(val)
+  ) {
+    return false
+  }
+  return 'relationTo' in val || 'value' in val
+}
+
+interface WhereValidationContext {
+  allowed: Set<string>
+  groupFields: Set<string>
+  polyFields: Set<string>
+  issues: QueryValidationIssue[]
+  collection?: CollectionConfig
+}
+
 function validateLogicalGroup(
   groupPath: string,
   items: unknown,
-  allowed: Set<string>,
-  groupFields: Set<string>,
-  issues: QueryValidationIssue[],
-  collection?: CollectionConfig,
+  ctx: WhereValidationContext,
 ): void {
   if (!Array.isArray(items)) {
-    issues.push({
+    ctx.issues.push({
       path: groupPath,
       message: `Expected array for "${groupPath}" condition`,
     })
@@ -348,13 +452,13 @@ function validateLogicalGroup(
     const item: unknown = list[i]
     const itemPath = `${groupPath}[${i}]`
     if (!item || typeof item !== 'object' || Array.isArray(item)) {
-      issues.push({
+      ctx.issues.push({
         path: itemPath,
         message: 'Expected object in logical condition list',
       })
       continue
     }
-    validateWhereNode(item as Where, allowed, groupFields, itemPath, issues, collection)
+    validateWhereNode(item as Where, ctx, itemPath)
   }
 }
 
@@ -376,44 +480,37 @@ function validateWhereEntry(
   key: string,
   val: unknown,
   fieldPath: string,
-  allowed: Set<string>,
-  groupFields: Set<string>,
-  issues: QueryValidationIssue[],
-  collection?: CollectionConfig,
+  ctx: WhereValidationContext,
 ): void {
   if (key === 'and' || key === 'or') {
-    validateLogicalGroup(fieldPath, val, allowed, groupFields, issues, collection)
+    validateLogicalGroup(fieldPath, val, ctx)
     return
   }
 
-  if (isNestedGroupWhere(fieldPath, val, groupFields)) {
-    validateWhereNode(val, allowed, groupFields, fieldPath, issues, collection)
+  if (
+    isNestedGroupWhere(fieldPath, val, ctx.groupFields) ||
+    isNestedPolymorphicWhere(fieldPath, val, ctx.polyFields)
+  ) {
+    validateWhereNode(val, ctx, fieldPath)
     return
   }
 
-  if (!allowed.has(fieldPath) && !allowed.has(key)) {
-    issues.push({
+  if (!ctx.allowed.has(fieldPath) && !ctx.allowed.has(key)) {
+    ctx.issues.push({
       path: fieldPath,
       message: `Unknown field "${key}"`,
     })
     return
   }
 
-  validateFieldFilter(fieldPath, val, issues, collection)
+  validateFieldFilter(fieldPath, val, ctx.issues, ctx.collection)
 }
 
-function validateWhereNode(
-  where: Where,
-  allowed: Set<string>,
-  groupFields: Set<string>,
-  currentPath: string,
-  issues: QueryValidationIssue[],
-  collection?: CollectionConfig,
-): void {
+function validateWhereNode(where: Where, ctx: WhereValidationContext, currentPath: string): void {
   for (const [key, val] of Object.entries(where)) {
     if (val === undefined) continue
     const fieldPath = currentPath ? `${currentPath}.${key}` : key
-    validateWhereEntry(key, val, fieldPath, allowed, groupFields, issues, collection)
+    validateWhereEntry(key, val, fieldPath, ctx)
   }
 }
 
@@ -425,11 +522,15 @@ export function validateWhere(
   if (!where || typeof where !== 'object') {
     return []
   }
-  const allowed = getAllowedFields(collection, localization)
-  const groupFields = getGroupFields(collection)
-  const issues: QueryValidationIssue[] = []
-  validateWhereNode(where, allowed, groupFields, '', issues, collection)
-  return issues
+  const ctx: WhereValidationContext = {
+    allowed: getAllowedFields(collection, localization),
+    groupFields: getGroupFields(collection),
+    polyFields: getPolymorphicFields(collection),
+    issues: [],
+    collection,
+  }
+  validateWhereNode(where, ctx, '')
+  return ctx.issues
 }
 
 // -----------------------------------------------------------------------------
@@ -438,6 +539,7 @@ export function validateWhere(
 
 function isScalarSortable(field: Field): boolean {
   if ('hasMany' in field && field.hasMany) return false
+  if (field.type === 'relationship' && Array.isArray(field.relationTo)) return false
   return (
     field.type !== 'group' &&
     field.type !== 'array' &&
@@ -448,22 +550,17 @@ function isScalarSortable(field: Field): boolean {
   )
 }
 
-function addPointSortableFields(
+function addSubpathSortableFields(
   sortable: Set<string>,
   basePath: string,
+  keys: readonly string[],
   locales: string[],
   isLoc: boolean,
 ): void {
-  const subPaths = [
-    `${basePath}.lng`,
-    `${basePath}__lng`,
-    `${basePath}.longitude`,
-    `${basePath}__longitude`,
-    `${basePath}.lat`,
-    `${basePath}__lat`,
-    `${basePath}.latitude`,
-    `${basePath}__latitude`,
-  ]
+  const subPaths: string[] = []
+  for (const k of keys) {
+    subPaths.push(`${basePath}.${k}`, `${basePath}__${k}`)
+  }
   for (const p of subPaths) {
     sortable.add(p)
   }
@@ -471,6 +568,31 @@ function addPointSortableFields(
     for (const p of subPaths) {
       addLocalizedVariations(sortable, p, locales)
     }
+  }
+}
+
+function addSortableEntry(
+  sortable: Set<string>,
+  path: string,
+  field: Field,
+  locales: string[],
+  isLoc: boolean,
+): void {
+  if (isScalarSortable(field)) {
+    sortable.add(path)
+    if (isLoc && locales.length > 0) {
+      addLocalizedVariations(sortable, path, locales)
+    }
+  } else if (field.type === 'point') {
+    addSubpathSortableFields(
+      sortable,
+      path,
+      ['lng', 'longitude', 'lat', 'latitude'],
+      locales,
+      isLoc,
+    )
+  } else if (field.type === 'relationship' && !field.hasMany && Array.isArray(field.relationTo)) {
+    addSubpathSortableFields(sortable, path, ['relationTo', 'value'], locales, isLoc)
   }
 }
 
@@ -485,19 +607,12 @@ function collectSortableGroupFields(
     const dotPath = `${groupName}.${subName}`
     const underPath = `${groupName}__${subName}`
     const isLoc = parentLocalized || Boolean(subField.localized)
-    if (isScalarSortable(subField)) {
-      sortable.add(dotPath)
-      sortable.add(underPath)
-      if (isLoc && locales.length > 0) {
-        addLocalizedVariations(sortable, dotPath, locales)
-        addLocalizedVariations(sortable, underPath, locales)
-      }
-    } else if (subField.type === 'point') {
-      addPointSortableFields(sortable, dotPath, locales, isLoc)
-      addPointSortableFields(sortable, underPath, locales, isLoc)
-    } else if (subField.type === 'group') {
+    if (subField.type === 'group') {
       collectSortableGroupFields(sortable, dotPath, subField.fields, locales, isLoc)
       collectSortableGroupFields(sortable, underPath, subField.fields, locales, isLoc)
+    } else {
+      addSortableEntry(sortable, dotPath, subField, locales, isLoc)
+      addSortableEntry(sortable, underPath, subField, locales, isLoc)
     }
   }
 }
@@ -527,15 +642,10 @@ function collectSortableFields(
   const locales = extractLocaleList(localization)
   for (const [name, field] of Object.entries(flattenFields(collection.fields))) {
     const isLoc = Boolean(field.localized)
-    if (isScalarSortable(field)) {
-      sortable.add(name)
-      if (isLoc && locales.length > 0) {
-        addLocalizedVariations(sortable, name, locales)
-      }
-    } else if (field.type === 'point') {
-      addPointSortableFields(sortable, name, locales, isLoc)
-    } else if (field.type === 'group') {
+    if (field.type === 'group') {
       collectSortableGroupFields(sortable, name, field.fields, locales, isLoc)
+    } else {
+      addSortableEntry(sortable, name, field, locales, isLoc)
     }
   }
   return sortable
@@ -586,6 +696,12 @@ function checkDisallowedTypeSort(
     return {
       path: field,
       message: `Cannot sort on field "${field}" with hasMany: true`,
+    }
+  }
+  if (topField.type === 'relationship' && Array.isArray(topField.relationTo)) {
+    return {
+      path: field,
+      message: `Cannot sort on polymorphic relationship field "${field}"`,
     }
   }
   if (isDisallowedSortType(topField.type)) {

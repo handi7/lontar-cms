@@ -100,6 +100,47 @@ export function flattenPointValue(val: unknown, colName: string): Record<string,
   }
 }
 
+export function extractPolymorphicFromRow(
+  row: Record<string, unknown>,
+  colRelTo: string,
+  colId: string,
+): { relationTo: string; value: number } | null {
+  const relTo = row[colRelTo]
+  const rawId = row[colId]
+  if (typeof relTo !== 'string' || !relTo || rawId === null || rawId === undefined) {
+    return null
+  }
+  const num = Number(rawId)
+  if (Number.isNaN(num)) return null
+  return { relationTo: relTo, value: num }
+}
+
+function parsePositiveInt(raw: unknown): number | null {
+  if (raw === null || raw === undefined || raw === '') return null
+  const num = Number(raw)
+  return Number.isNaN(num) ? null : num
+}
+
+function parsePolymorphicInput(
+  val: unknown,
+): { relationTo: string | null; id: number | null } | null {
+  if (val === null || val === '') return { relationTo: null, id: null }
+  if (!val || typeof val !== 'object' || Array.isArray(val)) return null
+  const obj = val as Record<string, unknown>
+  const relTo = typeof obj.relationTo === 'string' && obj.relationTo ? obj.relationTo : null
+  const id = parsePositiveInt(obj.value)
+  return relTo && id !== null ? { relationTo: relTo, id } : { relationTo: null, id: null }
+}
+
+export function flattenPolymorphicValue(val: unknown, colName: string): Record<string, unknown> {
+  const parsed = parsePolymorphicInput(val)
+  if (!parsed) return {}
+  return {
+    [`${colName}__relation_to`]: parsed.relationTo,
+    [`${colName}__id`]: parsed.id,
+  }
+}
+
 function extractPointFromRow(
   row: Record<string, unknown>,
   colLng: string,
@@ -365,6 +406,58 @@ function resolvePointFieldValue(
   return { value: val, hasValue: val !== null }
 }
 
+function resolvePolymorphicFieldValue(
+  row: Record<string, unknown>,
+  colName: string,
+  _field: Field,
+  localeCtx: ResolvedLocaleContext,
+  isFieldLocalized: boolean,
+): { value: unknown; hasValue: boolean } {
+  if (isFieldLocalized && localeCtx.allLocales.length > 0) {
+    if (localeCtx.isAll) {
+      const dict: Record<string, unknown> = {}
+      for (const loc of localeCtx.allLocales) {
+        dict[loc] = extractPolymorphicFromRow(
+          row,
+          `${colName}__relation_to_${loc}`,
+          `${colName}__id_${loc}`,
+        )
+      }
+      return { value: dict, hasValue: true }
+    }
+    const req = localeCtx.requestedLocale
+    let val = req
+      ? extractPolymorphicFromRow(row, `${colName}__relation_to_${req}`, `${colName}__id_${req}`)
+      : null
+    if (val === null && localeCtx.fallbackLocale && localeCtx.fallbackLocale !== req) {
+      val = extractPolymorphicFromRow(
+        row,
+        `${colName}__relation_to_${localeCtx.fallbackLocale}`,
+        `${colName}__id_${localeCtx.fallbackLocale}`,
+      )
+    }
+    return { value: val, hasValue: val !== null }
+  }
+  const val = extractPolymorphicFromRow(row, `${colName}__relation_to`, `${colName}__id`)
+  return { value: val, hasValue: val !== null }
+}
+
+function resolveRelationshipFieldValue(
+  row: Record<string, unknown>,
+  colName: string,
+  field: Field & { type: 'relationship' },
+  localeCtx: ResolvedLocaleContext,
+  isFieldLocalized: boolean,
+): { value: unknown; hasValue: boolean } {
+  if (field.hasMany) {
+    return { value: undefined, hasValue: false }
+  }
+  if (Array.isArray(field.relationTo)) {
+    return resolvePolymorphicFieldValue(row, colName, field, localeCtx, isFieldLocalized)
+  }
+  return resolveScalarFieldValue(row, colName, field, localeCtx, isFieldLocalized)
+}
+
 function resolveFieldValue(
   row: Record<string, unknown>,
   colName: string,
@@ -380,8 +473,8 @@ function resolveFieldValue(
   if (field.type === 'point') {
     return resolvePointFieldValue(row, colName, field, localeCtx, isFieldLocalized)
   }
-  if (field.type === 'relationship' && field.hasMany) {
-    return { value: undefined, hasValue: false }
+  if (field.type === 'relationship') {
+    return resolveRelationshipFieldValue(row, colName, field, localeCtx, isFieldLocalized)
   }
   if (field.type === 'array' || field.type === 'blocks') {
     const jsonVal = resolveJsonArrayValue(row, colName, field, localeCtx)
@@ -493,13 +586,33 @@ export function sanitizeRichText(value: unknown): unknown {
   return value
 }
 
+function normalizePolyRefItem(item: unknown): { relationTo: string; value: number } | null {
+  if (!item || typeof item !== 'object' || Array.isArray(item)) return null
+  const obj = item as Record<string, unknown>
+  if (typeof obj.relationTo !== 'string' || !obj.relationTo) return null
+  const num = Number(obj.value)
+  if (Number.isNaN(num)) return null
+  return { relationTo: obj.relationTo, value: num }
+}
+
+function sanitizePolymorphicRelationship(hasMany: boolean | undefined, value: unknown): unknown {
+  if (hasMany) {
+    return Array.isArray(value)
+      ? value.map(normalizePolyRefItem).filter((x): x is NonNullable<typeof x> => x !== null)
+      : []
+  }
+  return normalizePolyRefItem(value)
+}
+
 export function sanitizeRelationship(field: Field | undefined, value: unknown): unknown {
   if (value === '' || value === null || value === undefined) return null
-  if (field?.type === 'relationship' && field.hasMany) {
-    if (Array.isArray(value)) {
-      return value.map((v) => Number(v)).filter((n) => !Number.isNaN(n))
+  if (field?.type === 'relationship') {
+    if (Array.isArray(field.relationTo)) {
+      return sanitizePolymorphicRelationship(field.hasMany, value)
     }
-    return []
+    if (field.hasMany) {
+      return Array.isArray(value) ? value.map((v) => Number(v)).filter((n) => !Number.isNaN(n)) : []
+    }
   }
   const num = Number(value)
   return Number.isNaN(num) ? null : num
@@ -700,6 +813,27 @@ function sanitizeLocalizedContainerField(
   }
 }
 
+function clearFlattenedColumns(
+  clean: Record<string, unknown>,
+  colKeys: readonly string[],
+  localeCtx: ResolvedLocaleContext,
+  isLoc: boolean,
+): void {
+  for (const colKey of colKeys) {
+    if (isLoc) {
+      if (localeCtx.isAll) {
+        for (const loc of localeCtx.allLocales) {
+          clean[`${colKey}_${loc}`] = null
+        }
+      } else if (localeCtx.requestedLocale) {
+        clean[`${colKey}_${localeCtx.requestedLocale}`] = null
+      }
+    } else {
+      clean[colKey] = null
+    }
+  }
+}
+
 function clearGroupFields(
   clean: Record<string, unknown>,
   fields: Fields,
@@ -712,16 +846,14 @@ function clearGroupFields(
     const isLoc = Boolean(parentLocalized || subField.localized)
     if (subField.type === 'group') {
       clearGroupFields(clean, subField.fields, localeCtx, fullCol, isLoc)
-    } else if (isLoc) {
-      if (localeCtx.isAll) {
-        for (const loc of localeCtx.allLocales) {
-          clean[`${fullCol}_${loc}`] = null
-        }
-      } else if (localeCtx.requestedLocale) {
-        clean[`${fullCol}_${localeCtx.requestedLocale}`] = null
-      }
+    } else if (subField.type === 'relationship' && subField.hasMany) {
+      continue
+    } else if (subField.type === 'point') {
+      clearFlattenedColumns(clean, [`${fullCol}__lng`, `${fullCol}__lat`], localeCtx, isLoc)
+    } else if (subField.type === 'relationship' && Array.isArray(subField.relationTo)) {
+      clearFlattenedColumns(clean, [`${fullCol}__relation_to`, `${fullCol}__id`], localeCtx, isLoc)
     } else {
-      clean[fullCol] = null
+      clearFlattenedColumns(clean, [fullCol], localeCtx, isLoc)
     }
   }
 }
@@ -825,6 +957,41 @@ function sanitizePointField(
   }
 }
 
+function sanitizeSinglePolymorphicField(
+  clean: Record<string, unknown>,
+  fullKey: string,
+  value: unknown,
+  localeCtx: ResolvedLocaleContext,
+  isLocalized: boolean,
+): void {
+  if (!isLocalized || localeCtx.allLocales.length === 0) {
+    Object.assign(clean, flattenPolymorphicValue(value, fullKey))
+    return
+  }
+  if (localeCtx.isAll) {
+    if (!value || typeof value !== 'object') return
+    const dict = value as Record<string, unknown>
+    for (const loc of localeCtx.allLocales) {
+      if (loc in dict) {
+        const flat = flattenPolymorphicValue(dict[loc], fullKey)
+        clean[`${fullKey}__relation_to_${loc}`] = flat[`${fullKey}__relation_to`]
+        clean[`${fullKey}__id_${loc}`] = flat[`${fullKey}__id`]
+      }
+    }
+    return
+  }
+  const loc = localeCtx.requestedLocale
+  if (loc) {
+    const flat = flattenPolymorphicValue(value, fullKey)
+    clean[`${fullKey}__relation_to_${loc}`] = flat[`${fullKey}__relation_to`]
+    clean[`${fullKey}__id_${loc}`] = flat[`${fullKey}__id`]
+  }
+}
+
+function isSinglePolymorphicField(field: Field): boolean {
+  return field.type === 'relationship' && !field.hasMany && Array.isArray(field.relationTo)
+}
+
 function sanitizeFieldEntry(
   clean: Record<string, unknown>,
   fields: Fields,
@@ -850,6 +1017,10 @@ function sanitizeFieldEntry(
   }
   if (field.type === 'point') {
     sanitizePointField(clean, fullKey, field, value, localeCtx, isLoc)
+    return
+  }
+  if (isSinglePolymorphicField(field)) {
+    sanitizeSinglePolymorphicField(clean, fullKey, value, localeCtx, isLoc)
     return
   }
   if (isLoc && localeCtx.allLocales.length > 0) {
