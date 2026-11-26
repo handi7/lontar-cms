@@ -274,7 +274,6 @@ const toClientField = {
       label: tab.label,
       ...defined({
         description: tab.description,
-        admin: tab.admin?.condition ? { condition: tab.admin.condition } : undefined,
         condition: tab.admin?.condition,
       }),
       fields: Object.entries(tab.fields).map(([subName, subField]) =>

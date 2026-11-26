@@ -2268,5 +2268,56 @@ describe('admin.views validation (#467)', () => {
         'Collection "notes": tab 0 in tabs field "t2" must have a non-empty string "label".',
       ])
     })
+
+    it('allows slug.from to reference a field in root or in another tab of the same scope', () => {
+      expect(
+        issuesOf([
+          notes({
+            fields: {
+              title: f.text({ required: true }),
+              metaRow: f.row({
+                fields: {
+                  slug: f.slug({ from: 'title' }),
+                },
+              }),
+            },
+          }),
+        ]),
+      ).toEqual([])
+
+      expect(
+        issuesOf([
+          notes({
+            fields: {
+              mainTabs: f.tabs({
+                tabs: [
+                  { label: 'Content', fields: { title: f.text({ required: true }) } },
+                  { label: 'SEO', fields: { slug: f.slug({ from: 'title' }) } },
+                ],
+              }),
+            },
+          }),
+        ]),
+      ).toEqual([])
+    })
+
+    it('rejects duplicate layout container keys in different tabs of the same scope', () => {
+      expect(
+        issuesOf([
+          notes({
+            fields: {
+              mainTabs: f.tabs({
+                tabs: [
+                  { label: 'Tab 1', fields: { sharedRow: f.row({ fields: { a: f.text() } }) } },
+                  { label: 'Tab 2', fields: { sharedRow: f.row({ fields: { b: f.text() } }) } },
+                ],
+              }),
+            },
+          }),
+        ]),
+      ).toEqual([
+        'Collection "notes": duplicate layout field key "sharedRow" in the same scope (declared in field "mainTabs" -> tab "Tab 1" -> field "sharedRow" and field "mainTabs" -> tab "Tab 2" -> field "sharedRow").',
+      ])
+    })
   })
 })

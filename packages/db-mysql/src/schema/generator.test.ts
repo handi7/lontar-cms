@@ -892,4 +892,70 @@ describe('generateSchemaFile', () => {
       }
     })
   })
+
+  it('produces identical generateSchemaFile output when fields are wrapped in layout containers', () => {
+    const flatConfig: Config = {
+      secret: 'test-secret',
+      db: fakeAdapter,
+      collections: [
+        {
+          slug: 'articles',
+          fields: {
+            title: { type: 'text', required: true },
+            rating: { type: 'number' },
+            meta: { type: 'json' },
+            publishedAt: { type: 'date' },
+          },
+        },
+      ],
+    }
+    const layoutConfig: Config = {
+      secret: 'test-secret',
+      db: fakeAdapter,
+      collections: [
+        {
+          slug: 'articles',
+          fields: {
+            mainTabs: {
+              type: 'tabs',
+              tabs: [
+                {
+                  label: 'General',
+                  fields: {
+                    topRow: {
+                      type: 'row',
+                      fields: {
+                        title: { type: 'text', required: true },
+                        rating: { type: 'number' },
+                      },
+                    },
+                  },
+                },
+                {
+                  label: 'Extra',
+                  fields: {
+                    extraPanel: {
+                      type: 'collapsible',
+                      label: 'Extra',
+                      fields: {
+                        meta: { type: 'json' },
+                        publishedAt: { type: 'date' },
+                      },
+                    },
+                  },
+                },
+              ],
+            },
+          },
+        },
+      ],
+    }
+
+    const flatSchema = generateSchemaFile(flatConfig)
+    const layoutSchema = generateSchemaFile(layoutConfig)
+    expect(layoutSchema).toBe(flatSchema)
+    expect(layoutSchema).toContain('datetime')
+    expect(layoutSchema).toContain('double')
+    expect(layoutSchema).toContain('json')
+  })
 })

@@ -1645,7 +1645,6 @@ describe('toClientConfig admin.actions (#468)', () => {
           {
             label: 'General',
             description: 'General post info',
-            admin: { condition: { enabled: { equals: true } } },
             condition: { enabled: { equals: true } },
             fields: [
               {

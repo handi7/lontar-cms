@@ -620,7 +620,12 @@ function validateScopeFieldCollisions(where: string, fields: Record<string, Fiel
 
   for (const item of collected) {
     if (item.isLayout) {
-      if (!layoutFieldMap.has(item.name)) {
+      if (layoutFieldMap.has(item.name)) {
+        const prevPath = layoutFieldMap.get(item.name)!
+        issues.push(
+          `${where}: duplicate layout field key "${item.name}" in the same scope (declared in ${prevPath} and ${item.path}).`,
+        )
+      } else {
         layoutFieldMap.set(item.name, item.path)
       }
     } else {
@@ -655,6 +660,7 @@ interface FieldsValidationContext {
   hasLocalization: boolean
   containerLocalized: boolean
   layoutDepth: number
+  scopeFields?: Record<string, Field>
 }
 
 function validateFieldEntry(
@@ -677,7 +683,7 @@ function validateFieldEntry(
       where,
       name,
       field,
-      fields,
+      ctx.scopeFields ?? fields,
       ctx.depth,
       ctx.dbAdapter,
       ctx.hasLocalization,
@@ -698,11 +704,13 @@ function validateFields(
   hasLocalization = false,
   containerLocalized = false,
   layoutDepth = 0,
+  scopeFields?: Record<string, Field>,
 ): string[] {
   const issues: string[] = []
   if (layoutDepth === 0) {
     issues.push(...validateScopeFieldCollisions(where, fields))
   }
+  const resolvedScopeFields = scopeFields ?? flattenFields(fields)
   const ctx: FieldsValidationContext = {
     isUpload,
     depth,
@@ -711,6 +719,7 @@ function validateFields(
     hasLocalization,
     containerLocalized,
     layoutDepth,
+    scopeFields: resolvedScopeFields,
   }
   for (const [name, field] of Object.entries(fields)) {
     issues.push(...validateFieldEntry(where, name, field, fields, ctx))
@@ -1062,6 +1071,7 @@ function validateSingleTab(
       ctx.hasLocalization,
       ctx.containerLocalized,
       ctx.layoutDepth + 1,
+      ctx.scopeFields,
     ),
   )
   return issues
@@ -1076,6 +1086,7 @@ function validateTabsField(
   hasLocalization = false,
   containerLocalized = false,
   layoutDepth = 0,
+  scopeFields?: Record<string, Field>,
 ): string[] {
   if (!Array.isArray(field.tabs) || field.tabs.length === 0) {
     return [`${where}: tabs field "${name}" must define at least one tab.`]
@@ -1089,6 +1100,7 @@ function validateTabsField(
     hasLocalization,
     containerLocalized,
     layoutDepth,
+    scopeFields,
   }
   field.tabs.forEach((tab, index) => {
     issues.push(...validateSingleTab(where, name, tab, index, ctx))
@@ -1105,6 +1117,7 @@ function validateRowField(
   hasLocalization = false,
   containerLocalized = false,
   layoutDepth = 0,
+  scopeFields?: Record<string, Field>,
 ): string[] {
   if (!field.fields || typeof field.fields !== 'object') {
     return [`${where}: row field "${name}" must have a fields object.`]
@@ -1119,6 +1132,7 @@ function validateRowField(
     hasLocalization,
     containerLocalized,
     layoutDepth + 1,
+    scopeFields,
   )
 }
 
@@ -1131,6 +1145,7 @@ function validateCollapsibleField(
   hasLocalization = false,
   containerLocalized = false,
   layoutDepth = 0,
+  scopeFields?: Record<string, Field>,
 ): string[] {
   const issues: string[] = []
   if (typeof field.label !== 'string' || !field.label.trim()) {
@@ -1154,6 +1169,7 @@ function validateCollapsibleField(
       hasLocalization,
       containerLocalized,
       layoutDepth + 1,
+      scopeFields,
     ),
   )
   return issues
@@ -1168,6 +1184,7 @@ function validateLayoutField(
   hasLocalization = false,
   containerLocalized = false,
   layoutDepth = 0,
+  scopeFields?: Record<string, Field>,
 ): string[] {
   const depthIssues = validateLayoutDepth(where, name, field.type, layoutDepth)
   if (depthIssues.length > 0) return depthIssues
@@ -1183,6 +1200,7 @@ function validateLayoutField(
         hasLocalization,
         containerLocalized,
         layoutDepth,
+        scopeFields,
       )
     case 'row':
       return validateRowField(
@@ -1194,6 +1212,7 @@ function validateLayoutField(
         hasLocalization,
         containerLocalized,
         layoutDepth,
+        scopeFields,
       )
     case 'collapsible':
       return validateCollapsibleField(
@@ -1205,6 +1224,7 @@ function validateLayoutField(
         hasLocalization,
         containerLocalized,
         layoutDepth,
+        scopeFields,
       )
   }
 }
@@ -1236,6 +1256,7 @@ function validateFieldType(
       hasLocalization,
       containerLocalized,
       layoutDepth,
+      fields,
     )
   }
 
