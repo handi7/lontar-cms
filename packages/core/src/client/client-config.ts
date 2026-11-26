@@ -285,6 +285,50 @@ export interface ClientBlocksField extends ClientFieldBase {
   admin?: ClientBlocksFieldAdmin
 }
 
+export interface ClientTabAdmin {
+  condition?: FieldCondition
+  description?: string
+}
+
+export interface ClientTab {
+  label: string
+  description?: string
+  admin?: ClientTabAdmin
+  condition?: FieldCondition
+  fields: ClientField[]
+}
+
+export interface ClientTabsFieldAdmin {
+  description?: string
+}
+
+export interface ClientRowFieldAdmin {
+  description?: string
+}
+
+export interface ClientCollapsibleFieldAdmin {
+  description?: string
+}
+
+export interface ClientTabsField extends ClientFieldBase {
+  type: 'tabs'
+  admin?: ClientTabsFieldAdmin
+  tabs: ClientTab[]
+}
+
+export interface ClientRowField extends ClientFieldBase {
+  type: 'row'
+  admin?: ClientRowFieldAdmin
+  fields: ClientField[]
+}
+
+export interface ClientCollapsibleField extends ClientFieldBase {
+  type: 'collapsible'
+  initiallyCollapsed?: boolean
+  admin?: ClientCollapsibleFieldAdmin
+  fields: ClientField[]
+}
+
 export type ClientField =
   | ClientTextField
   | ClientNumberField
@@ -304,3 +348,6 @@ export type ClientField =
   | ClientGroupField
   | ClientArrayField
   | ClientBlocksField
+  | ClientTabsField
+  | ClientRowField
+  | ClientCollapsibleField

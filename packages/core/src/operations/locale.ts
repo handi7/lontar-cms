@@ -1,6 +1,7 @@
 import type { Config } from '../config/types'
 import type { DocumentData } from '../database/adapter'
 import type { Block, Fields } from '../fields/types'
+import { flattenFields } from '../fields/flatten'
 import { ValidationError } from './errors'
 
 export function extractLocaleCodes(config: Config): string[] {
@@ -246,7 +247,7 @@ function normalizeFieldList(fields: Fields | readonly unknown[]): CommonFieldInf
     return result
   }
   if (fields && typeof fields === 'object') {
-    return Object.entries(fields).map(([name, raw]) => ({
+    return Object.entries(flattenFields(fields as Fields)).map(([name, raw]) => ({
       ...((raw && typeof raw === 'object' ? raw : {}) as CommonFieldInfo),
       name,
     }))

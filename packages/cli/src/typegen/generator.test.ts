@@ -963,4 +963,56 @@ async function runInvalidLocale() {
     expect(output).toContain('ratings: number[]')
     expect(output).toContain('optionalRatings?: number[] | null')
   })
+
+  it('flattens layout fields (tabs, row, collapsible) so children appear directly on the interface', () => {
+    const config: Config = {
+      secret: 'test-secret',
+      db: { name: 'mock' } as unknown as Config['db'],
+      collections: [
+        {
+          slug: 'articles',
+          fields: {
+            mainTabs: {
+              type: 'tabs',
+              tabs: [
+                {
+                  label: 'General',
+                  fields: {
+                    titleRow: {
+                      type: 'row',
+                      fields: {
+                        title: { type: 'text', required: true },
+                        slug: { type: 'slug', from: 'title', required: true },
+                      },
+                    },
+                  },
+                },
+                {
+                  label: 'Settings',
+                  fields: {
+                    advanced: {
+                      type: 'collapsible',
+                      label: 'Advanced',
+                      fields: {
+                        views: { type: 'number' },
+                      },
+                    },
+                  },
+                },
+              ],
+            },
+          },
+        },
+      ],
+    }
+
+    const output = generateTypes(config)
+    expect(output).toContain('export interface Article {')
+    expect(output).toContain('title: string')
+    expect(output).toContain('slug: string')
+    expect(output).toContain('views?: number | null')
+    expect(output).not.toContain('mainTabs')
+    expect(output).not.toContain('titleRow')
+    expect(output).not.toContain('advanced')
+  })
 })

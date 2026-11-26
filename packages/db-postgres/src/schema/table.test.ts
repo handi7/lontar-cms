@@ -748,5 +748,64 @@ describe('collectionToTable', () => {
       expect(col(columns, 'scores').columnType).toBe('PgJsonb')
       expect(col(columns, 'scores').notNull).toBe(false)
     })
+
+    it('proves that adding layout fields (tabs, row, collapsible) around fields produces identical columns (schema invariance)', () => {
+      const flatCol: CollectionConfig = {
+        slug: 'articles',
+        fields: {
+          title: { type: 'text', required: true },
+          slug: { type: 'slug', from: 'title' },
+          views: { type: 'number' },
+          isFeatured: { type: 'checkbox' },
+        },
+      }
+      const layoutCol: CollectionConfig = {
+        slug: 'articles',
+        fields: {
+          mainTabs: {
+            type: 'tabs',
+            tabs: [
+              {
+                label: 'General',
+                fields: {
+                  titleRow: {
+                    type: 'row',
+                    fields: {
+                      title: { type: 'text', required: true },
+                      slug: { type: 'slug', from: 'title' },
+                    },
+                  },
+                },
+              },
+              {
+                label: 'Settings',
+                fields: {
+                  advanced: {
+                    type: 'collapsible',
+                    label: 'Advanced',
+                    fields: {
+                      views: { type: 'number' },
+                      isFeatured: { type: 'checkbox' },
+                    },
+                  },
+                },
+              },
+            ],
+          },
+        },
+      }
+
+      const flatTable = collectionToTable(flatCol)
+      const layoutTable = collectionToTable(layoutCol)
+
+      const flatCols = getTableColumns(flatTable) as Record<string, AnyPgColumn>
+      const layoutCols = getTableColumns(layoutTable) as Record<string, AnyPgColumn>
+
+      expect(Object.keys(layoutCols)).toEqual(Object.keys(flatCols))
+      for (const key of Object.keys(flatCols)) {
+        expect(layoutCols[key]?.columnType).toBe(flatCols[key]?.columnType)
+        expect(layoutCols[key]?.notNull).toBe(flatCols[key]?.notNull)
+      }
+    })
   })
 })

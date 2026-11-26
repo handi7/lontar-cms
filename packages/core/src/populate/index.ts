@@ -13,6 +13,7 @@ import type {
   UploadField,
 } from '../fields/types'
 import { runAfterReadHooks } from '../hooks/runner'
+import { flattenFields } from '../fields/flatten'
 import { projectCanonicalDoc, type ProjectLocaleContext } from '../operations/locale'
 
 export function parseDepth(val: string | undefined): number {
@@ -702,14 +703,15 @@ export async function populateDocs(options: PopulateOptions): Promise<DocumentDa
   const seen = options.seen ?? new Set<string>()
 
   if (depth <= 0 || docs.length === 0) return docs
-  if (!hasReferenceFields(collection.fields)) return docs
+  const flatFields = flattenFields(collection.fields)
+  if (!hasReferenceFields(flatFields)) return docs
 
   const docsToPopulate = filterDocsToPopulate(docs, collection.slug, seen)
   if (docsToPopulate.length === 0) return docs
 
   const slots: RefSlot[] = []
   for (const doc of docsToPopulate) {
-    collectSlots(doc, collection.fields, slots)
+    collectSlots(doc, flatFields, slots)
   }
   if (slots.length === 0) return docs
 

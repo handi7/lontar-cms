@@ -10,6 +10,7 @@ import {
   type ClientDateField,
   type ClientEmailField,
   type ClientField,
+  type ClientFieldBase,
   type ClientGlobal,
   type ClientGlobalAdmin,
   type ClientGroupField,
@@ -28,6 +29,9 @@ import {
   type ClientAdminConfig,
   type ClientArrayField,
   type ClientBlocksField,
+  type ClientCollapsibleField,
+  type ClientRowField,
+  type ClientTabsField,
   type ClientVersionsAutosaveConfig,
   type ClientVersionsConfig,
 } from '../client/client-config'
@@ -36,6 +40,7 @@ import type {
   BlocksField,
   CheckboxField,
   CodeField,
+  CollapsibleField,
   DateField,
   EmailField,
   Field,
@@ -47,9 +52,11 @@ import type {
   RadioField,
   RelationshipField,
   RichTextField,
+  RowField,
   SelectField,
   SelectOption,
   SlugField,
+  TabsField,
   TextareaField,
   TextField,
   UploadField,
@@ -256,6 +263,50 @@ const toClientField = {
       },
       fields: Object.entries(b.fields).map(([subName, subField]) => clientField(subName, subField)),
     })),
+  }),
+  tabs: (name: string, field: TabsField, parentLocalized?: boolean): ClientTabsField => ({
+    ...baseField(name, field, parentLocalized),
+    type: 'tabs',
+    ...defined({
+      admin: field.admin ? { description: field.admin.description } : undefined,
+    }),
+    tabs: field.tabs.map((tab) => ({
+      label: tab.label,
+      ...defined({
+        description: tab.description,
+        admin: tab.admin?.condition ? { condition: tab.admin.condition } : undefined,
+        condition: tab.admin?.condition,
+      }),
+      fields: Object.entries(tab.fields).map(([subName, subField]) =>
+        clientField(subName, subField, parentLocalized),
+      ),
+    })),
+  }),
+  row: (name: string, field: RowField, parentLocalized?: boolean): ClientRowField => ({
+    ...baseField(name, field, parentLocalized),
+    type: 'row',
+    ...defined({
+      admin: field.admin ? { description: field.admin.description } : undefined,
+    }),
+    fields: Object.entries(field.fields).map(([subName, subField]) =>
+      clientField(subName, subField, parentLocalized),
+    ),
+  }),
+  collapsible: (
+    name: string,
+    field: CollapsibleField,
+    parentLocalized?: boolean,
+  ): ClientCollapsibleField => ({
+    ...baseField(name, field, parentLocalized),
+    type: 'collapsible',
+    label: field.label,
+    ...defined({
+      initiallyCollapsed: field.initiallyCollapsed,
+      admin: field.admin ? { description: field.admin.description } : undefined,
+    }),
+    fields: Object.entries(field.fields).map(([subName, subField]) =>
+      clientField(subName, subField, parentLocalized),
+    ),
   }),
 } satisfies {
   [K in FieldType]: (
@@ -559,7 +610,10 @@ function baseField<F extends Field>(
   name: string,
   field: F,
   parentLocalized = false,
-): Pick<ClientField, 'name' | 'label' | 'required' | 'localized' | 'condition' | 'component'> & {
+): Pick<
+  ClientFieldBase,
+  'name' | 'label' | 'required' | 'localized' | 'condition' | 'component'
+> & {
   type: F['type']
 } {
   const isLocalized = Boolean(field.localized || parentLocalized)

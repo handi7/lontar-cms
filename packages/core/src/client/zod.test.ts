@@ -1377,3 +1377,95 @@ describe('clientFieldsToZod with a localized group and locale=all', () => {
     expect(schema.safeParse({ seo: { title: {} } }).success).toBe(false)
   })
 })
+
+describe('clientFieldsToZod with layout fields (tabs, row, collapsible)', () => {
+  const layoutFields: ClientField[] = [
+    {
+      name: 'enableSeo',
+      type: 'checkbox',
+      label: 'Enable SEO',
+      required: false,
+    },
+    {
+      name: 'mainTabs',
+      type: 'tabs',
+      label: 'Main Tabs',
+      required: false,
+      tabs: [
+        {
+          label: 'General',
+          fields: [
+            {
+              name: 'titleRow',
+              type: 'row',
+              label: 'Title Row',
+              required: false,
+              fields: [
+                { name: 'title', type: 'text', label: 'Title', required: true },
+                { name: 'slug', type: 'slug', label: 'Slug', required: true, from: 'title' },
+              ],
+            },
+          ],
+        },
+        {
+          label: 'SEO',
+          condition: { enableSeo: { equals: true } },
+          fields: [
+            {
+              name: 'seoCollapsible',
+              type: 'collapsible',
+              label: 'Meta',
+              required: false,
+              fields: [{ name: 'metaTitle', type: 'text', label: 'Meta Title', required: true }],
+            },
+          ],
+        },
+      ],
+    },
+  ]
+
+  it('validates flattened document data matching fields inside layout containers', () => {
+    const schema = clientFieldsToZod(layoutFields)
+    const valid = schema.safeParse({
+      title: 'Hello',
+      slug: 'hello',
+      enableSeo: false,
+    })
+    expect(valid.success).toBe(true)
+
+    const missingTitle = schema.safeParse({
+      slug: 'hello',
+      enableSeo: false,
+    })
+    expect(missingTitle.success).toBe(false)
+  })
+
+  it('inherits tab condition so required fields in conditional tabs are optional when condition evaluates to false', () => {
+    const schema = clientFieldsToZod(layoutFields)
+
+    // When enableSeo is false, metaTitle is not required
+    const noSeo = schema.safeParse({
+      title: 'Hello',
+      slug: 'hello',
+      enableSeo: false,
+    })
+    expect(noSeo.success).toBe(true)
+
+    // When enableSeo is true, metaTitle IS required
+    const withSeoMissingMeta = schema.safeParse({
+      title: 'Hello',
+      slug: 'hello',
+      enableSeo: true,
+    })
+    expect(withSeoMissingMeta.success).toBe(false)
+
+    // With metaTitle provided, it passes
+    const withSeoValid = schema.safeParse({
+      title: 'Hello',
+      slug: 'hello',
+      enableSeo: true,
+      metaTitle: 'Meta Title',
+    })
+    expect(withSeoValid.success).toBe(true)
+  })
+})

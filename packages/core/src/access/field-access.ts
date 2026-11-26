@@ -1,6 +1,7 @@
 import type { AuthUser } from '../auth/types'
 import type { DocumentData } from '../database/adapter'
 import type { Block, Field, FieldAccessArgs, FieldAccessFunction } from '../fields/types'
+import { flattenFields } from '../fields/flatten'
 
 export type FieldAccessCache = Map<FieldAccessFunction, Map<string | null, boolean>>
 
@@ -306,7 +307,16 @@ export async function sanitizeDocRead(
   const docId = context?.id ?? (doc.id as string | number | undefined)
   const baseDoc = context?.doc ?? doc
   const cache = resolveReadCache(context)
-  return sanitizeFieldsRead(fields, doc, user, baseDoc, docId, cache, context?.req, context?.locale)
+  return sanitizeFieldsRead(
+    flattenFields(fields),
+    doc,
+    user,
+    baseDoc,
+    docId,
+    cache,
+    context?.req,
+    context?.locale,
+  )
 }
 
 // -----------------------------------------------------------------------------
@@ -645,7 +655,7 @@ export async function sanitizeDocWrite(
   const rootData = resolvedContext.data ?? data
   const storedData = operation === 'update' ? resolvedContext.doc : undefined
   return sanitizeFieldsWrite(
-    fields,
+    flattenFields(fields),
     data,
     operation,
     resolvedContext,

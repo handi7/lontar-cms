@@ -5,6 +5,7 @@ import type {
   BlocksField,
   CheckboxField,
   CodeField,
+  CollapsibleField,
   DateField,
   EmailField,
   GroupField,
@@ -14,8 +15,11 @@ import type {
   RadioField,
   RelationshipField,
   RichTextField,
+  RowField,
   SelectField,
   SlugField,
+  Tab,
+  TabsField,
   TextareaField,
   TextField,
   UploadField,
@@ -180,6 +184,53 @@ function blocks<const O extends Options<BlocksField>>(options: O): O & { type: '
   return { ...options, type: 'blocks' }
 }
 
+function validateTabsList(tabs: unknown): void {
+  if (!Array.isArray(tabs)) {
+    throw new Error('Tabs field requires a "tabs" array')
+  }
+  for (const t of tabs as Tab[]) {
+    if (!t || typeof t !== 'object') {
+      throw new Error('Each tab in tabs field must be an object')
+    }
+    if (typeof t.label !== 'string') {
+      throw new Error('Each tab in tabs field must have a string "label"')
+    }
+    if (!t.fields || typeof t.fields !== 'object') {
+      throw new Error(`Tab "${t.label}" requires a "fields" object`)
+    }
+  }
+}
+
+function tabs<const O extends Options<TabsField>>(options: O): O & { type: 'tabs' } {
+  if (!options || typeof options !== 'object') {
+    throw new Error('Tabs field requires an options object')
+  }
+  validateTabsList(options.tabs)
+  return { ...options, type: 'tabs' }
+}
+
+function row<const O extends Options<RowField>>(options: O): O & { type: 'row' } {
+  if (!options || typeof options.fields !== 'object' || options.fields === null) {
+    throw new Error('Row field requires a "fields" object')
+  }
+  return { ...options, type: 'row' }
+}
+
+function collapsible<const O extends Options<CollapsibleField>>(
+  options: O,
+): O & { type: 'collapsible' } {
+  if (!options || typeof options !== 'object') {
+    throw new Error('Collapsible field requires an options object')
+  }
+  if (!options.label || typeof options.label !== 'string') {
+    throw new Error('Collapsible field requires a string "label"')
+  }
+  if (!options.fields || typeof options.fields !== 'object' || options.fields === null) {
+    throw new Error('Collapsible field requires a "fields" object')
+  }
+  return { ...options, type: 'collapsible' }
+}
+
 export const fields = {
   text,
   number,
@@ -199,4 +250,9 @@ export const fields = {
   group,
   array,
   blocks,
+  tabs,
+  row,
+  collapsible,
 }
+
+export { flattenFields, isLayoutField } from './flatten'

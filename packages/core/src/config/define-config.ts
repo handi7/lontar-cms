@@ -4,6 +4,7 @@ import type {
   Block,
   BlocksField,
   CodeField,
+  CollapsibleField,
   Field,
   GroupField,
   JsonField,
@@ -11,11 +12,15 @@ import type {
   PointField,
   RadioField,
   RelationshipField,
+  RowField,
   SlugField,
+  Tab,
+  TabsField,
   TextareaField,
   TextField,
   UploadField,
 } from '../fields/types'
+import { flattenFields, isLayoutField } from '../fields/flatten'
 import type { DatabaseAdapter } from '../database/adapter'
 import type { CollectionConfig, Config, GlobalConfig, PaginationConfig } from './types'
 import { validateAdminConfig } from './validate-admin'
@@ -373,7 +378,7 @@ function validateFieldTargets(
   collectionMap: Map<string, CollectionConfig>,
 ): string[] {
   const issues: string[] = []
-  for (const [name, field] of Object.entries(fields)) {
+  for (const [name, field] of Object.entries(flattenFields(fields))) {
     if (field.type === 'upload') {
       issues.push(...validateUploadTarget(where, name, field, collectionMap))
     } else if (field.type === 'relationship') {
@@ -556,6 +561,14 @@ function validateFieldLocalization(
   hasLocalization: boolean,
   containerLocalized: boolean,
 ): string[] {
+  if (field.type === 'tabs' || field.type === 'row' || field.type === 'collapsible') {
+    if ((field as unknown as { localized?: boolean }).localized) {
+      return [
+        `${where}: layout field "${name}" (${field.type}) cannot be localized. Set localized on its child fields instead.`,
+      ]
+    }
+    return []
+  }
   if (!field.localized) return []
   if (!hasLocalization) {
     return [
@@ -570,6 +583,111 @@ function validateFieldLocalization(
   return []
 }
 
+interface ScopeFieldItem {
+  name: string
+  path: string
+  isLayout: boolean
+}
+
+function collectScopeFields(
+  fields: Record<string, Field>,
+  currentPath: string,
+  collected: ScopeFieldItem[],
+): void {
+  for (const [name, field] of Object.entries(fields)) {
+    const fieldPath = currentPath ? `${currentPath} -> field "${name}"` : `field "${name}"`
+    if (field.type === 'tabs') {
+      collected.push({ name, path: fieldPath, isLayout: true })
+      for (const tab of field.tabs ?? []) {
+        collectScopeFields(tab.fields ?? {}, `${fieldPath} -> tab "${tab.label}"`, collected)
+      }
+    } else if (field.type === 'row' || field.type === 'collapsible') {
+      collected.push({ name, path: fieldPath, isLayout: true })
+      collectScopeFields(field.fields ?? {}, fieldPath, collected)
+    } else {
+      collected.push({ name, path: fieldPath, isLayout: false })
+    }
+  }
+}
+
+function validateScopeFieldCollisions(where: string, fields: Record<string, Field>): string[] {
+  const collected: ScopeFieldItem[] = []
+  collectScopeFields(fields, '', collected)
+
+  const issues: string[] = []
+  const dataFieldMap = new Map<string, string>()
+  const layoutFieldMap = new Map<string, string>()
+
+  for (const item of collected) {
+    if (item.isLayout) {
+      if (!layoutFieldMap.has(item.name)) {
+        layoutFieldMap.set(item.name, item.path)
+      }
+    } else {
+      if (dataFieldMap.has(item.name)) {
+        const prevPath = dataFieldMap.get(item.name)!
+        issues.push(
+          `${where}: duplicate field name "${item.name}" in the same scope (declared in ${prevPath} and ${item.path}).`,
+        )
+      } else {
+        dataFieldMap.set(item.name, item.path)
+      }
+    }
+  }
+
+  for (const [name, path] of dataFieldMap) {
+    if (layoutFieldMap.has(name)) {
+      const layoutPath = layoutFieldMap.get(name)!
+      issues.push(
+        `${where}: field name "${name}" (${path}) collides with layout container "${layoutPath}".`,
+      )
+    }
+  }
+
+  return issues
+}
+
+interface FieldsValidationContext {
+  isUpload: boolean
+  depth: number
+  hasVersions: boolean
+  dbAdapter?: DatabaseAdapter
+  hasLocalization: boolean
+  containerLocalized: boolean
+  layoutDepth: number
+}
+
+function validateFieldEntry(
+  where: string,
+  name: string,
+  field: Field,
+  fields: Record<string, Field>,
+  ctx: FieldsValidationContext,
+): string[] {
+  const isRoot = ctx.depth === 1 && ctx.layoutDepth === 0
+  const issues = [
+    ...validateFieldName(where, name, isRoot && ctx.isUpload, isRoot && ctx.hasVersions),
+  ]
+  if ((ctx.depth > 1 || ctx.layoutDepth > 0) && name === 'id') {
+    issues.push(`${where}: field name "id" is reserved.`)
+  }
+  issues.push(
+    ...validateFieldLocalization(where, name, field, ctx.hasLocalization, ctx.containerLocalized),
+    ...validateField(
+      where,
+      name,
+      field,
+      fields,
+      ctx.depth,
+      ctx.dbAdapter,
+      ctx.hasLocalization,
+      ctx.containerLocalized,
+      ctx.layoutDepth,
+    ),
+  )
+  return issues
+}
+
 function validateFields(
   where: string,
   fields: Record<string, Field>,
@@ -579,30 +697,23 @@ function validateFields(
   dbAdapter?: DatabaseAdapter,
   hasLocalization = false,
   containerLocalized = false,
+  layoutDepth = 0,
 ): string[] {
   const issues: string[] = []
+  if (layoutDepth === 0) {
+    issues.push(...validateScopeFieldCollisions(where, fields))
+  }
+  const ctx: FieldsValidationContext = {
+    isUpload,
+    depth,
+    hasVersions,
+    dbAdapter,
+    hasLocalization,
+    containerLocalized,
+    layoutDepth,
+  }
   for (const [name, field] of Object.entries(fields)) {
-    issues.push(
-      ...validateFieldName(where, name, depth === 1 && isUpload, depth === 1 && hasVersions),
-    )
-    if (depth > 1 && name === 'id') {
-      issues.push(`${where}: field name "id" is reserved.`)
-    }
-    issues.push(
-      ...validateFieldLocalization(where, name, field, hasLocalization, containerLocalized),
-    )
-    issues.push(
-      ...validateField(
-        where,
-        name,
-        field,
-        fields,
-        depth,
-        dbAdapter,
-        hasLocalization,
-        containerLocalized,
-      ),
-    )
+    issues.push(...validateFieldEntry(where, name, field, fields, ctx))
   }
   return issues
 }
@@ -782,8 +893,14 @@ function validateFieldAccessOps(
   return issues
 }
 
-function validateFieldAccess(where: string, name: string, access?: unknown): string[] {
+function validateFieldAccess(where: string, name: string, field: Field): string[] {
+  const access = (field as unknown as { access?: unknown }).access
   if (access === undefined) return []
+  if (field.type === 'tabs' || field.type === 'row' || field.type === 'collapsible') {
+    return [
+      `${where}: layout field "${name}" (${field.type}) cannot declare access control. Set access on its child fields instead.`,
+    ]
+  }
   if (typeof access !== 'object' || access === null) {
     return [`${where}: field "${name}" access must be an object.`]
   }
@@ -880,6 +997,218 @@ function validateScalarField(where: string, name: string, field: Field): string[
   }
 }
 
+function validateLayoutDepth(
+  where: string,
+  name: string,
+  type: string,
+  layoutDepth: number,
+): string[] {
+  if (layoutDepth >= 3) {
+    return [`${where}: layout field "${name}" (${type}) exceeds maximum layout nesting depth of 3.`]
+  }
+  return []
+}
+
+function validateTabLabel(where: string, tabsName: string, label: string, index: number): string[] {
+  if (!label) {
+    return [
+      `${where}: tab ${index} in tabs field "${tabsName}" must have a non-empty string "label".`,
+    ]
+  }
+  return []
+}
+
+function validateTabAdmin(where: string, tab: Tab, label: string): string[] {
+  if (
+    tab.admin?.condition !== undefined &&
+    (typeof tab.admin.condition !== 'object' ||
+      tab.admin.condition === null ||
+      Array.isArray(tab.admin.condition))
+  ) {
+    return [`${where} -> tab "${label}": admin.condition must be an object.`]
+  }
+  return []
+}
+
+function validateSingleTab(
+  where: string,
+  tabsName: string,
+  rawTab: unknown,
+  index: number,
+  ctx: FieldsValidationContext,
+): string[] {
+  if (!rawTab || typeof rawTab !== 'object') {
+    return [`${where} -> tabs "${tabsName}": each tab must be an object.`]
+  }
+  const tab = rawTab as Tab
+  const label = typeof tab.label === 'string' && tab.label.trim() ? tab.label : ''
+  const tabName = label || 'unnamed'
+  const issues = validateTabLabel(where, tabsName, label, index)
+  if (!tab.fields || typeof tab.fields !== 'object') {
+    issues.push(
+      `${where} -> tabs "${tabsName}" -> tab "${tabName}": tab must have a fields object.`,
+    )
+    return issues
+  }
+  issues.push(...validateTabAdmin(where, tab, label))
+  issues.push(
+    ...validateFields(
+      `${where} -> tab "${tabName}"`,
+      tab.fields,
+      false,
+      ctx.depth,
+      false,
+      ctx.dbAdapter,
+      ctx.hasLocalization,
+      ctx.containerLocalized,
+      ctx.layoutDepth + 1,
+    ),
+  )
+  return issues
+}
+
+function validateTabsField(
+  where: string,
+  name: string,
+  field: TabsField,
+  depth: number,
+  dbAdapter?: DatabaseAdapter,
+  hasLocalization = false,
+  containerLocalized = false,
+  layoutDepth = 0,
+): string[] {
+  if (!Array.isArray(field.tabs) || field.tabs.length === 0) {
+    return [`${where}: tabs field "${name}" must define at least one tab.`]
+  }
+  const issues: string[] = []
+  const ctx: FieldsValidationContext = {
+    isUpload: false,
+    depth,
+    hasVersions: false,
+    dbAdapter,
+    hasLocalization,
+    containerLocalized,
+    layoutDepth,
+  }
+  field.tabs.forEach((tab, index) => {
+    issues.push(...validateSingleTab(where, name, tab, index, ctx))
+  })
+  return issues
+}
+
+function validateRowField(
+  where: string,
+  name: string,
+  field: RowField,
+  depth: number,
+  dbAdapter?: DatabaseAdapter,
+  hasLocalization = false,
+  containerLocalized = false,
+  layoutDepth = 0,
+): string[] {
+  if (!field.fields || typeof field.fields !== 'object') {
+    return [`${where}: row field "${name}" must have a fields object.`]
+  }
+  return validateFields(
+    `${where} -> row "${name}"`,
+    field.fields,
+    false,
+    depth,
+    false,
+    dbAdapter,
+    hasLocalization,
+    containerLocalized,
+    layoutDepth + 1,
+  )
+}
+
+function validateCollapsibleField(
+  where: string,
+  name: string,
+  field: CollapsibleField,
+  depth: number,
+  dbAdapter?: DatabaseAdapter,
+  hasLocalization = false,
+  containerLocalized = false,
+  layoutDepth = 0,
+): string[] {
+  const issues: string[] = []
+  if (typeof field.label !== 'string' || !field.label.trim()) {
+    issues.push(`${where}: collapsible field "${name}" must have a non-empty string label.`)
+  }
+  if (!field.fields || typeof field.fields !== 'object') {
+    issues.push(`${where}: collapsible field "${name}" must have a fields object.`)
+    return issues
+  }
+  if (field.initiallyCollapsed !== undefined && typeof field.initiallyCollapsed !== 'boolean') {
+    issues.push(`${where}: collapsible field "${name}" initiallyCollapsed must be a boolean.`)
+  }
+  issues.push(
+    ...validateFields(
+      `${where} -> collapsible "${name}"`,
+      field.fields,
+      false,
+      depth,
+      false,
+      dbAdapter,
+      hasLocalization,
+      containerLocalized,
+      layoutDepth + 1,
+    ),
+  )
+  return issues
+}
+
+function validateLayoutField(
+  where: string,
+  name: string,
+  field: TabsField | RowField | CollapsibleField,
+  depth: number,
+  dbAdapter?: DatabaseAdapter,
+  hasLocalization = false,
+  containerLocalized = false,
+  layoutDepth = 0,
+): string[] {
+  const depthIssues = validateLayoutDepth(where, name, field.type, layoutDepth)
+  if (depthIssues.length > 0) return depthIssues
+
+  switch (field.type) {
+    case 'tabs':
+      return validateTabsField(
+        where,
+        name,
+        field,
+        depth,
+        dbAdapter,
+        hasLocalization,
+        containerLocalized,
+        layoutDepth,
+      )
+    case 'row':
+      return validateRowField(
+        where,
+        name,
+        field,
+        depth,
+        dbAdapter,
+        hasLocalization,
+        containerLocalized,
+        layoutDepth,
+      )
+    case 'collapsible':
+      return validateCollapsibleField(
+        where,
+        name,
+        field,
+        depth,
+        dbAdapter,
+        hasLocalization,
+        containerLocalized,
+        layoutDepth,
+      )
+  }
+}
+
 function validateFieldType(
   where: string,
   name: string,
@@ -889,6 +1218,7 @@ function validateFieldType(
   dbAdapter?: DatabaseAdapter,
   hasLocalization = false,
   containerLocalized = false,
+  layoutDepth = 0,
 ): string[] {
   const textLike = validateTextLikeField(where, name, field, fields, dbAdapter)
   if (textLike) return textLike
@@ -896,25 +1226,35 @@ function validateFieldType(
   const scalar = validateScalarField(where, name, field)
   if (scalar) return scalar
 
-  switch (field.type) {
-    case 'group':
-    case 'array':
-    case 'blocks':
-      return validateContainerField(
-        where,
-        name,
-        field,
-        depth,
-        dbAdapter,
-        hasLocalization,
-        containerLocalized,
-      )
-    default:
-      return []
+  if (isLayoutField(field)) {
+    return validateLayoutField(
+      where,
+      name,
+      field,
+      depth,
+      dbAdapter,
+      hasLocalization,
+      containerLocalized,
+      layoutDepth,
+    )
   }
+
+  if (field.type === 'group' || field.type === 'array' || field.type === 'blocks') {
+    return validateContainerField(
+      where,
+      name,
+      field,
+      depth,
+      dbAdapter,
+      hasLocalization,
+      containerLocalized,
+    )
+  }
+
+  return []
 }
 
-const CONTAINER_FIELD_TYPES = new Set(['group', 'array', 'blocks'])
+const CONTAINER_FIELD_TYPES = new Set(['group', 'array', 'blocks', 'tabs', 'row', 'collapsible'])
 
 function validateFieldComponent(where: string, name: string, field: Field): string[] {
   const component: unknown = field.admin?.component
@@ -939,9 +1279,10 @@ function validateField(
   dbAdapter?: DatabaseAdapter,
   hasLocalization = false,
   containerLocalized = false,
+  layoutDepth = 0,
 ): string[] {
   return [
-    ...validateFieldAccess(where, name, field.access),
+    ...validateFieldAccess(where, name, field),
     ...validateFieldComponent(where, name, field),
     ...validateFieldType(
       where,
@@ -952,6 +1293,7 @@ function validateField(
       dbAdapter,
       hasLocalization,
       containerLocalized,
+      layoutDepth,
     ),
   ]
 }
@@ -1345,7 +1687,7 @@ function validateAdmin(where: string, collection: CollectionConfig): string[] {
   const known = new Set<string>([
     ...SYSTEM_FIELDS,
     ...(collection.upload ? UPLOAD_SYSTEM_FIELDS : []),
-    ...Object.keys(collection.fields),
+    ...Object.keys(flattenFields(collection.fields)),
   ])
   const { useAsTitle, defaultColumns = [] } = collection.admin ?? {}
   const check = (option: string) => (name: string) =>

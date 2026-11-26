@@ -17,29 +17,33 @@ import {
   type MySqlTable,
   type MySqlTableExtraConfigValue,
 } from 'drizzle-orm/mysql-core'
-import type {
-  ArrayField,
-  BlocksField,
-  CheckboxField,
-  CodeField,
-  CollectionConfig,
-  DateField,
-  EmailField,
-  Field,
-  Fields,
-  GlobalConfig,
-  JsonField,
-  LocaleConfig,
-  LocalizationConfig,
-  NumberField,
-  RadioField,
-  RelationshipField,
-  RichTextField,
-  SelectField,
-  SlugField,
-  TextareaField,
-  TextField,
-  UploadField,
+import {
+  isLayoutField,
+  type ArrayField,
+  type BlocksField,
+  type CheckboxField,
+  type CodeField,
+  type CollapsibleField,
+  type CollectionConfig,
+  type DateField,
+  type EmailField,
+  type Field,
+  type Fields,
+  type GlobalConfig,
+  type JsonField,
+  type LocaleConfig,
+  type LocalizationConfig,
+  type NumberField,
+  type RadioField,
+  type RelationshipField,
+  type RichTextField,
+  type RowField,
+  type SelectField,
+  type SlugField,
+  type TabsField,
+  type TextareaField,
+  type TextField,
+  type UploadField,
 } from '@lontar/core'
 
 export function getLocaleCodes(
@@ -370,7 +374,8 @@ export interface FlattenedColumnField {
 }
 
 function resolveFlattenedField(field: Field, isConditional: boolean, isLocalized: boolean): Field {
-  let resolved = field
+  if (isLayoutField(field)) return field
+  let resolved: Exclude<Field, TabsField | RowField | CollapsibleField> = field
   if (isConditional && !resolved.admin?.condition) {
     resolved = { ...resolved, admin: { ...resolved.admin, condition: {} } }
   }
@@ -378,6 +383,26 @@ function resolveFlattenedField(field: Field, isConditional: boolean, isLocalized
     resolved = { ...resolved, localized: true }
   }
   return resolved
+}
+
+function flattenLayoutColumnFields(
+  field: TabsField | RowField | CollapsibleField,
+  prefix: string,
+  pathPrefix: string[],
+  isConditional: boolean,
+  isLocalized: boolean,
+): FlattenedColumnField[] {
+  if (field.type === 'tabs') {
+    const result: FlattenedColumnField[] = []
+    for (const tab of field.tabs) {
+      const tabConditional = isConditional || Boolean(tab.admin?.condition)
+      result.push(
+        ...flattenGroupFields(tab.fields, prefix, pathPrefix, tabConditional, isLocalized),
+      )
+    }
+    return result
+  }
+  return flattenGroupFields(field.fields, prefix, pathPrefix, isConditional, isLocalized)
 }
 
 function flattenFieldEntry(
@@ -392,6 +417,9 @@ function flattenFieldEntry(
   const currentPath = [...pathPrefix, name]
   const isConditional = parentConditional || Boolean(field.admin?.condition)
   const isLocalized = parentLocalized || Boolean(field.localized)
+  if (isLayoutField(field)) {
+    return flattenLayoutColumnFields(field, prefix, pathPrefix, isConditional, isLocalized)
+  }
   if (field.type === 'group') {
     return flattenGroupFields(field.fields, colName, currentPath, isConditional, isLocalized)
   }

@@ -20,13 +20,46 @@ interface FieldValueMap {
   upload: number
 }
 
+type UnionToIntersection<U> = (U extends unknown ? (k: U) => void : never) extends (
+  k: infer I,
+) => void
+  ? I
+  : never
+
+type FlattenTab<T> = T extends { fields: infer TabFields extends Fields }
+  ? FlattenFields<TabFields>
+  : Record<string, never>
+
+export type FlattenFields<F extends Fields> = [keyof F] extends [never]
+  ? Record<string, never>
+  : Simplify<
+      UnionToIntersection<
+        {
+          [K in keyof F]: F[K] extends {
+            type: 'tabs'
+            tabs: readonly (infer T)[]
+          }
+            ? FlattenTab<T>
+            : F[K] extends { type: 'row'; fields: infer SubFields extends Fields }
+              ? FlattenFields<SubFields>
+              : F[K] extends { type: 'collapsible'; fields: infer SubFields extends Fields }
+                ? FlattenFields<SubFields>
+                : { [P in K]: F[K] }
+        }[keyof F]
+      >
+    >
+
 type InferGroupFields<F extends Fields> = {
-  -readonly [K in keyof F]: FieldValue<F[K]>
+  -readonly [K in keyof FlattenFields<F>]: FlattenFields<F>[K] extends Field
+    ? FieldValue<FlattenFields<F>[K]>
+    : never
 }
 
 export type InferArrayRow<F extends Fields> = Simplify<
   { id: string } & {
-    -readonly [K in keyof F]: FieldValue<F[K]>
+    -readonly [K in keyof FlattenFields<F>]: FlattenFields<F>[K] extends Field
+      ? FieldValue<FlattenFields<F>[K]>
+      : never
   }
 >
 
@@ -37,47 +70,53 @@ export type InferBlockRow<B extends Block> =
           id: string
           blockType: Slug
         } & {
-          -readonly [K in keyof SubFields]: FieldValue<SubFields[K]>
+          -readonly [K in keyof FlattenFields<SubFields>]: FlattenFields<SubFields>[K] extends Field
+            ? FieldValue<FlattenFields<SubFields>[K]>
+            : never
         }
       >
     : never
 
 type FieldValue<F extends Field> = F extends {
-  type: 'group'
-  fields: infer SubFields extends Fields
+  type: 'tabs' | 'row' | 'collapsible'
 }
-  ? F extends { required: true }
-    ? InferGroupFields<SubFields>
-    : InferGroupFields<SubFields> | null
+  ? never
   : F extends {
-        type: 'array'
+        type: 'group'
         fields: infer SubFields extends Fields
       }
     ? F extends { required: true }
-      ? InferArrayRow<SubFields>[]
-      : InferArrayRow<SubFields>[] | null
+      ? InferGroupFields<SubFields>
+      : InferGroupFields<SubFields> | null
     : F extends {
-          type: 'blocks'
-          blocks: readonly (infer B extends Block)[]
+          type: 'array'
+          fields: infer SubFields extends Fields
         }
       ? F extends { required: true }
-        ? InferBlockRow<B>[]
-        : InferBlockRow<B>[] | null
-      : F extends { type: 'relationship'; hasMany: true }
-        ? number[]
-        : F extends { type: 'text'; hasMany: true }
-          ? F extends { required: true }
-            ? string[]
-            : string[] | null
-          : F extends { type: 'number'; hasMany: true }
+        ? InferArrayRow<SubFields>[]
+        : InferArrayRow<SubFields>[] | null
+      : F extends {
+            type: 'blocks'
+            blocks: readonly (infer B extends Block)[]
+          }
+        ? F extends { required: true }
+          ? InferBlockRow<B>[]
+          : InferBlockRow<B>[] | null
+        : F extends { type: 'relationship'; hasMany: true }
+          ? number[]
+          : F extends { type: 'text'; hasMany: true }
             ? F extends { required: true }
-              ? number[]
-              : number[] | null
-            : F['type'] extends keyof FieldValueMap
+              ? string[]
+              : string[] | null
+            : F extends { type: 'number'; hasMany: true }
               ? F extends { required: true }
-                ? FieldValueMap[F['type']]
-                : FieldValueMap[F['type']] | null
-              : unknown
+                ? number[]
+                : number[] | null
+              : F['type'] extends keyof FieldValueMap
+                ? F extends { required: true }
+                  ? FieldValueMap[F['type']]
+                  : FieldValueMap[F['type']] | null
+                : unknown
 
 type Simplify<T> = { [K in keyof T]: T[K] }
 
@@ -88,6 +127,8 @@ export type InferDoc<
   SystemFields &
     (C extends { versions: { drafts: true | object } } ? DraftSystemFields : unknown) &
     (C extends { upload: true | object } ? UploadSystemFields : unknown) & {
-      -readonly [K in keyof C['fields']]: FieldValue<C['fields'][K]>
+      -readonly [K in keyof FlattenFields<C['fields']>]: FlattenFields<C['fields']>[K] extends Field
+        ? FieldValue<FlattenFields<C['fields']>[K]>
+        : never
     }
 >
