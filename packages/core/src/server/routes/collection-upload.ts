@@ -17,6 +17,7 @@ import type {
 import type { Where } from '../../query/types'
 import type { DatabaseAdapter, DocumentData } from '../../database/adapter'
 import type { Field } from '../../fields/types'
+import { flattenFields } from '../../fields/flatten'
 import { runBeforeValidateHooks } from '../../hooks'
 import {
   type MutationExecutionResult,
@@ -208,7 +209,7 @@ export function parseFormDataFields(
   fields: Record<string, Field>,
 ): Record<string, unknown> {
   const result: Record<string, unknown> = {}
-  for (const [name, field] of Object.entries(fields)) {
+  for (const [name, field] of Object.entries(flattenFields(fields))) {
     if (name in rawBody) {
       result[name] = parseFieldValue(rawBody[name], field)
     }

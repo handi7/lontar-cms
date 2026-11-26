@@ -1,7 +1,7 @@
 import { describe, expect, expectTypeOf, it } from 'vitest'
 import { Posts } from '../__fixtures__/posts'
 import { collection } from '../config/collection'
-import { block, fields as f } from '.'
+import { block, fields as f, flattenFields, isLayoutField } from '.'
 import type { InferDoc } from './infer'
 import type { Fields } from './types'
 
@@ -144,6 +144,50 @@ describe('fields', () => {
       fields: {
         title: { type: 'text', required: true },
         caption: { type: 'text' },
+      },
+    })
+    expect(
+      f.tabs({
+        tabs: [
+          { label: 'General', fields: { title: f.text() } },
+          { label: 'SEO', fields: { metaTitle: f.text() } },
+        ],
+      }),
+    ).toStrictEqual({
+      type: 'tabs',
+      tabs: [
+        { label: 'General', fields: { title: { type: 'text' } } },
+        { label: 'SEO', fields: { metaTitle: { type: 'text' } } },
+      ],
+    })
+    expect(
+      f.row({
+        fields: {
+          firstName: f.text(),
+          lastName: f.text(),
+        },
+      }),
+    ).toStrictEqual({
+      type: 'row',
+      fields: {
+        firstName: { type: 'text' },
+        lastName: { type: 'text' },
+      },
+    })
+    expect(
+      f.collapsible({
+        label: 'Advanced',
+        initiallyCollapsed: true,
+        fields: {
+          debug: f.checkbox(),
+        },
+      }),
+    ).toStrictEqual({
+      type: 'collapsible',
+      label: 'Advanced',
+      initiallyCollapsed: true,
+      fields: {
+        debug: { type: 'checkbox' },
       },
     })
   })
@@ -516,5 +560,99 @@ describe('collection', () => {
       admin: { useAsTitle: 'titel' },
       fields: { title: f.text() },
     })
+  })
+})
+
+describe('layout fields and flattenFields', () => {
+  it('identifies layout fields with isLayoutField', () => {
+    expect(isLayoutField(f.tabs({ tabs: [] }))).toBe(true)
+    expect(isLayoutField(f.row({ fields: {} }))).toBe(true)
+    expect(isLayoutField(f.collapsible({ label: 'Header', fields: {} }))).toBe(true)
+    expect(isLayoutField(f.text())).toBe(false)
+    expect(isLayoutField(f.number())).toBe(false)
+    expect(isLayoutField(f.group({ fields: {} }))).toBe(false)
+  })
+
+  it('flattens nested layout containers into transparent fields map', () => {
+    const fields = {
+      main: f.tabs({
+        tabs: [
+          {
+            label: 'Info',
+            fields: {
+              nameRow: f.row({
+                fields: {
+                  firstName: f.text({ required: true }),
+                  lastName: f.text(),
+                },
+              }),
+            },
+          },
+          {
+            label: 'Settings',
+            fields: {
+              advanced: f.collapsible({
+                label: 'Advanced',
+                fields: {
+                  theme: f.select({ options: ['light', 'dark'] }),
+                },
+              }),
+            },
+          },
+        ],
+      }),
+      status: f.text(),
+    }
+
+    const flattened = flattenFields(fields)
+    expect(Object.keys(flattened)).toEqual(['firstName', 'lastName', 'theme', 'status'])
+    expect(flattened.firstName).toStrictEqual({ type: 'text', required: true })
+    expect(flattened.lastName).toStrictEqual({ type: 'text' })
+    expect(flattened.theme).toStrictEqual({ type: 'select', options: ['light', 'dark'] })
+    expect(flattened.status).toStrictEqual({ type: 'text' })
+  })
+
+  it('infers document type with layout field containers flattened away', () => {
+    const col = collection({
+      slug: 'articles',
+      admin: { useAsTitle: 'title' },
+      fields: {
+        content: f.tabs({
+          tabs: [
+            {
+              label: 'General',
+              fields: {
+                titleRow: f.row({
+                  fields: {
+                    title: f.text({ required: true }),
+                    slug: f.slug({ from: 'title', required: true }),
+                  },
+                }),
+              },
+            },
+            {
+              label: 'SEO',
+              fields: {
+                metaCollapsible: f.collapsible({
+                  label: 'Meta',
+                  fields: {
+                    metaTitle: f.text(),
+                  },
+                }),
+              },
+            },
+          ],
+        }),
+      },
+    })
+
+    docOf(col).toEqualTypeOf<{
+      id: number
+      createdAt: string
+      updatedAt: string
+      title: string
+      slug: string
+      metaTitle: string | null
+    }>()
   })
 })

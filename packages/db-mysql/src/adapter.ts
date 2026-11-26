@@ -27,6 +27,7 @@ import mysql from 'mysql2/promise'
 import {
   DEFAULT_LIMIT,
   DEFAULT_MAX_PER_DOC,
+  flattenFields,
   generateRowId,
   getTopKey,
   parseSort,
@@ -142,8 +143,9 @@ function unflattenGroupField(
 
 function unflattenDoc(doc: Record<string, unknown>, fields?: Fields): Record<string, unknown> {
   if (!fields) return doc
+  const flatFields = flattenFields(fields)
   const result: Record<string, unknown> = { ...doc }
-  for (const [fieldName, field] of Object.entries(fields)) {
+  for (const [fieldName, field] of Object.entries(flatFields)) {
     if (field.type === 'group') {
       result[fieldName] = unflattenGroupField(doc, fieldName, field)
     } else if (field.type === 'point') {
@@ -485,7 +487,7 @@ function resolveStep(f: Field, parts: string[], i: number): ResolveStepResult {
 
 function resolveField(fields: Fields, fieldPath: string): Field | undefined {
   const parts = fieldPath.includes('.') ? fieldPath.split('.') : fieldPath.split('__')
-  let currentFields: Fields = fields
+  let currentFields: Fields = flattenFields(fields)
 
   for (let i = 0; i < parts.length; i++) {
     const part = parts[i]
@@ -528,7 +530,7 @@ function checkStepLocalized(
 
 function isPathLocalized(fields: Fields, fieldPath: string): boolean {
   const parts = fieldPath.includes('.') ? fieldPath.split('.') : fieldPath.split('__')
-  let currentFields: Fields = fields
+  let currentFields: Fields = flattenFields(fields)
   let inheritedLocalized = false
 
   for (let i = 0; i < parts.length; i++) {

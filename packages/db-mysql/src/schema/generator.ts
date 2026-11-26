@@ -1,5 +1,6 @@
 import { createRequire } from 'node:module'
 import {
+  flattenFields,
   slugToIdentifier,
   type ArrayField,
   type BlocksField,
@@ -306,7 +307,7 @@ function collectEntityImports(entity: CollectionConfig | GlobalConfig, imports: 
     imports.add('foreignKey')
     imports.add('unique')
   }
-  for (const field of Object.values(entity.fields)) {
+  for (const field of Object.values(flattenFields(entity.fields))) {
     collectFieldImports(field, imports)
   }
 }

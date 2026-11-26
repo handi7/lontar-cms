@@ -1594,4 +1594,95 @@ describe('toClientConfig admin.actions (#468)', () => {
       },
     ])
   })
+
+  it('serializes layout fields (tabs, row, collapsible) with their subfields and options', () => {
+    const col = clientCollection({
+      slug: 'posts',
+      fields: {
+        content: f.tabs({
+          admin: { description: 'Main editor tabs' },
+          tabs: [
+            {
+              label: 'General',
+              description: 'General post info',
+              admin: { condition: { enabled: { equals: true } } },
+              fields: {
+                titleRow: f.row({
+                  admin: { description: 'Inline title and slug' },
+                  fields: {
+                    title: f.text({ required: true }),
+                    slug: f.slug({ from: 'title' }),
+                  },
+                }),
+              },
+            },
+            {
+              label: 'Advanced',
+              fields: {
+                details: f.collapsible({
+                  label: 'Extra Details',
+                  initiallyCollapsed: true,
+                  admin: { description: 'Collapsible advanced panel' },
+                  fields: {
+                    notes: f.textarea(),
+                  },
+                }),
+              },
+            },
+          ],
+        }),
+      },
+    })
+
+    expect(col?.fields).toEqual([
+      {
+        name: 'content',
+        type: 'tabs',
+        label: 'Content',
+        required: false,
+        admin: { description: 'Main editor tabs' },
+        tabs: [
+          {
+            label: 'General',
+            description: 'General post info',
+            condition: { enabled: { equals: true } },
+            fields: [
+              {
+                name: 'titleRow',
+                type: 'row',
+                label: 'Title Row',
+                required: false,
+                admin: { description: 'Inline title and slug' },
+                fields: [
+                  { name: 'title', type: 'text', label: 'Title', maxLength: 255, required: true },
+                  {
+                    name: 'slug',
+                    type: 'slug',
+                    label: 'Slug',
+                    from: 'title',
+                    maxLength: 255,
+                    required: false,
+                  },
+                ],
+              },
+            ],
+          },
+          {
+            label: 'Advanced',
+            fields: [
+              {
+                name: 'details',
+                type: 'collapsible',
+                label: 'Extra Details',
+                required: false,
+                initiallyCollapsed: true,
+                admin: { description: 'Collapsible advanced panel' },
+                fields: [{ name: 'notes', type: 'textarea', label: 'Notes', required: false }],
+              },
+            ],
+          },
+        ],
+      },
+    ])
+  })
 })

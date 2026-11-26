@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { fakeAdapter, Posts, SECRET } from '../__fixtures__/posts'
 import { block, fields as f } from '../fields'
+import type { CollapsibleFieldOptions, RowFieldOptions, TabsFieldOptions } from '../fields/types'
 import { defineConfig, LontarConfigError } from './define-config'
 import type {
   CollectionConfig,
@@ -2055,5 +2056,268 @@ describe('admin.views validation (#467)', () => {
     ).toEqual([
       'Collection "notes": number field "rating" min (10) cannot be greater than max (2).',
     ])
+  })
+
+  describe('layout fields (tabs, row, collapsible)', () => {
+    it('allows valid layout fields configuration and lets admin.useAsTitle name child field', () => {
+      expect(
+        issuesOf([
+          notes({
+            admin: { useAsTitle: 'title', defaultColumns: ['title', 'slug'] },
+            fields: {
+              main: f.tabs({
+                tabs: [
+                  {
+                    label: 'General',
+                    fields: {
+                      nameRow: f.row({
+                        fields: {
+                          title: f.text({ required: true }),
+                          slug: f.slug({ from: 'title' }),
+                        },
+                      }),
+                    },
+                  },
+                  {
+                    label: 'Advanced',
+                    fields: {
+                      details: f.collapsible({
+                        label: 'Details',
+                        fields: {
+                          extraNote: f.textarea(),
+                        },
+                      }),
+                    },
+                  },
+                ],
+              }),
+            },
+          }),
+        ]),
+      ).toEqual([])
+    })
+
+    it('rejects duplicate field names across tabs in the same scope', () => {
+      expect(
+        issuesOf([
+          notes({
+            fields: {
+              content: f.tabs({
+                tabs: [
+                  { label: 'Tab 1', fields: { title: f.text() } },
+                  { label: 'Tab 2', fields: { title: f.text() } },
+                ],
+              }),
+            },
+          }),
+        ]),
+      ).toEqual([
+        'Collection "notes": duplicate field name "title" in the same scope (declared in field "content" -> tab "Tab 1" -> field "title" and field "content" -> tab "Tab 2" -> field "title").',
+      ])
+    })
+
+    it('rejects field name in tab colliding with root sibling field', () => {
+      expect(
+        issuesOf([
+          notes({
+            fields: {
+              title: f.text(),
+              content: f.tabs({
+                tabs: [{ label: 'Tab 1', fields: { title: f.text() } }],
+              }),
+            },
+          }),
+        ]),
+      ).toEqual([
+        'Collection "notes": duplicate field name "title" in the same scope (declared in field "title" and field "content" -> tab "Tab 1" -> field "title").',
+      ])
+    })
+
+    it('rejects child field colliding with layout container key', () => {
+      expect(
+        issuesOf([
+          notes({
+            fields: {
+              seo: f.collapsible({
+                label: 'SEO',
+                fields: {
+                  seo: f.text(),
+                },
+              }),
+            },
+          }),
+        ]),
+      ).toEqual([
+        'Collection "notes": field name "seo" (field "seo" -> field "seo") collides with layout container "field "seo"".',
+      ])
+    })
+
+    it('rejects layout field nesting depth exceeding 3', () => {
+      // depth 4: tabs -> row -> collapsible -> row
+      expect(
+        issuesOf([
+          notes({
+            fields: {
+              t: f.tabs({
+                tabs: [
+                  {
+                    label: 'T1',
+                    fields: {
+                      r1: f.row({
+                        fields: {
+                          c1: f.collapsible({
+                            label: 'C1',
+                            fields: {
+                              r2: f.row({
+                                fields: {
+                                  deepField: f.text(),
+                                },
+                              }),
+                            },
+                          }),
+                        },
+                      }),
+                    },
+                  },
+                ],
+              }),
+            },
+          }),
+        ]),
+      ).toEqual([
+        'Collection "notes" -> tab "T1" -> row "r1" -> collapsible "c1": layout field "r2" (row) exceeds maximum layout nesting depth of 3.',
+      ])
+    })
+
+    it('rejects localized: true on tabs, row, and collapsible', () => {
+      expect(
+        issuesOf([
+          notes({
+            fields: {
+              t: f.tabs({
+                localized: true,
+                tabs: [{ label: 'T', fields: { a: f.text() } }],
+              } as unknown as TabsFieldOptions),
+              r: f.row({
+                localized: true,
+                fields: { b: f.text() },
+              } as unknown as RowFieldOptions),
+              c: f.collapsible({
+                label: 'C',
+                localized: true,
+                fields: { d: f.text() },
+              } as unknown as CollapsibleFieldOptions),
+            },
+          }),
+        ]),
+      ).toEqual([
+        'Collection "notes": layout field "t" (tabs) cannot be localized. Set localized on its child fields instead.',
+        'Collection "notes": layout field "r" (row) cannot be localized. Set localized on its child fields instead.',
+        'Collection "notes": layout field "c" (collapsible) cannot be localized. Set localized on its child fields instead.',
+      ])
+    })
+
+    it('rejects access on tabs, row, and collapsible', () => {
+      expect(
+        issuesOf([
+          notes({
+            fields: {
+              r: f.row({
+                access: { read: () => true },
+                fields: { a: f.text() },
+              } as unknown as RowFieldOptions),
+            },
+          }),
+        ]),
+      ).toEqual([
+        'Collection "notes": layout field "r" (row) cannot declare access control. Set access on its child fields instead.',
+      ])
+    })
+
+    it('rejects admin.component on layout fields', () => {
+      expect(
+        issuesOf([
+          notes({
+            fields: {
+              t: f.tabs({
+                admin: { component: 'CustomTabs' },
+                tabs: [{ label: 'T', fields: { a: f.text() } }],
+              }),
+            },
+          }),
+        ]),
+      ).toEqual([
+        'Collection "notes": tabs field "t" cannot set admin.component. It renders its nested fields; set the component on one of them instead.',
+      ])
+    })
+
+    it('rejects empty tabs or invalid tab definitions', () => {
+      expect(
+        issuesOf([
+          notes({
+            fields: {
+              t1: f.tabs({ tabs: [] }),
+              t2: f.tabs({
+                tabs: [{ label: '', fields: {} }],
+              }),
+            },
+          }),
+        ]),
+      ).toEqual([
+        'Collection "notes": tabs field "t1" must define at least one tab.',
+        'Collection "notes": tab 0 in tabs field "t2" must have a non-empty string "label".',
+      ])
+    })
+
+    it('allows slug.from to reference a field in root or in another tab of the same scope', () => {
+      expect(
+        issuesOf([
+          notes({
+            fields: {
+              title: f.text({ required: true }),
+              metaRow: f.row({
+                fields: {
+                  slug: f.slug({ from: 'title' }),
+                },
+              }),
+            },
+          }),
+        ]),
+      ).toEqual([])
+
+      expect(
+        issuesOf([
+          notes({
+            fields: {
+              mainTabs: f.tabs({
+                tabs: [
+                  { label: 'Content', fields: { title: f.text({ required: true }) } },
+                  { label: 'SEO', fields: { slug: f.slug({ from: 'title' }) } },
+                ],
+              }),
+            },
+          }),
+        ]),
+      ).toEqual([])
+    })
+
+    it('rejects duplicate layout container keys in different tabs of the same scope', () => {
+      expect(
+        issuesOf([
+          notes({
+            fields: {
+              mainTabs: f.tabs({
+                tabs: [
+                  { label: 'Tab 1', fields: { sharedRow: f.row({ fields: { a: f.text() } }) } },
+                  { label: 'Tab 2', fields: { sharedRow: f.row({ fields: { b: f.text() } }) } },
+                ],
+              }),
+            },
+          }),
+        ]),
+      ).toEqual([
+        'Collection "notes": duplicate layout field key "sharedRow" in the same scope (declared in field "mainTabs" -> tab "Tab 1" -> field "sharedRow" and field "mainTabs" -> tab "Tab 2" -> field "sharedRow").',
+      ])
+    })
   })
 })

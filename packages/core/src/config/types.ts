@@ -6,6 +6,7 @@ import type { SystemFieldName, UploadSystemFieldName } from '../client/system-fi
 import type { DatabaseAdapter } from '../database/adapter'
 import type { EmailAdapter, EmailConfig } from '../email/types'
 import type { AdminComponentKey, Fields } from '../fields/types'
+import type { FlattenFields } from '../fields/infer'
 import type { LontarClient } from '../local'
 import type {
   AfterChangeHook,
@@ -251,7 +252,7 @@ export interface PaginationConfig {
 }
 
 export type FieldName<F extends Fields, C = unknown> =
-  | (keyof F & string)
+  | (keyof FlattenFields<F> & string)
   | SystemFieldName
   | (C extends { upload: true | object } | true | UploadConfig ? UploadSystemFieldName : never)
 

@@ -571,3 +571,85 @@ describe('getTopKey', () => {
     expect(getTopKey('author_info__sub.field')).toBe('author_info')
   })
 })
+
+describe('validateWhere and validateSort with layout fields (tabs, row, collapsible)', () => {
+  const layoutCol: CollectionConfig = {
+    slug: 'layout-posts',
+    fields: {
+      content: {
+        type: 'tabs',
+        tabs: [
+          {
+            label: 'General',
+            fields: {
+              titleRow: {
+                type: 'row',
+                fields: {
+                  title: { type: 'text', required: true },
+                  rating: { type: 'number' },
+                },
+              },
+            },
+          },
+          {
+            label: 'Meta',
+            fields: {
+              metaCollapsible: {
+                type: 'collapsible',
+                label: 'SEO',
+                fields: {
+                  metaTitle: { type: 'text' },
+                },
+              },
+            },
+          },
+        ],
+      },
+    },
+  }
+
+  it('allows where queries and sorting on child fields inside layout containers', () => {
+    expect(
+      validateWhere(
+        {
+          title: { equals: 'Hello' },
+          rating: { greater_than: 5 },
+          metaTitle: { contains: 'Search' },
+        },
+        layoutCol,
+      ),
+    ).toEqual([])
+
+    expect(validateSort('title', layoutCol)).toEqual([])
+    expect(validateSort('-rating', layoutCol)).toEqual([])
+    expect(validateSort('metaTitle', layoutCol)).toEqual([])
+  })
+
+  it('rejects where queries and sorting on layout container keys', () => {
+    expect(validateWhere({ content: { equals: 'anything' } }, layoutCol)).toEqual([
+      {
+        path: 'content',
+        message: 'Unknown field "content"',
+      },
+    ])
+    expect(validateWhere({ titleRow: { equals: 'anything' } }, layoutCol)).toEqual([
+      {
+        path: 'titleRow',
+        message: 'Unknown field "titleRow"',
+      },
+    ])
+    expect(validateWhere({ metaCollapsible: { equals: 'anything' } }, layoutCol)).toEqual([
+      {
+        path: 'metaCollapsible',
+        message: 'Unknown field "metaCollapsible"',
+      },
+    ])
+
+    expect(validateSort('content', layoutCol)).toEqual([
+      {
+        path: 'content',
+        message: 'Unknown field "content"',
+      },
+    ])
+  })
+})

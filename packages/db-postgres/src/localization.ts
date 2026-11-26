@@ -1,4 +1,5 @@
 import {
+  flattenFields,
   generateRowId,
   type Block,
   type Field,
@@ -448,13 +449,14 @@ export function projectStoredDoc(
   if (!fields) {
     return row as StoredDoc
   }
+  const flatFields = flattenFields(fields)
   const result: Record<string, unknown> = {}
   for (const [key, value] of Object.entries(row)) {
     if (SYSTEM_FIELDS_TO_PRESERVE.has(key)) {
       result[key] = convertSystemField(key, value)
     }
   }
-  for (const [fieldName, field] of Object.entries(fields)) {
+  for (const [fieldName, field] of Object.entries(flatFields)) {
     const { value } = resolveFieldValue(row, fieldName, field, localeCtx)
     if (value !== undefined) {
       result[fieldName] = value
@@ -879,6 +881,6 @@ export function sanitizeDataWithLocale(
   existingDoc?: Record<string, unknown>,
 ): Record<string, unknown> {
   const clean: Record<string, unknown> = {}
-  sanitizeEntries(clean, fields, data, localeCtx, existingDoc, '', false)
+  sanitizeEntries(clean, flattenFields(fields), data, localeCtx, existingDoc, '', false)
   return clean
 }

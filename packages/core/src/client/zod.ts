@@ -1,5 +1,5 @@
 import { z } from 'zod'
-import { matchesCondition } from './condition'
+import { matchesCondition, type FieldCondition } from './condition'
 import type {
   ClientArrayField,
   ClientBlocksField,
@@ -279,6 +279,9 @@ const zodByType = {
     arr = arr.max(maxRows, `Must have at most ${maxRows} items`)
     return arr
   },
+  tabs: () => z.unknown().optional(),
+  row: () => z.unknown().optional(),
+  collapsible: () => z.unknown().optional(),
 } satisfies {
   [K in ClientField['type']]: (
     field: Extract<ClientField, { type: K }>,
@@ -332,6 +335,54 @@ export function clientFieldToZod(
   return field.required ? schema : schema.nullish()
 }
 
+function combineCondition(
+  parent?: FieldCondition,
+  child?: FieldCondition,
+): FieldCondition | undefined {
+  if (!parent) return child
+  if (!child) return parent
+  return { and: [parent, child] }
+}
+
+function flattenClientFieldEntry(
+  field: ClientField,
+  parentCondition?: FieldCondition,
+): ClientField[] {
+  if (field.type === 'tabs') {
+    const tabsCond = combineCondition(parentCondition, field.condition)
+    return field.tabs.flatMap((tab) =>
+      flattenClientFields(
+        tab.fields,
+        combineCondition(tabsCond, tab.condition ?? tab.admin?.condition),
+      ),
+    )
+  }
+  if (field.type === 'row' || field.type === 'collapsible') {
+    return flattenClientFields(field.fields, combineCondition(parentCondition, field.condition))
+  }
+  const condition = combineCondition(parentCondition, field.condition)
+  if (field.type === 'group' || field.type === 'array') {
+    return [{ ...field, condition, fields: flattenClientFields(field.fields) }]
+  }
+  if (field.type === 'blocks') {
+    return [
+      {
+        ...field,
+        condition,
+        blocks: field.blocks.map((b) => ({ ...b, fields: flattenClientFields(b.fields) })),
+      },
+    ]
+  }
+  return [{ ...field, condition }]
+}
+
+export function flattenClientFields(
+  fields: readonly ClientField[],
+  parentCondition?: FieldCondition,
+): ClientField[] {
+  return fields.flatMap((field) => flattenClientFieldEntry(field, parentCondition))
+}
+
 /**
  * Returns a plain ZodObject for an array of fields without superRefine wrapper.
  */
@@ -339,8 +390,11 @@ export function clientFieldsToObject(
   fields: readonly ClientField[],
   opts?: ClientFieldsToZodOptions,
 ) {
+  const flatFields = flattenClientFields(fields)
   return z.object(
-    Object.fromEntries(fields.map((field) => [field.name, clientFieldToZod(field, false, opts)])),
+    Object.fromEntries(
+      flatFields.map((field) => [field.name, clientFieldToZod(field, false, opts)]),
+    ),
   )
 }
 
@@ -531,12 +585,13 @@ export function clientFieldsToZod(
   fields: readonly ClientField[],
   options?: ClientFieldsToZodOptions,
 ) {
+  const flatFields = flattenClientFields(fields)
   const isPartial = Boolean(options?.partial)
   const originalDoc = options?.originalDoc
-  const baseObj = clientFieldsToObject(fields, options)
+  const baseObj = clientFieldsToObject(flatFields, options)
   const base = isPartial ? baseObj.partial() : baseObj
 
-  if (!hasConditionalFields(fields)) {
+  if (!hasConditionalFields(flatFields)) {
     return base
   }
 
@@ -545,7 +600,7 @@ export function clientFieldsToZod(
       ? { ...originalDoc, ...(data as Record<string, unknown>) }
       : (data as Record<string, unknown>)
     validateConditionalFields({
-      fields,
+      fields: flatFields,
       data,
       rootData,
       path: [],

@@ -8,6 +8,7 @@ import type {
 } from '../config/types'
 import type { DocumentData } from '../database/adapter'
 import type { ArrayField, BlocksField, Field, Fields, GroupField } from '../fields/types'
+import { flattenFields } from '../fields/flatten'
 import type {
   CollectionPermission,
   FieldPermission,
@@ -263,7 +264,7 @@ export async function evalFieldsPermissions(
   const cache = ctx.cache ?? (ctx.req ? getFieldAccessCache(ctx.req) : createFieldAccessCache())
   const resolvedCtx = { ...ctx, cache }
 
-  for (const [key, field] of Object.entries(fields)) {
+  for (const [key, field] of Object.entries(flattenFields(fields))) {
     await evalSingleField(field, key, key, '', resolvedCtx, rootAllowed, flatPerms)
   }
 

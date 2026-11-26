@@ -2,6 +2,7 @@ import type { AuthUser } from '../auth/types'
 import type { SearchResult } from '../client'
 import type { CollectionConfig, Config } from '../config/types'
 import type { Field } from '../fields/types'
+import { flattenFields } from '../fields/flatten'
 import { AccessDeniedError, ValidationError } from './errors'
 import { findOperation } from './find'
 import { resolveOperationLocale } from './locale'
@@ -17,13 +18,14 @@ const TITLE_FIELD_TYPES = new Set<Field['type']>(['text', 'email', 'slug', 'text
  * field, else `filename` for an upload collection. A collection without one is not searchable.
  */
 export function resolveSearchTitleField(collection: CollectionConfig): string | undefined {
+  const flatFields = flattenFields(collection.fields)
   const named = collection.admin?.useAsTitle
   if (named) {
-    const field = collection.fields[named]
+    const field = flatFields[named]
     if (field) return TITLE_FIELD_TYPES.has(field.type) ? named : undefined
     return collection.upload && named === 'filename' ? named : undefined
   }
-  const textLike = Object.entries(collection.fields).find(([, f]) => TITLE_FIELD_TYPES.has(f.type))
+  const textLike = Object.entries(flatFields).find(([, f]) => TITLE_FIELD_TYPES.has(f.type))
   if (textLike) return textLike[0]
   return collection.upload ? 'filename' : undefined
 }

@@ -278,6 +278,82 @@ export interface PointField extends BaseField {
 
 export type PointFieldOptions = Omit<PointField, 'type'>
 
+export interface TabAdminOptions {
+  condition?: FieldCondition
+}
+
+export interface Tab {
+  label: string
+  description?: string
+  fields: Record<string, Field>
+  admin?: TabAdminOptions
+}
+
+export type TabsFieldAdminOptions = FieldAdminOptions
+
+export interface TabsFieldOptions {
+  label?: string
+  tabs: readonly Tab[]
+  admin?: TabsFieldAdminOptions
+  access?: never
+  localized?: never
+  required?: never
+}
+
+export interface TabsField {
+  type: 'tabs'
+  label?: string
+  tabs: readonly Tab[]
+  admin?: TabsFieldAdminOptions
+  access?: never
+  localized?: never
+  required?: never
+}
+
+export type RowFieldAdminOptions = FieldAdminOptions
+
+export interface RowFieldOptions {
+  label?: string
+  fields: Record<string, Field>
+  admin?: RowFieldAdminOptions
+  access?: never
+  localized?: never
+  required?: never
+}
+
+export interface RowField {
+  type: 'row'
+  label?: string
+  fields: Record<string, Field>
+  admin?: RowFieldAdminOptions
+  access?: never
+  localized?: never
+  required?: never
+}
+
+export type CollapsibleFieldAdminOptions = FieldAdminOptions
+
+export interface CollapsibleFieldOptions {
+  label: string
+  initiallyCollapsed?: boolean
+  fields: Record<string, Field>
+  admin?: CollapsibleFieldAdminOptions
+  access?: never
+  localized?: never
+  required?: never
+}
+
+export interface CollapsibleField {
+  type: 'collapsible'
+  label: string
+  initiallyCollapsed?: boolean
+  fields: Record<string, Field>
+  admin?: CollapsibleFieldAdminOptions
+  access?: never
+  localized?: never
+  required?: never
+}
+
 export type Field =
   | TextField
   | NumberField
@@ -297,5 +373,8 @@ export type Field =
   | GroupField
   | ArrayField
   | BlocksField
+  | TabsField
+  | RowField
+  | CollapsibleField
 export type FieldType = Field['type']
 export type Fields = Record<string, Field>

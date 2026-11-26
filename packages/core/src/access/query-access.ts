@@ -6,6 +6,7 @@ import {
 } from '../client/system-fields'
 import type { CollectionConfig } from '../config/types'
 import type { Block, Field } from '../fields/types'
+import { flattenFields } from '../fields/flatten'
 import { parseSort } from '../query/parser'
 import type { QueryValidationIssue } from '../query/validator'
 import { getGroupFields } from '../query/validator'
@@ -201,7 +202,7 @@ export async function isPathReadable(
   if (isSystemPath(path)) return true
   const normalized = path.replaceAll('__', '.')
   const segments = normalized.split('.')
-  return checkFieldPathAccess(collection.fields, segments, user, cache, req)
+  return checkFieldPathAccess(flattenFields(collection.fields), segments, user, cache, req)
 }
 
 export async function validateQueryAccess(

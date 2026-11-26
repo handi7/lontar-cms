@@ -1,5 +1,6 @@
 import type { CollectionConfig, LocalizationConfig } from '../config/types'
 import type { Field } from '../fields/types'
+import { flattenFields } from '../fields/flatten'
 import {
   BASE_SYSTEM_FIELDS,
   DRAFT_SYSTEM_FIELDS,
@@ -192,7 +193,7 @@ function collectContainerPaths(
 
 export function getGroupFields(collection: CollectionConfig): Set<string> {
   const containers = new Set<string>()
-  for (const [name, field] of Object.entries(collection.fields)) {
+  for (const [name, field] of Object.entries(flattenFields(collection.fields))) {
     collectContainerPaths(containers, name, field)
   }
   return containers
@@ -214,7 +215,7 @@ export function getAllowedFields(
     }
   }
   const locales = extractLocaleList(localization)
-  for (const [name, field] of Object.entries(collection.fields)) {
+  for (const [name, field] of Object.entries(flattenFields(collection.fields))) {
     addFieldToAllowed(allowed, name, field, locales, false)
   }
   return allowed
@@ -524,7 +525,7 @@ function collectSortableFields(
   const sortable = new Set<string>()
   addSystemSortableFields(sortable, collection)
   const locales = extractLocaleList(localization)
-  for (const [name, field] of Object.entries(collection.fields)) {
+  for (const [name, field] of Object.entries(flattenFields(collection.fields))) {
     const isLoc = Boolean(field.localized)
     if (isScalarSortable(field)) {
       sortable.add(name)
@@ -550,10 +551,11 @@ export function getTopKey(fieldName: string): string {
 }
 
 function resolveTopField(collection: CollectionConfig, topKey: string): Field | undefined {
-  if (collection.fields[topKey]) return collection.fields[topKey]
+  const flatFields = flattenFields(collection.fields)
+  if (flatFields[topKey]) return flatFields[topKey]
   const match = topKey.match(/^(.+)_([a-zA-Z0-9-]+)$/)
   if (match && match[1]) {
-    const baseField = collection.fields[match[1]]
+    const baseField = flatFields[match[1]]
     if (baseField?.localized) return baseField
   }
   return undefined

@@ -1,17 +1,18 @@
-import type {
-  ArrayField,
-  Block,
-  BlocksField,
-  CollectionConfig,
-  Config,
-  Field,
-  GlobalConfig,
-  GroupField,
-  RelationshipField,
-  RadioField,
-  SelectField,
-  UploadConfig,
-  UploadField,
+import {
+  flattenFields,
+  type ArrayField,
+  type Block,
+  type BlocksField,
+  type CollectionConfig,
+  type Config,
+  type Field,
+  type GlobalConfig,
+  type GroupField,
+  type RelationshipField,
+  type RadioField,
+  type SelectField,
+  type UploadConfig,
+  type UploadField,
 } from '@lontar/core'
 
 const UNCOUNTABLE_WORDS = new Set(['media', 'news', 'series', 'species'])
@@ -135,7 +136,7 @@ function renderGroupType(field: GroupField, name: string, ctx: FieldRenderContex
     parentConditional: isConditional,
     parentLocalized: isLocalized,
   }
-  for (const [subName, subField] of Object.entries(field.fields)) {
+  for (const [subName, subField] of Object.entries(flattenFields(field.fields))) {
     lines.push(renderFieldLine(subName, subField, childCtx))
   }
   lines.push(`${pad}}`)
@@ -155,7 +156,7 @@ function renderArrayType(field: ArrayField, name: string, ctx: FieldRenderContex
     parentLocalized: false,
   }
   const lines: string[] = ['Array<{', `${pad}  id: string`]
-  for (const [subName, subField] of Object.entries(field.fields)) {
+  for (const [subName, subField] of Object.entries(flattenFields(field.fields))) {
     lines.push(renderFieldLine(subName, subField, childCtx))
   }
   lines.push(`${pad}}>`)
@@ -196,7 +197,7 @@ function renderBlockInterface(
     indent: 2,
     allLocales,
   }
-  for (const [subName, subField] of Object.entries(block.fields)) {
+  for (const [subName, subField] of Object.entries(flattenFields(block.fields))) {
     lines.push(renderFieldLine(subName, subField, ctx))
   }
   lines.push('}')
@@ -235,7 +236,7 @@ function collectBlockDefinitions(
   allLocales = false,
 ): string[] {
   const defs: string[] = []
-  for (const [name, field] of Object.entries(fields)) {
+  for (const [name, field] of Object.entries(flattenFields(fields))) {
     if (field.type === 'blocks') {
       if (allLocales && field.localized) {
         continue
@@ -393,7 +394,7 @@ function renderCollectionInterface(
     allLocales,
   }
 
-  for (const [name, field] of Object.entries(col.fields)) {
+  for (const [name, field] of Object.entries(flattenFields(col.fields))) {
     lines.push(renderFieldLine(name, field, ctx))
   }
 
@@ -423,7 +424,7 @@ function renderGlobalInterface(
     allLocales,
   }
 
-  for (const [name, field] of Object.entries(glob.fields)) {
+  for (const [name, field] of Object.entries(flattenFields(glob.fields))) {
     lines.push(renderFieldLine(name, field, ctx))
   }
 
