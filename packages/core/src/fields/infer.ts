@@ -77,6 +77,25 @@ export type InferBlockRow<B extends Block> =
       >
     : never
 
+type PolymorphicRef<R extends string> = {
+  [K in R]: { relationTo: K; value: number }
+}[R]
+
+type InferRelationshipValue<F extends Field> = F extends {
+  type: 'relationship'
+  relationTo: readonly (infer R extends string)[]
+}
+  ? F extends { hasMany: true }
+    ? PolymorphicRef<R>[]
+    : F extends { required: true }
+      ? PolymorphicRef<R>
+      : PolymorphicRef<R> | null
+  : F extends { type: 'relationship'; hasMany: true }
+    ? number[]
+    : F extends { required: true }
+      ? number
+      : number | null
+
 type FieldValue<F extends Field> = F extends {
   type: 'tabs' | 'row' | 'collapsible'
 }
@@ -102,8 +121,8 @@ type FieldValue<F extends Field> = F extends {
         ? F extends { required: true }
           ? InferBlockRow<B>[]
           : InferBlockRow<B>[] | null
-        : F extends { type: 'relationship'; hasMany: true }
-          ? number[]
+        : F extends { type: 'relationship' }
+          ? InferRelationshipValue<F>
           : F extends { type: 'text'; hasMany: true }
             ? F extends { required: true }
               ? string[]

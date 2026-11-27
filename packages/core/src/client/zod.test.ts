@@ -672,6 +672,55 @@ describe('clientFieldToZod', () => {
       expect(schema.safeParse([1, 2147483648]).success).toBe(false)
       expect(schema.safeParse([3000000000]).success).toBe(false)
     })
+
+    it('validates single polymorphic relationship references', () => {
+      const schema = relationship({
+        relationTo: ['authors', 'editors'],
+        required: true,
+      })
+      expect(schema.safeParse({ relationTo: 'authors', value: 1 }).success).toBe(true)
+      expect(schema.safeParse({ relationTo: 'editors', value: 42 }).success).toBe(true)
+      expect(schema.safeParse({ relationTo: 'unknown', value: 1 }).success).toBe(false)
+      expect(schema.safeParse({ relationTo: 'authors', value: 0 }).success).toBe(false)
+      expect(schema.safeParse({ relationTo: 'authors', value: -1 }).success).toBe(false)
+      expect(schema.safeParse({ relationTo: 'authors', value: 2147483648 }).success).toBe(false)
+      expect(schema.safeParse(1).success).toBe(false)
+      expect(schema.safeParse(null).success).toBe(false)
+
+      const optionalSchema = relationship({
+        relationTo: ['authors', 'editors'],
+        required: false,
+      })
+      expect(optionalSchema.safeParse(null).success).toBe(true)
+      expect(optionalSchema.safeParse(undefined).success).toBe(true)
+      expect(optionalSchema.safeParse({ relationTo: 'authors', value: 5 }).success).toBe(true)
+    })
+
+    it('validates hasMany polymorphic relationship references', () => {
+      const requiredSchema = relationship({
+        relationTo: ['authors', 'editors'],
+        hasMany: true,
+        required: true,
+      })
+      expect(
+        requiredSchema.safeParse([
+          { relationTo: 'authors', value: 1 },
+          { relationTo: 'editors', value: 2 },
+        ]).success,
+      ).toBe(true)
+      expect(requiredSchema.safeParse([]).success).toBe(false)
+      expect(requiredSchema.safeParse([{ relationTo: 'other', value: 1 }]).success).toBe(false)
+      expect(requiredSchema.safeParse([1]).success).toBe(false)
+
+      const optionalSchema = relationship({
+        relationTo: ['authors', 'editors'],
+        hasMany: true,
+        required: false,
+      })
+      expect(optionalSchema.safeParse([]).success).toBe(true)
+      expect(optionalSchema.safeParse(null).success).toBe(true)
+      expect(optionalSchema.safeParse(undefined).success).toBe(true)
+    })
   })
 
   describe('upload', () => {

@@ -55,7 +55,67 @@ interface ManyRefSlot {
   assign: (populated: Array<DocumentData | number>) => void
 }
 
-type RefSlot = SingleRefSlot | ManyRefSlot
+interface PolymorphicRefItem {
+  relationTo: string
+  id: number
+}
+
+interface PolymorphicManyRefSlot {
+  type: 'poly-many'
+  items: PolymorphicRefItem[]
+  assign: (populated: Array<{ relationTo: string; value: DocumentData | number }>) => void
+}
+
+type RefSlot = SingleRefSlot | ManyRefSlot | PolymorphicManyRefSlot
+
+function parsePolymorphicRef(raw: unknown): PolymorphicRefItem | null {
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return null
+  const record = raw as Record<string, unknown>
+  if (typeof record.relationTo !== 'string' || !record.relationTo) return null
+  if (typeof record.value !== 'number' || record.value <= 0) return null
+  return { relationTo: record.relationTo, id: record.value }
+}
+
+function collectLocalizedPolymorphicManySlots(
+  dict: Record<string, unknown>,
+  slots: RefSlot[],
+): void {
+  for (const [loc, locVal] of Object.entries(dict)) {
+    if (Array.isArray(locVal)) {
+      const items = locVal
+        .map(parsePolymorphicRef)
+        .filter((item): item is PolymorphicRefItem => item !== null)
+      slots.push({
+        type: 'poly-many',
+        items,
+        assign: (populated) => {
+          dict[loc] = populated
+        },
+      })
+    }
+  }
+}
+
+function collectLocalizedPolymorphicSingleSlots(
+  dict: Record<string, unknown>,
+  slots: RefSlot[],
+): void {
+  for (const [loc, locVal] of Object.entries(dict)) {
+    const ref = parsePolymorphicRef(locVal)
+    if (ref) {
+      slots.push({
+        type: 'single',
+        targetColSlug: ref.relationTo,
+        targetId: ref.id,
+        assign: (populated) => {
+          dict[loc] = { relationTo: ref.relationTo, value: populated }
+        },
+      })
+    } else if (locVal !== undefined) {
+      dict[loc] = null
+    }
+  }
+}
 
 function collectLocalizedManySlots(
   dict: Record<string, unknown>,
@@ -96,27 +156,79 @@ function collectLocalizedSingleSlots(
   }
 }
 
+function collectPolymorphicManySlot(
+  container: Record<string, unknown>,
+  name: string,
+  slots: RefSlot[],
+): void {
+  const val = container[name]
+  if (Array.isArray(val)) {
+    const items = val
+      .map(parsePolymorphicRef)
+      .filter((item): item is PolymorphicRefItem => item !== null)
+    slots.push({
+      type: 'poly-many',
+      items,
+      assign: (populated) => {
+        container[name] = populated
+      },
+    })
+  } else if (val && typeof val === 'object') {
+    collectLocalizedPolymorphicManySlots(val as Record<string, unknown>, slots)
+  } else {
+    container[name] = []
+  }
+}
+
 function collectManyRelationshipSlot(
   container: Record<string, unknown>,
   name: string,
   field: RelationshipField,
   slots: RefSlot[],
 ): void {
+  if (Array.isArray(field.relationTo)) {
+    collectPolymorphicManySlot(container, name, slots)
+    return
+  }
+  const targetColSlug = field.relationTo as string
   const val = container[name]
   if (Array.isArray(val)) {
     const targetIds = val.filter((id): id is number => typeof id === 'number' && id > 0)
     slots.push({
       type: 'many',
-      targetColSlug: field.relationTo,
+      targetColSlug,
       targetIds,
       assign: (populated) => {
         container[name] = populated
       },
     })
   } else if (val && typeof val === 'object') {
-    collectLocalizedManySlots(val as Record<string, unknown>, field.relationTo, slots)
+    collectLocalizedManySlots(val as Record<string, unknown>, targetColSlug, slots)
   } else {
     container[name] = []
+  }
+}
+
+function collectPolymorphicSingleSlot(
+  container: Record<string, unknown>,
+  name: string,
+  slots: RefSlot[],
+): void {
+  const val = container[name]
+  const ref = parsePolymorphicRef(val)
+  if (ref) {
+    slots.push({
+      type: 'single',
+      targetColSlug: ref.relationTo,
+      targetId: ref.id,
+      assign: (populated) => {
+        container[name] = { relationTo: ref.relationTo, value: populated }
+      },
+    })
+  } else if (val && typeof val === 'object' && !Array.isArray(val)) {
+    collectLocalizedPolymorphicSingleSlots(val as Record<string, unknown>, slots)
+  } else {
+    container[name] = null
   }
 }
 
@@ -126,18 +238,23 @@ function collectSingleRelationshipSlot(
   field: RelationshipField,
   slots: RefSlot[],
 ): void {
+  if (Array.isArray(field.relationTo)) {
+    collectPolymorphicSingleSlot(container, name, slots)
+    return
+  }
+  const targetColSlug = field.relationTo as string
   const val = container[name]
   if (typeof val === 'number' && val > 0) {
     slots.push({
       type: 'single',
-      targetColSlug: field.relationTo,
+      targetColSlug,
       targetId: val,
       assign: (populated) => {
         container[name] = populated
       },
     })
   } else if (val && typeof val === 'object' && !Array.isArray(val)) {
-    collectLocalizedSingleSlots(val as Record<string, unknown>, field.relationTo, slots)
+    collectLocalizedSingleSlots(val as Record<string, unknown>, targetColSlug, slots)
   } else {
     container[name] = null
   }
@@ -277,39 +394,44 @@ function collectSlots(
   }
 }
 
-function groupSlotsByTarget(slots: RefSlot[]): Map<string, RefSlot[]> {
-  const grouped = new Map<string, RefSlot[]>()
-  for (const slot of slots) {
-    let list = grouped.get(slot.targetColSlug)
-    if (!list) {
-      list = []
-      grouped.set(slot.targetColSlug, list)
-    }
-    list.push(slot)
+function addTargetId(
+  idsByTarget: Map<string, Set<number>>,
+  targetColSlug: string,
+  id: number,
+  seen: ReadonlySet<string>,
+): void {
+  if (seen.has(`${targetColSlug}:${id}`)) return
+  let idSet = idsByTarget.get(targetColSlug)
+  if (!idSet) {
+    idSet = new Set<number>()
+    idsByTarget.set(targetColSlug, idSet)
   }
-  return grouped
+  idSet.add(id)
 }
 
-function extractTargetIds(
+function collectTargetIdsByCollection(
   slots: RefSlot[],
-  targetColSlug: string,
   seen: ReadonlySet<string>,
-): number[] {
-  const ids = new Set<number>()
+): Map<string, number[]> {
+  const idsByTarget = new Map<string, Set<number>>()
   for (const slot of slots) {
     if (slot.type === 'single') {
-      if (!seen.has(`${targetColSlug}:${slot.targetId}`)) {
-        ids.add(slot.targetId)
+      addTargetId(idsByTarget, slot.targetColSlug, slot.targetId, seen)
+    } else if (slot.type === 'many') {
+      for (const id of slot.targetIds) {
+        addTargetId(idsByTarget, slot.targetColSlug, id, seen)
       }
     } else {
-      for (const id of slot.targetIds) {
-        if (!seen.has(`${targetColSlug}:${id}`)) {
-          ids.add(id)
-        }
+      for (const item of slot.items) {
+        addTargetId(idsByTarget, item.relationTo, item.id, seen)
       }
     }
   }
-  return Array.from(ids)
+  const result = new Map<string, number[]>()
+  for (const [slug, idSet] of idsByTarget) {
+    result.set(slug, Array.from(idSet))
+  }
+  return result
 }
 
 export const MAX_POPULATE_BATCH_SIZE = 500
@@ -388,26 +510,63 @@ async function fetchTargetDocs(
   return new Map(transformed.map((d) => [d.id as number, d]))
 }
 
-function assignTargetSlots(
-  slots: RefSlot[],
+function assignPolyManySlot(
+  slot: PolymorphicManyRefSlot,
+  docsByTarget: Map<string, Map<number, DocumentData>>,
+  accessibleTargets: ReadonlySet<string>,
+  seen: ReadonlySet<string>,
+): void {
+  const populated: Array<{ relationTo: string; value: DocumentData | number }> = []
+  for (const item of slot.items) {
+    if (!accessibleTargets.has(item.relationTo) || seen.has(`${item.relationTo}:${item.id}`)) {
+      populated.push({ relationTo: item.relationTo, value: item.id })
+      continue
+    }
+    const doc = docsByTarget.get(item.relationTo)?.get(item.id)
+    if (doc) {
+      populated.push({ relationTo: item.relationTo, value: doc })
+    }
+  }
+  slot.assign(populated)
+}
+
+function assignSingleOrManySlot(
+  slot: SingleRefSlot | ManyRefSlot,
   docsById: Map<number, DocumentData>,
   seen: ReadonlySet<string>,
 ): void {
-  for (const slot of slots) {
-    if (slot.type === 'single') {
-      if (seen.has(`${slot.targetColSlug}:${slot.targetId}`)) {
-        continue
-      }
-      slot.assign(docsById.get(slot.targetId) ?? null)
-    } else {
-      const populated = slot.targetIds
-        .map((id) => {
-          if (seen.has(`${slot.targetColSlug}:${id}`)) return id
-          return docsById.get(id) ?? null
-        })
-        .filter((d): d is DocumentData | number => d !== null && d !== undefined)
-      slot.assign(populated)
+  if (slot.type === 'single') {
+    if (seen.has(`${slot.targetColSlug}:${slot.targetId}`)) {
+      return
     }
+    slot.assign(docsById.get(slot.targetId) ?? null)
+    return
+  }
+  const populated = slot.targetIds
+    .map((id) => {
+      if (seen.has(`${slot.targetColSlug}:${id}`)) return id
+      return docsById.get(id) ?? null
+    })
+    .filter((d): d is DocumentData | number => d !== null && d !== undefined)
+  slot.assign(populated)
+}
+
+function assignAllSlots(
+  slots: RefSlot[],
+  docsByTarget: Map<string, Map<number, DocumentData>>,
+  accessibleTargets: ReadonlySet<string>,
+  seen: ReadonlySet<string>,
+): void {
+  for (const slot of slots) {
+    if (slot.type === 'poly-many') {
+      assignPolyManySlot(slot, docsByTarget, accessibleTargets, seen)
+      continue
+    }
+    if (!accessibleTargets.has(slot.targetColSlug)) {
+      continue
+    }
+    const docsById = docsByTarget.get(slot.targetColSlug) ?? new Map<number, DocumentData>()
+    assignSingleOrManySlot(slot, docsById, seen)
   }
 }
 
@@ -459,7 +618,7 @@ async function populateChildren(
 
 interface PopulateTargetArgs {
   targetCol: CollectionConfig
-  targetSlots: RefSlot[]
+  targetIds: number[]
   parentDocs: DocumentData[]
   parentCollection: CollectionConfig
   depth: number
@@ -526,10 +685,12 @@ async function resolveTargetAccess(args: TargetAccessArgs): Promise<TargetAccess
   return { canDraftTarget: true, constraint: constraintOf(read, update) }
 }
 
-async function populateTargetCollection(args: PopulateTargetArgs): Promise<void> {
+async function populateTargetCollection(
+  args: PopulateTargetArgs,
+): Promise<Map<number, DocumentData> | null> {
   const {
     targetCol,
-    targetSlots,
+    targetIds,
     parentDocs,
     parentCollection,
     depth,
@@ -553,10 +714,9 @@ async function populateTargetCollection(args: PopulateTargetArgs): Promise<void>
     overrideAccess,
     draft,
   })
-  if (!access) return
+  if (!access) return null
   const { canDraftTarget, constraint } = access
 
-  const targetIds = extractTargetIds(targetSlots, targetCol.slug, seen)
   const docsById = await fetchTargetDocs(
     targetCol,
     targetIds,
@@ -592,7 +752,7 @@ async function populateTargetCollection(args: PopulateTargetArgs): Promise<void>
     await sanitizeTargetDocs(targetCol, docsById, user, args.cache, req, locale)
   }
 
-  assignTargetSlots(targetSlots, docsById, seen)
+  return docsById
 }
 
 function hasReferenceFields(fields: Record<string, Field>): boolean {
@@ -658,14 +818,17 @@ async function populateAllTargets(args: PopulateAllTargetsArgs): Promise<void> {
     localization,
   } = args
 
-  const slotsByTarget = groupSlotsByTarget(slots)
-  for (const [targetColSlug, targetSlots] of slotsByTarget) {
+  const idsByTarget = collectTargetIdsByCollection(slots, seen)
+  const docsByTarget = new Map<string, Map<number, DocumentData>>()
+  const accessibleTargets = new Set<string>()
+
+  for (const [targetColSlug, targetIds] of idsByTarget) {
     const targetCol = collections.find((c) => c.slug === targetColSlug)
     if (!targetCol) continue
 
-    await populateTargetCollection({
+    const docsById = await populateTargetCollection({
       targetCol,
-      targetSlots,
+      targetIds,
       parentDocs: docsToPopulate,
       parentCollection: collection,
       depth,
@@ -681,7 +844,13 @@ async function populateAllTargets(args: PopulateAllTargetsArgs): Promise<void> {
       fallbackLocale,
       localization,
     })
+    if (docsById) {
+      accessibleTargets.add(targetColSlug)
+      docsByTarget.set(targetColSlug, docsById)
+    }
   }
+
+  assignAllSlots(slots, docsByTarget, accessibleTargets, seen)
 }
 
 export async function populateDocs(options: PopulateOptions): Promise<DocumentData[]> {

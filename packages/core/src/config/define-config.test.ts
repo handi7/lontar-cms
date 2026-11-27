@@ -743,6 +743,72 @@ describe('defineConfig', () => {
     expect(defineConfig(config)).toBe(config)
   })
 
+  it('validates polymorphic relationship relationTo arrays', () => {
+    const authors = notes({ slug: 'authors', fields: { name: f.text() } })
+    const editors = notes({ slug: 'editors', fields: { name: f.text() } })
+
+    expect(() =>
+      defineConfig({
+        secret: SECRET,
+        db: fakeAdapter,
+        collections: [
+          authors,
+          notes({
+            fields: {
+              owner: { type: 'relationship', relationTo: [] },
+            },
+          }),
+        ],
+      }),
+    ).toThrow('must specify at least one collection in "relationTo"')
+
+    expect(() =>
+      defineConfig({
+        secret: SECRET,
+        db: fakeAdapter,
+        collections: [
+          authors,
+          notes({
+            fields: {
+              owner: f.relationship({ relationTo: ['authors', 'authors'] }),
+            },
+          }),
+        ],
+      }),
+    ).toThrow('has duplicate collection "authors" in "relationTo"')
+
+    expect(() =>
+      defineConfig({
+        secret: SECRET,
+        db: fakeAdapter,
+        collections: [
+          authors,
+          notes({
+            fields: {
+              owner: f.relationship({ relationTo: ['authors', 'ghosts'] }),
+            },
+          }),
+        ],
+      }),
+    ).toThrow('relationship field "owner" refers to unknown collection "ghosts"')
+
+    const valid = {
+      secret: SECRET,
+      db: fakeAdapter,
+      collections: [
+        authors,
+        editors,
+        notes({
+          fields: {
+            owner: f.relationship({ relationTo: ['authors', 'editors'] }),
+            related: f.relationship({ relationTo: ['authors', 'editors'], hasMany: true }),
+          },
+        }),
+      ],
+    }
+    expect(defineConfig(valid)).toBe(valid)
+  })
+
   it('rejects global relationship field targeting unknown collection', () => {
     expect(() =>
       defineConfig({

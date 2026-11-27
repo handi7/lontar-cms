@@ -83,12 +83,40 @@ function richText<const O extends Options<RichTextField>>(options?: O): O & { ty
   return { ...(options as O), type: 'richText' }
 }
 
+export function isPolymorphicRelationship(field: {
+  type: string
+  relationTo?: string | readonly string[]
+}): field is RelationshipField & { relationTo: readonly string[] } {
+  return field.type === 'relationship' && Array.isArray(field.relationTo)
+}
+
+function validateRelationTo(relationTo: unknown): void {
+  if (typeof relationTo === 'string') {
+    if (!relationTo) {
+      throw new Error('Relationship field requires a "relationTo" collection slug')
+    }
+    return
+  }
+  if (Array.isArray(relationTo)) {
+    if (relationTo.length === 0) {
+      throw new Error('Relationship field "relationTo" array cannot be empty')
+    }
+    for (const slug of relationTo) {
+      if (typeof slug !== 'string' || !slug) {
+        throw new Error(
+          'Relationship field "relationTo" array entries must be non-empty collection slugs',
+        )
+      }
+    }
+    return
+  }
+  throw new Error('Relationship field requires a "relationTo" collection slug or array of slugs')
+}
+
 function relationship<const O extends Options<RelationshipField>>(
   options: O,
 ): O & { type: 'relationship' } {
-  if (!options?.relationTo) {
-    throw new Error('Relationship field requires a "relationTo" collection slug')
-  }
+  validateRelationTo(options?.relationTo)
   return { ...options, type: 'relationship' }
 }
 

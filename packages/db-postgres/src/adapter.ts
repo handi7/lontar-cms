@@ -48,6 +48,7 @@ import {
   type LocalizationConfig,
   type PaginatedDocs,
   type PaginatedVersions,
+  type RelationshipField,
   type SaveVersionArgs,
   type SortItem,
   type StoredDoc,
@@ -69,10 +70,13 @@ import {
   type VersionsTable,
 } from './schema/table'
 import {
+  extractPolymorphicFromRow,
   flattenPointValue,
+  flattenPolymorphicValue,
   projectStoredDoc,
   resolveLocaleContext,
   sanitizeDataWithLocale,
+  sanitizeRelationship,
   type ResolvedLocaleContext,
 } from './localization'
 
@@ -107,6 +111,13 @@ function unflattenPointField(
   return [Number(lng), Number(lat)]
 }
 
+function unflattenPolymorphicField(
+  row: Record<string, unknown>,
+  prefix: string,
+): { relationTo: string; value: number } | null {
+  return extractPolymorphicFromRow(row, `${prefix}__relation_to`, `${prefix}__id`)
+}
+
 function unflattenSubField(
   row: Record<string, unknown>,
   colName: string,
@@ -119,6 +130,10 @@ function unflattenSubField(
   if (subField.type === 'point') {
     const pt = unflattenPointField(row, colName)
     return { value: pt, hasValue: pt !== null }
+  }
+  if (subField.type === 'relationship' && !subField.hasMany && Array.isArray(subField.relationTo)) {
+    const poly = unflattenPolymorphicField(row, colName)
+    return { value: poly, hasValue: poly !== null }
   }
   const val = row[colName]
   const value = val instanceof Date ? val.toISOString() : (val ?? null)
@@ -155,6 +170,8 @@ function unflattenDoc(doc: Record<string, unknown>, fields?: Fields): Record<str
       result[fieldName] = unflattenGroupField(doc, fieldName, field)
     } else if (field.type === 'point') {
       result[fieldName] = unflattenPointField(doc, fieldName)
+    } else if (field.type === 'relationship' && !field.hasMany && Array.isArray(field.relationTo)) {
+      result[fieldName] = unflattenPolymorphicField(doc, fieldName)
     }
   }
   for (const key of Object.keys(result)) {
@@ -209,21 +226,6 @@ function sanitizeRichText(value: unknown): unknown {
     }
   }
   return value
-}
-
-function sanitizeRelationship(
-  field: CollectionConfig['fields'][string] | undefined,
-  value: unknown,
-): unknown {
-  if (value === '' || value === null || value === undefined) return null
-  if (field?.type === 'relationship' && field.hasMany) {
-    if (Array.isArray(value)) {
-      return value.map((v) => Number(v)).filter((n) => !Number.isNaN(n))
-    }
-    return []
-  }
-  const num = Number(value)
-  return Number.isNaN(num) ? null : num
 }
 
 function parseJsonArray(value: unknown): unknown[] | null {
@@ -323,6 +325,9 @@ function flattenSubFieldValue(
   if (subField.type === 'point') {
     return flattenPointValue(subVal, fullCol)
   }
+  if (subField.type === 'relationship' && !subField.hasMany && Array.isArray(subField.relationTo)) {
+    return flattenPolymorphicValue(subVal, fullCol)
+  }
   if (!(subField.type === 'relationship' && subField.hasMany)) {
     return { [fullCol]: sanitizeFieldValue(subField, subVal) }
   }
@@ -338,7 +343,9 @@ function flattenGroupValue(
   if (val === null) {
     const flatGroup = flattenGroupFields(groupField.fields, colName)
     for (const flatCol of flatGroup) {
-      result[flatCol.name] = null
+      if (!(flatCol.field.type === 'relationship' && flatCol.field.hasMany)) {
+        result[flatCol.name] = null
+      }
     }
     return result
   }
@@ -355,6 +362,12 @@ function flattenGroupValue(
   return result
 }
 
+function isSinglePolymorphic(field: Field | undefined): boolean {
+  return Boolean(
+    field?.type === 'relationship' && !field.hasMany && Array.isArray(field.relationTo),
+  )
+}
+
 function sanitizeEntry(
   clean: Record<string, unknown>,
   fields: Fields,
@@ -366,16 +379,19 @@ function sanitizeEntry(
     Object.assign(clean, flattenGroupValue(field, value, key))
   } else if (field?.type === 'point') {
     Object.assign(clean, flattenPointValue(value, key))
+  } else if (isSinglePolymorphic(field)) {
+    Object.assign(clean, flattenPolymorphicValue(value, key))
   } else if (!(field?.type === 'relationship' && field.hasMany)) {
     clean[key] = sanitizeFieldValue(field, value)
   }
 }
 
 function sanitizeData(schema: { fields: Fields }, data: DocumentData): DocumentData {
+  const flatFields = flattenFields(schema.fields)
   const clean: DocumentData = {}
   for (const [key, value] of Object.entries(data)) {
     if (key !== 'id' && key !== 'createdAt' && key !== 'updatedAt') {
-      sanitizeEntry(clean, schema.fields, key, value)
+      sanitizeEntry(clean, flatFields, key, value)
     }
   }
   return clean
@@ -466,14 +482,31 @@ function resolvePointStep(parts: string[], i: number): ResolveStepResult | null 
   return null
 }
 
+function resolvePolymorphicStep(parts: string[], i: number): ResolveStepResult | null {
+  const next = parts[i + 1]
+  if (next === 'relationTo') {
+    return { done: true, field: { type: 'text' } as unknown as Field }
+  }
+  if (next === 'value') {
+    return { done: true, field: { type: 'number', integer: true } as unknown as Field }
+  }
+  return null
+}
+
+function resolveLeafStep(f: Field, parts: string[], i: number): ResolveStepResult | null {
+  if (f.type === 'point') return resolvePointStep(parts, i)
+  if (f.type === 'relationship' && Array.isArray(f.relationTo)) {
+    return resolvePolymorphicStep(parts, i)
+  }
+  return null
+}
+
 function resolveStep(f: Field, parts: string[], i: number): ResolveStepResult {
   if (i === parts.length - 1) {
     return { done: true, field: f }
   }
-  if (f.type === 'point') {
-    const pointResult = resolvePointStep(parts, i)
-    if (pointResult) return pointResult
-  }
+  const leafResult = resolveLeafStep(f, parts, i)
+  if (leafResult) return leafResult
   if (f.type === 'group' || f.type === 'array') {
     if (parts[i + 1] === 'id') {
       return { done: true, field: { type: 'text', required: true } }
@@ -684,6 +717,111 @@ function parseHasManyOpCondition(
   if (op === 'not_equals') return buildHasManyEquals(table, junctionTable, val, locFilter, true)
   if (op === 'in') return buildHasManyIn(table, junctionTable, val, locFilter)
   return undefined
+}
+
+function parsePolymorphicValueSubpath(
+  jTable: JunctionTable,
+  op: string,
+  rawVal: unknown,
+): { cond: SQL; negate: boolean } | null {
+  if (op === 'equals' || op === 'not_equals') {
+    const id = Number(rawVal)
+    return Number.isNaN(id) ? null : { cond: eq(jTable.targetId, id), negate: op === 'not_equals' }
+  }
+  if (op === 'in') {
+    const arr = Array.isArray(rawVal) ? rawVal : [rawVal]
+    const ids = arr.map(Number).filter((n) => !Number.isNaN(n))
+    return ids.length > 0 ? { cond: inArray(jTable.targetId, ids), negate: false } : null
+  }
+  return null
+}
+
+function parsePolymorphicRelationToSubpath(
+  relCol: PgColumn,
+  op: string,
+  rawVal: unknown,
+): { cond: SQL; negate: boolean } | null {
+  const val = rawVal === null ? null : toPatternString(rawVal)
+  const cond = buildBasicCondition(relCol, op === 'not_equals' ? 'equals' : op, val)
+  return cond ? { cond, negate: op === 'not_equals' } : null
+}
+
+function parsePolymorphicSubpathFilter(
+  jTable: JunctionTable,
+  subKey: string,
+  op: string,
+  rawVal: unknown,
+): { cond: SQL; negate: boolean } | null {
+  if (subKey === 'value') {
+    return parsePolymorphicValueSubpath(jTable, op, rawVal)
+  }
+  if (subKey === 'relationTo' && jTable.relationTo) {
+    return parsePolymorphicRelationToSubpath(jTable.relationTo, op, rawVal)
+  }
+  return null
+}
+
+function parsePolymorphicHasManySubpathConditions(
+  table: DynamicTable,
+  jTable: JunctionTable | undefined,
+  subKey: string,
+  filter: unknown,
+  localeCtx?: ResolvedLocaleContext,
+): SQL[] {
+  if (!jTable || !jTable.relationTo) return []
+  const locFilter = resolveJunctionLocaleFilter(jTable, localeCtx)
+  const entries =
+    filter === null || typeof filter !== 'object'
+      ? [['equals', filter] as const]
+      : Object.entries(filter as Record<string, unknown>)
+  const conditions: SQL[] = []
+  for (const [op, rawVal] of entries) {
+    if (rawVal === undefined) continue
+    const parsed = parsePolymorphicSubpathFilter(jTable, subKey, op, rawVal)
+    if (!parsed) continue
+    conditions.push(
+      parsed.negate
+        ? sql`${table.id} NOT IN (SELECT ${jTable.parentId} FROM ${jTable} WHERE ${parsed.cond}${locFilter})`
+        : sql`${table.id} IN (SELECT ${jTable.parentId} FROM ${jTable} WHERE ${parsed.cond}${locFilter})`,
+    )
+  }
+  return conditions
+}
+
+function buildPolymorphicObjectSubCond(jTable: JunctionTable, subKey: string, val: unknown): SQL[] {
+  const entries =
+    val === null || typeof val !== 'object'
+      ? [['equals', val] as const]
+      : Object.entries(val as Record<string, unknown>)
+  const clauses: SQL[] = []
+  for (const [op, rawVal] of entries) {
+    if (rawVal === undefined) continue
+    const parsed = parsePolymorphicSubpathFilter(jTable, subKey, op, rawVal)
+    if (parsed && !parsed.negate) {
+      clauses.push(parsed.cond)
+    }
+  }
+  return clauses
+}
+
+function parsePolymorphicHasManyObjectConditions(
+  table: DynamicTable,
+  jTable: JunctionTable | undefined,
+  filter: Record<string, unknown>,
+  localeCtx?: ResolvedLocaleContext,
+): SQL[] {
+  if (!jTable || !jTable.relationTo) return []
+  const locFilter = resolveJunctionLocaleFilter(jTable, localeCtx)
+  const innerClauses: SQL[] = []
+  for (const [subKey, subVal] of Object.entries(filter)) {
+    if (subVal === undefined) continue
+    innerClauses.push(...buildPolymorphicObjectSubCond(jTable, subKey, subVal))
+  }
+  if (innerClauses.length === 0) return []
+  const combined = innerClauses.length === 1 ? innerClauses[0]! : and(...innerClauses)!
+  return [
+    sql`${table.id} IN (SELECT ${jTable.parentId} FROM ${jTable} WHERE ${combined}${locFilter})`,
+  ]
 }
 
 function parseHasManyConditions(
@@ -909,18 +1047,39 @@ function buildJsonOpCondition(
   return undefined
 }
 
+function castJsonFilterValue(
+  collection: CollectionConfig,
+  fieldName: string,
+  op: string,
+  rawVal: unknown,
+): unknown {
+  if (op === 'contains' || op === 'like') return rawVal
+  if (op === 'in' && Array.isArray(rawVal)) {
+    return rawVal.map((v) => castFieldValue(collection, fieldName, v))
+  }
+  return castFieldValue(collection, fieldName, rawVal)
+}
+
 function parseJsonArrayConditions(
+  collection: CollectionConfig,
+  fieldName: string,
   column: PgColumn,
   pathInfo: JsonPathInfo,
   filter: unknown,
 ): SQL[] {
   if (filter === null || typeof filter !== 'object') {
-    const cond = buildJsonOpCondition(column, pathInfo, 'equals', filter)
+    const cond = buildJsonOpCondition(
+      column,
+      pathInfo,
+      'equals',
+      castJsonFilterValue(collection, fieldName, 'equals', filter),
+    )
     return cond ? [cond] : []
   }
   const conditions: SQL[] = []
   for (const [op, rawVal] of Object.entries(filter as Record<string, unknown>)) {
-    const cond = buildJsonOpCondition(column, pathInfo, op, rawVal)
+    const casted = castJsonFilterValue(collection, fieldName, op, rawVal)
+    const cond = buildJsonOpCondition(column, pathInfo, op, casted)
     if (cond) conditions.push(cond)
   }
   return conditions
@@ -1018,7 +1177,49 @@ function parseJsonFieldConditions(
   const pathInfo = container.explicitLocale
     ? basePathInfo
     : resolveSubFieldJsonPathInfo(collection, fieldName, basePathInfo, loc)
-  return parseJsonArrayConditions(column, pathInfo, filter)
+  return parseJsonArrayConditions(collection, fieldName, column, pathInfo, filter)
+}
+
+interface PolymorphicSubpathInfo {
+  parentPath: string
+  parentColName: string
+  subKey: 'relationTo' | 'value'
+  parentField: RelationshipField
+  explicitLocale?: string
+}
+
+function resolveExplicitLocaleParent(
+  collection: CollectionConfig,
+  rawParentPath: string,
+): { parentPath: string; parentField: RelationshipField; explicitLocale?: string } | null {
+  const direct = resolveField(collection.fields, rawParentPath)
+  if (direct?.type === 'relationship' && Array.isArray(direct.relationTo)) {
+    return { parentPath: rawParentPath, parentField: direct }
+  }
+  const locMatch = rawParentPath.match(/^(.+)_([a-zA-Z0-9-]+)$/)
+  if (!locMatch?.[1]) return null
+  const candidate = resolveField(collection.fields, locMatch[1])
+  if (candidate?.type === 'relationship' && Array.isArray(candidate.relationTo)) {
+    return { parentPath: locMatch[1], parentField: candidate, explicitLocale: locMatch[2] }
+  }
+  return null
+}
+
+function splitPolymorphicSubpath(
+  collection: CollectionConfig,
+  fieldPath: string,
+): PolymorphicSubpathInfo | null {
+  const match = fieldPath.match(/^(.+?)(?:\.|__)(relationTo|value)(?:_([a-zA-Z0-9-]+))?$/)
+  if (!match?.[1] || !match[2]) return null
+  const resolved = resolveExplicitLocaleParent(collection, match[1])
+  if (!resolved) return null
+  return {
+    parentPath: resolved.parentPath,
+    parentColName: resolved.parentPath.replace(/\./g, '__'),
+    subKey: match[2] as 'relationTo' | 'value',
+    parentField: resolved.parentField,
+    explicitLocale: match[3] ?? resolved.explicitLocale,
+  }
 }
 
 function normalizePointPath(fieldPath: string): string {
@@ -1034,6 +1235,14 @@ function resolveFilterColumnName(
   fieldName: string,
   loc?: string,
 ): string {
+  const poly = splitPolymorphicSubpath(collection, fieldName)
+  if (poly && !poly.parentField.hasMany) {
+    const sqlSub = poly.subKey === 'relationTo' ? 'relation_to' : 'id'
+    const baseCol = `${poly.parentColName}__${sqlSub}`
+    const targetLoc =
+      poly.explicitLocale ?? (isPathLocalized(collection.fields, poly.parentPath) ? loc : undefined)
+    return targetLoc ? `${baseCol}_${targetLoc}` : baseCol
+  }
   const normalized = normalizePointPath(fieldName)
   const baseCol = normalized.replace(/\./g, '__')
   const isLoc = isPathLocalized(collection.fields, normalized)
@@ -1056,24 +1265,41 @@ function isPointNotNullFilter(filter: unknown): boolean {
   )
 }
 
+function parsePairNullConditions(
+  colA: PgColumn | undefined,
+  colB: PgColumn | undefined,
+  filter: unknown,
+): SQL[] {
+  if (!colA || !colB) return []
+  if (isPointNullFilter(filter)) {
+    const cond = and(isNull(colA), isNull(colB))
+    return cond ? [cond] : []
+  }
+  if (isPointNotNullFilter(filter)) {
+    const cond = and(isNotNull(colA), isNotNull(colB))
+    return cond ? [cond] : []
+  }
+  return []
+}
+
 function parsePointNullConditions(
   table: DynamicTable,
   baseColName: string,
   filter: unknown,
 ): SQL[] {
-  const colLng = table[`${baseColName}__lng`]
-  const colLat = table[`${baseColName}__lat`]
-  if (!colLng || !colLat) return []
+  return parsePairNullConditions(table[`${baseColName}__lng`], table[`${baseColName}__lat`], filter)
+}
 
-  if (isPointNullFilter(filter)) {
-    const cond = and(isNull(colLng), isNull(colLat))
-    return cond ? [cond] : []
-  }
-  if (isPointNotNullFilter(filter)) {
-    const cond = and(isNotNull(colLng), isNotNull(colLat))
-    return cond ? [cond] : []
-  }
-  return []
+function parsePolymorphicNullConditions(
+  table: DynamicTable,
+  baseColName: string,
+  filter: unknown,
+): SQL[] {
+  return parsePairNullConditions(
+    table[`${baseColName}__relation_to`],
+    table[`${baseColName}__id`],
+    filter,
+  )
 }
 
 function parsePgScalarContains(column: PgColumn, val: unknown): SQL {
@@ -1153,6 +1379,21 @@ function resolveScalarHasManyConditions(
   return column ? parseScalarHasManyConditions(column, filter) : []
 }
 
+function isPolymorphicObjectFilter(
+  field: Field | undefined,
+  filter: unknown,
+): filter is Record<string, unknown> {
+  return (
+    field?.type === 'relationship' &&
+    Array.isArray(field.relationTo) &&
+    filter !== null &&
+    typeof filter === 'object' &&
+    !Array.isArray(filter) &&
+    !(filter instanceof Date) &&
+    ('relationTo' in filter || 'value' in filter)
+  )
+}
+
 function parseSpecialFieldConditions(
   field: Field | undefined,
   table: DynamicTable,
@@ -1172,6 +1413,32 @@ function parseSpecialFieldConditions(
     const jTable = junctionTables[colName] ?? junctionTables[fieldName]
     return parseHasManyConditions(table, jTable, filter, localeCtx)
   }
+  if (isSinglePolymorphic(field)) {
+    return parsePolymorphicNullConditions(table, colName, filter)
+  }
+  return null
+}
+
+function parseStructuredFieldConditions(
+  collection: CollectionConfig,
+  table: DynamicTable,
+  junctionTables: Record<string, JunctionTable>,
+  field: Field | undefined,
+  fieldName: string,
+  filter: unknown,
+  localeCtx?: ResolvedLocaleContext,
+): SQL[] | null {
+  if (isContainerFilterObject(field, filter)) {
+    return parseGroupConditions(collection, table, junctionTables, fieldName, filter, localeCtx)
+  }
+  if (isPolymorphicObjectFilter(field, filter)) {
+    if (field?.type === 'relationship' && field.hasMany) {
+      const colKey = fieldName.replace(/\./g, '__')
+      const jTable = junctionTables[colKey] ?? junctionTables[fieldName]
+      return parsePolymorphicHasManyObjectConditions(table, jTable, filter, localeCtx)
+    }
+    return parseGroupConditions(collection, table, junctionTables, fieldName, filter, localeCtx)
+  }
   return null
 }
 
@@ -1184,13 +1451,30 @@ function parseFieldConditions(
   localeCtx?: ResolvedLocaleContext,
 ): SQL[] {
   const field = resolveField(collection.fields, fieldName)
-  if (isContainerFilterObject(field, filter)) {
-    return parseGroupConditions(collection, table, junctionTables, fieldName, filter, localeCtx)
-  }
+  const structured = parseStructuredFieldConditions(
+    collection,
+    table,
+    junctionTables,
+    field,
+    fieldName,
+    filter,
+    localeCtx,
+  )
+  if (structured !== null) return structured
 
   const jsonConds = parseJsonFieldConditions(collection, table, fieldName, filter, localeCtx)
-  if (jsonConds !== null) {
-    return jsonConds
+  if (jsonConds !== null) return jsonConds
+
+  const polySub = splitPolymorphicSubpath(collection, fieldName)
+  if (polySub?.parentField.hasMany) {
+    const jTable = junctionTables[polySub.parentColName] ?? junctionTables[polySub.parentPath]
+    return parsePolymorphicHasManySubpathConditions(
+      table,
+      jTable,
+      polySub.subKey,
+      filter,
+      localeCtx,
+    )
   }
 
   const colName = resolveFilterColumnName(collection, fieldName, resolveTargetLocale(localeCtx))
@@ -1206,9 +1490,7 @@ function parseFieldConditions(
   if (specialConds !== null) return specialConds
 
   const column = Object.hasOwn(table, colName) ? table[colName] : undefined
-  if (!column) return []
-
-  return parseStandardColumnConditions(collection, column, fieldName, filter)
+  return column ? parseStandardColumnConditions(collection, column, fieldName, filter) : []
 }
 
 function resolveLogicalGroup(
@@ -1282,10 +1564,7 @@ function defaultOrderBy(table: DynamicTable): SQL[] {
 }
 
 function resolveSortColumnName(item: SortItem, collection: CollectionConfig, loc?: string): string {
-  const normalized = normalizePointPath(item.field)
-  const baseCol = normalized.replace(/\./g, '__')
-  const isLoc = isPathLocalized(collection.fields, normalized)
-  return isLoc && loc ? `${baseCol}_${loc}` : baseCol
+  return resolveFilterColumnName(collection, item.field, loc)
 }
 
 function explicitOrderBy(
@@ -1405,6 +1684,53 @@ function getJunctionTables(
   return tables
 }
 
+function toPolymorphicJunctionRow(item: unknown, parentId: number, index: number, loc?: string) {
+  if (!item || typeof item !== 'object' || Array.isArray(item)) return null
+  const obj = item as Record<string, unknown>
+  if (typeof obj.relationTo !== 'string' || !obj.relationTo) return null
+  const targetId = Number(obj.value)
+  if (Number.isNaN(targetId)) return null
+  return {
+    parentId,
+    relationTo: obj.relationTo,
+    targetId,
+    ...(loc !== undefined ? { _locale: loc } : {}),
+    order: index,
+  }
+}
+
+function toMonoJunctionRow(item: unknown, parentId: number, index: number, loc?: string) {
+  const targetId = Number(item)
+  if (Number.isNaN(targetId)) return null
+  return {
+    parentId,
+    targetId,
+    ...(loc !== undefined ? { _locale: loc } : {}),
+    order: index,
+  }
+}
+
+function buildJunctionInsertRows(
+  jTable: JunctionTable,
+  parentId: number,
+  targetItems: readonly unknown[],
+  loc?: string,
+) {
+  const toRow = jTable.relationTo ? toPolymorphicJunctionRow : toMonoJunctionRow
+  const rows: Array<{
+    parentId: number
+    relationTo?: string
+    targetId: number
+    _locale?: string
+    order: number
+  }> = []
+  for (let index = 0; index < targetItems.length; index++) {
+    const row = toRow(targetItems[index], parentId, index, loc)
+    if (row) rows.push(row)
+  }
+  return rows
+}
+
 async function syncLocalizedAllLocales(
   executor: DbExecutor,
   jTable: JunctionTable,
@@ -1419,14 +1745,7 @@ async function syncLocalizedAllLocales(
       .delete(jTable)
       .where(and(eq(jTable.parentId, parentId), eq(jTable._locale!, loc)))
     if (!Array.isArray(ids) || ids.length === 0) continue
-    const rows = ids
-      .map((tid, index) => ({
-        parentId,
-        targetId: Number(tid),
-        _locale: loc,
-        order: index,
-      }))
-      .filter((row) => !Number.isNaN(row.targetId))
+    const rows = buildJunctionInsertRows(jTable, parentId, ids, loc)
     if (rows.length > 0) {
       await executor.insert(jTable).values(rows)
     }
@@ -1442,14 +1761,7 @@ async function syncLocalizedSingleLocale(
 ): Promise<void> {
   await executor.delete(jTable).where(and(eq(jTable.parentId, parentId), eq(jTable._locale!, loc)))
   if (!Array.isArray(targetIds) || targetIds.length === 0) return
-  const rows = targetIds
-    .map((tid, index) => ({
-      parentId,
-      targetId: Number(tid),
-      _locale: loc,
-      order: index,
-    }))
-    .filter((row) => !Number.isNaN(row.targetId))
+  const rows = buildJunctionInsertRows(jTable, parentId, targetIds, loc)
   if (rows.length > 0) {
     await executor.insert(jTable).values(rows)
   }
@@ -1488,25 +1800,53 @@ async function syncSingleHasManyRelation(
   await executor.delete(jTable).where(eq(jTable.parentId, parentId))
   if (!Array.isArray(targetIds) || targetIds.length === 0) return
 
-  const rows = targetIds
-    .map((tid, index) => ({
-      parentId,
-      targetId: Number(tid),
-      order: index,
-    }))
-    .filter((row) => !Number.isNaN(row.targetId))
-
+  const rows = buildJunctionInsertRows(jTable, parentId, targetIds)
   if (rows.length > 0) {
     await executor.insert(jTable).values(rows)
   }
+}
+
+type JunctionRowValue = number | { relationTo: string; value: number }
+
+interface FetchedJunctionRow {
+  parentId: number
+  value: JunctionRowValue
+  _locale?: string
+}
+
+function toJunctionRowValue(
+  isPolymorphic: boolean,
+  targetId: number,
+  relationTo?: string,
+): JunctionRowValue {
+  return isPolymorphic && relationTo ? { relationTo, value: targetId } : targetId
 }
 
 async function fetchJunctionRows(
   executor: DbExecutor,
   jTable: JunctionTable,
   parentIds: number[],
-): Promise<Array<{ parentId: number; targetId: number }>> {
-  return (await executor
+): Promise<FetchedJunctionRow[]> {
+  if (jTable.relationTo) {
+    const rows = (await executor
+      .select({
+        parentId: jTable.parentId,
+        relationTo: jTable.relationTo,
+        targetId: jTable.targetId,
+      })
+      .from(jTable)
+      .where(inArray(jTable.parentId, parentIds))
+      .orderBy(asc(jTable.order))) as Array<{
+      parentId: number
+      relationTo: string
+      targetId: number
+    }>
+    return rows.map((r) => ({
+      parentId: r.parentId,
+      value: toJunctionRowValue(true, r.targetId, r.relationTo),
+    }))
+  }
+  const rows = (await executor
     .select({
       parentId: jTable.parentId,
       targetId: jTable.targetId,
@@ -1514,6 +1854,59 @@ async function fetchJunctionRows(
     .from(jTable)
     .where(inArray(jTable.parentId, parentIds))
     .orderBy(asc(jTable.order))) as Array<{ parentId: number; targetId: number }>
+  return rows.map((r) => ({ parentId: r.parentId, value: r.targetId }))
+}
+
+async function fetchLocalizedJunctionRows(
+  executor: DbExecutor,
+  jTable: JunctionTable,
+  parentIds: number[],
+  locsToFetch?: readonly string[],
+): Promise<FetchedJunctionRow[]> {
+  const whereClause = locsToFetch
+    ? and(inArray(jTable.parentId, parentIds), inArray(jTable._locale!, [...locsToFetch]))
+    : inArray(jTable.parentId, parentIds)
+
+  if (jTable.relationTo) {
+    const rows = (await executor
+      .select({
+        parentId: jTable.parentId,
+        relationTo: jTable.relationTo,
+        targetId: jTable.targetId,
+        _locale: jTable._locale!,
+      })
+      .from(jTable)
+      .where(whereClause)
+      .orderBy(asc(jTable.order))) as Array<{
+      parentId: number
+      relationTo: string
+      targetId: number
+      _locale: string
+    }>
+    return rows.map((r) => ({
+      parentId: r.parentId,
+      value: toJunctionRowValue(true, r.targetId, r.relationTo),
+      _locale: r._locale,
+    }))
+  }
+  const rows = (await executor
+    .select({
+      parentId: jTable.parentId,
+      targetId: jTable.targetId,
+      _locale: jTable._locale!,
+    })
+    .from(jTable)
+    .where(whereClause)
+    .orderBy(asc(jTable.order))) as Array<{
+    parentId: number
+    targetId: number
+    _locale: string
+  }>
+  return rows.map((r) => ({
+    parentId: r.parentId,
+    value: r.targetId,
+    _locale: r._locale,
+  }))
 }
 
 function extractRelationData(data: DocumentData, name: string): unknown {
@@ -1544,9 +1937,13 @@ function setTargetRelationIds(doc: StoredDoc, fieldName: string, ids: unknown): 
   cur[parts[parts.length - 1]!] = ids
 }
 
-function pushTargetRelationId(doc: StoredDoc, fieldName: string, targetId: number): void {
+function pushTargetRelationId(
+  doc: StoredDoc,
+  fieldName: string,
+  targetVal: JunctionRowValue,
+): void {
   if (!fieldName.includes('__')) {
-    ;(doc[fieldName] as number[]).push(targetId)
+    ;(doc[fieldName] as JunctionRowValue[]).push(targetVal)
     return
   }
   const parts = fieldName.split('__')
@@ -1556,7 +1953,7 @@ function pushTargetRelationId(doc: StoredDoc, fieldName: string, targetId: numbe
     cur = (cur as Record<string, unknown>)[p]
   }
   if (Array.isArray(cur)) {
-    cur.push(targetId)
+    cur.push(targetVal)
   }
 }
 
@@ -1586,29 +1983,22 @@ async function populateLocalizedHasManyAll(
   allLocales: readonly string[],
 ): Promise<void> {
   for (const doc of docs) {
-    const dict: Record<string, number[]> = {}
+    const dict: Record<string, JunctionRowValue[]> = {}
     for (const loc of allLocales) {
       dict[loc] = []
     }
     setTargetRelationIds(doc, fieldName, dict)
   }
-  const rows = (await executor
-    .select({
-      parentId: jTable.parentId,
-      targetId: jTable.targetId,
-      _locale: jTable._locale!,
-    })
-    .from(jTable)
-    .where(inArray(jTable.parentId, parentIds))
-    .orderBy(asc(jTable.order))) as Array<{ parentId: number; targetId: number; _locale: string }>
+  const rows = await fetchLocalizedJunctionRows(executor, jTable, parentIds)
 
   for (const row of rows) {
     const doc = docs.find((d) => d.id === row.parentId)
-    if (doc) {
-      const dict = doc[fieldName] as Record<string, number[]> | undefined
+    if (doc && row._locale) {
+      const dict = extractRelationData(doc, fieldName) as
+        Record<string, JunctionRowValue[]> | undefined
       const list = dict?.[row._locale]
       if (Array.isArray(list)) {
-        list.push(row.targetId)
+        list.push(row.value)
       }
     }
   }
@@ -1630,20 +2020,12 @@ async function populateLocalizedHasManySingle(
   if (localeCtx.fallbackLocale && localeCtx.fallbackLocale !== reqLocale) {
     locsToFetch.push(localeCtx.fallbackLocale)
   }
-  const rows = (await executor
-    .select({
-      parentId: jTable.parentId,
-      targetId: jTable.targetId,
-      _locale: jTable._locale!,
-    })
-    .from(jTable)
-    .where(and(inArray(jTable.parentId, parentIds), inArray(jTable._locale!, locsToFetch)))
-    .orderBy(asc(jTable.order))) as Array<{ parentId: number; targetId: number; _locale: string }>
+  const rows = await fetchLocalizedJunctionRows(executor, jTable, parentIds, locsToFetch)
 
   for (const doc of docs) {
     const reqList = rows
       .filter((r) => r.parentId === doc.id && r._locale === reqLocale)
-      .map((r) => r.targetId)
+      .map((r) => r.value)
     if (
       reqList.length === 0 &&
       localeCtx.fallbackLocale &&
@@ -1651,7 +2033,7 @@ async function populateLocalizedHasManySingle(
     ) {
       const fbList = rows
         .filter((r) => r.parentId === doc.id && r._locale === localeCtx.fallbackLocale)
-        .map((r) => r.targetId)
+        .map((r) => r.value)
       setTargetRelationIds(doc, fieldName, fbList)
     } else {
       setTargetRelationIds(doc, fieldName, reqList)
@@ -1673,7 +2055,7 @@ async function populateStandardHasMany(
   for (const row of rows) {
     const doc = docs.find((d) => d.id === row.parentId)
     if (doc) {
-      pushTargetRelationId(doc, fieldName, row.targetId)
+      pushTargetRelationId(doc, fieldName, row.value)
     }
   }
 }

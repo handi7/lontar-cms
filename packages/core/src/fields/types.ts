@@ -157,18 +157,24 @@ export interface RichTextField extends BaseField {
   defaultValue?: Record<string, unknown>
 }
 
+export interface PolymorphicValue<T extends string = string> {
+  relationTo: T
+  value: number
+}
+
 export interface RelationshipFieldOptions {
   label?: string
   required?: boolean
-  relationTo: string
+  relationTo: string | readonly string[]
   hasMany?: boolean
+  localized?: boolean
   admin?: FieldAdminOptions
   access?: FieldAccess
 }
 
 export interface RelationshipField extends BaseField {
   type: 'relationship'
-  relationTo: string
+  relationTo: string | readonly string[]
   hasMany?: boolean
 }
 

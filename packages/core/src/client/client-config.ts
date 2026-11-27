@@ -238,7 +238,7 @@ export interface ClientRichTextField extends ClientFieldBase {
 
 export interface ClientRelationshipField extends ClientFieldBase {
   type: 'relationship'
-  relationTo: string
+  relationTo: string | string[]
   hasMany?: boolean
 }
 
