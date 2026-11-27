@@ -62,7 +62,49 @@ export function extractIdFromItem(item: unknown): number | null {
   return null
 }
 
-export function normalizeRelationshipValue(val: unknown, hasMany?: boolean): unknown {
+function normalizePolymorphicEntry(item: unknown): { relationTo: string; value: number } | null {
+  if (!item || typeof item !== 'object') return null
+  const rec = item as Record<string, unknown>
+  if (typeof rec.relationTo !== 'string' || !rec.relationTo) return null
+  const id = extractIdFromItem(rec.value)
+  if (id === null) return null
+  return { relationTo: rec.relationTo, value: id }
+}
+
+function normalizePolymorphicSingle(val: unknown, preserveNullValue: boolean): unknown {
+  if (val === null || val === undefined) return val
+  if (typeof val !== 'object') return null
+  const rec = val as Record<string, unknown>
+  if (typeof rec.relationTo !== 'string' || !rec.relationTo) return null
+  if (rec.value === null) {
+    return preserveNullValue ? { relationTo: rec.relationTo, value: null } : null
+  }
+  const id = extractIdFromItem(rec.value)
+  return id !== null ? { relationTo: rec.relationTo, value: id } : null
+}
+
+function normalizePolymorphicValue(
+  val: unknown,
+  hasMany?: boolean,
+  preserveNullValue = false,
+): unknown {
+  if (hasMany) {
+    if (!Array.isArray(val)) return []
+    return (val as unknown[])
+      .map(normalizePolymorphicEntry)
+      .filter((entry): entry is { relationTo: string; value: number } => entry !== null)
+  }
+  return normalizePolymorphicSingle(val, preserveNullValue)
+}
+
+export function normalizeRelationshipValue(
+  val: unknown,
+  hasMany?: boolean,
+  polymorphic = false,
+): unknown {
+  if (polymorphic) {
+    return normalizePolymorphicValue(val, hasMany, false)
+  }
   if (hasMany) {
     if (!Array.isArray(val)) return []
     return (val as unknown[]).map(extractIdFromItem).filter((id): id is number => id !== null)
@@ -97,7 +139,9 @@ export function formatFieldForForm(f: ClientField, val: unknown): unknown {
     return formatDateForInput(val)
   }
   if (f.type === 'relationship') {
-    return normalizeRelationshipValue(val, f.hasMany)
+    return Array.isArray(f.relationTo)
+      ? normalizePolymorphicValue(val, f.hasMany, true)
+      : normalizeRelationshipValue(val, f.hasMany)
   }
   if (f.type === 'upload') {
     return extractIdFromItem(val) ?? val
@@ -166,7 +210,7 @@ function formatFieldValueForSubmit(f: ClientField, val: unknown): unknown {
     return formatDateForSubmit(val)
   }
   if (f.type === 'relationship') {
-    return normalizeRelationshipValue(val, f.hasMany)
+    return normalizeRelationshipValue(val, f.hasMany, Array.isArray(f.relationTo))
   }
   if (f.type === 'upload') {
     return extractIdFromItem(val) ?? (val === null || val === '' ? null : val)

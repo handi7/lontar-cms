@@ -1,10 +1,13 @@
 import { useState, useEffect, useMemo, useContext, type ReactNode } from 'react'
 import type { FormRegister, FormSetValue, FormWatch } from './form-types'
-import { useQuery } from '@tanstack/react-query'
-import type { ClientRelationshipField } from '@lontar/core/client'
+import { useQueries, useQuery } from '@tanstack/react-query'
+import { Lock } from 'lucide-react'
+import type { ClientConfig, ClientRelationshipField } from '@lontar/core/client'
 import { AdminContext } from '../context/AdminContext'
+import { PermissionsContext, type PermissionsContextValue } from '../context/PermissionsContext'
 import { useLocale } from '../hooks/useLocale'
-import { fetchCollectionDocs, fetchDoc } from '../api/client'
+import { ApiClientError, fetchCollectionDocs, fetchDoc } from '../api/client'
+import { Button } from '../components/ui/button'
 import { Badge } from '../components/ui/badge'
 import { Tooltip, TooltipContent, TooltipTrigger } from '../components/ui/tooltip'
 import {
@@ -71,19 +74,69 @@ function normalizeManyIds(val: unknown): number[] {
   return (val as unknown[]).map(extractNumericId).filter((id): id is number => id !== null)
 }
 
+function isForbiddenError(err: unknown): boolean {
+  return err instanceof ApiClientError && err.status === 403
+}
+
+interface TargetCollectionMeta {
+  slug: string
+  singularLabel: string
+  pluralLabel: string
+  titleField: string
+  canRead: boolean
+}
+
+function resolveTargetMeta(
+  config: ClientConfig | undefined,
+  permCtx: PermissionsContextValue | null,
+  slug: string,
+): TargetCollectionMeta {
+  const targetCol = config ? config.collections.find((c) => c.slug === slug) : undefined
+  return {
+    slug,
+    singularLabel: targetCol ? targetCol.labels.singular : slug,
+    pluralLabel: targetCol ? targetCol.labels.plural : slug,
+    titleField: targetCol ? targetCol.admin.useAsTitle : 'title',
+    canRead: permCtx ? permCtx.canReadCollection(slug) : true,
+  }
+}
+
 function useRelationshipConfig(relationTo: string) {
   const adminCtx = useContext(AdminContext)
-  const config = adminCtx ? adminCtx.config : undefined
-  const targetCol = config ? config.collections.find((c) => c.slug === relationTo) : undefined
+  const permCtx = useContext(PermissionsContext)
+  const meta = resolveTargetMeta(adminCtx?.config, permCtx, relationTo)
 
   return {
     apiBase: adminCtx ? adminCtx.apiBase : '/api',
     basePath: adminCtx ? adminCtx.basePath : '/admin',
-    targetCol,
-    titleField: targetCol ? targetCol.admin.useAsTitle : 'title',
-    singularLabel: targetCol ? targetCol.labels.singular : relationTo,
-    pluralLabel: targetCol ? targetCol.labels.plural : relationTo,
+    targetCol: adminCtx?.config.collections.find((c) => c.slug === relationTo),
+    titleField: meta.titleField,
+    singularLabel: meta.singularLabel,
+    pluralLabel: meta.pluralLabel,
+    canRead: meta.canRead,
   }
+}
+
+function usePolymorphicTargets(targets: readonly string[]) {
+  const adminCtx = useContext(AdminContext)
+  const permCtx = useContext(PermissionsContext)
+  const apiBase = adminCtx ? adminCtx.apiBase : '/api'
+  const basePath = adminCtx ? adminCtx.basePath : '/admin'
+
+  const targetMap = useMemo(() => {
+    const map = new Map<string, TargetCollectionMeta>()
+    for (const slug of targets) {
+      map.set(slug, resolveTargetMeta(adminCtx?.config, permCtx, slug))
+    }
+    return map
+  }, [adminCtx?.config, permCtx, targets])
+
+  const readableTargets = useMemo(
+    () => targets.filter((slug) => targetMap.get(slug)?.canRead !== false),
+    [targets, targetMap],
+  )
+
+  return { apiBase, basePath, targetMap, readableTargets }
 }
 
 interface RelationshipSearchDropdownProps {
@@ -189,35 +242,122 @@ function RelationshipSearchDropdown({
 }
 
 interface SingleSelectedViewProps {
-  selectedId: number
+  selectedId: number | null
   title: string
   basePath: string
   relationTo: string
+  collectionBadge?: string
   changeButton?: ReactNode
   onRemove?: () => void
   disabled?: boolean
+  locked?: boolean
+  lockTestId?: string
+}
+
+function resolveItemTitle(id: number | null, title: string, locked?: boolean): string {
+  if (locked) return 'Restricted'
+  if (id === null) return 'Unavailable'
+  return title
+}
+
+function LockedBadgeIcon({ testId }: { testId: string }) {
+  return (
+    <Lock
+      className="lt:size-3.5 lt:shrink-0 lt:text-muted-foreground"
+      data-testid={testId}
+      aria-label="Locked"
+    />
+  )
+}
+
+function SingleSelectedActions({
+  canLink,
+  href,
+  canEdit,
+  changeButton,
+  onRemove,
+}: {
+  canLink: boolean
+  href: string
+  canEdit: boolean
+  changeButton?: ReactNode
+  onRemove?: () => void
+}) {
+  return (
+    <div className={pickerActionsClass}>
+      {canLink && <PickerViewLink href={href} testId="relationship-link" />}
+      {canEdit && changeButton}
+      {canEdit && onRemove && (
+        <PickerButton destructive onClick={onRemove} data-testid="relationship-clear">
+          Remove
+        </PickerButton>
+      )}
+    </div>
+  )
 }
 
 function SingleSelectedView(props: SingleSelectedViewProps) {
-  const { selectedId, title, basePath, relationTo, changeButton, onRemove, disabled } = props
-  const editUrl = getDocEditUrl(basePath, relationTo, selectedId)
+  const {
+    selectedId,
+    title,
+    basePath,
+    relationTo,
+    collectionBadge,
+    changeButton,
+    onRemove,
+    disabled,
+    locked,
+    lockTestId,
+  } = props
+  const canLink = !locked && selectedId !== null && selectedId > 0
+  const displayTitle = resolveItemTitle(selectedId, title, locked)
+  const href = selectedId !== null ? getDocEditUrl(basePath, relationTo, selectedId) : ''
   return (
     <PickerCard data-testid="relationship-single-selected">
       <div className="lt:flex lt:min-w-0 lt:items-center lt:gap-2">
-        <span className={pickerTitleClass}>{title}</span>
-        <Badge variant="muted">#{selectedId}</Badge>
-      </div>
-      <div className={pickerActionsClass}>
-        <PickerViewLink href={editUrl} testId="relationship-link" />
-        {!disabled && changeButton}
-        {!disabled && onRemove && (
-          <PickerButton destructive onClick={onRemove} data-testid="relationship-clear">
-            Remove
-          </PickerButton>
+        {locked && <LockedBadgeIcon testId={lockTestId ?? 'relationship-locked'} />}
+        {collectionBadge && (
+          <Badge variant="secondary" data-testid="relationship-collection-badge">
+            {collectionBadge}
+          </Badge>
         )}
+        <span className={pickerTitleClass}>{displayTitle}</span>
+        {selectedId !== null && <Badge variant="muted">#{selectedId}</Badge>}
       </div>
+      <SingleSelectedActions
+        canLink={canLink}
+        href={href}
+        canEdit={!disabled && !locked}
+        changeButton={changeButton}
+        onRemove={onRemove}
+      />
     </PickerCard>
   )
+}
+
+function formatIdFallback(id: number | null | undefined): string {
+  return typeof id === 'number' ? `#${id}` : ''
+}
+
+function useMonomorphicSingleDoc(
+  apiBase: string,
+  relationTo: string,
+  selectedId: number | null,
+  canRead: boolean,
+  currentLocale?: string,
+  fallbackLocale?: string,
+) {
+  return useQuery({
+    queryKey: ['collection-doc', relationTo, selectedId, currentLocale],
+    queryFn: () =>
+      selectedId
+        ? fetchDoc(apiBase, relationTo, selectedId, {
+            locale: currentLocale,
+            fallbackLocale,
+          })
+        : null,
+    enabled: canRead && typeof selectedId === 'number' && selectedId > 0,
+  })
 }
 
 function SingleRelationshipPicker({
@@ -227,10 +367,8 @@ function SingleRelationshipPicker({
   watch,
   disabled,
 }: RelationshipPickerProps) {
-  const relationTo = Array.isArray(field.relationTo)
-    ? (field.relationTo[0] ?? '')
-    : field.relationTo
-  const { apiBase, basePath, titleField, singularLabel, pluralLabel } =
+  const relationTo = typeof field.relationTo === 'string' ? field.relationTo : ''
+  const { apiBase, basePath, titleField, singularLabel, pluralLabel, canRead } =
     useRelationshipConfig(relationTo)
   const { hasLocalization, activeLocale, fallbackLocale } = useLocale()
   const currentLocale = hasLocalization ? activeLocale : undefined
@@ -239,23 +377,19 @@ function SingleRelationshipPicker({
     register(field.name)
   }, [register, field.name])
 
-  const rawValue = watch ? watch(field.name) : undefined
-  const selectedId = normalizeSingleId(rawValue)
+  const selectedId = normalizeSingleId(watch?.(field.name))
   const [isSearching, setIsSearching] = useState(false)
+  const docQuery = useMonomorphicSingleDoc(
+    apiBase,
+    relationTo,
+    selectedId,
+    canRead,
+    currentLocale,
+    fallbackLocale,
+  )
 
-  const docQuery = useQuery({
-    queryKey: ['collection-doc', relationTo, selectedId, currentLocale],
-    queryFn: () =>
-      selectedId
-        ? fetchDoc(apiBase, relationTo, selectedId, {
-            locale: currentLocale,
-            fallbackLocale,
-          })
-        : null,
-    enabled: typeof selectedId === 'number' && selectedId > 0,
-  })
-
-  const title = getDocTitle(docQuery.data, titleField) || `#${selectedId}`
+  const locked = !canRead || isForbiddenError(docQuery.error)
+  const title = getDocTitle(docQuery.data, titleField) || formatIdFallback(selectedId)
 
   const search = (
     <RelationshipSearchDropdown
@@ -282,6 +416,7 @@ function SingleRelationshipPicker({
         basePath={basePath}
         relationTo={relationTo}
         disabled={disabled}
+        locked={locked}
         changeButton={
           <PickerPopover
             open={isSearching}
@@ -296,7 +431,7 @@ function SingleRelationshipPicker({
     )
   }
 
-  if (disabled) {
+  if (disabled || !canRead) {
     return <span className="lt:text-xs lt:text-muted-foreground">—</span>
   }
 
@@ -348,60 +483,140 @@ function PickerIconButton(props: PickerIconButtonProps) {
 }
 
 interface ManyItemRowProps {
-  id: number
+  id: number | null
   index: number
   total: number
   title: string
   basePath: string
   relationTo: string
+  collectionBadge?: string
+  testIdSuffix?: string
+  locked?: boolean
+  lockTestId?: string
   onMove: (from: number, to: number) => void
   onRemove: (idx: number) => void
   disabled?: boolean
 }
 
-function ManyItemRow(props: ManyItemRowProps) {
-  const { id, index, total, title, basePath, relationTo, onMove, onRemove, disabled } = props
-  const editUrl = getDocEditUrl(basePath, relationTo, id)
+function ManyRowActions({
+  canLink,
+  href,
+  canEdit,
+  index,
+  total,
+  suffix,
+  onMove,
+  onRemove,
+}: {
+  canLink: boolean
+  href: string
+  canEdit: boolean
+  index: number
+  total: number
+  suffix: string
+  onMove: (from: number, to: number) => void
+  onRemove: (idx: number) => void
+}) {
   return (
-    <PickerCard className="lt:gap-2 lt:px-2.5 lt:py-1.5" data-testid={`relationship-item-${id}`}>
-      <div className="lt:flex lt:min-w-0 lt:items-center lt:gap-2">
-        <span className="lt:min-w-5 lt:text-xs lt:font-semibold lt:text-muted-foreground">
-          {index + 1}.
-        </span>
-        <span className={pickerTitleClass}>{title}</span>
-        <Badge variant="muted">#{id}</Badge>
-      </div>
-      <div className={pickerActionsClass}>
-        <PickerViewLink href={editUrl} testId={`relationship-link-${id}`} />
-        {!disabled && (
-          <>
-            <PickerIconButton
-              label="Move Up"
-              disabled={index === 0}
-              onClick={() => onMove(index, index - 1)}
-              testId={`relationship-move-up-${id}`}
-            >
-              ↑
-            </PickerIconButton>
-            <PickerIconButton
-              label="Move Down"
-              disabled={index === total - 1}
-              onClick={() => onMove(index, index + 1)}
-              testId={`relationship-move-down-${id}`}
-            >
-              ↓
-            </PickerIconButton>
-            <PickerIconButton
-              label="Remove"
-              destructive
-              onClick={() => onRemove(index)}
-              testId={`relationship-remove-${id}`}
-            >
-              ✕
-            </PickerIconButton>
-          </>
-        )}
-      </div>
+    <div className={pickerActionsClass}>
+      {canLink && <PickerViewLink href={href} testId={`relationship-link-${suffix}`} />}
+      {canEdit && (
+        <>
+          <PickerIconButton
+            label="Move Up"
+            disabled={index === 0}
+            onClick={() => onMove(index, index - 1)}
+            testId={`relationship-move-up-${suffix}`}
+          >
+            ↑
+          </PickerIconButton>
+          <PickerIconButton
+            label="Move Down"
+            disabled={index === total - 1}
+            onClick={() => onMove(index, index + 1)}
+            testId={`relationship-move-down-${suffix}`}
+          >
+            ↓
+          </PickerIconButton>
+          <PickerIconButton
+            label="Remove"
+            destructive
+            onClick={() => onRemove(index)}
+            testId={`relationship-remove-${suffix}`}
+          >
+            ✕
+          </PickerIconButton>
+        </>
+      )}
+    </div>
+  )
+}
+
+function ManyRowContent({
+  index,
+  locked,
+  lockTestId,
+  collectionBadge,
+  suffix,
+  displayTitle,
+  id,
+}: {
+  index: number
+  locked?: boolean
+  lockTestId?: string
+  collectionBadge?: string
+  suffix: string
+  displayTitle: string
+  id: number | null
+}) {
+  return (
+    <div className="lt:flex lt:min-w-0 lt:items-center lt:gap-2">
+      <span className="lt:min-w-5 lt:text-xs lt:font-semibold lt:text-muted-foreground">
+        {index + 1}.
+      </span>
+      {locked && <LockedBadgeIcon testId={lockTestId ?? `relationship-locked-${suffix}`} />}
+      {collectionBadge && (
+        <Badge variant="secondary" data-testid={`relationship-item-collection-${suffix}`}>
+          {collectionBadge}
+        </Badge>
+      )}
+      <span className={pickerTitleClass}>{displayTitle}</span>
+      {id !== null && <Badge variant="muted">#{id}</Badge>}
+    </div>
+  )
+}
+
+function ManyItemRow(props: ManyItemRowProps) {
+  const { id, index, total, title, basePath, relationTo, locked, onMove, onRemove, disabled } =
+    props
+  const suffix = props.testIdSuffix ?? String(id ?? index)
+  const canLink = !locked && id !== null && id > 0
+  const displayTitle = resolveItemTitle(id, title, locked)
+  const href = id !== null ? getDocEditUrl(basePath, relationTo, id) : ''
+  return (
+    <PickerCard
+      className="lt:gap-2 lt:px-2.5 lt:py-1.5"
+      data-testid={`relationship-item-${suffix}`}
+    >
+      <ManyRowContent
+        index={index}
+        locked={locked}
+        lockTestId={props.lockTestId}
+        collectionBadge={props.collectionBadge}
+        suffix={suffix}
+        displayTitle={displayTitle}
+        id={id}
+      />
+      <ManyRowActions
+        canLink={canLink}
+        href={href}
+        canEdit={!disabled && !locked}
+        index={index}
+        total={total}
+        suffix={suffix}
+        onMove={onMove}
+        onRemove={onRemove}
+      />
     </PickerCard>
   )
 }
@@ -410,6 +625,7 @@ function useManySelectedDocs(
   apiBase: string,
   relationTo: string,
   selectedIds: number[],
+  canRead: boolean,
   locale?: string,
   fallbackLocale?: string,
 ) {
@@ -425,17 +641,19 @@ function useManySelectedDocs(
       })
       return res.docs
     },
-    enabled: selectedIds.length > 0,
+    enabled: canRead && selectedIds.length > 0,
   })
 
-  return useMemo(() => {
+  const docsMap = useMemo(() => {
     return new Map(query.data?.map((d) => [Number(d.id), d]))
   }, [query.data])
+
+  return { docsMap, forbidden: isForbiddenError(query.error) }
 }
 
-function reorderItems(ids: number[], from: number, to: number): number[] {
-  if (to < 0 || to >= ids.length) return ids
-  const next = [...ids]
+function reorderItems<T>(items: readonly T[], from: number, to: number): T[] {
+  if (to < 0 || to >= items.length) return [...items]
+  const next = [...items]
   const [moved] = next.splice(from, 1)
   if (moved !== undefined) {
     next.splice(to, 0, moved)
@@ -449,6 +667,7 @@ interface ManySelectedListProps {
   titleField: string
   basePath: string
   relationTo: string
+  locked?: boolean
   onMove: (from: number, to: number) => void
   onRemove: (idx: number) => void
   disabled?: boolean
@@ -460,6 +679,7 @@ function ManySelectedList({
   titleField,
   basePath,
   relationTo,
+  locked,
   onMove,
   onRemove,
   disabled,
@@ -478,6 +698,7 @@ function ManySelectedList({
             title={title}
             basePath={basePath}
             relationTo={relationTo}
+            locked={locked}
             onMove={onMove}
             onRemove={onRemove}
             disabled={disabled}
@@ -495,10 +716,8 @@ function ManyRelationshipPicker({
   watch,
   disabled,
 }: RelationshipPickerProps) {
-  const relationTo = Array.isArray(field.relationTo)
-    ? (field.relationTo[0] ?? '')
-    : field.relationTo
-  const { apiBase, basePath, titleField, singularLabel, pluralLabel } =
+  const relationTo = typeof field.relationTo === 'string' ? field.relationTo : ''
+  const { apiBase, basePath, titleField, singularLabel, pluralLabel, canRead } =
     useRelationshipConfig(relationTo)
   const { hasLocalization, activeLocale, fallbackLocale } = useLocale()
   const currentLocale = hasLocalization ? activeLocale : undefined
@@ -510,13 +729,15 @@ function ManyRelationshipPicker({
   const rawValue = watch ? watch(field.name) : undefined
   const selectedIds = useMemo(() => normalizeManyIds(rawValue), [rawValue])
   const [isSearching, setIsSearching] = useState(false)
-  const docsMap = useManySelectedDocs(
+  const { docsMap, forbidden } = useManySelectedDocs(
     apiBase,
     relationTo,
     selectedIds,
+    canRead,
     currentLocale,
     fallbackLocale,
   )
+  const locked = !canRead || forbidden
 
   const handleMove = (from: number, to: number) => {
     setValue?.(field.name, reorderItems(selectedIds, from, to), {
@@ -550,6 +771,7 @@ function ManyRelationshipPicker({
           titleField={titleField}
           basePath={basePath}
           relationTo={relationTo}
+          locked={locked}
           onMove={handleMove}
           onRemove={handleRemove}
           disabled={disabled}
@@ -560,7 +782,7 @@ function ManyRelationshipPicker({
         </div>
       )}
 
-      {!disabled && (
+      {!disabled && canRead && (
         <PickerPopover
           open={isSearching}
           onOpenChange={setIsSearching}
@@ -588,7 +810,558 @@ function ManyRelationshipPicker({
   )
 }
 
+interface ParsedPolymorphicEntry {
+  relationTo: string
+  id: number | null
+  populatedDoc?: Record<string, unknown>
+}
+
+function parsePolymorphicEntry(raw: unknown): ParsedPolymorphicEntry | null {
+  if (!raw || typeof raw !== 'object') return null
+  const rec = raw as Record<string, unknown>
+  if (typeof rec.relationTo !== 'string' || !rec.relationTo) return null
+  if (rec.value === null || rec.value === undefined) {
+    return { relationTo: rec.relationTo, id: null }
+  }
+  const id = extractNumericId(rec.value)
+  if (id === null) return null
+  const populatedDoc =
+    typeof rec.value === 'object' && rec.value !== null
+      ? (rec.value as Record<string, unknown>)
+      : undefined
+  return { relationTo: rec.relationTo, id, populatedDoc }
+}
+
+function parsePolymorphicMany(raw: unknown): ParsedPolymorphicEntry[] {
+  if (!Array.isArray(raw)) return []
+  return (raw as unknown[])
+    .map(parsePolymorphicEntry)
+    .filter((item): item is ParsedPolymorphicEntry => item !== null)
+}
+
+function toStoredPolymorphicItem(entry: ParsedPolymorphicEntry) {
+  return { relationTo: entry.relationTo, value: entry.id }
+}
+
+interface PolymorphicSearchPanelProps {
+  readableTargets: string[]
+  targetMap: Map<string, TargetCollectionMeta>
+  apiBase: string
+  locale?: string
+  fallbackLocale?: string
+  initialTarget?: string
+  excludeByCollection?: Map<string, number[]>
+  onSelect: (relationTo: string, doc: Record<string, unknown>) => void
+  onCancel: () => void
+}
+
+function PolymorphicSearchPanel({
+  readableTargets,
+  targetMap,
+  apiBase,
+  locale,
+  fallbackLocale,
+  initialTarget,
+  excludeByCollection,
+  onSelect,
+  onCancel,
+}: PolymorphicSearchPanelProps) {
+  const defaultTarget =
+    initialTarget && readableTargets.includes(initialTarget)
+      ? initialTarget
+      : (readableTargets[0] ?? '')
+  const [selectedTarget, setSelectedTarget] = useState(defaultTarget)
+
+  if (readableTargets.length === 0) {
+    return <PickerStatus>No readable collections available</PickerStatus>
+  }
+
+  const activeMeta = targetMap.get(selectedTarget)
+  const excludeIds = excludeByCollection?.get(selectedTarget)
+
+  return (
+    <div className="lt:flex lt:w-full lt:flex-col lt:gap-2">
+      <div
+        className="lt:flex lt:flex-wrap lt:items-center lt:gap-1"
+        role="group"
+        aria-label="Target collection"
+        data-testid="relationship-collection-selector"
+      >
+        {readableTargets.map((slug) => {
+          const meta = targetMap.get(slug)
+          const active = slug === selectedTarget
+          return (
+            <Button
+              key={slug}
+              type="button"
+              size="sm"
+              variant={active ? 'default' : 'outline'}
+              className="lt:h-7 lt:px-2 lt:text-xs lt:shadow-none"
+              aria-pressed={active}
+              onClick={() => setSelectedTarget(slug)}
+              data-testid={`relationship-collection-${slug}`}
+            >
+              {meta?.pluralLabel ?? slug}
+            </Button>
+          )
+        })}
+      </div>
+
+      {activeMeta && (
+        <RelationshipSearchDropdown
+          relationTo={selectedTarget}
+          titleField={activeMeta.titleField}
+          singularLabel={activeMeta.singularLabel}
+          pluralLabel={activeMeta.pluralLabel}
+          apiBase={apiBase}
+          locale={locale}
+          fallbackLocale={fallbackLocale}
+          excludeIds={excludeIds}
+          onSelect={(doc) => onSelect(selectedTarget, doc)}
+          onCancel={onCancel}
+        />
+      )}
+    </div>
+  )
+}
+
+function usePolymorphicSingleDoc(
+  apiBase: string,
+  selected: ParsedPolymorphicEntry | null,
+  canReadSelected: boolean,
+  currentLocale?: string,
+  fallbackLocale?: string,
+) {
+  const relationTo = selected?.relationTo
+  const id = selected?.id
+  const shouldFetch =
+    Boolean(relationTo) &&
+    canReadSelected &&
+    typeof id === 'number' &&
+    id > 0 &&
+    !selected?.populatedDoc
+  return useQuery({
+    queryKey: ['collection-doc', relationTo, id, currentLocale],
+    queryFn: () =>
+      relationTo && id
+        ? fetchDoc(apiBase, relationTo, id, {
+            locale: currentLocale,
+            fallbackLocale,
+          })
+        : null,
+    enabled: shouldFetch,
+  })
+}
+
+function resolvePolymorphicTriggerLabel(
+  readableTargets: string[],
+  targetMap: Map<string, TargetCollectionMeta>,
+): string {
+  const targetNames = readableTargets.map((slug) => targetMap.get(slug)?.singularLabel ?? slug)
+  return targetNames.length <= 2 ? `Select ${targetNames.join(' or ')}…` : 'Select document…'
+}
+
+function resolveRelationTargets(relationTo: string | string[]): string[] {
+  return Array.isArray(relationTo) ? relationTo : [relationTo]
+}
+
+function PolymorphicSingleSelectedCard({
+  selected,
+  selectedMeta,
+  docQuery,
+  basePath,
+  disabled,
+  isSearching,
+  setIsSearching,
+  search,
+  onRemove,
+}: {
+  selected: ParsedPolymorphicEntry
+  selectedMeta: TargetCollectionMeta | undefined
+  docQuery: ReturnType<typeof usePolymorphicSingleDoc>
+  basePath: string
+  disabled?: boolean
+  isSearching: boolean
+  setIsSearching: (open: boolean) => void
+  search: ReactNode
+  onRemove: () => void
+}) {
+  const canReadSelected = selectedMeta?.canRead ?? false
+  const locked = !canReadSelected || isForbiddenError(docQuery.error)
+  const doc = selected.populatedDoc ?? docQuery.data
+  const title =
+    getDocTitle(doc, selectedMeta?.titleField ?? 'title') || formatIdFallback(selected.id)
+  return (
+    <SingleSelectedView
+      selectedId={selected.id}
+      title={title}
+      basePath={basePath}
+      relationTo={selected.relationTo}
+      collectionBadge={selectedMeta?.singularLabel ?? selected.relationTo}
+      disabled={disabled}
+      locked={locked}
+      changeButton={
+        <PickerPopover
+          open={isSearching}
+          onOpenChange={setIsSearching}
+          trigger={<PickerButton data-testid="relationship-change">Change</PickerButton>}
+        >
+          {search}
+        </PickerPopover>
+      }
+      onRemove={onRemove}
+    />
+  )
+}
+
+function PolymorphicSinglePicker({
+  field,
+  register,
+  setValue,
+  watch,
+  disabled,
+}: RelationshipPickerProps) {
+  const targets = useMemo(() => resolveRelationTargets(field.relationTo), [field.relationTo])
+  const { apiBase, basePath, targetMap, readableTargets } = usePolymorphicTargets(targets)
+  const { hasLocalization, activeLocale, fallbackLocale } = useLocale()
+  const currentLocale = hasLocalization ? activeLocale : undefined
+
+  useEffect(() => {
+    register(field.name)
+  }, [register, field.name])
+
+  const selected = parsePolymorphicEntry(watch?.(field.name))
+  const [isSearching, setIsSearching] = useState(false)
+  const selectedMeta = selected ? targetMap.get(selected.relationTo) : undefined
+  const canReadSelected = selectedMeta?.canRead ?? false
+  const docQuery = usePolymorphicSingleDoc(
+    apiBase,
+    selected,
+    canReadSelected,
+    currentLocale,
+    fallbackLocale,
+  )
+
+  const search = (
+    <PolymorphicSearchPanel
+      readableTargets={readableTargets}
+      targetMap={targetMap}
+      apiBase={apiBase}
+      locale={currentLocale}
+      fallbackLocale={fallbackLocale}
+      initialTarget={selected?.relationTo}
+      onSelect={(relationTo, doc) => {
+        setValue?.(
+          field.name,
+          { relationTo, value: Number(doc.id) },
+          { shouldValidate: true, shouldDirty: true },
+        )
+        setIsSearching(false)
+      }}
+      onCancel={() => setIsSearching(false)}
+    />
+  )
+
+  if (selected) {
+    return (
+      <PolymorphicSingleSelectedCard
+        selected={selected}
+        selectedMeta={selectedMeta}
+        docQuery={docQuery}
+        basePath={basePath}
+        disabled={disabled}
+        isSearching={isSearching}
+        setIsSearching={setIsSearching}
+        search={search}
+        onRemove={() => setValue?.(field.name, null, { shouldValidate: true, shouldDirty: true })}
+      />
+    )
+  }
+
+  if (disabled || readableTargets.length === 0) {
+    return <span className="lt:text-xs lt:text-muted-foreground">—</span>
+  }
+
+  return (
+    <PickerPopover
+      open={isSearching}
+      onOpenChange={setIsSearching}
+      trigger={
+        <PickerEmptyTrigger data-testid="relationship-open-search">
+          {resolvePolymorphicTriggerLabel(readableTargets, targetMap)}
+        </PickerEmptyTrigger>
+      }
+    >
+      {search}
+    </PickerPopover>
+  )
+}
+
+function groupIdsToFetchByCollection(
+  entries: readonly ParsedPolymorphicEntry[],
+  targetMap: Map<string, TargetCollectionMeta>,
+): Array<[string, number[]]> {
+  const byCollection = new Map<string, Set<number>>()
+  for (const entry of entries) {
+    if (entry.id === null || entry.populatedDoc) continue
+    const meta = targetMap.get(entry.relationTo)
+    if (meta && !meta.canRead) continue
+    const set = byCollection.get(entry.relationTo) ?? new Set<number>()
+    set.add(entry.id)
+    byCollection.set(entry.relationTo, set)
+  }
+  return Array.from(byCollection.entries()).map(([slug, set]) => [slug, Array.from(set)])
+}
+
+function usePolymorphicManyDocs(
+  apiBase: string,
+  entries: readonly ParsedPolymorphicEntry[],
+  targetMap: Map<string, TargetCollectionMeta>,
+  locale?: string,
+  fallbackLocale?: string,
+) {
+  const grouped = useMemo(
+    () => groupIdsToFetchByCollection(entries, targetMap),
+    [entries, targetMap],
+  )
+
+  const queries = useQueries({
+    queries: grouped.map(([slug, ids]) => ({
+      queryKey: ['relationship-selected-docs', slug, ids, locale],
+      queryFn: async () => {
+        const res = await fetchCollectionDocs(apiBase, slug, {
+          limit: ids.length,
+          where: { id: { in: ids } },
+          locale,
+          fallbackLocale,
+        })
+        return { slug, docs: res.docs }
+      },
+      enabled: ids.length > 0,
+    })),
+  })
+
+  return useMemo(() => {
+    const docsByKey = new Map<string, Record<string, unknown>>()
+    const forbiddenCollections = new Set<string>()
+    for (let i = 0; i < queries.length; i++) {
+      const q = queries[i]
+      const slug = grouped[i]?.[0]
+      if (!slug || !q) continue
+      if (isForbiddenError(q.error)) {
+        forbiddenCollections.add(slug)
+        continue
+      }
+      for (const doc of q.data?.docs ?? []) {
+        docsByKey.set(`${slug}:${String(doc.id)}`, doc)
+      }
+    }
+    return { docsByKey, forbiddenCollections }
+  }, [queries, grouped])
+}
+
+function PolymorphicManyItem({
+  entry,
+  index,
+  total,
+  meta,
+  forbiddenCollections,
+  docsByKey,
+  basePath,
+  onMove,
+  onRemove,
+  disabled,
+}: {
+  entry: ParsedPolymorphicEntry
+  index: number
+  total: number
+  meta: TargetCollectionMeta | undefined
+  forbiddenCollections: Set<string>
+  docsByKey: Map<string, Record<string, unknown>>
+  basePath: string
+  onMove: (from: number, to: number) => void
+  onRemove: (idx: number) => void
+  disabled?: boolean
+}) {
+  const locked = (meta ? !meta.canRead : false) || forbiddenCollections.has(entry.relationTo)
+  const doc = entry.populatedDoc ?? docsByKey.get(`${entry.relationTo}:${String(entry.id)}`)
+  const title = getDocTitle(doc, meta?.titleField ?? 'title') || formatIdFallback(entry.id)
+  const suffix = `${entry.relationTo}-${entry.id ?? index}`
+  return (
+    <ManyItemRow
+      id={entry.id}
+      index={index}
+      total={total}
+      title={title}
+      basePath={basePath}
+      relationTo={entry.relationTo}
+      collectionBadge={meta?.singularLabel ?? entry.relationTo}
+      testIdSuffix={suffix}
+      locked={locked}
+      lockTestId={`relationship-locked-${suffix}`}
+      onMove={onMove}
+      onRemove={onRemove}
+      disabled={disabled}
+    />
+  )
+}
+
+function PolymorphicManyList({
+  entries,
+  targetMap,
+  forbiddenCollections,
+  docsByKey,
+  basePath,
+  onMove,
+  onRemove,
+  disabled,
+}: {
+  entries: readonly ParsedPolymorphicEntry[]
+  targetMap: Map<string, TargetCollectionMeta>
+  forbiddenCollections: Set<string>
+  docsByKey: Map<string, Record<string, unknown>>
+  basePath: string
+  onMove: (from: number, to: number) => void
+  onRemove: (idx: number) => void
+  disabled?: boolean
+}) {
+  return (
+    <div className="lt:flex lt:flex-col lt:gap-1.5" data-testid="relationship-many-list">
+      {entries.map((entry, index) => (
+        <PolymorphicManyItem
+          key={`${entry.relationTo}-${entry.id ?? index}-${index}`}
+          entry={entry}
+          index={index}
+          total={entries.length}
+          meta={targetMap.get(entry.relationTo)}
+          forbiddenCollections={forbiddenCollections}
+          docsByKey={docsByKey}
+          basePath={basePath}
+          onMove={onMove}
+          onRemove={onRemove}
+          disabled={disabled}
+        />
+      ))}
+    </div>
+  )
+}
+
+function PolymorphicManyPicker({
+  field,
+  register,
+  setValue,
+  watch,
+  disabled,
+}: RelationshipPickerProps) {
+  const targets = useMemo(
+    () => (Array.isArray(field.relationTo) ? field.relationTo : [field.relationTo]),
+    [field.relationTo],
+  )
+  const { apiBase, basePath, targetMap, readableTargets } = usePolymorphicTargets(targets)
+  const { hasLocalization, activeLocale, fallbackLocale } = useLocale()
+  const currentLocale = hasLocalization ? activeLocale : undefined
+
+  useEffect(() => {
+    register(field.name)
+  }, [register, field.name])
+
+  const rawValue = watch ? watch(field.name) : undefined
+  const entries = useMemo(() => parsePolymorphicMany(rawValue), [rawValue])
+  const [isSearching, setIsSearching] = useState(false)
+
+  const { docsByKey, forbiddenCollections } = usePolymorphicManyDocs(
+    apiBase,
+    entries,
+    targetMap,
+    currentLocale,
+    fallbackLocale,
+  )
+
+  const excludeByCollection = useMemo(() => {
+    const map = new Map<string, number[]>()
+    for (const entry of entries) {
+      if (entry.id === null) continue
+      const arr = map.get(entry.relationTo) ?? []
+      arr.push(entry.id)
+      map.set(entry.relationTo, arr)
+    }
+    return map
+  }, [entries])
+
+  const commitEntries = (next: ParsedPolymorphicEntry[]) => {
+    setValue?.(field.name, next.map(toStoredPolymorphicItem), {
+      shouldValidate: true,
+      shouldDirty: true,
+    })
+  }
+
+  const handleAdd = (relationTo: string, doc: Record<string, unknown>) => {
+    const id = Number(doc.id)
+    const exists = entries.some((e) => e.relationTo === relationTo && e.id === id)
+    if (!exists) {
+      commitEntries([...entries, { relationTo, id }])
+    }
+    setIsSearching(false)
+  }
+
+  return (
+    <div className="lt:flex lt:flex-col lt:gap-2">
+      {entries.length > 0 ? (
+        <PolymorphicManyList
+          entries={entries}
+          targetMap={targetMap}
+          forbiddenCollections={forbiddenCollections}
+          docsByKey={docsByKey}
+          basePath={basePath}
+          onMove={(from, to) => commitEntries(reorderItems(entries, from, to))}
+          onRemove={(idx) => commitEntries(entries.filter((_, i) => i !== idx))}
+          disabled={disabled}
+        />
+      ) : (
+        <div className="lt:text-muted-foreground" data-testid="relationship-empty-hint">
+          No items selected
+        </div>
+      )}
+
+      {!disabled && readableTargets.length > 0 && (
+        <PickerPopover
+          open={isSearching}
+          onOpenChange={setIsSearching}
+          trigger={
+            <PickerButton className="lt:w-fit" data-testid="relationship-add-btn">
+              + Add Item
+            </PickerButton>
+          }
+        >
+          <PolymorphicSearchPanel
+            readableTargets={readableTargets}
+            targetMap={targetMap}
+            apiBase={apiBase}
+            locale={currentLocale}
+            fallbackLocale={fallbackLocale}
+            excludeByCollection={excludeByCollection}
+            onSelect={handleAdd}
+            onCancel={() => setIsSearching(false)}
+          />
+        </PickerPopover>
+      )}
+    </div>
+  )
+}
+
 export function RelationshipPicker(props: RelationshipPickerProps) {
+  const isPolymorphic = Array.isArray(props.field.relationTo)
+  if (isPolymorphic) {
+    return (
+      <div className="lt:flex lt:w-full lt:flex-col lt:gap-2">
+        {props.field.hasMany ? (
+          <PolymorphicManyPicker {...props} />
+        ) : (
+          <PolymorphicSinglePicker {...props} />
+        )}
+      </div>
+    )
+  }
   return (
     <div className="lt:flex lt:w-full lt:flex-col lt:gap-2">
       {props.field.hasMany ? (

@@ -8,7 +8,9 @@ import {
   type ClientRelationshipField,
 } from '@lontar/core/client'
 import { AdminContext } from '../context/AdminContext'
+import { PermissionsContext, type PermissionsContextValue } from '../context/PermissionsContext'
 import { PortalContainerProvider } from '../context/PortalContainer'
+import { FieldRenderer } from './FieldRenderer'
 import { RelationshipPicker, getDocTitle, getDocEditUrl } from './RelationshipPicker'
 
 const mockConfig: ClientConfig = {
@@ -517,5 +519,356 @@ describe('Many RelationshipPicker (hasMany: true)', () => {
     )
 
     window.history.pushState({}, '', '/')
+  })
+})
+
+function PermWrapper({
+  children,
+  unreadableCollections = [],
+}: {
+  children: React.ReactNode
+  unreadableCollections?: string[]
+}) {
+  const permValue: PermissionsContextValue = {
+    permissions: null,
+    isLoading: false,
+    isPermissionsLoading: false,
+    error: null,
+    userId: 'u1',
+    getCollectionPermission: () => undefined,
+    getGlobalPermission: () => undefined,
+    canReadCollection: (slug) => !unreadableCollections.includes(slug),
+    canCreateInCollection: () => true,
+    canDeleteInCollection: () => true,
+    canReadGlobal: () => true,
+    canUpdateGlobal: () => true,
+    canViewCustomView: () => false,
+    canExecuteCollectionAction: () => true,
+    canExecuteGlobalAction: () => true,
+  }
+  return <PermissionsContext.Provider value={permValue}>{children}</PermissionsContext.Provider>
+}
+
+describe('Polymorphic RelationshipPicker (#512)', () => {
+  const singlePolyField: ClientRelationshipField = {
+    name: 'owner',
+    type: 'relationship',
+    relationTo: ['users', 'categories'],
+    label: 'Owner',
+    required: false,
+  }
+
+  const manyPolyField: ClientRelationshipField = {
+    name: 'related',
+    type: 'relationship',
+    relationTo: ['users', 'categories'],
+    hasMany: true,
+    label: 'Related',
+    required: false,
+  }
+
+  beforeEach(() => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn((url: string) => {
+        if (url.includes('/api/users/1')) {
+          return mockJsonResponse({ id: 1, fullName: 'Ada Lovelace' })
+        }
+        if (url.includes('/api/users/42')) {
+          return mockJsonResponse({ id: 42, fullName: 'Grace Hopper' })
+        }
+        if (url.includes('/api/users') && url.includes('where')) {
+          return mockJsonResponse({
+            docs: [{ id: 1, fullName: 'Ada Lovelace' }],
+            totalDocs: 1,
+            limit: 1,
+            page: 1,
+            totalPages: 1,
+          })
+        }
+        if (url.includes('/api/users')) {
+          return mockJsonResponse({
+            docs: [
+              { id: 1, fullName: 'Ada Lovelace' },
+              { id: 2, fullName: 'Alan Turing' },
+            ],
+            totalDocs: 2,
+            limit: 20,
+            page: 1,
+            totalPages: 1,
+          })
+        }
+        if (url.includes('/api/categories/10')) {
+          return mockJsonResponse({ id: 10, name: 'TypeScript' })
+        }
+        if (url.includes('/api/categories') && url.includes('where')) {
+          return mockJsonResponse({
+            docs: [
+              { id: 10, name: 'TypeScript' },
+              { id: 20, name: 'Next.js' },
+            ],
+            totalDocs: 2,
+            limit: 2,
+            page: 1,
+            totalPages: 1,
+          })
+        }
+        if (url.includes('/api/categories')) {
+          return mockJsonResponse({
+            docs: [
+              { id: 10, name: 'TypeScript' },
+              { id: 20, name: 'Next.js' },
+            ],
+            totalDocs: 2,
+            limit: 20,
+            page: 1,
+            totalPages: 1,
+          })
+        }
+        return mockJsonResponse({}, 404)
+      }),
+    )
+  })
+
+  afterEach(() => {
+    cleanup()
+    vi.restoreAllMocks()
+  })
+
+  it('lets editor choose target collection first, then select a document for single polymorphic field', async () => {
+    let latestValue: unknown
+    render(
+      <TestWrapper defaultValues={{ owner: null }}>
+        {({ register, setValue, watch }) => {
+          latestValue = watch('owner')
+          return (
+            <RelationshipPicker
+              field={singlePolyField}
+              register={register}
+              setValue={setValue}
+              watch={watch}
+            />
+          )
+        }}
+      </TestWrapper>,
+    )
+
+    fireEvent.click(screen.getByTestId('relationship-open-search'))
+    expect(screen.getByTestId('relationship-collection-selector')).toBeTruthy()
+    expect(screen.getByTestId('relationship-collection-users')).toBeTruthy()
+    expect(screen.getByTestId('relationship-collection-categories')).toBeTruthy()
+
+    // Switch target collection to Categories before choosing document
+    fireEvent.click(screen.getByTestId('relationship-collection-categories'))
+
+    await waitFor(() => {
+      expect(screen.getByTestId('relationship-option-10')).toBeTruthy()
+    })
+    fireEvent.click(screen.getByTestId('relationship-option-10'))
+
+    expect(latestValue).toEqual({ relationTo: 'categories', value: 10 })
+    expect(screen.getByTestId('relationship-single-selected')).toBeTruthy()
+    expect(screen.getByTestId('relationship-collection-badge').textContent).toBe('Category')
+    await waitFor(() => {
+      expect(screen.getByText('TypeScript')).toBeTruthy()
+    })
+    const link = screen.getByTestId<HTMLAnchorElement>('relationship-link')
+    expect(link.getAttribute('href')).toBe('/admin/categories/10')
+
+    fireEvent.click(screen.getByTestId('relationship-clear'))
+    expect(latestValue).toBeNull()
+  })
+
+  it('supports mixed-collection hasMany selection, collection badges, and reordering', async () => {
+    let latestValue: unknown
+    render(
+      <TestWrapper
+        defaultValues={{
+          related: [
+            { relationTo: 'users', value: 1 },
+            { relationTo: 'categories', value: 10 },
+          ],
+        }}
+      >
+        {({ register, setValue, watch }) => {
+          latestValue = watch('related')
+          return (
+            <RelationshipPicker
+              field={manyPolyField}
+              register={register}
+              setValue={setValue}
+              watch={watch}
+            />
+          )
+        }}
+      </TestWrapper>,
+    )
+
+    expect(screen.getByTestId('relationship-item-users-1')).toBeTruthy()
+    expect(screen.getByTestId('relationship-item-categories-10')).toBeTruthy()
+    expect(screen.getByTestId('relationship-item-collection-users-1').textContent).toBe('User')
+    expect(screen.getByTestId('relationship-item-collection-categories-10').textContent).toBe(
+      'Category',
+    )
+
+    await waitFor(() => {
+      expect(screen.getByText('Ada Lovelace')).toBeTruthy()
+      expect(screen.getByText('TypeScript')).toBeTruthy()
+    })
+
+    // Reorder: move users:1 down past categories:10
+    fireEvent.click(screen.getByTestId('relationship-move-down-users-1'))
+    expect(latestValue).toEqual([
+      { relationTo: 'categories', value: 10 },
+      { relationTo: 'users', value: 1 },
+    ])
+
+    // Add another item from categories (excluding already selected 10, keeping 20)
+    fireEvent.click(screen.getByTestId('relationship-add-btn'))
+    fireEvent.click(screen.getByTestId('relationship-collection-categories'))
+
+    await waitFor(() => {
+      expect(screen.queryByTestId('relationship-option-10')).toBeNull()
+      expect(screen.getByTestId('relationship-option-20')).toBeTruthy()
+    })
+    fireEvent.click(screen.getByTestId('relationship-option-20'))
+
+    expect(latestValue).toEqual([
+      { relationTo: 'categories', value: 10 },
+      { relationTo: 'users', value: 1 },
+      { relationTo: 'categories', value: 20 },
+    ])
+  })
+
+  it('keeps items locked without leaking titles or View links when user cannot read target collection', async () => {
+    const fetchSpy = vi.mocked(globalThis.fetch)
+    render(
+      <PermWrapper unreadableCollections={['users']}>
+        <TestWrapper
+          defaultValues={{
+            related: [
+              { relationTo: 'users', value: 42 },
+              { relationTo: 'categories', value: 10 },
+            ],
+          }}
+        >
+          {({ register, setValue, watch }) => (
+            <RelationshipPicker
+              field={manyPolyField}
+              register={register}
+              setValue={setValue}
+              watch={watch}
+            />
+          )}
+        </TestWrapper>
+      </PermWrapper>,
+    )
+
+    expect(screen.getByTestId('relationship-locked-users-42')).toBeTruthy()
+    expect(screen.getByText('Restricted')).toBeTruthy()
+    expect(screen.queryByTestId('relationship-link-users-42')).toBeNull()
+    expect(screen.queryByTestId('relationship-remove-users-42')).toBeNull()
+
+    await waitFor(() => {
+      expect(screen.getByText('TypeScript')).toBeTruthy()
+    })
+    expect(screen.getByTestId('relationship-link-categories-10')).toBeTruthy()
+    expect(
+      fetchSpy.mock.calls.some(
+        (args) => typeof args[0] === 'string' && args[0].includes('/api/users'),
+      ),
+    ).toBe(false)
+
+    // Opening add popover only offers readable target collections
+    fireEvent.click(screen.getByTestId('relationship-add-btn'))
+    expect(screen.queryByTestId('relationship-collection-users')).toBeNull()
+    expect(screen.getByTestId('relationship-collection-categories')).toBeTruthy()
+  })
+
+  it('works inside array and blocks items via FieldRenderer', async () => {
+    let latestValues: Record<string, unknown> = {}
+    const arrayField = {
+      name: 'links',
+      type: 'array' as const,
+      label: 'Links',
+      required: false,
+      fields: [singlePolyField],
+    }
+    const blocksField = {
+      name: 'sections',
+      type: 'blocks' as const,
+      label: 'Sections',
+      required: false,
+      blocks: [
+        {
+          slug: 'spotlight',
+          labels: { singular: 'Spotlight', plural: 'Spotlights' },
+          fields: [manyPolyField],
+        },
+      ],
+    }
+
+    render(
+      <TestWrapper
+        defaultValues={{
+          links: [{ id: 'row-1', owner: { relationTo: 'users', value: 42 } }],
+          sections: [
+            {
+              id: 'blk-1',
+              blockType: 'spotlight',
+              related: [{ relationTo: 'categories', value: 10 }],
+            },
+          ],
+        }}
+      >
+        {({ control, register, setValue, watch }) => {
+          latestValues = watch()
+          return (
+            <>
+              <FieldRenderer
+                field={arrayField}
+                control={control}
+                register={register}
+                setValue={setValue}
+                watch={watch}
+              />
+              <FieldRenderer
+                field={blocksField}
+                control={control}
+                register={register}
+                setValue={setValue}
+                watch={watch}
+              />
+            </>
+          )
+        }}
+      </TestWrapper>,
+    )
+
+    await waitFor(() => {
+      expect(screen.getByText('Grace Hopper')).toBeTruthy()
+      expect(screen.getByText('TypeScript')).toBeTruthy()
+    })
+
+    // Add a user item inside the blocks polymorphic hasMany field
+    fireEvent.click(screen.getByTestId('relationship-add-btn'))
+    await waitFor(() => {
+      expect(screen.getByTestId('relationship-option-1')).toBeTruthy()
+    })
+    fireEvent.click(screen.getByTestId('relationship-option-1'))
+
+    expect(latestValues).toMatchObject({
+      links: [{ id: 'row-1', owner: { relationTo: 'users', value: 42 } }],
+      sections: [
+        {
+          id: 'blk-1',
+          blockType: 'spotlight',
+          related: [
+            { relationTo: 'categories', value: 10 },
+            { relationTo: 'users', value: 1 },
+          ],
+        },
+      ],
+    })
   })
 })
