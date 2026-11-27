@@ -1710,4 +1710,66 @@ describe('toClientConfig admin.actions (#468)', () => {
       },
     ])
   })
+
+  it('serializes join fields with defaults and excludes them from auto defaultColumns', () => {
+    const config = defineConfig({
+      secret: SECRET,
+      db: fakeAdapter,
+      collections: [
+        {
+          slug: 'authors',
+          fields: {
+            name: f.text({ required: true }),
+            posts: f.join({
+              collection: 'posts',
+              on: 'author',
+              sort: '-createdAt',
+              where: { status: { equals: 'published' } },
+            }),
+            limitedPosts: f.join({
+              collection: 'posts',
+              on: 'author',
+              limit: 25,
+            }),
+          },
+        },
+        {
+          slug: 'posts',
+          fields: {
+            title: f.text({ required: true }),
+            status: f.text(),
+            author: f.relationship({ relationTo: 'authors' }),
+          },
+        },
+      ],
+    })
+
+    const client = toClientConfig(config)
+    expect(JSON.parse(JSON.stringify(client))).toEqual(client)
+    const authorsCol = client.collections.find((c) => c.slug === 'authors')
+    expect(authorsCol?.admin.defaultColumns).toEqual(['name'])
+    expect(authorsCol?.fields).toEqual([
+      { name: 'name', type: 'text', label: 'Name', required: true, maxLength: 255 },
+      {
+        name: 'posts',
+        type: 'join',
+        label: 'Posts',
+        required: false,
+        collection: 'posts',
+        on: 'author',
+        limit: 10,
+        sort: '-createdAt',
+        where: { status: { equals: 'published' } },
+      },
+      {
+        name: 'limitedPosts',
+        type: 'join',
+        label: 'Limited Posts',
+        required: false,
+        collection: 'posts',
+        on: 'author',
+        limit: 25,
+      },
+    ])
+  })
 })

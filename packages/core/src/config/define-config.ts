@@ -7,6 +7,7 @@ import type {
   CollapsibleField,
   Field,
   GroupField,
+  JoinField,
   JsonField,
   NumberField,
   PointField,
@@ -22,7 +23,14 @@ import type {
 } from '../fields/types'
 import { flattenFields, isLayoutField } from '../fields/flatten'
 import type { DatabaseAdapter } from '../database/adapter'
-import type { CollectionConfig, Config, GlobalConfig, PaginationConfig } from './types'
+import { validateSort, validateWhere } from '../query/validator'
+import type {
+  CollectionConfig,
+  Config,
+  GlobalConfig,
+  LocalizationConfig,
+  PaginationConfig,
+} from './types'
 import { validateAdminConfig } from './validate-admin'
 import { validateActions } from './validate-actions'
 import { validateEndpoints } from './validate-endpoints'
@@ -105,6 +113,7 @@ function validateConfig(config: Config): string[] {
     config.collections,
     config.db,
     hasLocalization,
+    config.localization,
   )
   issues.push(...collectionIssues)
   issues.push(...validateGlobals(config.globals, collectionMap, config.db, hasLocalization))
@@ -317,6 +326,7 @@ function validateCollections(
   collections: readonly CollectionConfig[],
   dbAdapter?: DatabaseAdapter,
   hasLocalization = false,
+  localization?: LocalizationConfig,
 ): {
   issues: string[]
   collectionMap: Map<string, CollectionConfig>
@@ -337,7 +347,13 @@ function validateCollections(
   }
   for (const collection of collections) {
     issues.push(
-      ...validateFieldTargets(`Collection "${collection.slug}"`, collection.fields, collectionMap),
+      ...validateFieldTargets(
+        `Collection "${collection.slug}"`,
+        collection.fields,
+        collectionMap,
+        collection.slug,
+        localization,
+      ),
     )
   }
   return { issues, collectionMap }
@@ -376,6 +392,8 @@ function validateFieldTargets(
   where: string,
   fields: Record<string, Field>,
   collectionMap: Map<string, CollectionConfig>,
+  currentCollectionSlug?: string,
+  localization?: LocalizationConfig,
 ): string[] {
   const issues: string[] = []
   for (const [name, field] of Object.entries(flattenFields(fields))) {
@@ -383,15 +401,139 @@ function validateFieldTargets(
       issues.push(...validateUploadTarget(where, name, field, collectionMap))
     } else if (field.type === 'relationship') {
       issues.push(...validateRelationshipTarget(where, name, field, collectionMap))
+    } else if (field.type === 'join') {
+      issues.push(
+        ...validateJoinTarget(
+          where,
+          name,
+          field,
+          currentCollectionSlug,
+          collectionMap,
+          localization,
+        ),
+      )
     } else if (field.type === 'group' || field.type === 'array') {
-      issues.push(...validateFieldTargets(where, field.fields, collectionMap))
+      issues.push(
+        ...validateFieldTargets(
+          where,
+          field.fields,
+          collectionMap,
+          currentCollectionSlug,
+          localization,
+        ),
+      )
     } else if (field.type === 'blocks') {
       for (const block of field.blocks) {
-        issues.push(...validateFieldTargets(where, block.fields, collectionMap))
+        issues.push(
+          ...validateFieldTargets(
+            where,
+            block.fields,
+            collectionMap,
+            currentCollectionSlug,
+            localization,
+          ),
+        )
       }
     }
   }
   return issues
+}
+
+function resolveJoinOnField(fields: Record<string, Field>, on: string): Field | undefined {
+  const flat = flattenFields(fields)
+  if (!on.includes('.')) return flat[on]
+  const parts = on.split('.')
+  let current = flat
+  for (let i = 0; i < parts.length; i++) {
+    const part = parts[i]
+    if (!part) return undefined
+    const f = current[part]
+    if (!f) return undefined
+    if (i === parts.length - 1) return f
+    if (f.type !== 'group') return undefined
+    current = flattenFields(f.fields)
+  }
+  return undefined
+}
+
+function validateJoinTargetQuery(
+  where: string,
+  name: string,
+  field: JoinField,
+  targetCol: CollectionConfig,
+  localization?: LocalizationConfig,
+): string[] {
+  const issues: string[] = []
+  if (typeof field.sort === 'string' && field.sort.trim()) {
+    for (const issue of validateSort(field.sort, targetCol, localization)) {
+      issues.push(
+        `${where}: join field "${name}" has invalid sort "${field.sort}": ${issue.message}`,
+      )
+    }
+  }
+  if (field.where && typeof field.where === 'object' && !Array.isArray(field.where)) {
+    for (const issue of validateWhere(field.where, targetCol, localization)) {
+      issues.push(`${where}: join field "${name}" has invalid where: ${issue.message}`)
+    }
+  }
+  return issues
+}
+
+function validateJoinRelationTarget(
+  where: string,
+  name: string,
+  field: JoinField,
+  currentCollectionSlug: string,
+  targetCol: CollectionConfig,
+): string[] {
+  if (typeof field.on !== 'string' || !field.on.trim()) return []
+  const targetField = resolveJoinOnField(targetCol.fields, field.on)
+  if (!targetField) {
+    return [
+      `${where}: join field "${name}" refers to unknown field "${field.on}" on collection "${field.collection}".`,
+    ]
+  }
+  if (targetField.type !== 'relationship') {
+    return [
+      `${where}: join field "${name}" field "${field.on}" on collection "${field.collection}" must be a relationship field, got "${targetField.type}".`,
+    ]
+  }
+  const targets = Array.isArray(targetField.relationTo)
+    ? targetField.relationTo
+    : [targetField.relationTo]
+  if (!targets.includes(currentCollectionSlug)) {
+    return [
+      `${where}: join field "${name}" field "${field.on}" on collection "${field.collection}" does not relate to "${currentCollectionSlug}".`,
+    ]
+  }
+  return []
+}
+
+function validateJoinTarget(
+  where: string,
+  name: string,
+  field: JoinField,
+  currentCollectionSlug: string | undefined,
+  collectionMap: Map<string, CollectionConfig>,
+  localization?: LocalizationConfig,
+): string[] {
+  if (!currentCollectionSlug) {
+    return [`${where}: join field "${name}" is only supported on collections, not globals.`]
+  }
+  if (typeof field.collection !== 'string' || !field.collection.trim()) return []
+  const targetCol = collectionMap.get(field.collection)
+  if (!targetCol) {
+    return [`${where}: join field "${name}" refers to unknown collection "${field.collection}".`]
+  }
+  const relationIssues = validateJoinRelationTarget(
+    where,
+    name,
+    field,
+    currentCollectionSlug,
+    targetCol,
+  )
+  if (relationIssues.length > 0) return relationIssues
+  return validateJoinTargetQuery(where, name, field, targetCol, localization)
 }
 
 function validateUploadTarget(
@@ -596,6 +738,12 @@ function validateFieldLocalization(
       return [
         `${where}: layout field "${name}" (${field.type}) cannot be localized. Set localized on its child fields instead.`,
       ]
+    }
+    return []
+  }
+  if (field.type === 'join') {
+    if ((field as unknown as { localized?: boolean }).localized) {
+      return [`${where}: join field "${name}" cannot be localized because it holds no stored data.`]
     }
     return []
   }
@@ -905,9 +1053,16 @@ function validateFieldAccessKeys(
   where: string,
   name: string,
   access: Record<string, unknown>,
+  isJoin = false,
 ): string[] {
   const issues: string[] = []
   for (const key of Object.keys(access)) {
+    if (isJoin && key !== 'read') {
+      issues.push(
+        `${where}: join field "${name}" access does not support "${key}". Only "read" is supported.`,
+      )
+      continue
+    }
     if (!FIELD_ACCESS_OPS.includes(key as FieldAccessOp)) {
       issues.push(
         `${where}: field "${name}" access does not support "${key}". Only "read", "create", and "update" are supported.`,
@@ -944,7 +1099,10 @@ function validateFieldAccess(where: string, name: string, field: Field): string[
     return [`${where}: field "${name}" access must be an object.`]
   }
   const obj = access as Record<string, unknown>
-  return [...validateFieldAccessKeys(where, name, obj), ...validateFieldAccessOps(where, name, obj)]
+  return [
+    ...validateFieldAccessKeys(where, name, obj, field.type === 'join'),
+    ...validateFieldAccessOps(where, name, obj),
+  ]
 }
 
 function validateContainerField(
@@ -1259,6 +1417,47 @@ function validateLayoutField(
   }
 }
 
+function validateNonScalarFieldType(
+  where: string,
+  name: string,
+  field: Field,
+  fields: Record<string, Field>,
+  depth: number,
+  dbAdapter?: DatabaseAdapter,
+  hasLocalization = false,
+  containerLocalized = false,
+  layoutDepth = 0,
+): string[] {
+  if (isLayoutField(field)) {
+    return validateLayoutField(
+      where,
+      name,
+      field,
+      depth,
+      dbAdapter,
+      hasLocalization,
+      containerLocalized,
+      layoutDepth,
+      fields,
+    )
+  }
+  if (field.type === 'group' || field.type === 'array' || field.type === 'blocks') {
+    return validateContainerField(
+      where,
+      name,
+      field,
+      depth,
+      dbAdapter,
+      hasLocalization,
+      containerLocalized,
+    )
+  }
+  if (field.type === 'join') {
+    return validateJoinField(where, name, field, depth)
+  }
+  return []
+}
+
 function validateFieldType(
   where: string,
   name: string,
@@ -1276,33 +1475,61 @@ function validateFieldType(
   const scalar = validateScalarField(where, name, field)
   if (scalar) return scalar
 
-  if (isLayoutField(field)) {
-    return validateLayoutField(
-      where,
-      name,
-      field,
-      depth,
-      dbAdapter,
-      hasLocalization,
-      containerLocalized,
-      layoutDepth,
-      fields,
+  return validateNonScalarFieldType(
+    where,
+    name,
+    field,
+    fields,
+    depth,
+    dbAdapter,
+    hasLocalization,
+    containerLocalized,
+    layoutDepth,
+  )
+}
+
+function isNonEmptyString(val: unknown): val is string {
+  return typeof val === 'string' && val.trim().length > 0
+}
+
+function isPlainRecord(val: unknown): val is Record<string, unknown> {
+  return typeof val === 'object' && val !== null && !Array.isArray(val)
+}
+
+function validateJoinFieldOptions(where: string, name: string, field: JoinField): string[] {
+  const issues: string[] = []
+  if (
+    field.limit !== undefined &&
+    (!Number.isInteger(field.limit) || field.limit <= 0 || field.limit > 100)
+  ) {
+    issues.push(`${where}: join field "${name}" limit must be a positive integer up to 100.`)
+  }
+  if (field.sort !== undefined && !isNonEmptyString(field.sort)) {
+    issues.push(`${where}: join field "${name}" sort must be a non-empty string.`)
+  }
+  if (field.where !== undefined && !isPlainRecord(field.where)) {
+    issues.push(`${where}: join field "${name}" where must be an object.`)
+  }
+  return issues
+}
+
+function validateJoinField(where: string, name: string, field: JoinField, depth: number): string[] {
+  const issues: string[] = []
+  if (depth > 1) {
+    issues.push(
+      `${where}: join field "${name}" cannot be nested inside group, array, or blocks fields.`,
     )
   }
-
-  if (field.type === 'group' || field.type === 'array' || field.type === 'blocks') {
-    return validateContainerField(
-      where,
-      name,
-      field,
-      depth,
-      dbAdapter,
-      hasLocalization,
-      containerLocalized,
-    )
+  if ((field as unknown as { required?: boolean }).required) {
+    issues.push(`${where}: join field "${name}" cannot be required because it is read-only.`)
   }
-
-  return []
+  if (!isNonEmptyString(field.collection)) {
+    issues.push(`${where}: join field "${name}" must specify a non-empty "collection" slug.`)
+  }
+  if (!isNonEmptyString(field.on)) {
+    issues.push(`${where}: join field "${name}" must specify a non-empty "on" field name.`)
+  }
+  return [...issues, ...validateJoinFieldOptions(where, name, field)]
 }
 
 const CONTAINER_FIELD_TYPES = new Set(['group', 'array', 'blocks', 'tabs', 'row', 'collapsible'])

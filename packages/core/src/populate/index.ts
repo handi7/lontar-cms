@@ -1,14 +1,15 @@
 import { combineWhere, constraintOf, resolveAccess, sanitizeDocRead } from '../access'
-import type { FieldAccessCache } from '../access/field-access'
+import { checkFieldAccess, type FieldAccessCache } from '../access/field-access'
 import type { AuthUser } from '../auth/types'
 import type { CollectionConfig, Config } from '../config/types'
 import type { Where } from '../query/types'
-import type { DatabaseAdapter, DocumentData } from '../database/adapter'
+import type { DatabaseAdapter, DocumentData, JoinFieldResult } from '../database/adapter'
 import type {
   ArrayField,
   BlocksField,
   Field,
   GroupField,
+  JoinField,
   RelationshipField,
   UploadField,
 } from '../fields/types'
@@ -620,7 +621,7 @@ interface PopulateTargetArgs {
   targetCol: CollectionConfig
   targetIds: number[]
   parentDocs: DocumentData[]
-  parentCollection: CollectionConfig
+  parentCollection: { slug: string; fields: Record<string, Field> } | CollectionConfig
   depth: number
   collections: readonly CollectionConfig[]
   db: DatabaseAdapter
@@ -770,6 +771,441 @@ function hasReferenceFields(fields: Record<string, Field>): boolean {
   return false
 }
 
+function hasJoinFields(fields: Record<string, Field>): boolean {
+  return Object.values(fields).some((field) => field.type === 'join')
+}
+
+function initSkippedJoinFields(
+  docs: DocumentData[],
+  docsToPopulate: DocumentData[],
+  flatFields: Record<string, Field>,
+): void {
+  const populatedSet = new Set(docsToPopulate)
+  const joinNames = Object.entries(flatFields)
+    .filter(([, f]) => f.type === 'join')
+    .map(([name]) => name)
+  if (joinNames.length === 0) return
+  for (const doc of docs) {
+    if (populatedSet.has(doc)) continue
+    for (const name of joinNames) {
+      if (doc[name] === undefined) {
+        doc[name] = { docs: [], totalDocs: 0 }
+      }
+    }
+  }
+}
+
+function getByDotPath(obj: Record<string, unknown>, dotPath: string): unknown {
+  if (!dotPath.includes('.')) return obj[dotPath]
+  let cur: unknown = obj
+  for (const part of dotPath.split('.')) {
+    if (!cur || typeof cur !== 'object') return undefined
+    cur = (cur as Record<string, unknown>)[part]
+  }
+  return cur
+}
+
+function resolveJoinOnTargetField(fields: Record<string, Field>, on: string): Field | undefined {
+  const flat = flattenFields(fields)
+  if (!on.includes('.')) return flat[on]
+  let current = flat
+  const parts = on.split('.')
+  for (let i = 0; i < parts.length; i++) {
+    const part = parts[i]
+    if (!part) return undefined
+    const f = current[part]
+    if (!f) return undefined
+    if (i === parts.length - 1) return f
+    if (f.type !== 'group') return undefined
+    current = flattenFields(f.fields)
+  }
+  return undefined
+}
+
+function extractMatchingParentIds(
+  val: unknown,
+  sourceCollection: string,
+  parentIdSet: ReadonlySet<number>,
+): number[] {
+  if (typeof val === 'number') {
+    return parentIdSet.has(val) ? [val] : []
+  }
+  if (Array.isArray(val)) {
+    const matched: number[] = []
+    for (const item of val) {
+      matched.push(...extractMatchingParentIds(item, sourceCollection, parentIdSet))
+    }
+    return matched
+  }
+  if (val && typeof val === 'object') {
+    const ref = parsePolymorphicRef(val)
+    if (ref && ref.relationTo === sourceCollection && parentIdSet.has(ref.id)) {
+      return [ref.id]
+    }
+  }
+  return []
+}
+
+async function fetchJoinedViaFind(args: {
+  db: DatabaseAdapter
+  targetCol: CollectionConfig
+  on: string
+  sourceCollection: string
+  parentIds: number[]
+  where?: Where
+  sort?: string
+  limit: number
+  includeDocs: boolean
+  locale?: string
+  fallbackLocale?: string | false
+}): Promise<Map<number, JoinFieldResult<DocumentData>>> {
+  const targetField = resolveJoinOnTargetField(args.targetCol.fields, args.on)
+  const isPoly = targetField?.type === 'relationship' && Array.isArray(targetField.relationTo)
+  const linkWhere: Where = isPoly
+    ? {
+        [args.on]: { relationTo: { equals: args.sourceCollection }, value: { in: args.parentIds } },
+      }
+    : { [args.on]: { in: args.parentIds } }
+
+  const res = await args.db.find({
+    collection: args.targetCol,
+    where: combineWhere(linkWhere, args.where),
+    sort: args.sort,
+    page: 1,
+    limit: 0,
+    overrideLimit: true,
+    locale: args.locale,
+    fallbackLocale: args.fallbackLocale,
+  })
+
+  const parentIdSet = new Set(args.parentIds)
+  const grouped = new Map<number, DocumentData[]>()
+  for (const pid of args.parentIds) {
+    grouped.set(pid, [])
+  }
+  for (const doc of res.docs) {
+    const matchedPids = extractMatchingParentIds(
+      getByDotPath(doc, args.on),
+      args.sourceCollection,
+      parentIdSet,
+    )
+    for (const pid of new Set(matchedPids)) {
+      grouped.get(pid)?.push({ ...doc })
+    }
+  }
+
+  const results = new Map<number, JoinFieldResult<DocumentData>>()
+  for (const [pid, matchedDocs] of grouped) {
+    results.set(pid, {
+      docs: args.includeDocs ? matchedDocs.slice(0, args.limit) : [],
+      totalDocs: matchedDocs.length,
+    })
+  }
+  return results
+}
+
+async function filterEligibleJoinDocs(
+  docsToPopulate: DocumentData[],
+  joinField: JoinField,
+  user: AuthUser | null,
+  overrideAccess?: boolean,
+  cache?: FieldAccessCache,
+  req?: Request,
+  locale?: string,
+): Promise<DocumentData[]> {
+  const numericDocs = docsToPopulate.filter((d) => typeof d.id === 'number')
+  if (overrideAccess || !joinField.access?.read) {
+    return numericDocs
+  }
+  const eligible: DocumentData[] = []
+  for (const doc of numericDocs) {
+    const allowed = await checkFieldAccess(
+      joinField.access.read,
+      {
+        user,
+        id: doc.id as number,
+        data: doc,
+        siblingData: doc,
+        doc,
+        req,
+        locale,
+      },
+      cache,
+    )
+    if (allowed) {
+      eligible.push(doc)
+    }
+  }
+  return eligible
+}
+
+async function transformJoinedDocs(args: {
+  joinedByParent: Map<number, JoinFieldResult<DocumentData>>
+  targetCol: CollectionConfig
+  parentDocs: DocumentData[]
+  parentCollection: { slug: string; fields: Record<string, Field> } | CollectionConfig
+  depth: number
+  collections: readonly CollectionConfig[]
+  db: DatabaseAdapter
+  user: AuthUser | null
+  req?: Request
+  seen: ReadonlySet<string>
+  overrideAccess?: boolean
+  canDraftTarget: boolean
+  cache?: FieldAccessCache
+  locale?: string
+  fallbackLocale?: string | false
+  localization?: Config['localization']
+}): Promise<void> {
+  const flatDocs: Array<{ parentId: number; index: number; doc: DocumentData }> = []
+  for (const [parentId, entry] of args.joinedByParent) {
+    entry.docs.forEach((doc, index) => {
+      flatDocs.push({ parentId, index, doc })
+    })
+  }
+  if (flatDocs.length === 0) return
+
+  const localeCtx: ProjectLocaleContext | undefined = args.locale
+    ? { locale: args.locale, fallbackLocale: args.fallbackLocale }
+    : undefined
+
+  let processed = await hydrateTargetDraftDocs(
+    args.targetCol,
+    flatDocs.map((item) => item.doc),
+    args.db,
+    args.canDraftTarget,
+    localeCtx,
+  )
+  processed = await Promise.all(
+    processed.map((doc) =>
+      runAfterReadHooks({ collection: args.targetCol, doc, req: args.req, locale: args.locale }),
+    ),
+  )
+
+  const targetHasJoins = hasJoinFields(flattenFields(args.targetCol.fields))
+  if (args.depth > 1 || targetHasJoins) {
+    const nextSeen = new Set(args.seen)
+    for (const d of args.parentDocs) {
+      if (typeof d.id === 'number') {
+        nextSeen.add(`${args.parentCollection.slug}:${d.id}`)
+      }
+    }
+    processed = await populateDocs({
+      docs: processed,
+      collection: args.targetCol,
+      depth: args.depth - 1,
+      collections: args.collections,
+      db: args.db,
+      user: args.user,
+      req: args.req,
+      seen: nextSeen,
+      overrideAccess: args.overrideAccess,
+      draft: args.canDraftTarget,
+      cache: args.cache,
+      locale: args.locale,
+      fallbackLocale: args.fallbackLocale,
+      localization: args.localization,
+    })
+  }
+
+  if (!args.overrideAccess) {
+    processed = await Promise.all(
+      processed.map((doc) =>
+        sanitizeDocRead(args.targetCol.fields, doc, args.user, {
+          id: doc.id as string | number | undefined,
+          doc,
+          cache: args.cache,
+          req: args.req,
+          locale: args.locale,
+        }),
+      ),
+    )
+  }
+
+  flatDocs.forEach((item, idx) => {
+    const entry = args.joinedByParent.get(item.parentId)
+    if (entry && processed[idx]) {
+      entry.docs[item.index] = processed[idx]!
+    }
+  })
+}
+
+async function fetchJoinBatchResults(args: {
+  db: DatabaseAdapter
+  targetCol: CollectionConfig
+  joinField: JoinField
+  sourceCollection: string
+  parentIds: number[]
+  effectiveWhere?: Where
+  includeDocs: boolean
+  locale?: string
+  fallbackLocale?: string | false
+}): Promise<Map<number, JoinFieldResult<DocumentData>>> {
+  const limit = args.joinField.limit ?? 10
+  if (args.db.findJoined) {
+    return args.db.findJoined({
+      collection: args.targetCol,
+      on: args.joinField.on,
+      sourceCollection: args.sourceCollection,
+      parentIds: args.parentIds,
+      where: args.effectiveWhere,
+      sort: args.joinField.sort,
+      limit,
+      includeDocs: args.includeDocs,
+      locale: args.locale,
+      fallbackLocale: args.fallbackLocale,
+    })
+  }
+  return fetchJoinedViaFind({
+    db: args.db,
+    targetCol: args.targetCol,
+    on: args.joinField.on,
+    sourceCollection: args.sourceCollection,
+    parentIds: args.parentIds,
+    where: args.effectiveWhere,
+    sort: args.joinField.sort,
+    limit,
+    includeDocs: args.includeDocs,
+    locale: args.locale,
+    fallbackLocale: args.fallbackLocale,
+  })
+}
+
+function assignJoinResults(
+  docs: DocumentData[],
+  joinName: string,
+  joinedByParent?: Map<number, JoinFieldResult<DocumentData>>,
+): void {
+  for (const doc of docs) {
+    const pid = doc.id as number
+    const res = joinedByParent?.get(pid)
+    doc[joinName] = res ? { docs: res.docs, totalDocs: res.totalDocs } : { docs: [], totalDocs: 0 }
+  }
+}
+
+async function populateSingleJoinField(args: {
+  joinName: string
+  joinField: JoinField
+  docsToPopulate: DocumentData[]
+  collection: { slug: string; fields: Record<string, Field> } | CollectionConfig
+  depth: number
+  collections: readonly CollectionConfig[]
+  db: DatabaseAdapter
+  user: AuthUser | null
+  req?: Request
+  seen: ReadonlySet<string>
+  overrideAccess?: boolean
+  draft?: boolean
+  cache?: FieldAccessCache
+  locale?: string
+  fallbackLocale?: string | false
+  localization?: Config['localization']
+}): Promise<void> {
+  const { joinName, joinField, docsToPopulate, collection, depth } = args
+  const targetCol = args.collections.find((c) => c.slug === joinField.collection)
+  if (!targetCol) {
+    assignJoinResults(docsToPopulate, joinName)
+    return
+  }
+
+  const eligibleDocs = await filterEligibleJoinDocs(
+    docsToPopulate,
+    joinField,
+    args.user,
+    args.overrideAccess,
+    args.cache,
+    args.req,
+    args.locale,
+  )
+  if (eligibleDocs.length === 0) return
+
+  const targetAccess = await resolveTargetAccess({
+    targetCol,
+    user: args.user,
+    locale: args.locale,
+    localization: args.localization,
+    overrideAccess: args.overrideAccess,
+    draft: args.draft,
+  })
+  if (!targetAccess) {
+    assignJoinResults(eligibleDocs, joinName)
+    return
+  }
+
+  const publishedFilter: Where | undefined =
+    targetCol.versions?.drafts && !targetAccess.canDraftTarget
+      ? { _status: { equals: 'published' } }
+      : undefined
+  const effectiveWhere = combineWhere(
+    combineWhere(joinField.where, targetAccess.constraint),
+    publishedFilter,
+  )
+  const parentIds = Array.from(new Set(eligibleDocs.map((d) => d.id as number)))
+  const includeDocs = depth >= 1
+
+  const joinedByParent = await fetchJoinBatchResults({
+    db: args.db,
+    targetCol,
+    joinField,
+    sourceCollection: collection.slug,
+    parentIds,
+    effectiveWhere,
+    includeDocs,
+    locale: args.locale,
+    fallbackLocale: args.fallbackLocale,
+  })
+
+  if (includeDocs) {
+    await transformJoinedDocs({
+      joinedByParent,
+      targetCol,
+      parentDocs: eligibleDocs,
+      parentCollection: collection,
+      depth,
+      collections: args.collections,
+      db: args.db,
+      user: args.user,
+      req: args.req,
+      seen: args.seen,
+      overrideAccess: args.overrideAccess,
+      canDraftTarget: targetAccess.canDraftTarget,
+      cache: args.cache,
+      locale: args.locale,
+      fallbackLocale: args.fallbackLocale,
+      localization: args.localization,
+    })
+  }
+
+  assignJoinResults(eligibleDocs, joinName, joinedByParent)
+}
+
+async function populateAllJoins(args: {
+  docsToPopulate: DocumentData[]
+  flatFields: Record<string, Field>
+  collection: { slug: string; fields: Record<string, Field> } | CollectionConfig
+  depth: number
+  collections: readonly CollectionConfig[]
+  db: DatabaseAdapter
+  user: AuthUser | null
+  req?: Request
+  seen: ReadonlySet<string>
+  overrideAccess?: boolean
+  draft?: boolean
+  cache?: FieldAccessCache
+  locale?: string
+  fallbackLocale?: string | false
+  localization?: Config['localization']
+}): Promise<void> {
+  for (const [joinName, field] of Object.entries(args.flatFields)) {
+    if (field.type !== 'join') continue
+    await populateSingleJoinField({
+      ...args,
+      joinName,
+      joinField: field,
+    })
+  }
+}
+
 function filterDocsToPopulate(
   docs: DocumentData[],
   collectionSlug: string,
@@ -783,7 +1219,7 @@ function filterDocsToPopulate(
 interface PopulateAllTargetsArgs {
   slots: RefSlot[]
   docsToPopulate: DocumentData[]
-  collection: CollectionConfig
+  collection: { slug: string; fields: Record<string, Field> } | CollectionConfig
   depth: number
   collections: readonly CollectionConfig[]
   db: DatabaseAdapter
@@ -853,54 +1289,94 @@ async function populateAllTargets(args: PopulateAllTargetsArgs): Promise<void> {
   assignAllSlots(slots, docsByTarget, accessibleTargets, seen)
 }
 
-export async function populateDocs(options: PopulateOptions): Promise<DocumentData[]> {
-  const {
-    docs,
-    collection,
-    depth,
-    collections,
-    db,
-    req,
-    overrideAccess,
-    draft,
-    cache,
-    locale,
-    fallbackLocale,
-    localization,
-  } = options
-  const user = options.user ?? null
-  const seen = options.seen ?? new Set<string>()
-
-  if (depth <= 0 || docs.length === 0) return docs
-  const flatFields = flattenFields(collection.fields)
-  if (!hasReferenceFields(flatFields)) return docs
-
-  const docsToPopulate = filterDocsToPopulate(docs, collection.slug, seen)
-  if (docsToPopulate.length === 0) return docs
-
+async function populateReferenceSlots(
+  docsToPopulate: DocumentData[],
+  flatFields: Record<string, Field>,
+  options: Omit<PopulateOptions, 'docs'> & { user: AuthUser | null; seen: ReadonlySet<string> },
+): Promise<void> {
   const slots: RefSlot[] = []
   for (const doc of docsToPopulate) {
     collectSlots(doc, flatFields, slots)
   }
-  if (slots.length === 0) return docs
-
+  if (slots.length === 0) return
   await populateAllTargets({
     slots,
     docsToPopulate,
-    collection,
-    depth,
-    collections,
-    db,
-    user,
-    req,
-    seen,
-    overrideAccess,
-    draft,
-    cache,
-    locale,
-    fallbackLocale,
-    localization,
+    collection: options.collection,
+    depth: options.depth,
+    collections: options.collections,
+    db: options.db,
+    user: options.user,
+    req: options.req,
+    seen: options.seen,
+    overrideAccess: options.overrideAccess,
+    draft: options.draft,
+    cache: options.cache,
+    locale: options.locale,
+    fallbackLocale: options.fallbackLocale,
+    localization: options.localization,
   })
+}
+
+async function populateJoinFieldsForDocs(
+  docsToPopulate: DocumentData[],
+  flatFields: Record<string, Field>,
+  options: Omit<PopulateOptions, 'docs'> & { user: AuthUser | null; seen: ReadonlySet<string> },
+): Promise<void> {
+  await populateAllJoins({
+    docsToPopulate,
+    flatFields,
+    collection: options.collection,
+    depth: options.depth,
+    collections: options.collections,
+    db: options.db,
+    user: options.user,
+    req: options.req,
+    seen: options.seen,
+    overrideAccess: options.overrideAccess,
+    draft: options.draft,
+    cache: options.cache,
+    locale: options.locale,
+    fallbackLocale: options.fallbackLocale,
+    localization: options.localization,
+  })
+}
+
+function prepareDocsToPopulate(
+  docs: DocumentData[],
+  collectionSlug: string,
+  flatFields: Record<string, Field>,
+  hasJoins: boolean,
+  seen: ReadonlySet<string>,
+): DocumentData[] {
+  const docsToPopulate = filterDocsToPopulate(docs, collectionSlug, seen)
+  if (hasJoins) {
+    initSkippedJoinFields(docs, docsToPopulate, flatFields)
+  }
+  return docsToPopulate
+}
+
+export async function populateDocs(options: PopulateOptions): Promise<DocumentData[]> {
+  const { docs, collection, depth } = options
+  if (docs.length === 0) return docs
+
+  const flatFields = flattenFields(collection.fields)
+  const hasRefs = depth > 0 && hasReferenceFields(flatFields)
+  const hasJoins = hasJoinFields(flatFields)
+  if (!hasRefs && !hasJoins) return docs
+
+  const user = options.user ?? null
+  const seen = options.seen ?? new Set<string>()
+  const docsToPopulate = prepareDocsToPopulate(docs, collection.slug, flatFields, hasJoins, seen)
+  if (docsToPopulate.length === 0) return docs
+
+  const passOpts = { ...options, user, seen }
+  if (hasRefs) {
+    await populateReferenceSlots(docsToPopulate, flatFields, passOpts)
+  }
+  if (hasJoins) {
+    await populateJoinFieldsForDocs(docsToPopulate, flatFields, passOpts)
+  }
 
   return docs
 }

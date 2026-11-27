@@ -1,5 +1,5 @@
 import type { DraftSystemFields, SystemFields, UploadSystemFields } from '../client/system-fields'
-import type { Block, Field, Fields, JsonValue } from './types'
+import type { Block, Field, Fields, JoinResult, JsonValue } from './types'
 
 /** The value each field type stores. Every new field type needs an entry here. */
 interface FieldValueMap {
@@ -100,42 +100,44 @@ type FieldValue<F extends Field> = F extends {
   type: 'tabs' | 'row' | 'collapsible'
 }
   ? never
-  : F extends {
-        type: 'group'
-        fields: infer SubFields extends Fields
-      }
-    ? F extends { required: true }
-      ? InferGroupFields<SubFields>
-      : InferGroupFields<SubFields> | null
+  : F extends { type: 'join' }
+    ? JoinResult
     : F extends {
-          type: 'array'
+          type: 'group'
           fields: infer SubFields extends Fields
         }
       ? F extends { required: true }
-        ? InferArrayRow<SubFields>[]
-        : InferArrayRow<SubFields>[] | null
+        ? InferGroupFields<SubFields>
+        : InferGroupFields<SubFields> | null
       : F extends {
-            type: 'blocks'
-            blocks: readonly (infer B extends Block)[]
+            type: 'array'
+            fields: infer SubFields extends Fields
           }
         ? F extends { required: true }
-          ? InferBlockRow<B>[]
-          : InferBlockRow<B>[] | null
-        : F extends { type: 'relationship' }
-          ? InferRelationshipValue<F>
-          : F extends { type: 'text'; hasMany: true }
-            ? F extends { required: true }
-              ? string[]
-              : string[] | null
-            : F extends { type: 'number'; hasMany: true }
+          ? InferArrayRow<SubFields>[]
+          : InferArrayRow<SubFields>[] | null
+        : F extends {
+              type: 'blocks'
+              blocks: readonly (infer B extends Block)[]
+            }
+          ? F extends { required: true }
+            ? InferBlockRow<B>[]
+            : InferBlockRow<B>[] | null
+          : F extends { type: 'relationship' }
+            ? InferRelationshipValue<F>
+            : F extends { type: 'text'; hasMany: true }
               ? F extends { required: true }
-                ? number[]
-                : number[] | null
-              : F['type'] extends keyof FieldValueMap
+                ? string[]
+                : string[] | null
+              : F extends { type: 'number'; hasMany: true }
                 ? F extends { required: true }
-                  ? FieldValueMap[F['type']]
-                  : FieldValueMap[F['type']] | null
-                : unknown
+                  ? number[]
+                  : number[] | null
+                : F['type'] extends keyof FieldValueMap
+                  ? F extends { required: true }
+                    ? FieldValueMap[F['type']]
+                    : FieldValueMap[F['type']] | null
+                  : unknown
 
 type Simplify<T> = { [K in keyof T]: T[K] }
 

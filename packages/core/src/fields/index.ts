@@ -9,6 +9,7 @@ import type {
   DateField,
   EmailField,
   GroupField,
+  JoinField,
   JsonField,
   NumberField,
   PointField,
@@ -259,6 +260,26 @@ function collapsible<const O extends Options<CollapsibleField>>(
   return { ...options, type: 'collapsible' }
 }
 
+function validateJoinLimit(limit?: number): void {
+  if (limit !== undefined && (!Number.isInteger(limit) || limit <= 0 || limit > 100)) {
+    throw new Error('Join field "limit" must be a positive integer up to 100')
+  }
+}
+
+function join<const O extends Options<JoinField>>(options: O): O & { type: 'join' } {
+  if (!options || typeof options !== 'object') {
+    throw new Error('Join field requires an options object')
+  }
+  if (!options.collection || typeof options.collection !== 'string') {
+    throw new Error('Join field requires a "collection" slug')
+  }
+  if (!options.on || typeof options.on !== 'string') {
+    throw new Error('Join field requires an "on" relationship field name')
+  }
+  validateJoinLimit(options.limit)
+  return { ...options, type: 'join' }
+}
+
 export const fields = {
   text,
   number,
@@ -281,6 +302,7 @@ export const fields = {
   tabs,
   row,
   collapsible,
+  join,
 }
 
 export { flattenFields, isLayoutField } from './flatten'

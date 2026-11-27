@@ -10,6 +10,7 @@ import type {
   ClientEmailField,
   ClientField,
   ClientGroupField,
+  ClientJoinField,
   ClientJsonField,
   ClientNumberField,
   ClientPointField,
@@ -296,6 +297,12 @@ const zodByType = {
   tabs: () => z.unknown().optional(),
   row: () => z.unknown().optional(),
   collapsible: () => z.unknown().optional(),
+  join: (field: ClientJoinField) =>
+    z
+      .undefined({
+        message: `Join field "${field.name}" is read-only and cannot be set`,
+      })
+      .optional(),
 } satisfies {
   [K in ClientField['type']]: (
     field: Extract<ClientField, { type: K }>,
@@ -330,6 +337,9 @@ export function clientFieldToZod(
   forceValidation = false,
   opts?: ClientFieldsToZodOptions,
 ): z.ZodType {
+  if (field.type === 'join') {
+    return zodByType.join(field)
+  }
   if (!forceValidation && field.condition) {
     return z.unknown().optional()
   }

@@ -465,6 +465,9 @@ function resolveFieldValue(
   localeCtx: ResolvedLocaleContext,
   parentLocalized = false,
 ): { value: unknown; hasValue: boolean } {
+  if (field.type === 'join') {
+    return { value: undefined, hasValue: false }
+  }
   const isFieldLocalized = Boolean(parentLocalized || field.localized)
   if (field.type === 'group') {
     const nested = projectGroup(row, colName, field, localeCtx, isFieldLocalized)
@@ -921,7 +924,7 @@ function resolveFullKey(prefix: string, key: string): string {
 }
 
 function shouldSkipField(field?: Field): boolean {
-  return Boolean(field?.type === 'relationship' && field.hasMany)
+  return Boolean(field?.type === 'join' || (field?.type === 'relationship' && field.hasMany))
 }
 
 function sanitizePointField(

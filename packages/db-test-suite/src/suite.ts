@@ -2,7 +2,7 @@ import { execFileSync } from 'node:child_process'
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
-import { afterAll, beforeAll, describe, expect, it } from 'vitest'
+import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest'
 import {
   createLontar,
   createLontarClient,
@@ -17,6 +17,8 @@ import {
   conditionalPostsCollection,
   createTestConfig,
   headerGlobal,
+  joinAuthorsCollection,
+  joinBooksCollection,
   localizedHeaderGlobal,
   localizedPostsCollection,
   longSlugVersionedCollection,
@@ -3854,6 +3856,209 @@ export function registerAdapterConformanceSuite(
           },
         ])
       })
+
+      it('loads join fields in batches across single, hasMany, and polymorphic targets with constraints, drafts, and depth cycles', async () => {
+        const local = createLontarClient(config)
+        const { author1, author2, author3, b1, b2, b3 } = await seedJoinFixtures(local)
+
+        await assertJoinWriteRejection(local, Number(author1.id))
+        await assertJoinDepthAndTargets(
+          local,
+          Number(author1.id),
+          Number(b1.id),
+          Number(b2.id),
+          Number(b3.id),
+        )
+        await assertJoinConstraintAndBatching(config, adapter, local, [
+          Number(author1.id),
+          Number(author2.id),
+          Number(author3.id),
+        ])
+      })
     })
   })
+}
+
+async function seedJoinFixtures(local: ReturnType<typeof createLontarClient>) {
+  const author1 = await local.create('join_authors', {
+    data: { name: 'Author One' },
+    overrideAccess: true,
+  })
+  const author2 = await local.create('join_authors', {
+    data: { name: 'Author Two' },
+    overrideAccess: true,
+  })
+  const author3 = await local.create('join_authors', {
+    data: { name: 'Author Three' },
+    overrideAccess: true,
+  })
+  const cat = await local.create('categories', {
+    data: { name: 'Publisher Cat' },
+    overrideAccess: true,
+  })
+
+  const b1 = await local.create('join_books', {
+    data: {
+      title: 'Book 1',
+      featured: true,
+      author: author1.id,
+      coAuthors: [author1.id, author2.id],
+      publisher: { relationTo: 'join_authors', value: author1.id },
+    },
+    overrideAccess: true,
+  })
+  const b2 = await local.create('join_books', {
+    data: {
+      title: 'Book 2',
+      featured: false,
+      author: author1.id,
+      coAuthors: [author2.id],
+      publisher: { relationTo: 'categories', value: cat.id },
+    },
+    overrideAccess: true,
+  })
+  const b3 = await local.create('join_books', {
+    data: { title: 'Book 3', featured: true, author: author1.id },
+    overrideAccess: true,
+  })
+  await local.create('join_books', {
+    data: { title: 'Draft Book', featured: true, author: author1.id },
+    draft: true,
+    overrideAccess: true,
+  })
+  return { author1, author2, author3, b1, b2, b3 }
+}
+
+async function assertJoinWriteRejection(
+  local: ReturnType<typeof createLontarClient>,
+  authorId: number,
+) {
+  await expect(
+    local.create('join_authors', {
+      data: { name: 'Bad', books: [] } as never,
+      overrideAccess: true,
+    }),
+  ).rejects.toThrow(/Validation failed/)
+  await expect(
+    local.update('join_authors', {
+      id: authorId,
+      data: { books: null },
+      overrideAccess: true,
+    }),
+  ).rejects.toThrow(/Validation failed/)
+}
+
+async function assertJoinDepthZeroAndDrafts(
+  local: ReturnType<typeof createLontarClient>,
+  authorId: number,
+) {
+  const a1Depth0 = await local.findByID('join_authors', {
+    id: authorId,
+    depth: 0,
+    overrideAccess: true,
+  })
+  expect(a1Depth0).not.toBeNull()
+  expect(a1Depth0!.books).toEqual({ docs: [], totalDocs: 3 })
+  expect(a1Depth0!.featuredBooks).toEqual({ docs: [], totalDocs: 2 })
+  expect(a1Depth0!.coAuthoredBooks).toEqual({ docs: [], totalDocs: 1 })
+  expect(a1Depth0!.publishedBooks).toEqual({ docs: [], totalDocs: 1 })
+
+  const a1Draft = await local.findByID('join_authors', {
+    id: authorId,
+    depth: 0,
+    draft: true,
+    overrideAccess: true,
+  })
+  expect(a1Draft).not.toBeNull()
+  expect(a1Draft!.books).toEqual({ docs: [], totalDocs: 4 })
+}
+
+async function assertJoinDepthAndTargets(
+  local: ReturnType<typeof createLontarClient>,
+  authorId: number,
+  b1Id: number,
+  b2Id: number,
+  b3Id: number,
+) {
+  await assertJoinDepthZeroAndDrafts(local, authorId)
+
+  const a1Depth2 = await local.findByID('join_authors', {
+    id: authorId,
+    depth: 2,
+    overrideAccess: true,
+  })
+  expect(a1Depth2).not.toBeNull()
+  const doc = a1Depth2!
+  const a1Books = doc.books as { docs: Array<Record<string, unknown>>; totalDocs: number }
+  expect(a1Books.totalDocs).toBe(3)
+  expect(a1Books.docs.map((d) => d.id)).toEqual([b3Id, b2Id])
+  expect(a1Books.docs[0]?.author).toBe(authorId)
+
+  const a1Featured = doc.featuredBooks as {
+    docs: Array<Record<string, unknown>>
+    totalDocs: number
+  }
+  expect(a1Featured.totalDocs).toBe(2)
+  expect(a1Featured.docs.map((d) => d.id)).toEqual([b1Id, b3Id].sort((x, y) => x - y))
+
+  const a1Poly = doc.publishedBooks as {
+    docs: Array<Record<string, unknown>>
+    totalDocs: number
+  }
+  expect(a1Poly.totalDocs).toBe(1)
+  expect(a1Poly.docs[0]?.id).toBe(b1Id)
+}
+
+async function assertJoinConstraintAndBatching(
+  config: Config,
+  adapter: DatabaseAdapter,
+  local: ReturnType<typeof createLontarClient>,
+  authorIds: number[],
+) {
+  const constrainedLocal = createLontarClient({
+    ...config,
+    collections: config.collections.map((c) =>
+      c.slug === joinBooksCollection.slug
+        ? { ...c, access: { ...c.access, read: () => ({ featured: { equals: true } }) } }
+        : c,
+    ),
+  })
+  const constrainedAuthor = await constrainedLocal.findByID('join_authors', {
+    id: authorIds[0]!,
+    depth: 1,
+  })
+  const constrainedBooks = constrainedAuthor?.books as {
+    docs: Array<Record<string, unknown>>
+    totalDocs: number
+  }
+  expect(constrainedBooks.totalDocs).toBe(2)
+  expect(constrainedBooks.docs.every((d) => d.featured === true)).toBe(true)
+
+  const findSpy = vi.spyOn(adapter, 'find')
+  const findJoinedSpy = vi.spyOn(adapter, 'findJoined')
+  await local.find('join_authors', {
+    where: { id: { equals: authorIds[0]! } },
+    depth: 1,
+    overrideAccess: true,
+  })
+  const singleFindCalls = findSpy.mock.calls.length
+  const singleJoinCalls = findJoinedSpy.mock.calls.length
+
+  findSpy.mockClear()
+  findJoinedSpy.mockClear()
+
+  await local.find('join_authors', {
+    where: { id: { in: authorIds } },
+    depth: 1,
+    overrideAccess: true,
+  })
+  expect(findSpy).toHaveBeenCalledTimes(singleFindCalls)
+  expect(findJoinedSpy).toHaveBeenCalledTimes(singleJoinCalls)
+  const expectedJoins = Object.values(joinAuthorsCollection.fields).filter(
+    (f) => f.type === 'join',
+  ).length
+  expect(singleJoinCalls).toBe(expectedJoins)
+
+  findSpy.mockRestore()
+  findJoinedSpy.mockRestore()
 }

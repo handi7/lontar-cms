@@ -30,6 +30,7 @@ export type {
   ClientGlobal,
   ClientGlobalAdmin,
   ClientGroupField,
+  ClientJoinField,
   ClientLocale,
   ClientLocalizationConfig,
   ClientNumberField,

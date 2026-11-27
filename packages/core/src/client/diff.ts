@@ -435,13 +435,14 @@ function iterateFields(fields: DiffableFields): Array<{ name: string; field: Dif
   if (Array.isArray(fields)) {
     const arr = fields as readonly unknown[]
     for (const f of arr) {
-      if (isDiffableFieldItem(f) && !iterateLayoutField(f, list)) {
+      if (isDiffableFieldItem(f) && f.type !== 'join' && !iterateLayoutField(f, list)) {
         list.push({ name: f.name, field: f })
       }
     }
     return list
   }
   for (const [name, field] of Object.entries(fields)) {
+    if (field.type === 'join') continue
     if (!iterateLayoutField(field, list)) {
       list.push({ name, field })
     }
