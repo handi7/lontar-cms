@@ -1518,3 +1518,47 @@ describe('clientFieldsToZod with layout fields (tabs, row, collapsible)', () => 
     expect(withSeoValid.success).toBe(true)
   })
 })
+
+describe('clientFieldsToZod with join fields (ADR 0033)', () => {
+  const authorFields: ClientField[] = [
+    { name: 'name', type: 'text', label: 'Name', required: true },
+    {
+      name: 'posts',
+      type: 'join',
+      label: 'Posts',
+      required: false,
+      collection: 'posts',
+      on: 'author',
+      limit: 10,
+    },
+  ]
+
+  it('allows omitting join fields on create and partial update', () => {
+    const schema = clientFieldsToZod(authorFields)
+    expect(schema.safeParse({ name: 'Alice' })).toEqual({
+      success: true,
+      data: { name: 'Alice' },
+    })
+    expect(schema.partial().safeParse({ name: 'Alice Updated' })).toEqual({
+      success: true,
+      data: { name: 'Alice Updated' },
+    })
+  })
+
+  it('rejects any value sent for a read-only join field on create or update', () => {
+    const schema = clientFieldsToZod(authorFields)
+    for (const badVal of [[], null, { docs: [], totalDocs: 0 }, 'posts']) {
+      const createRes = schema.safeParse({ name: 'Alice', posts: badVal })
+      expect(createRes.success).toBe(false)
+      if (!createRes.success) {
+        expect(createRes.error.issues[0]?.message).toContain('read-only')
+      }
+
+      const updateRes = schema.partial().safeParse({ posts: badVal })
+      expect(updateRes.success).toBe(false)
+      if (!updateRes.success) {
+        expect(updateRes.error.issues[0]?.message).toContain('read-only')
+      }
+    }
+  })
+})

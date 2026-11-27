@@ -1150,4 +1150,207 @@ describe('populateDocs', () => {
       expect(populatedMentor.value.mentor).toEqual({ relationTo: 'editors', value: 10 })
     })
   })
+
+  describe('join fields (ADR 0033)', () => {
+    const now = '2026-01-01T00:00:00.000Z'
+
+    it('populates counts only at depth 0 and full limited docs at depth >= 1', async () => {
+      const authorsCol: CollectionConfig = {
+        slug: 'authors',
+        access: { read: () => true },
+        fields: {
+          name: { type: 'text', required: true },
+          posts: { type: 'join', collection: 'posts', on: 'author', limit: 2, sort: '-id' },
+        },
+      }
+      const postsCol: CollectionConfig = {
+        slug: 'posts',
+        versions: { drafts: true },
+        access: { read: () => true },
+        fields: {
+          title: { type: 'text', required: true },
+          author: { type: 'relationship', relationTo: 'authors' },
+        },
+      }
+      const mockPosts: StoredDoc[] = [
+        { id: 1, title: 'P1', author: 10, _status: 'published', createdAt: now, updatedAt: now },
+        { id: 2, title: 'P2', author: 10, _status: 'published', createdAt: now, updatedAt: now },
+        { id: 3, title: 'P3', author: 10, _status: 'published', createdAt: now, updatedAt: now },
+        { id: 4, title: 'Draft', author: 10, _status: 'draft', createdAt: now, updatedAt: now },
+        { id: 5, title: 'Other', author: 20, _status: 'published', createdAt: now, updatedAt: now },
+      ]
+
+      const db = createMockAdapter({ posts: mockPosts })
+      const findJoinedSpy = vi.fn<NonNullable<DatabaseAdapter['findJoined']>>(
+        ({ parentIds, includeDocs, limit, where }) => {
+          const publishedOnly = checkPublishedFilter(where)
+          const map = new Map<number, { docs: StoredDoc[]; totalDocs: number }>()
+          for (const pid of parentIds) {
+            const matching = mockPosts
+              .filter((p) => p.author === pid && (!publishedOnly || p._status === 'published'))
+              .sort((a, b) => b.id - a.id)
+            map.set(pid, {
+              docs: includeDocs ? matching.slice(0, limit).map((d) => ({ ...d })) : [],
+              totalDocs: matching.length,
+            })
+          }
+          return Promise.resolve(map)
+        },
+      )
+      db.findJoined = findJoinedSpy
+
+      // Depth 0: counts only, docs empty, draft excluded
+      const atZero = await populateDocs({
+        docs: [
+          { id: 10, name: 'Alice', createdAt: now, updatedAt: now },
+          { id: 20, name: 'Bob', createdAt: now, updatedAt: now },
+        ],
+        collection: authorsCol,
+        depth: 0,
+        collections: [authorsCol, postsCol],
+        db,
+      })
+      expect(findJoinedSpy).toHaveBeenCalledTimes(1)
+      expect(atZero[0]?.posts).toEqual({ docs: [], totalDocs: 3 })
+      expect(atZero[1]?.posts).toEqual({ docs: [], totalDocs: 1 })
+
+      // Depth 1: up to limit (2), drafts still excluded
+      const atOne = await populateDocs({
+        docs: [
+          { id: 10, name: 'Alice', createdAt: now, updatedAt: now },
+          { id: 20, name: 'Bob', createdAt: now, updatedAt: now },
+        ],
+        collection: authorsCol,
+        depth: 1,
+        collections: [authorsCol, postsCol],
+        db,
+      })
+      expect(findJoinedSpy).toHaveBeenCalledTimes(2)
+      const alicePosts = atOne[0]?.posts as { docs: StoredDoc[]; totalDocs: number }
+      expect(alicePosts.totalDocs).toBe(3)
+      expect(alicePosts.docs.map((d) => d.id)).toEqual([3, 2])
+    })
+
+    it('enforces target read access, field-level read access, and terminates cycles at depth', async () => {
+      const authorsCol: CollectionConfig = {
+        slug: 'authors',
+        access: { read: () => true },
+        fields: {
+          name: { type: 'text', required: true },
+          posts: { type: 'join', collection: 'posts', on: 'author' },
+          secretPosts: {
+            type: 'join',
+            collection: 'posts',
+            on: 'author',
+            access: { read: ({ user }) => user?.role === 'admin' },
+          },
+        },
+      }
+      const postsCol: CollectionConfig = {
+        slug: 'posts',
+        access: { read: () => true },
+        fields: {
+          title: { type: 'text', required: true },
+          secretNote: { type: 'text', access: { read: () => false } },
+          author: { type: 'relationship', relationTo: 'authors' },
+        },
+      }
+      const db = createMockAdapter({
+        authors: [{ id: 1, name: 'Alice', createdAt: now, updatedAt: now }],
+        posts: [
+          {
+            id: 10,
+            title: 'Post 10',
+            secretNote: 'classified',
+            author: 1,
+            createdAt: now,
+            updatedAt: now,
+          },
+        ],
+      })
+      const findJoinedSpy = vi.fn<NonNullable<DatabaseAdapter['findJoined']>>(
+        ({ parentIds, includeDocs }) => {
+          const map = new Map<number, { docs: StoredDoc[]; totalDocs: number }>()
+          for (const pid of parentIds) {
+            map.set(pid, {
+              docs: includeDocs
+                ? [
+                    {
+                      id: 10,
+                      title: 'Post 10',
+                      secretNote: 'classified',
+                      author: 1,
+                      createdAt: now,
+                      updatedAt: now,
+                    },
+                  ]
+                : [],
+              totalDocs: 1,
+            })
+          }
+          return Promise.resolve(map)
+        },
+      )
+      db.findJoined = findJoinedSpy
+
+      const res = await populateDocs({
+        docs: [{ id: 1, name: 'Alice', createdAt: now, updatedAt: now }],
+        collection: authorsCol,
+        depth: 3,
+        collections: [authorsCol, postsCol],
+        db,
+        user: {
+          id: 'u1',
+          email: 'u1@example.com',
+          name: 'User One',
+          emailVerified: true,
+          role: 'editor',
+          createdAt: new Date(now),
+          updatedAt: new Date(now),
+        },
+      })
+
+      // secretPosts denied for editor -> never queried
+      expect(findJoinedSpy).toHaveBeenCalledTimes(1)
+      expect(res[0]?.secretPosts).toBeUndefined()
+      const postsRes = res[0]?.posts as { docs: DocumentData[]; totalDocs: number }
+      expect(postsRes.totalDocs).toBe(1)
+      expect(postsRes.docs[0]?.secretNote).toBeUndefined()
+      // Cycle terminates: post.author remains id 1 because authors:1 is already in seen
+      expect(postsRes.docs[0]?.author).toBe(1)
+    })
+
+    it('returns empty join result when target collection read access is denied', async () => {
+      const authorsCol: CollectionConfig = {
+        slug: 'authors',
+        access: { read: () => true },
+        fields: {
+          name: { type: 'text' },
+          posts: { type: 'join', collection: 'posts', on: 'author' },
+        },
+      }
+      const postsCol: CollectionConfig = {
+        slug: 'posts',
+        access: { read: () => false },
+        fields: {
+          title: { type: 'text' },
+          author: { type: 'relationship', relationTo: 'authors' },
+        },
+      }
+      const db = createMockAdapter({ posts: [] })
+      const findJoinedSpy = vi.fn<NonNullable<DatabaseAdapter['findJoined']>>()
+      db.findJoined = findJoinedSpy
+
+      const res = await populateDocs({
+        docs: [{ id: 1, name: 'Alice', createdAt: now, updatedAt: now }],
+        collection: authorsCol,
+        depth: 1,
+        collections: [authorsCol, postsCol],
+        db,
+      })
+
+      expect(findJoinedSpy).not.toHaveBeenCalled()
+      expect(res[0]?.posts).toEqual({ docs: [], totalDocs: 0 })
+    })
+  })
 })

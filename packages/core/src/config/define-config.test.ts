@@ -2386,4 +2386,164 @@ describe('admin.views validation (#467)', () => {
       ])
     })
   })
+
+  describe('join fields (ADR 0033)', () => {
+    it('accepts valid join fields targeting single, hasMany, polymorphic, and group-nested relationships', () => {
+      const authors: CollectionConfig = {
+        slug: 'authors',
+        fields: {
+          name: f.text({ required: true }),
+          posts: f.join({ collection: 'posts', on: 'author', limit: 10, sort: '-createdAt' }),
+          activities: f.join({
+            collection: 'activities',
+            on: 'owner',
+            where: { title: { equals: 'ok' } },
+          }),
+          profileTab: f.tabs({
+            tabs: [
+              {
+                label: 'Links',
+                fields: {
+                  groupedPosts: f.join({ collection: 'posts', on: 'meta.reviewer' }),
+                },
+              },
+            ],
+          }),
+        },
+      }
+      const posts: CollectionConfig = {
+        slug: 'posts',
+        fields: {
+          title: f.text({ required: true }),
+          author: f.relationship({ relationTo: 'authors' }),
+          meta: f.group({
+            fields: {
+              reviewer: f.relationship({ relationTo: 'authors', hasMany: true }),
+            },
+          }),
+        },
+      }
+      const activities: CollectionConfig = {
+        slug: 'activities',
+        fields: {
+          title: f.text(),
+          owner: f.relationship({ relationTo: ['authors', 'posts'] }),
+        },
+      }
+      expect(issuesOf([authors, posts, activities])).toEqual([])
+    })
+
+    it('rejects join fields with missing targets, non-relationship on, wrong relationTo, or invalid options', () => {
+      const authors: CollectionConfig = {
+        slug: 'authors',
+        fields: {
+          name: f.text({ required: true }),
+          missingCol: f.join({ collection: 'unknown', on: 'author' }),
+          missingField: f.join({ collection: 'posts', on: 'nope' }),
+          nonRelField: f.join({ collection: 'posts', on: 'title' }),
+          wrongTarget: f.join({ collection: 'posts', on: 'category' }),
+          badLimit: { type: 'join', collection: 'posts', on: 'author', limit: 101 },
+          badSort: f.join({ collection: 'posts', on: 'author', sort: 'missingSort' }),
+          badWhere: f.join({ collection: 'posts', on: 'author', where: { badKey: { equals: 1 } } }),
+          locJoin: {
+            type: 'join',
+            collection: 'posts',
+            on: 'author',
+            localized: true,
+          } as unknown as CollectionConfig['fields'][string],
+          writeAccessJoin: {
+            type: 'join',
+            collection: 'posts',
+            on: 'author',
+            access: { read: () => true, update: () => false },
+          } as unknown as CollectionConfig['fields'][string],
+        },
+      }
+      const posts: CollectionConfig = {
+        slug: 'posts',
+        fields: {
+          title: f.text(),
+          author: f.relationship({ relationTo: 'authors' }),
+          category: f.relationship({ relationTo: 'categories' }),
+        },
+      }
+      const categories: CollectionConfig = {
+        slug: 'categories',
+        fields: { name: f.text() },
+      }
+
+      let issues: readonly string[] = []
+      try {
+        defineConfig({
+          secret: SECRET,
+          db: fakeAdapter,
+          localization: { locales: ['en', 'id'], defaultLocale: 'en' },
+          collections: [authors, posts, categories],
+        })
+      } catch (err) {
+        if (err instanceof LontarConfigError) issues = err.issues
+      }
+      expect(issues).toContain(
+        'Collection "authors": join field "missingCol" refers to unknown collection "unknown".',
+      )
+      expect(issues).toContain(
+        'Collection "authors": join field "missingField" refers to unknown field "nope" on collection "posts".',
+      )
+      expect(issues).toContain(
+        'Collection "authors": join field "nonRelField" field "title" on collection "posts" must be a relationship field, got "text".',
+      )
+      expect(issues).toContain(
+        'Collection "authors": join field "wrongTarget" field "category" on collection "posts" does not relate to "authors".',
+      )
+      expect(issues).toContain(
+        'Collection "authors": join field "badLimit" limit must be a positive integer up to 100.',
+      )
+      expect(issues).toContain(
+        'Collection "authors": join field "badSort" has invalid sort "missingSort": Unknown field "missingSort"',
+      )
+      expect(issues).toContain(
+        'Collection "authors": join field "badWhere" has invalid where: Unknown field "badKey"',
+      )
+      expect(issues).toContain(
+        'Collection "authors": join field "locJoin" cannot be localized because it holds no stored data.',
+      )
+      expect(issues).toContain(
+        'Collection "authors": join field "writeAccessJoin" access does not support "update". Only "read" is supported.',
+      )
+    })
+
+    it('rejects join fields inside group/array/blocks and on globals', () => {
+      const posts: CollectionConfig = {
+        slug: 'posts',
+        fields: {
+          author: f.relationship({ relationTo: 'authors' }),
+        },
+      }
+      const authors: CollectionConfig = {
+        slug: 'authors',
+        fields: {
+          meta: f.group({
+            fields: {
+              posts: f.join({ collection: 'posts', on: 'author' }),
+            },
+          }),
+        },
+      }
+      expect(() =>
+        defineConfig({
+          secret: SECRET,
+          db: fakeAdapter,
+          collections: [authors, posts],
+          globals: [
+            {
+              slug: 'site',
+              fields: {
+                posts: f.join({ collection: 'posts', on: 'author' }),
+              },
+            },
+          ],
+        }),
+      ).toThrow(/cannot be nested inside group, array, or blocks.*only supported on collections/s)
+    })
+  })
 })

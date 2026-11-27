@@ -18,6 +18,7 @@ export {
   type ClientTabsField,
   type ClientRowField,
   type ClientCollapsibleField,
+  type ClientJoinField,
 } from './client/client-config'
 export { fields, block, flattenFields, isLayoutField, isPolymorphicRelationship } from './fields'
 export { generateRowId } from './client/id'
@@ -264,7 +265,9 @@ export type {
   DatabaseAdapter,
   DocumentData,
   FindArgs,
+  FindJoinedArgs,
   FindVersionsArgs,
+  JoinFieldResult,
   PaginatedDocs,
   PaginatedVersions,
   SaveVersionArgs,
@@ -314,6 +317,10 @@ export type {
   FieldType,
   GroupField,
   GroupFieldOptions,
+  JoinField,
+  JoinFieldAccess,
+  JoinFieldOptions,
+  JoinResult,
   JsonField,
   JsonValue,
   NumberField,

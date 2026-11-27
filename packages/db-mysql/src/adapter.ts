@@ -43,9 +43,11 @@ import {
   type Fields,
   type FilterOperator,
   type FindArgs,
+  type FindJoinedArgs,
   type FindVersionsArgs,
   type GlobalConfig,
   type GroupField,
+  type JoinFieldResult,
   type LocalizationConfig,
   type PaginatedDocs,
   type PaginatedVersions,
@@ -363,6 +365,10 @@ function isSinglePolymorphic(field: Field | undefined): boolean {
   )
 }
 
+function isVirtualOrJunctionField(field: Field | undefined): boolean {
+  return Boolean(field?.type === 'join' || (field?.type === 'relationship' && field.hasMany))
+}
+
 function sanitizeEntry(
   clean: Record<string, unknown>,
   fields: Fields,
@@ -370,13 +376,14 @@ function sanitizeEntry(
   value: unknown,
 ): void {
   const field = fields[key]
+  if (isVirtualOrJunctionField(field)) return
   if (field?.type === 'group') {
     Object.assign(clean, flattenGroupValue(field, value, key))
   } else if (field?.type === 'point') {
     Object.assign(clean, flattenPointValue(value, key))
   } else if (isSinglePolymorphic(field)) {
     Object.assign(clean, flattenPolymorphicValue(value, key))
-  } else if (!(field?.type === 'relationship' && field.hasMany)) {
+  } else {
     clean[key] = sanitizeFieldValue(field, value)
   }
 }
@@ -2309,6 +2316,184 @@ async function findDocs(
   }
 }
 
+interface JoinQuerySource {
+  fromClause: SQL
+  partitionCol: AnyMySqlColumn
+  linkCond: SQL
+}
+
+function resolveHasManyJoinSource(
+  table: DynamicTable,
+  junctionTables: Record<string, JunctionTable>,
+  colKey: string,
+  args: FindJoinedArgs,
+  isPolymorphic: boolean,
+  targetLoc?: string,
+): JoinQuerySource | null {
+  const jTable = junctionTables[colKey] ?? junctionTables[args.on]
+  if (!jTable) return null
+  const conds: SQL[] = [inArray(jTable.targetId, args.parentIds)]
+  if (isPolymorphic && jTable.relationTo) {
+    conds.push(eq(jTable.relationTo, args.sourceCollection))
+  }
+  if (jTable._locale && targetLoc) {
+    conds.push(eq(jTable._locale, targetLoc))
+  }
+  return {
+    fromClause: sql`${table} INNER JOIN ${jTable} ON ${jTable.parentId} = ${table.id}`,
+    partitionCol: jTable.targetId,
+    linkCond: conds.length === 1 ? conds[0]! : and(...conds)!,
+  }
+}
+
+function resolveSinglePolymorphicJoinSource(
+  table: DynamicTable,
+  colKey: string,
+  args: FindJoinedArgs,
+  isLocalized: boolean,
+  targetLoc?: string,
+): JoinQuerySource | null {
+  const relColName =
+    isLocalized && targetLoc ? `${colKey}__relation_to_${targetLoc}` : `${colKey}__relation_to`
+  const idColName = isLocalized && targetLoc ? `${colKey}__id_${targetLoc}` : `${colKey}__id`
+  const relCol = Object.hasOwn(table, relColName) ? table[relColName] : undefined
+  const idCol = Object.hasOwn(table, idColName) ? table[idColName] : undefined
+  if (!relCol || !idCol) return null
+  return {
+    fromClause: sql`${table}`,
+    partitionCol: idCol,
+    linkCond: and(eq(relCol, args.sourceCollection), inArray(idCol, args.parentIds))!,
+  }
+}
+
+function resolveJoinQuerySource(
+  table: DynamicTable,
+  junctionTables: Record<string, JunctionTable>,
+  args: FindJoinedArgs,
+  targetLoc?: string,
+): JoinQuerySource | null {
+  const targetField = resolveField(args.collection.fields, args.on)
+  if (targetField?.type !== 'relationship') return null
+  const isPolymorphic = Array.isArray(targetField.relationTo)
+  const isLocalized = isPathLocalized(args.collection.fields, args.on)
+  const colKey = args.on.replace(/\./g, '__')
+
+  if (targetField.hasMany) {
+    return resolveHasManyJoinSource(table, junctionTables, colKey, args, isPolymorphic, targetLoc)
+  }
+  if (isPolymorphic) {
+    return resolveSinglePolymorphicJoinSource(table, colKey, args, isLocalized, targetLoc)
+  }
+  const fkColName = isLocalized && targetLoc ? `${colKey}_${targetLoc}` : colKey
+  const fkCol = Object.hasOwn(table, fkColName) ? table[fkColName] : undefined
+  if (!fkCol) return null
+  return {
+    fromClause: sql`${table}`,
+    partitionCol: fkCol,
+    linkCond: inArray(fkCol, args.parentIds),
+  }
+}
+
+async function queryJoinCountsOnly(
+  executor: DbExecutor,
+  source: JoinQuerySource,
+  whereSql: SQL,
+): Promise<Map<number, JoinFieldResult>> {
+  const countQuery = sql`SELECT ${source.partitionCol} AS __lontar_parent_id, COUNT(*) AS __lontar_total FROM ${source.fromClause} WHERE ${whereSql} GROUP BY ${source.partitionCol}`
+  const [rawRows] = (await executor.execute(countQuery)) as unknown as [
+    Array<{ __lontar_parent_id: number | string; __lontar_total: number | string }>,
+    unknown,
+  ]
+  const results = new Map<number, JoinFieldResult>()
+  for (const row of rawRows) {
+    results.set(Number(row.__lontar_parent_id), {
+      docs: [],
+      totalDocs: Number(row.__lontar_total),
+    })
+  }
+  return results
+}
+
+function assembleJoinedResults(
+  rankedRows: Array<{
+    __lontar_parent_id: number | string
+    __lontar_target_id: number | string
+    __lontar_total: number | string
+  }>,
+  docsById: Map<number, StoredDoc>,
+): Map<number, JoinFieldResult> {
+  const results = new Map<number, JoinFieldResult>()
+  for (const row of rankedRows) {
+    const parentId = Number(row.__lontar_parent_id)
+    const targetId = Number(row.__lontar_target_id)
+    const totalDocs = Number(row.__lontar_total)
+    const doc = docsById.get(targetId)
+    if (!doc) continue
+    let entry = results.get(parentId)
+    if (!entry) {
+      entry = { docs: [], totalDocs }
+      results.set(parentId, entry)
+    }
+    entry.docs.push({ ...doc })
+  }
+  return results
+}
+
+async function findJoinedDocs(
+  executor: DbExecutor,
+  caches: AdapterCaches,
+  args: FindJoinedArgs,
+  localization?: LocalizationConfig,
+): Promise<Map<number, JoinFieldResult>> {
+  if (args.parentIds.length === 0) return new Map()
+  try {
+    const { collection } = args
+    const localeCtx = resolveLocaleContext(localization, args.locale, args.fallbackLocale)
+    const targetLoc = resolveTargetLocale(localeCtx)
+    const table = getTable(caches, collection, localization)
+    const junctionTables = getJunctionTables(caches, collection)
+    const source = resolveJoinQuerySource(table, junctionTables, args, targetLoc)
+    if (!source) return new Map()
+
+    const baseWhereSql = resolveWhere(collection, table, junctionTables, args.where, localeCtx)
+    const whereSql = baseWhereSql ? and(source.linkCond, baseWhereSql)! : source.linkCond
+
+    if (!args.includeDocs) {
+      return await queryJoinCountsOnly(executor, source, whereSql)
+    }
+
+    const orderByList = resolveOrderBy(table, collection, args.sort, localeCtx)
+    const orderBySql = sql.join(orderByList, sql`, `)
+    const safeLimit = Math.max(1, Math.min(args.limit, 100))
+    const rankedQuery = sql`SELECT __lontar_parent_id, __lontar_target_id, __lontar_total FROM (SELECT ${source.partitionCol} AS __lontar_parent_id, ${table.id} AS __lontar_target_id, ROW_NUMBER() OVER (PARTITION BY ${source.partitionCol} ORDER BY ${orderBySql}) AS __lontar_rn, COUNT(*) OVER (PARTITION BY ${source.partitionCol}) AS __lontar_total FROM ${source.fromClause} WHERE ${whereSql}) AS __lontar_ranked WHERE __lontar_rn <= ${safeLimit} ORDER BY __lontar_parent_id ASC, __lontar_rn ASC`
+    const [rankedRows] = (await executor.execute(rankedQuery)) as unknown as [
+      Array<{
+        __lontar_parent_id: number | string
+        __lontar_target_id: number | string
+        __lontar_total: number | string
+      }>,
+      unknown,
+    ]
+    if (rankedRows.length === 0) return new Map()
+
+    const uniqueIds = Array.from(new Set(rankedRows.map((r) => Number(r.__lontar_target_id))))
+    const rows = (await executor
+      .select()
+      .from(table)
+      .where(inArray(table.id, uniqueIds))) as Record<string, unknown>[]
+    const docs = rows.map((r) =>
+      localeCtx.allLocales.length > 0
+        ? projectStoredDoc(r, collection.fields, localeCtx)
+        : toStoredDoc(r, collection.fields),
+    )
+    await populateHasManyRelations(executor, caches, collection, docs, localeCtx)
+    const docsById = new Map(docs.map((d) => [d.id, d]))
+    return assembleJoinedResults(rankedRows, docsById)
+  } catch (err) {
+    handleDatabaseError(err, toErrorContext(args.collection))
+  }
+}
+
 async function findGlobalDoc(
   executor: DbExecutor,
   caches: AdapterCaches,
@@ -2724,6 +2909,7 @@ function createDatabaseOperations(
     maxStringLength: 16383,
     authAdapter,
     find: (args) => findDocs(executor, caches, args, getLocalization?.()),
+    findJoined: (args) => findJoinedDocs(executor, caches, args, getLocalization?.()),
     findByID: ({ collection, id, forUpdate, locale, fallbackLocale }) => {
       const locConfig = getLocalization?.()
       const localeCtx = resolveLocaleContext(locConfig, locale, fallbackLocale)

@@ -755,3 +755,28 @@ describe('validateWhere and validateSort with polymorphic relationships (ADR 003
     ])
   })
 })
+
+describe('validateWhere and validateSort with join fields (ADR 0033)', () => {
+  const authorsCol: CollectionConfig = {
+    slug: 'authors',
+    fields: {
+      name: { type: 'text' },
+      posts: { type: 'join', collection: 'posts', on: 'author' },
+    },
+  }
+
+  it('rejects filtering and sorting on virtual join fields', () => {
+    expect(validateWhere({ posts: { equals: 1 } }, authorsCol)).toEqual([
+      {
+        path: 'posts',
+        message: 'Unknown field "posts"',
+      },
+    ])
+    expect(validateSort('posts', authorsCol)).toEqual([
+      {
+        path: 'posts',
+        message: 'Cannot sort on field "posts" of type "join"',
+      },
+    ])
+  })
+})

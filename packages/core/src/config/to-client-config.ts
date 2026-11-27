@@ -14,6 +14,7 @@ import {
   type ClientGlobal,
   type ClientGlobalAdmin,
   type ClientGroupField,
+  type ClientJoinField,
   type ClientLocalizationConfig,
   type ClientNumberField,
   type ClientPointField,
@@ -46,6 +47,7 @@ import type {
   Field,
   FieldType,
   GroupField,
+  JoinField,
   JsonField,
   NumberField,
   PointField,
@@ -309,6 +311,19 @@ const toClientField = {
     fields: Object.entries(field.fields).map(([subName, subField]) =>
       clientField(subName, subField, parentLocalized),
     ),
+  }),
+  join: (name: string, field: JoinField, parentLocalized?: boolean): ClientJoinField => ({
+    ...baseField(name, field, parentLocalized),
+    type: 'join',
+    collection: field.collection,
+    on: field.on,
+    limit: field.limit ?? 10,
+    ...defined({
+      sort: field.sort,
+      where: field.where
+        ? (JSON.parse(JSON.stringify(field.where)) as JoinField['where'])
+        : undefined,
+    }),
   }),
 } satisfies {
   [K in FieldType]: (
@@ -591,7 +606,10 @@ function clientAdmin(
   const { admin = {}, upload } = collection
   const flatFields = flattenClientFields(fields)
   const useAsTitle = admin.useAsTitle ?? resolveDefaultTitle(flatFields, Boolean(upload))
-  const others = flatFields.map((field) => field.name).filter((name) => name !== useAsTitle)
+  const others = flatFields
+    .filter((field) => field.type !== 'join')
+    .map((field) => field.name)
+    .filter((name) => name !== useAsTitle)
   const preview = admin.preview?.url ? { url: admin.preview.url } : undefined
   const actions = toClientActions(
     `Collection "${collection.slug}"`,

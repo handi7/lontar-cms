@@ -1,5 +1,6 @@
 import type { AuthUser } from '../auth/types'
 import type { FieldCondition } from '../client/condition'
+import type { Where } from '../query/types'
 
 /*
  * Field definitions are plain data (docs/adr/0003-client-config-format.md).
@@ -360,6 +361,44 @@ export interface CollapsibleField {
   required?: never
 }
 
+export interface JoinResult<TDoc = Record<string, unknown>> {
+  docs: TDoc[]
+  totalDocs: number
+}
+
+export interface JoinFieldAccess {
+  read?: FieldAccessFunction
+  create?: never
+  update?: never
+}
+
+export interface JoinFieldOptions {
+  label?: string
+  collection: string
+  on: string
+  limit?: number
+  sort?: string
+  where?: Where
+  admin?: FieldAdminOptions
+  access?: JoinFieldAccess
+  localized?: never
+  required?: never
+}
+
+export interface JoinField {
+  type: 'join'
+  label?: string
+  collection: string
+  on: string
+  limit?: number
+  sort?: string
+  where?: Where
+  admin?: FieldAdminOptions
+  access?: JoinFieldAccess
+  localized?: never
+  required?: never
+}
+
 export type Field =
   | TextField
   | NumberField
@@ -382,5 +421,6 @@ export type Field =
   | TabsField
   | RowField
   | CollapsibleField
+  | JoinField
 export type FieldType = Field['type']
 export type Fields = Record<string, Field>

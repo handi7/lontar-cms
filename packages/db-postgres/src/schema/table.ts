@@ -31,6 +31,7 @@ import {
   type Field,
   type Fields,
   type GlobalConfig,
+  type JoinField,
   type JsonField,
   type LocaleConfig,
   type LocalizationConfig,
@@ -445,8 +446,8 @@ export interface FlattenedColumnField {
 }
 
 function resolveFlattenedField(field: Field, isConditional: boolean, isLocalized: boolean): Field {
-  if (isLayoutField(field)) return field
-  let resolved: Exclude<Field, TabsField | RowField | CollapsibleField> = field
+  if (isLayoutField(field) || field.type === 'join') return field
+  let resolved: Exclude<Field, TabsField | RowField | CollapsibleField | JoinField> = field
   if (isConditional && !resolved.admin?.condition) {
     resolved = { ...resolved, admin: { ...resolved.admin, condition: {} } }
   }
@@ -560,6 +561,9 @@ function flattenFieldEntry(
   const isLocalized = parentLocalized || Boolean(field.localized)
   if (isLayoutField(field)) {
     return flattenLayoutColumnFields(field, prefix, pathPrefix, isConditional, isLocalized)
+  }
+  if (field.type === 'join') {
+    return []
   }
   if (field.type === 'group') {
     return flattenGroupFields(field.fields, colName, currentPath, isConditional, isLocalized)

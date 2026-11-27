@@ -146,6 +146,7 @@ function addFieldToAllowed(
   locales: string[],
   parentLocalized = false,
 ): void {
+  if (field.type === 'join') return
   allowed.add(name)
   const isLoc = parentLocalized || Boolean(field.localized)
   if (isLoc && locales.length > 0) {
@@ -537,17 +538,20 @@ export function validateWhere(
 // Sort validation
 // -----------------------------------------------------------------------------
 
+const NON_SORTABLE_FIELD_TYPES = new Set([
+  'group',
+  'array',
+  'blocks',
+  'richText',
+  'json',
+  'point',
+  'join',
+])
+
 function isScalarSortable(field: Field): boolean {
   if ('hasMany' in field && field.hasMany) return false
   if (field.type === 'relationship' && Array.isArray(field.relationTo)) return false
-  return (
-    field.type !== 'group' &&
-    field.type !== 'array' &&
-    field.type !== 'blocks' &&
-    field.type !== 'richText' &&
-    field.type !== 'json' &&
-    field.type !== 'point'
-  )
+  return !NON_SORTABLE_FIELD_TYPES.has(field.type)
 }
 
 function addSubpathSortableFields(
@@ -683,7 +687,7 @@ function isContainerField(collection: CollectionConfig, fieldPath: string): bool
 }
 
 function isDisallowedSortType(type?: string): boolean {
-  return type === 'richText' || type === 'json' || type === 'point'
+  return type === 'richText' || type === 'json' || type === 'point' || type === 'join'
 }
 
 function checkDisallowedTypeSort(

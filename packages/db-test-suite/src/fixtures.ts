@@ -363,6 +363,57 @@ export const polymorphicActivitiesCollection: CollectionConfig = {
   },
 }
 
+export const joinAuthorsCollection: CollectionConfig = {
+  slug: 'join_authors',
+  labels: { singular: 'Join Author', plural: 'Join Authors' },
+  access: {
+    read: () => true,
+    create: () => true,
+    update: () => true,
+  },
+  fields: {
+    name: { type: 'text', required: true },
+    books: { type: 'join', collection: 'join_books', on: 'author', limit: 2, sort: '-id' },
+    featuredBooks: {
+      type: 'join',
+      collection: 'join_books',
+      on: 'author',
+      where: { featured: { equals: true } },
+      sort: 'id',
+    },
+    coAuthoredBooks: {
+      type: 'join',
+      collection: 'join_books',
+      on: 'coAuthors',
+      sort: 'id',
+    },
+    publishedBooks: {
+      type: 'join',
+      collection: 'join_books',
+      on: 'publisher',
+      sort: 'id',
+    },
+  },
+}
+
+export const joinBooksCollection: CollectionConfig = {
+  slug: 'join_books',
+  labels: { singular: 'Join Book', plural: 'Join Books' },
+  versions: { drafts: true },
+  access: {
+    read: () => true,
+    create: () => true,
+    update: () => true,
+  },
+  fields: {
+    title: { type: 'text', required: true },
+    featured: { type: 'checkbox', defaultValue: false },
+    author: { type: 'relationship', relationTo: 'join_authors' },
+    coAuthors: { type: 'relationship', relationTo: 'join_authors', hasMany: true },
+    publisher: { type: 'relationship', relationTo: ['join_authors', 'categories'] },
+  },
+}
+
 export function createTestConfig(adapter: DatabaseAdapter): Config {
   return {
     secret: 'test-secret',
@@ -389,6 +440,8 @@ export function createTestConfig(adapter: DatabaseAdapter): Config {
       localizedPostsCollection,
       snippetsCollection,
       polymorphicActivitiesCollection,
+      joinAuthorsCollection,
+      joinBooksCollection,
     ],
     globals: [headerGlobal, versionedSettingsGlobal, localizedHeaderGlobal],
   }

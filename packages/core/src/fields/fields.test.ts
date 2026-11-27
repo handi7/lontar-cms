@@ -691,4 +691,46 @@ describe('layout fields and flattenFields', () => {
       )[]
     }>()
   })
+
+  it('builds and infers join fields (ADR 0033)', () => {
+    expect(
+      f.join({
+        collection: 'posts',
+        on: 'author',
+        limit: 10,
+        sort: '-createdAt',
+        where: { status: { equals: 'published' } },
+      }),
+    ).toStrictEqual({
+      type: 'join',
+      collection: 'posts',
+      on: 'author',
+      limit: 10,
+      sort: '-createdAt',
+      where: { status: { equals: 'published' } },
+    })
+
+    // @ts-expect-error missing collection
+    expect(() => f.join({ on: 'author' })).toThrow('collection')
+    // @ts-expect-error missing on
+    expect(() => f.join({ collection: 'posts' })).toThrow('on')
+    expect(() => f.join({ collection: 'posts', on: 'author', limit: 0 })).toThrow('100')
+    expect(() => f.join({ collection: 'posts', on: 'author', limit: 101 })).toThrow('100')
+
+    const authors = collection({
+      slug: 'authors',
+      fields: {
+        name: f.text({ required: true }),
+        posts: f.join({ collection: 'posts', on: 'author' }),
+      },
+    })
+
+    docOf(authors).toEqualTypeOf<{
+      id: number
+      createdAt: string
+      updatedAt: string
+      name: string
+      posts: { docs: Record<string, unknown>[]; totalDocs: number }
+    }>()
+  })
 })

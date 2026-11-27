@@ -1,4 +1,5 @@
 import type { FieldCondition } from './condition'
+import type { Where } from './query'
 
 /** Bumped whenever the shape below changes incompatibly. */
 export const CLIENT_CONFIG_VERSION = 4
@@ -329,6 +330,15 @@ export interface ClientCollapsibleField extends ClientFieldBase {
   fields: ClientField[]
 }
 
+export interface ClientJoinField extends ClientFieldBase {
+  type: 'join'
+  collection: string
+  on: string
+  limit: number
+  sort?: string
+  where?: Where
+}
+
 export type ClientField =
   | ClientTextField
   | ClientNumberField
@@ -351,3 +361,4 @@ export type ClientField =
   | ClientTabsField
   | ClientRowField
   | ClientCollapsibleField
+  | ClientJoinField

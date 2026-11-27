@@ -856,5 +856,19 @@ describe('collectionToTable', () => {
         ['parent_id', 'relation_to', 'target_id'],
       ])
     })
+
+    it('emits zero columns and zero junction tables for join fields (ADR 0033)', () => {
+      const authorsCol: CollectionConfig = {
+        slug: 'authors',
+        fields: {
+          name: { type: 'text', required: true },
+          posts: { type: 'join', collection: 'posts', on: 'author', limit: 10 },
+        },
+      }
+      const table = collectionToTable(authorsCol)
+      const columns = getTableColumns(table) as Record<string, AnyPgColumn>
+      expect(Object.keys(columns)).toEqual(['id', 'name', 'createdAt', 'updatedAt'])
+      expect(getCollectionJunctionTables(authorsCol)).toEqual({})
+    })
   })
 })

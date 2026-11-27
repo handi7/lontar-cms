@@ -89,6 +89,34 @@ export interface PaginatedDocs<T = StoredDoc> {
   totalPages: number
 }
 
+export interface FindJoinedArgs {
+  /** Target collection referenced by the join field. */
+  collection: CollectionConfig
+  /** Relationship field name on the target collection. */
+  on: string
+  /** Collection slug of the parent documents. */
+  sourceCollection: string
+  /** Parent document IDs to batch-load joined docs for. */
+  parentIds: number[]
+  /** Combined filter (join.where + access constraint + published filter). */
+  where?: Where
+  /** Sort string or SortItem[] from the join field. */
+  sort?: string | SortItem[]
+  /** Maximum joined documents per parent (default 10, max 100). */
+  limit: number
+  /** When false (depth=0), only totalDocs counts are loaded and docs is []. */
+  includeDocs: boolean
+  /** Requested locale code, or 'all'. */
+  locale?: string
+  /** Explicit fallback locale code, or false to disable fallback. */
+  fallbackLocale?: string | false
+}
+
+export interface JoinFieldResult<TDoc = StoredDoc> {
+  docs: TDoc[]
+  totalDocs: number
+}
+
 /**
  * Everything core needs from a database. Core never imports Drizzle; each
  * database package implements this. See docs/adr/0002-drizzle-mysql-adapter.md
@@ -111,6 +139,7 @@ export interface DatabaseAdapter {
 
   // Runtime: called while serving requests.
   find(args: FindArgs): Promise<PaginatedDocs>
+  findJoined?(args: FindJoinedArgs): Promise<Map<number, JoinFieldResult>>
   findByID(args: {
     collection: CollectionConfig
     id: number
