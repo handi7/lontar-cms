@@ -1094,4 +1094,94 @@ describe('form-utils', () => {
       expect(schema.safeParse({ showExtra: true, title: 'Valid' }).success).toBe(true)
     })
   })
+
+  describe('polymorphic relationships normalization (#512)', () => {
+    const polyFields: ClientField[] = [
+      {
+        name: 'owner',
+        type: 'relationship',
+        relationTo: ['users', 'categories'],
+        label: 'Owner',
+        required: false,
+      },
+      {
+        name: 'related',
+        type: 'relationship',
+        relationTo: ['users', 'categories'],
+        hasMany: true,
+        label: 'Related',
+        required: false,
+      },
+      {
+        name: 'sections',
+        type: 'blocks',
+        label: 'Sections',
+        required: false,
+        blocks: [
+          {
+            slug: 'feature',
+            labels: { singular: 'Feature', plural: 'Features' },
+            fields: [
+              {
+                name: 'target',
+                type: 'relationship',
+                relationTo: ['users', 'categories'],
+                label: 'Target',
+                required: false,
+              },
+            ],
+          },
+        ],
+      },
+    ]
+
+    it('normalizes populated polymorphic relationships for form display and submission', () => {
+      const apiDoc = {
+        owner: { relationTo: 'users', value: { id: 7, fullName: 'Ada' } },
+        related: [
+          { relationTo: 'users', value: { id: 7, fullName: 'Ada' } },
+          { relationTo: 'categories', value: { id: 12, name: 'News' } },
+        ],
+        sections: [
+          {
+            id: 'b1',
+            blockType: 'feature',
+            target: { relationTo: 'categories', value: null },
+          },
+        ],
+      }
+
+      const formDoc = formatDocForForm(polyFields, apiDoc)
+      expect(formDoc).toEqual({
+        owner: { relationTo: 'users', value: 7 },
+        related: [
+          { relationTo: 'users', value: 7 },
+          { relationTo: 'categories', value: 12 },
+        ],
+        sections: [
+          {
+            id: 'b1',
+            blockType: 'feature',
+            target: { relationTo: 'categories', value: null },
+          },
+        ],
+      })
+
+      const submitDoc = formatDocForSubmit(polyFields, formDoc)
+      expect(submitDoc).toEqual({
+        owner: { relationTo: 'users', value: 7 },
+        related: [
+          { relationTo: 'users', value: 7 },
+          { relationTo: 'categories', value: 12 },
+        ],
+        sections: [
+          {
+            id: 'b1',
+            blockType: 'feature',
+            target: null,
+          },
+        ],
+      })
+    })
+  })
 })

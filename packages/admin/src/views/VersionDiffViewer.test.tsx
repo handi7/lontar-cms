@@ -360,4 +360,52 @@ describe('VersionDiffViewer', () => {
     expect(blockToggle.getAttribute('aria-label')).toBe('Show changes in block hero')
     expect(screen.queryByText('Welcome to Lontar')).toBeNull()
   })
+
+  it('renders readable summaries for polymorphic relationship diffs', () => {
+    const polyFields: ClientField[] = [
+      {
+        name: 'owner',
+        label: 'Owner',
+        type: 'relationship',
+        relationTo: ['users', 'categories'],
+        required: false,
+      },
+      {
+        name: 'related',
+        label: 'Related Items',
+        type: 'relationship',
+        relationTo: ['users', 'categories'],
+        hasMany: true,
+        required: false,
+      },
+    ]
+
+    const diff: DocumentDiff = {
+      hasChanges: true,
+      fields: {
+        owner: {
+          type: 'primitive',
+          change: 'modified',
+          oldValue: { relationTo: 'users', value: 1 },
+          value: { relationTo: 'categories', value: { id: 10, name: 'Guides' } },
+        },
+        related: {
+          type: 'primitive',
+          change: 'modified',
+          oldValue: [{ relationTo: 'users', value: null }],
+          value: [
+            { relationTo: 'users', value: 2 },
+            { relationTo: 'categories', value: { id: 10, name: 'Guides' } },
+          ],
+        },
+      },
+    }
+
+    render(<VersionDiffViewer diff={diff} fields={polyFields} />)
+
+    expect(screen.getByText('users #1')).toBeTruthy()
+    expect(screen.getByText('categories: Guides (#10)')).toBeTruthy()
+    expect(screen.getByText('users (unavailable)')).toBeTruthy()
+    expect(screen.getByText('users #2, categories: Guides (#10)')).toBeTruthy()
+  })
 })

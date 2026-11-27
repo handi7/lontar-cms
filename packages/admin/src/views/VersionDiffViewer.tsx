@@ -106,12 +106,49 @@ function formatUploadSummary(val: unknown): string {
   return '(file)'
 }
 
+function extractDocSummary(doc: Record<string, unknown>): string {
+  const id = typeof doc.id === 'number' || typeof doc.id === 'string' ? `#${doc.id}` : ''
+  const titleCandidate = [doc.title, doc.name, doc.fullName, doc.email, doc.slug].find(
+    (v): v is string => typeof v === 'string' && v.trim().length > 0,
+  )
+  if (titleCandidate && id) return `${titleCandidate} (${id})`
+  if (titleCandidate) return titleCandidate
+  return id || '(document)'
+}
+
+function formatSingleRelationshipItem(item: unknown): string {
+  if (typeof item === 'number') return `#${item}`
+  if (!item || typeof item !== 'object') return formatPrimitiveValue(item)
+  const rec = item as Record<string, unknown>
+  if (typeof rec.relationTo === 'string') {
+    const val = rec.value
+    if (val === null || val === undefined) return `${rec.relationTo} (unavailable)`
+    if (typeof val === 'number') return `${rec.relationTo} #${val}`
+    if (typeof val === 'object')
+      return `${rec.relationTo}: ${extractDocSummary(val as Record<string, unknown>)}`
+    return `${rec.relationTo} ${formatPrimitiveValue(val)}`
+  }
+  return extractDocSummary(rec)
+}
+
+function formatRelationshipSummary(val: unknown): string {
+  if (val === null || val === undefined) return '(none)'
+  if (Array.isArray(val)) {
+    const items = val as readonly unknown[]
+    return items.length === 0 ? '(none)' : items.map(formatSingleRelationshipItem).join(', ')
+  }
+  return formatSingleRelationshipItem(val)
+}
+
 function renderFormattedValue(fieldType: string, val: unknown): string {
   if (fieldType === 'richText') {
     return extractRichTextSummary(val)
   }
   if (fieldType === 'upload') {
     return formatUploadSummary(val)
+  }
+  if (fieldType === 'relationship') {
+    return formatRelationshipSummary(val)
   }
   return formatPrimitiveValue(val)
 }
